@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Raw Stock — Where raw music lives forever</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+<style>
+html, body { margin: 0; padding: 0; height: auto; min-height: 100%; overflow-x: hidden; overflow-y: auto; scroll-behavior: smooth; }
+:root {
+  --bg-darkest: #050505;
+  --bg-dark: #0a0a0a;
+  --bg-mid: #0f0f0f;
+  --bg-light: #1a1a1a;
+  --neon: #00ffcc;
+  --orange: #ff4d00;
+  --text: #e8e4dc;
+  --text-sec: rgba(232,228,220,0.7);
+  --text-muted: rgba(232,228,220,0.5);
+  --border: rgba(0,255,204,0.2);
+  --border-dim: rgba(255,255,255,0.08);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg-darkest); color: var(--text); font-family: 'Courier Prime', monospace; -webkit-font-smoothing: antialiased; line-height: 1.6; }
+h1, h2, h3, h4, .hero-h1, .hero-lead, .vision-text { font-family: 'Barlow Condensed', sans-serif !important; font-weight: 800; letter-spacing: -0.02em; }
+.bebas { font-family: 'Barlow Condensed', sans-serif !important; letter-spacing: 0.08em; font-weight: 700; }
+.wrap { max-width: 1000px; margin: 0 auto; padding: 0 40px; }
+.sec-label { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+.sec-label-text { font-family: 'Courier Prime', monospace; font-size: 10px; letter-spacing: .3em; color: var(--neon); text-transform: uppercase; font-weight: 700; }
+.sec-label-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--border), transparent); }
+.masthead { background: rgba(5,5,5,0.9); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border-dim); padding: 0 40px; height: 56px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+.masthead img { height: 32px; width: auto; }
+.masthead-tag { font-family: 'Courier Prime', monospace; font-size: 9px; letter-spacing: .2em; color: var(--text-muted); text-transform: uppercase; }
+.hero { position: relative; min-height: 100vh; display: flex; align-items: flex-end; overflow: hidden; background-image: url('/hero-bg.png'); background-size: cover; background-position: center top; }
+.hero-overlay { position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg, rgba(5,5,5,0) 0%, rgba(5,5,5,0.8) 70%, var(--bg-darkest) 100%); }
+.hero-grid { position: absolute; inset: 0; z-index: 1; background-image: linear-gradient(rgba(0,255,204,.02) 1px, transparent 1px), linear-gradient(90deg, rgba(0,255,204,.02) 1px, transparent 1px); background-size: 40px 40px; }
+.hero-inner { position: relative; z-index: 2; width: 100%; max-width: 1000px; margin: 0 auto; padding: 0 40px 80px; }
+.hero-h1 { font-size: clamp(32px, 5.5vw, 80px); font-weight: 800; line-height: 1.1; margin-bottom: 20px; letter-spacing: -0.03em; }
+.hero-h1 em { font-style: normal; color: var(--neon); }
+.hero-sub { font-family: 'Courier Prime', monospace; font-size: 12px; color: var(--orange); margin-bottom: 20px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; }
+.hero-lead { font-size: 15px; line-height: 1.7; color: var(--text-sec); border-left: 2px solid var(--neon); padding-left: 16px; max-width: 600px; }
+.hero-lead-sub { font-size: 12px; color: var(--text-muted); margin-top: 12px; font-style: italic; }
+.for-you { background: var(--bg-mid); padding: 80px 0; border-top: 1px solid var(--border-dim); }
+.for-you-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border-dim); border: 1px solid var(--border-dim); margin-top: 40px; }
+.for-you-card { background: var(--bg-light); padding: 28px 20px; transition: .2s; border-left: 2px solid transparent; }
+.for-you-card:hover { background: var(--bg-dark); border-left-color: var(--neon); }
+.for-you-picto { width: 40px; height: 40px; margin-bottom: 12px; color: var(--neon); }
+.for-you-name { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 6px; font-family: 'Barlow Condensed', sans-serif; }
+.for-you-desc { font-size: 12px; color: var(--text-sec); line-height: 1.5; }
+.concept { position: relative; background: var(--bg-dark); padding: 80px 0; overflow: hidden; border-top: 1px solid var(--border-dim); }
+.stage-bg-svg { position: absolute; inset: 0; opacity: 0.05; pointer-events: none; }
+.flow-steps { display: flex; align-items: center; gap: 6px; margin-top: 40px; }
+.flow-box { flex: 1; border: 1px solid var(--border); background: rgba(0,255,204,0.03); padding: 20px 12px; text-align: center; position: relative; }
+.flow-num { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); background: var(--orange); color: #000; font-family: 'Barlow Condensed'; font-size: 10px; padding: 2px 8px; font-weight: 700; }
+.flow-name { font-size: 12px; font-weight: 700; margin-bottom: 4px; font-family: 'Barlow Condensed', sans-serif; }
+.flow-desc { font-size: 10px; color: var(--neon); }
+.flow-arrow { color: var(--neon); font-size: 20px; }
+.revenue-tables { padding: 80px 0; background: var(--bg-dark); border-top: 1px solid var(--border-dim); }
+.table-wrapper { width: 100%; overflow-x: auto; margin: 24px 0; border: 1px solid var(--border); }
+table { width: 100%; border-collapse: collapse; min-width: 700px; }
+th { background: rgba(0,255,204,0.1); color: var(--neon); padding: 12px; font-size: 11px; text-align: center; border-bottom: 1px solid var(--border); font-family: 'Barlow Condensed', sans-serif; font-weight: 700; letter-spacing: 0.05em; }
+td { padding: 12px; border-bottom: 1px solid var(--border-dim); text-align: center; font-size: 13px; }
+.row-active { background: rgba(0,255,204,0.08); font-weight: 700; }
+.pct-big { font-family: 'Barlow Condensed', sans-serif; font-size: 22px; font-weight: 800; color: var(--orange); }
+.vision { position: relative; padding: 100px 0; background: var(--bg-mid); overflow: hidden; border-top: 1px solid var(--border-dim); }
+.vision-map { position: absolute; inset: 0; opacity: 0.05; mix-blend-mode: screen; }
+.vision-map img { width: 100%; height: 100%; object-fit: cover; }
+.vision-text { font-size: 1.5rem; line-height: 1.9; font-weight: 800; }
+.cta-button { display: inline-flex; align-items: center; gap: 8px; font-family: 'Barlow Condensed', sans-serif; font-size: 14px; font-weight: 700; padding: 12px 24px; background: var(--neon); color: #000; border: none; cursor: pointer; text-decoration: none; letter-spacing: 0.05em; transition: all 0.2s; }
+.cta-button:hover { background: #fff; transform: translateX(2px); }
+.footer { background: var(--bg-dark); border-top: 1px solid var(--border-dim); padding: 40px; text-align: center; }
+.footer-text { font-size: 11px; color: var(--text-muted); letter-spacing: 0.05em; }
+@media (max-width: 768px) {
+  .wrap { padding: 0 20px; }
+  .masthead { padding: 0 20px; }
+  .hero-inner { padding: 0 20px 60px; }
+  .for-you-grid { grid-template-columns: 1fr; }
+  .flow-steps { flex-direction: column; }
+  .flow-arrow { transform: rotate(90deg); margin: 8px 0; }
+  .vision-text { font-size: 1.2rem; }
+}
+</style>
+</head>
+<body>
+<header class="masthead">
+  <img src="/logo-200x70-v2.png" alt="RawStock">
+  <span class="masthead-tag">Underground Music Marketplace / Global 2026</span>
+</header>
+<section class="hero">
+  <div class="hero-grid"></div>
+  <div class="hero-overlay"></div>
+  <div class="hero-inner">
+    <p class="hero-sub">The underground marketplace for live music</p>
+    <h1 class="hero-h1">Film it.<br>Sell it.<br>Keep <em>90%</em>.</h1>
+    <div class="hero-lead">
+      No labels. No algorithms. No middlemen.<br>
+      Your set, your footage, your revenue. Direct from stage to screen.
+      <div class="hero-lead-sub">If you were in the pit, you already know.</div>
+    </div>
+  </div>
+</section>
+<section class="for-you">
+  <div class="wrap">
+    <div class="sec-label"><span class="sec-label-text">Ecosystem</span><span class="sec-label-line"></span></div>
+    <h2 style="font-size:32px; font-family: 'Barlow Condensed', sans-serif; font-weight: 800;">Who it's for</h2>
+    <div class="for-you-grid">
+      <div class="for-you-card">
+        <div class="for-you-picto">♪</div>
+        <div class="for-you-name">Indie Musicians & Bands</div>
+        <div class="for-you-desc">Sell your live set. Own your masters.</div>
+      </div>
+      <div class="for-you-card">
+        <div class="for-you-picto">🎤</div>
+        <div class="for-you-name">DJs & Producers</div>
+        <div class="for-you-desc">Stream sets. Drop exclusives. Get paid.</div>
+      </div>
+      <div class="for-you-card">
+        <div class="for-you-picto">🎸</div>
+        <div class="for-you-name">Music Tutors</div>
+        <div class="for-you-desc">Run lessons. Sell breakdowns. Set your rate.</div>
+      </div>
+      <div class="for-you-card">
+        <div class="for-you-picto">✂️</div>
+        <div class="for-you-name">Video Editors</div>
+        <div class="for-you-desc">Cut live footage. Get work. Get paid.</div>
+      </div>
+      <div class="for-you-card">
+        <div class="for-you-picto">👥</div>
+        <div class="for-you-name">Scene Builders</div>
+        <div class="for-you-desc">Run your genre community. Take your cut.</div>
+      </div>
+      <div class="for-you-card">
+        <div class="for-you-picto">🎪</div>
+        <div class="for-you-name">Promoters & Venues</div>
+        <div class="for-you-desc">Fund the next gig. Keep it moving.</div>
+      </div>
+    </div>
+  </div>
+</section>
+<section class="concept">
+  <div class="wrap" style="position:relative;">
+    <div class="sec-label"><span class="sec-label-text">Process</span><span class="sec-label-line"></span></div>
+    <h2 style="font-size:28px; font-family: 'Barlow Condensed', sans-serif; font-weight: 800;">How it works</h2>
+    <div class="flow-steps">
+      <div class="flow-box"><span class="flow-num">01</span><div class="flow-name">Film it</div><div class="flow-desc">Capture the set</div></div>
+      <div class="flow-arrow">›</div>
+      <div class="flow-box"><span class="flow-num">02</span><div class="flow-name">Get it cut</div><div class="flow-desc">Order an edit</div></div>
+      <div class="flow-arrow">›</div>
+      <div class="flow-box"><span class="flow-num">03</span><div class="flow-name">Sell it</div><div class="flow-desc">Fans buy it</div></div>
+      <div class="flow-arrow">›</div>
+      <div class="flow-box"><span class="flow-num">04</span><div class="flow-name">Run it back</div><div class="flow-desc">Next gig, repeat</div></div>
+    </div>
+  </div>
+</section>
+<section class="revenue-tables">
+  <div class="wrap">
+    <div class="sec-label"><span class="sec-label-text">Revenue</span><span class="sec-label-line"></span></div>
+    <h2 style="font-size:28px; margin-bottom:40px; font-family: 'Barlow Condensed', sans-serif; font-weight: 800;">Keep 90%. No bullshit.</h2>
+    <div style="margin-top:60px; padding:32px; border:1px solid var(--border); background:rgba(0,255,204,0.02);">
+      <h3 style="color:var(--neon); margin-bottom:15px; font-family: 'Barlow Condensed', sans-serif; font-weight: 700;">Live recordings & paid content</h3>
+      <p style="font-size:16px; font-weight:700; font-family: 'Barlow Condensed', sans-serif;">Flat <span class="pct-big">90%</span> to creators. Split it however you want between artist, filmmaker, and editor.</p>
+    </div>
+    <div style="margin-top:20px; padding:32px; border:1px solid var(--border); background:rgba(0,255,204,0.02);">
+      <h3 style="color:var(--neon); margin-bottom:15px; font-family: 'Barlow Condensed', sans-serif; font-weight: 700;">Live streaming</h3>
+      <p style="font-size:16px; font-weight:700; font-family: 'Barlow Condensed', sans-serif;">Earn more as you grow. Up to 95% at top tier.</p>
+    </div>
+  </div>
+</section>
+<section class="vision">
+  <div class="wrap" style="position:relative;">
+    <div class="sec-label"><span class="sec-label-text">Underground</span><span class="sec-label-line"></span></div>
+    <h2 style="font-size:28px; margin-bottom:24px; font-family: 'Barlow Condensed', sans-serif; font-weight: 800;">Built for the underground</h2>
+    <div class="vision-text">
+      <p style="margin-bottom:16px;">AI can generate a million beats. It can't replicate the energy of a basement show at 2 AM.</p>
+      <p>This is for the ones who feel it. The ones actually on stage.</p>
+    </div>
+  </div>
+</section>
+<section style="background: var(--bg-mid); padding: 80px 0; border-top: 1px solid var(--border-dim);">
+  <div class="wrap" style="text-align: center;">
+    <h2 style="font-size:28px; margin-bottom:24px; font-family: 'Barlow Condensed', sans-serif; font-weight: 800;">Build your scene</h2>
+    <p style="font-size:15px; color:var(--text-sec); margin-bottom:32px;">Tokyo basement to Berlin warehouse to Brooklyn rooftop.<br>We're looking for the ones shaping what's next in music.</p>
+    <a href="mailto:hello@rawstock.uk" class="cta-button">Join the movement</a>
+  </div>
+</section>
+<footer class="footer">
+  <div class="wrap">
+    <p class="footer-text">© 2026 RawStock. All rights reserved. | <a href="#" style="color:var(--neon); text-decoration:none;">Privacy</a> | <a href="#" style="color:var(--neon); text-decoration:none;">Terms</a></p>
+  </div>
+</footer>
+</body>
+</html>

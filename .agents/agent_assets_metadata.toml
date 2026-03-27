@@ -1,0 +1,44 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "OqnWT19-mc3t9HBwyMDni"
+uri = "file://attached_assets/rawstock-project-image.png"
+type = "image"
+title = "RawStock — 680×160 (gravity fixed)"
+
+[[outputs]]
+id = "yGscgiRT4kKXguebo3RXp"
+uri = "file://attached_assets/generated_videos/rawstock-crowd-arms.mp4"
+type = "video"
+title = "Clip 1 — Crowd Arms (8s 16:9) B-roll"
+
+[[outputs]]
+id = "OTo27_mocHLJJY4joFBDV"
+uri = "file://attached_assets/generated_videos/rawstock-phone-filming.mp4"
+type = "video"
+title = "Clip 2 — Phone Filming Concert (6s 9:16) B-roll"
+
+[[outputs]]
+id = "TSJiyUQGfieuuObe0aJyI"
+uri = "file://attached_assets/rawstock-promo.mp4"
+type = "video"
+title = "rawstock-promo.mp4 (16秒・縦型1080×1920)"
+
+[[outputs]]
+id = "8Q_OOG6FAX9KLEjwAkyMP"
+uri = "file://attached_assets/rawstock-promo-v2.mp4"
+type = "video"
+title = "rawstock-promo-v2.mp4 (25秒・縦型) — ライブ録画→編集依頼→販売"
+
+[[outputs]]
+id = "F1Bbq-IiCapbojPebngmr"
+uri = "file://attached_assets/rawstock-promo-v3.mp4"
+type = "video"
+title = "rawstock-promo-v3.mp4 (31秒・縦型) — ライブ→Turn Your Raw→販売→RAWSTOCK締め"
+
+[[outputs]]
+id = "tPM7mbGEoHuclHzPUQmZH"
+uri = "file://attached_assets/rawstock-promo-v4.mp4"
+type = "video"
+title = "rawstock-promo-v4.mp4 (21秒) — マーケットプレイス誕生"
