@@ -5440,6 +5440,8 @@ export async function registerRoutes(app: Express): Promise<void> {
       tone: job.tone,
       revisionCount: job.revisionCount ?? 0,
       ticketCost: job.ticketCost,
+      deliveredUrl: job.deliveredUrl ?? null,
+      deliveredAt: job.deliveredAt ?? null,
       createdAt: job.createdAt,
       updatedAt: job.updatedAt,
     });
@@ -5552,6 +5554,61 @@ export async function registerRoutes(app: Express): Promise<void> {
     })();
 
     res.json({ ok: true, revisionCount: newRevisionCount, free: revisionCount === 0 });
+  });
+
+  // POST /api/ai-edit/jobs/:id/deliver — editor uploads the finished video and marks the job as delivered
+  app.post("/api/ai-edit/jobs/:id/deliver", async (req: Request, res: Response) => {
+    const editor = await getAuthUser(req);
+    if (!editor) return res.status(401).json({ error: "Unauthorized" });
+
+    const id = paramNum(req, "id");
+    const { deliveredUrl } = req.body as { deliveredUrl?: string };
+
+    if (!deliveredUrl?.trim()) {
+      return res.status(400).json({ error: "deliveredUrl is required" });
+    }
+
+    const [job] = await db.select().from(aiEditJobs).where(eq(aiEditJobs.id, id));
+    if (!job) return res.status(404).json({ error: "Job not found" });
+
+    // Only the job owner or any authenticated editor may deliver
+    // (expand access control here if you add an editor <-> job assignment table)
+    if (job.status === "delivered") {
+      return res.status(409).json({ error: "This job has already been delivered" });
+    }
+    if (!["approved", "completed"].includes(job.status)) {
+      return res.status(400).json({ error: "Only approved or completed jobs can be delivered" });
+    }
+
+    const now = new Date();
+    await db
+      .update(aiEditJobs)
+      .set({
+        status: "delivered",
+        deliveredUrl: deliveredUrl.trim(),
+        deliveredAt: now,
+        updatedAt: now,
+      } as Partial<typeof aiEditJobs.$inferInsert>)
+      .where(eq(aiEditJobs.id, id));
+
+    // Send an in-app notification to the job owner
+    try {
+      const [owner] = await db.select().from(users).where(eq(users.id, job.userId));
+      await db.insert(notifications).values({
+        type: "ai_edit_delivered",
+        title: "Your edited video is ready",
+        body: `Your AI Edit job #${job.id}${job.planMinutes ? ` (${job.planMinutes}-min plan)` : ""} has been delivered. Tap to download.`,
+        amount: null,
+        avatar: owner?.avatar ?? null,
+        thumbnail: null,
+        timeAgo: "Just now",
+      } as typeof notifications.$inferInsert);
+    } catch (notifErr) {
+      // Non-fatal — log but don't fail the delivery
+      console.error("[ai-edit/deliver] Failed to send notification:", notifErr);
+    }
+
+    res.json({ ok: true, id, status: "delivered", deliveredUrl: deliveredUrl.trim() });
   });
 
 }

@@ -48,6 +48,8 @@ type Job = {
   tone: string | null;
   revisionCount: number;
   ticketCost: number | null;
+  deliveredUrl: string | null;
+  deliveredAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -79,6 +81,7 @@ const STATUS_LABELS: Record<string, string> = {
   completed:  "Complete",
   failed:     "Failed",
   approved:   "Approved",
+  delivered:  "Delivered",
 };
 
 function getStatusColor(status: string): string {
@@ -86,6 +89,8 @@ function getStatusColor(status: string): string {
     case "completed":
     case "approved":
       return C.accent;
+    case "delivered":
+      return "#22c55e"; // green
     case "processing":
       return C.amber;
     case "failed":
@@ -117,7 +122,7 @@ export default function AIEditJobScreen() {
 
   const status = job?.status ?? "pending";
   const isDone =
-    status === "completed" || status === "failed" || status === "approved";
+    status === "completed" || status === "failed" || status === "approved" || status === "delivered";
 
   useEffect(() => {
     if (!id || isDone) return;
@@ -128,6 +133,23 @@ export default function AIEditJobScreen() {
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, [id, isDone]);
+
+  function handleDownload() {
+    if (!job?.deliveredUrl) return;
+    if (Platform.OS === "web" && typeof document !== "undefined") {
+      const a = document.createElement("a");
+      a.href = job.deliveredUrl;
+      a.download = `ai-edit-job-${job.id}.mp4`;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } else {
+      // On native, open in browser as a fallback
+      import("expo-linking").then(({ openURL }) => openURL(job.deliveredUrl!));
+    }
+  }
 
   async function handleApprove() {
     if (!job) return;
@@ -454,6 +476,38 @@ export default function AIEditJobScreen() {
             </Pressable>
           </>
         )}
+
+        {/* ── Delivered ── */}
+        {status === "delivered" && job.deliveredUrl && (
+          <View style={styles.deliveredCard}>
+            <View style={styles.deliveredHeader}>
+              <Ionicons name="checkmark-circle" size={26} color="#22c55e" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.deliveredTitle}>Edited video delivered!</Text>
+                {job.deliveredAt && (
+                  <Text style={styles.deliveredDate}>
+                    {new Date(job.deliveredAt).toLocaleDateString("en-US", {
+                      year: "numeric",
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </Text>
+                )}
+              </View>
+            </View>
+            <Text style={styles.deliveredNote}>
+              Your finished video is ready to download. The file will open in a new tab or start downloading automatically.
+            </Text>
+            <Pressable style={styles.downloadBtn} onPress={handleDownload}>
+              <Ionicons name="download-outline" size={18} color="#000" />
+              <Text style={styles.downloadBtnText}>Download Finished Video</Text>
+            </Pressable>
+            <Pressable style={styles.newPlanBtn} onPress={() => router.replace("/ai-edit")}>
+              <Ionicons name="add-circle-outline" size={15} color={C.textSec} />
+              <Text style={styles.newPlanBtnText}>Create a New Edit Plan</Text>
+            </Pressable>
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -682,6 +736,31 @@ const styles = StyleSheet.create({
     borderColor: C.accent + "44",
   },
   approvedText: { color: C.accent, fontSize: 14, fontWeight: "700" },
+
+  // Delivered
+  deliveredCard: {
+    margin: 16,
+    backgroundColor: "#052e16", // dark green tint
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#22c55e44",
+    padding: 16,
+    gap: 12,
+  },
+  deliveredHeader: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  deliveredTitle: { color: "#22c55e", fontSize: 16, fontWeight: "800" },
+  deliveredDate: { color: "#86efac", fontSize: 12, marginTop: 2 },
+  deliveredNote: { color: "#bbf7d0", fontSize: 13, lineHeight: 20 },
+  downloadBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#22c55e",
+    paddingVertical: 14,
+    borderRadius: 12,
+    gap: 8,
+  },
+  downloadBtnText: { color: "#000", fontSize: 15, fontWeight: "800" },
 
   // New plan / ghost
   newPlanBtn: {
