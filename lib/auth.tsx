@@ -57,10 +57,24 @@ async function apiFetch(path: string, options?: RequestInit) {
     headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
     ...options,
   });
-  const data = await res.json();
+
+  // 一部のケースでレスポンスが JSON にならないことがあるため、まずテキストとして受ける
+  // （HTMLエラーページ等で `res.json()` が落ちるのを防ぐ）
+  const rawText = await res.text();
+  let data: any = {};
+  try {
+    data = rawText ? JSON.parse(rawText) : {};
+  } catch {
+    data = { error: rawText || res.statusText };
+  }
+
   if (!res.ok) {
-    const err: Error & { status?: number } = new Error(data.error ?? "エラーが発生しました");
+    const err: Error & { status?: number; code?: unknown; body?: string } = new Error(
+      data?.error ?? "エラーが発生しました",
+    );
     err.status = res.status;
+    err.code = data?.code;
+    err.body = rawText;
     throw err;
   }
   return data;

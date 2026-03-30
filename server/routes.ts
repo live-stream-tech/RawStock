@@ -223,7 +223,13 @@ export async function registerRoutes(app: Express): Promise<void> {
       res.json({ token });
     } catch (err) {
       console.error("Demo login error:", err);
-      res.status(500).json({ error: "Demo login failed" });
+      const message = err instanceof Error ? err.message : String(err);
+      const isProd = process.env.NODE_ENV === "production";
+      res.status(500).json({
+        error: "Demo login failed",
+        code: "DEMO_LOGIN_FAILED",
+        ...(isProd ? {} : { message }),
+      });
     }
   });
 

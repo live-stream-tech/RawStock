@@ -6,7 +6,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { C } from "@/constants/colors";
 import { AppLogo } from "@/components/AppLogo";
 import { getApiUrl } from "@/lib/query-client";
-import { saveLoginReturn } from "@/lib/login-return";
+import { getLoginReturn, saveLoginReturn } from "@/lib/login-return";
 import { useAuth } from "@/lib/auth";
 
 const ERROR_LABELS: Record<string, string> = {
@@ -60,20 +60,77 @@ export default function LoginScreen() {
   }
 
   async function handleDemoLogin() {
+    if (demoLoading) return;
     setDemoLoading(true);
     setErrorMsg(null);
     try {
+      console.info("[auth/login] Try Demo pressed");
       const apiBase = getApiUrl();
       const url = new URL("/api/auth/demo", apiBase).toString();
-      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" } });
-      const data = await res.json();
-      if (!res.ok || !data.token) {
-        setErrorMsg(data.error ?? "Demo login failed. Please try again.");
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+      let res: Response;
+      let rawText = "";
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+        });
+        rawText = await res.text();
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
+      let data: any = {};
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        data = { error: rawText || "Invalid response" };
+      }
+
+      console.info("[auth/login] Try Demo response", {
+        status: res.status,
+        hasToken: !!data?.token,
+        error: data?.error,
+        code: data?.code,
+      });
+
+      if (!res.ok || !data?.token) {
+        const code = data?.code ? String(data.code) : undefined;
+        const baseMsg = data?.error ?? "Demo login failed. Please try again.";
+        setErrorMsg(code ? `${baseMsg} (${code})` : baseMsg);
         return;
       }
+
       await loginWithToken(data.token);
-      router.replace("/(tabs)");
-    } catch {
+
+      // Auth/callback と同じ方針で、不要な returnTo は除外する
+      const saved = getLoginReturn();
+      const fallback = "/(tabs)/profile";
+      let returnTo = saved ?? fallback;
+
+      const isInvalidReturn =
+        returnTo.startsWith("/auth/") ||
+        returnTo.startsWith("/jukebox") ||
+        returnTo.startsWith("/lp") ||
+        returnTo.startsWith("/rawstock-lp") ||
+        returnTo.startsWith("/terms") ||
+        returnTo.startsWith("/privacy") ||
+        returnTo.startsWith("/tokusho");
+
+      if (isInvalidReturn) returnTo = fallback;
+
+      console.info("[auth/login] Try Demo redirect to", returnTo);
+      router.replace(returnTo as any);
+    } catch (e: any) {
+      if (e?.name === "AbortError") {
+        setErrorMsg("Request timed out. Please try again.");
+        return;
+      }
+      console.error("[auth/login] Try Demo failed:", e);
       setErrorMsg("Network error. Please try again.");
     } finally {
       setDemoLoading(false);
