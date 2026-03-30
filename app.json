@@ -1,0 +1,61 @@
+{
+  "expo": {
+    "name": "RawStock",
+    "slug": "rawstock",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./public/icon-512.png",
+    "scheme": "rawstock",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#050505"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.rawstock",
+      "icon": "./public/icon-512.png"
+    },
+    "android": {
+      "package": "com.rawstock",
+      "adaptiveIcon": {
+        "foregroundImage": "./public/icon-512.png",
+        "backgroundColor": "#050505"
+      },
+      "icon": "./public/icon-512.png"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./public/favicon.ico",
+      "name": "RawStock",
+      "shortName": "RawStock",
+      "description": "ライブ配信・有料動画プラットフォーム",
+      "themeColor": "#00ffcc",
+      "backgroundColor": "#050505",
+      "startUrl": "/",
+      "display": "standalone",
+      "orientation": "portrait",
+      "lang": "ja",
+      "scope": "/"
+    },
+    "plugins": [
+      [
+        "expo-router",
+        {
+          "root": "./app"
+        }
+      ],
+      "expo-font",
+      "expo-web-browser",
+      "expo-image"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "backgroundColor": "#050505"
+  }
+}
