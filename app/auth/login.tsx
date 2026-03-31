@@ -178,6 +178,20 @@ export default function LoginScreen() {
           <Text style={styles.googleLoginText}>Sign in with Google</Text>
         </Pressable>
 
+        <View style={styles.consentWrap}>
+          <Text style={styles.consentText}>
+            By signing up, you agree to our{" "}
+            <Text style={styles.consentLink} onPress={() => router.push("/terms")}>
+              Terms of Service
+            </Text>{" "}
+            and{" "}
+            <Text style={styles.consentLink} onPress={() => router.push("/privacy")}>
+              Privacy Policy
+            </Text>
+            .
+          </Text>
+        </View>
+
         <Pressable
           style={[styles.demoBtn, demoLoading && styles.demoBtnDisabled]}
           onPress={handleDemoLogin}
@@ -245,6 +259,9 @@ const styles = StyleSheet.create({
   },
   googleIcon: { width: 24, height: 24 },
   googleLoginText: { color: "#050505", fontSize: 16, fontWeight: "800", fontFamily: "Barlow Condensed" },
+  consentWrap: { marginTop: 10, alignItems: "center" },
+  consentText: { color: C.textMuted, fontSize: 11, textAlign: "center", lineHeight: 16, fontFamily: "Courier Prime" },
+  consentLink: { color: C.accent, textDecorationLine: "none" },
 
   demoBtn: {
     alignItems: "center",
