@@ -430,6 +430,19 @@ export default function ProfileScreen() {
             : <Text style={styles.demoBtnProfileText}>Try Demo</Text>
           }
         </Pressable>
+        <View style={styles.guestLegalLinks}>
+          <Pressable onPress={() => router.push("/terms")}>
+            <Text style={styles.guestLegalLinkText}>Terms</Text>
+          </Pressable>
+          <Text style={styles.guestLegalSeparator}>|</Text>
+          <Pressable onPress={() => router.push("/privacy")}>
+            <Text style={styles.guestLegalLinkText}>Privacy Policy</Text>
+          </Pressable>
+          <Text style={styles.guestLegalSeparator}>|</Text>
+          <Pressable onPress={() => router.push("/tokusho")}>
+            <Text style={styles.guestLegalLinkText}>Legal Notice</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
@@ -1749,6 +1762,20 @@ const styles = StyleSheet.create({
   googleLoginText: { color: "#050505", fontSize: 16, fontWeight: "800" },
   demoBtnProfile: { marginTop: 4, borderWidth: 1.5, borderColor: C.accent, borderRadius: 3, paddingHorizontal: 28, paddingVertical: 12, alignItems: "center" as const, minWidth: 200 },
   demoBtnProfileText: { color: C.accent, fontSize: 15, fontWeight: "700" as const },
+  guestLegalLinks: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 24,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    flexWrap: "wrap",
+    gap: 4,
+    paddingHorizontal: 16,
+  },
+  guestLegalLinkText: { color: C.accent, fontSize: 12, fontFamily: "Courier Prime", textDecorationLine: "none" },
+  guestLegalSeparator: { color: C.textMuted, fontSize: 12 },
 
   pwaFab: {
     position: "absolute",
