@@ -38,6 +38,8 @@ __export(schema_exports, {
   communityVotes: () => communityVotes,
   concertStaff: () => concertStaff,
   concerts: () => concerts,
+  creatorLevelThresholds: () => creatorLevelThresholds,
+  creatorMonthlyScores: () => creatorMonthlyScores,
   creators: () => creators,
   dailyLogins: () => dailyLogins,
   dmConversationMessages: () => dmConversationMessages,
@@ -339,9 +341,40 @@ var creators = pgTable("creators", {
   revenueShare: integer("revenue_share").notNull().default(80),
   satisfactionScore: real("satisfaction_score").notNull().default(0),
   attendanceRate: real("attendance_rate").notNull().default(0),
+  currentLevel: integer("current_level").notNull().default(1),
   bio: text("bio").notNull().default(""),
   category: text("category").notNull().default("idol")
 });
+var creatorLevelThresholds = pgTable("creator_level_thresholds", {
+  id: serial("id").primaryKey(),
+  level: integer("level").notNull().unique(),
+  requiredTipGross: integer("required_tip_gross").notNull().default(0),
+  requiredStreamCount: integer("required_stream_count").notNull().default(0),
+  tipBackRate: real("tip_back_rate").notNull().default(0.5),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow()
+});
+var creatorMonthlyScores = pgTable(
+  "creator_monthly_scores",
+  {
+    id: serial("id").primaryKey(),
+    creatorId: integer("creator_id").notNull(),
+    yearMonth: text("year_month").notNull(),
+    // YYYY-MM
+    tipGross: integer("tip_gross").notNull().default(0),
+    paidLiveGross: integer("paid_live_gross").notNull().default(0),
+    streamCountMonthly: integer("stream_count_monthly").notNull().default(0),
+    avgSatisfaction: real("avg_satisfaction").notNull().default(0),
+    compositeScore: real("composite_score").notNull().default(0),
+    startRank: integer("start_rank"),
+    rankOverall: integer("rank_overall"),
+    rankPaidLive: integer("rank_paid_live"),
+    nextStartRank: integer("next_start_rank"),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow()
+  },
+  (t) => [unique().on(t.creatorId, t.yearMonth)]
+);
 var bookingSessions = pgTable("booking_sessions", {
   id: serial("id").primaryKey(),
   creator: text("creator").notNull(),
@@ -504,6 +537,14 @@ var transactions = pgTable("transactions", {
   id: serial("id").primaryKey(),
   walletId: integer("wallet_id").notNull(),
   amount: integer("amount").notNull(),
+  source: text("source").notNull().default("tip"),
+  // tip | paid_live | twoshot
+  grossAmount: integer("gross_amount").notNull().default(0),
+  backRate: real("back_rate").notNull().default(1),
+  netAmount: integer("net_amount").notNull().default(0),
+  creatorId: integer("creator_id"),
+  yearMonth: text("year_month"),
+  // YYYY-MM
   type: text("type").notNull(),
   // 'tip' | 'gift' | 'twoshot' | 'banner_ad' | 'payout' | 'revenue_share' | 'REVENUE' 等
   status: text("status").notNull().default("PENDING"),
@@ -690,12 +731,26 @@ var dailyLogins = pgTable("daily_logins", {
 var aiEditJobs = pgTable("ai_edit_jobs", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull(),
-  videoUrl: text("video_url").notNull(),
+  videoUrl: text("video_url").notNull().default(""),
   prompt: text("prompt").notNull(),
   status: text("status").notNull().default("pending"),
   // pending | processing | completed | failed | approved
   result: text("result"),
   // JSON string of EDL
+  // Enhanced AI Edit fields (v2)
+  planMinutes: integer("plan_minutes"),
+  // 15 | 30 | 45 | 60
+  videoUrls: text("video_urls"),
+  // JSON array of R2 URLs
+  logoUrl: text("logo_url"),
+  telop: text("telop"),
+  targetAudience: text("target_audience"),
+  tone: text("tone"),
+  revisionCount: integer("revision_count").notNull().default(0),
+  ticketCost: integer("ticket_cost"),
+  // Delivery fields — set by the editor when the finished video is uploaded
+  deliveredUrl: text("delivered_url"),
+  deliveredAt: timestamp("delivered_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow()
 });
@@ -724,7 +779,7 @@ var pool = new Pool({
 var db = drizzle(pool, { schema: schema_exports });
 
 // server/routes.ts
-import { eq as eq2, asc, desc, count, sql as sql2, and as and2, or, gte as gte2, lte as lte2, isNull, inArray } from "drizzle-orm";
+import { eq as eq2, asc as asc2, desc, count, sql as sql2, and as and2, or, gte as gte2, lte as lte2, isNull, inArray } from "drizzle-orm";
 
 // server/stripeClient.local.ts
 import Stripe from "stripe";
@@ -792,20 +847,39 @@ async function getPaymentIntentStatus(paymentIntentId) {
 }
 
 // server/aggregateRevenue.ts
-import { eq, sql, and, gte, lte } from "drizzle-orm";
-async function getMonthlyRevenueRank(yearMonth) {
+import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
+function parseMonthRange(yearMonth) {
   const [year, month] = yearMonth.split("-").map(Number);
-  if (!year || !month) return [];
+  if (!year || !month) return null;
   const start = new Date(year, month - 1, 1, 0, 0, 0);
   const end = new Date(year, month, 0, 23, 59, 59);
+  return { start, end };
+}
+function getPrevMonth(yearMonth) {
+  const [year, month] = yearMonth.split("-").map(Number);
+  const d = new Date(year, month - 2, 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+function round1(value) {
+  return Number(value.toFixed(1));
+}
+function normalize(value, max) {
+  if (max <= 0) return 0;
+  return value / max;
+}
+async function getMonthlyRevenueRank(yearMonth) {
+  const range = parseMonthRange(yearMonth);
+  if (!range) return [];
   const rows = await db.select({
     userId: wallets.userId,
     totalRevenue: sql`COALESCE(SUM(${transactions.amount}), 0)::int`
   }).from(transactions).innerJoin(wallets, eq(transactions.walletId, wallets.id)).where(
     and(
       eq(transactions.type, "REVENUE"),
-      gte(transactions.createdAt, start),
-      lte(transactions.createdAt, end)
+      gte(transactions.createdAt, range.start),
+      lte(transactions.createdAt, range.end)
     )
   ).groupBy(wallets.userId);
   const withUser = await Promise.all(
@@ -820,6 +894,136 @@ async function getMonthlyRevenueRank(yearMonth) {
   );
   withUser.sort((a, b) => b.totalRevenue - a.totalRevenue);
   return withUser.map((row, index) => ({ ...row, rank: index + 1 }));
+}
+async function runMonthlyCreatorAggregation(yearMonth) {
+  const range = parseMonthRange(yearMonth);
+  if (!range) return { yearMonth, overall: [], paidLive: [] };
+  const allCreators = await db.select().from(creators).orderBy(asc(creators.id));
+  if (allCreators.length === 0) return { yearMonth, overall: [], paidLive: [] };
+  const monthScores = await db.select().from(creatorMonthlyScores).where(eq(creatorMonthlyScores.yearMonth, yearMonth));
+  const scoreMap = /* @__PURE__ */ new Map();
+  monthScores.forEach((s) => scoreMap.set(s.creatorId, s));
+  const prevScores = await db.select().from(creatorMonthlyScores).where(eq(creatorMonthlyScores.yearMonth, getPrevMonth(yearMonth)));
+  const prevRankMap = /* @__PURE__ */ new Map();
+  prevScores.forEach((s) => {
+    if (s.rankOverall) prevRankMap.set(s.creatorId, s.rankOverall);
+  });
+  const reviews = await db.select().from(liverReviews).where(and(gte(liverReviews.createdAt, range.start), lte(liverReviews.createdAt, range.end)));
+  const satMap = /* @__PURE__ */ new Map();
+  for (const r of reviews) {
+    const row = satMap.get(r.liverId) ?? { sum: 0, count: 0 };
+    row.sum += r.satisfactionScore;
+    row.count += 1;
+    satMap.set(r.liverId, row);
+  }
+  const baseRows = allCreators.map((c) => {
+    const monthly = scoreMap.get(c.id);
+    const sat = satMap.get(c.id);
+    const avgSatisfaction = sat && sat.count > 0 ? sat.sum / sat.count : c.satisfactionScore;
+    return {
+      creatorId: c.id,
+      name: c.name,
+      community: c.community,
+      avatar: c.avatar,
+      month: yearMonth,
+      tipGross: monthly?.tipGross ?? 0,
+      paidLiveGross: monthly?.paidLiveGross ?? 0,
+      streamCountMonthly: monthly?.streamCountMonthly ?? 0,
+      avgSatisfaction: round1(avgSatisfaction),
+      compositeScore: 0,
+      startRank: prevRankMap.has(c.id) ? Math.min((prevRankMap.get(c.id) ?? allCreators.length) + 2, allCreators.length) : Math.min(c.rank, allCreators.length),
+      rank: 999
+    };
+  });
+  const maxTip = Math.max(...baseRows.map((r) => r.tipGross), 0);
+  const maxStreams = Math.max(...baseRows.map((r) => r.streamCountMonthly), 0);
+  const maxSat = Math.max(...baseRows.map((r) => r.avgSatisfaction), 0);
+  for (const row of baseRows) {
+    const score = 100 * (0.4 * normalize(row.avgSatisfaction, maxSat) + 0.3 * normalize(row.streamCountMonthly, maxStreams) + 0.3 * normalize(row.tipGross, maxTip));
+    row.compositeScore = round1(score);
+  }
+  const n = baseRows.length;
+  const overallSorted = [...baseRows].sort((a, b) => {
+    const aCarry = (n - (a.startRank ?? n) + 1) / n * 0.01;
+    const bCarry = (n - (b.startRank ?? n) + 1) / n * 0.01;
+    if (b.compositeScore + bCarry !== a.compositeScore + aCarry) {
+      return b.compositeScore + bCarry - (a.compositeScore + aCarry);
+    }
+    return a.creatorId - b.creatorId;
+  });
+  overallSorted.forEach((r, i) => {
+    r.rank = i + 1;
+  });
+  const paidSorted = [...baseRows].sort((a, b) => {
+    if (b.paidLiveGross !== a.paidLiveGross) return b.paidLiveGross - a.paidLiveGross;
+    return a.creatorId - b.creatorId;
+  });
+  const paidRankMap = /* @__PURE__ */ new Map();
+  paidSorted.forEach((r, i) => paidRankMap.set(r.creatorId, i + 1));
+  for (const row of baseRows) {
+    const nextStartRank = Math.min((overallSorted.find((r) => r.creatorId === row.creatorId)?.rank ?? n) + 2, n);
+    const existing = scoreMap.get(row.creatorId);
+    const payload = {
+      avgSatisfaction: row.avgSatisfaction,
+      compositeScore: row.compositeScore,
+      startRank: row.startRank,
+      rankOverall: overallSorted.find((r) => r.creatorId === row.creatorId)?.rank ?? null,
+      rankPaidLive: paidRankMap.get(row.creatorId) ?? null,
+      nextStartRank,
+      updatedAt: /* @__PURE__ */ new Date()
+    };
+    if (existing) {
+      await db.update(creatorMonthlyScores).set(payload).where(eq(creatorMonthlyScores.id, existing.id));
+    } else {
+      await db.insert(creatorMonthlyScores).values({
+        creatorId: row.creatorId,
+        yearMonth,
+        tipGross: row.tipGross,
+        paidLiveGross: row.paidLiveGross,
+        streamCountMonthly: row.streamCountMonthly,
+        avgSatisfaction: row.avgSatisfaction,
+        compositeScore: row.compositeScore,
+        startRank: row.startRank,
+        rankOverall: overallSorted.find((r) => r.creatorId === row.creatorId)?.rank ?? null,
+        rankPaidLive: paidRankMap.get(row.creatorId) ?? null,
+        nextStartRank
+      });
+    }
+    await db.update(creators).set({
+      rank: overallSorted.find((r) => r.creatorId === row.creatorId)?.rank ?? row.startRank ?? 999,
+      heatScore: row.compositeScore,
+      satisfactionScore: row.avgSatisfaction
+    }).where(eq(creators.id, row.creatorId));
+  }
+  return {
+    yearMonth,
+    overall: overallSorted,
+    paidLive: paidSorted.map((r) => ({ ...r, rank: paidRankMap.get(r.creatorId) ?? 999 }))
+  };
+}
+async function getCreatorMonthlyRankings(yearMonth, kind) {
+  const creatorRows = await db.select().from(creators);
+  const scoreRows = await db.select().from(creatorMonthlyScores).where(eq(creatorMonthlyScores.yearMonth, yearMonth));
+  const scoreMap = /* @__PURE__ */ new Map();
+  scoreRows.forEach((s) => scoreMap.set(s.creatorId, s));
+  const rows = creatorRows.map((c) => {
+    const score = scoreMap.get(c.id);
+    return {
+      creatorId: c.id,
+      name: c.name,
+      community: c.community,
+      avatar: c.avatar,
+      month: yearMonth,
+      tipGross: score?.tipGross ?? 0,
+      paidLiveGross: score?.paidLiveGross ?? 0,
+      streamCountMonthly: score?.streamCountMonthly ?? 0,
+      avgSatisfaction: score?.avgSatisfaction ?? c.satisfactionScore,
+      compositeScore: score?.compositeScore ?? 0,
+      startRank: score?.startRank ?? c.rank,
+      rank: kind === "paid_live" ? score?.rankPaidLive ?? 999 : score?.rankOverall ?? c.rank
+    };
+  });
+  return rows.sort((a, b) => a.rank - b.rank);
 }
 
 // server/claudeReport.ts
@@ -888,97 +1092,114 @@ ${contentText}`;
 // server/aiEditAssistant.ts
 var MODEL2 = "claude-haiku-4-5-20251001";
 var ANTHROPIC_API_URL2 = "https://api.anthropic.com/v1/messages";
-var SYSTEM_PROMPT2 = `\u3042\u306A\u305F\u306F\u30D7\u30ED\u306E\u52D5\u753B\u7DE8\u96C6\u30A2\u30B7\u30B9\u30BF\u30F3\u30C8\u3067\u3059\u3002
-\u30E6\u30FC\u30B6\u30FC\u304C\u63D0\u4F9B\u3057\u305F\u52D5\u753BURL\u3068\u30D7\u30ED\u30F3\u30D7\u30C8\uFF08\u7DE8\u96C6\u6307\u793A\uFF09\u3092\u53D7\u3051\u53D6\u308A\u3001Edit Decision List\uFF08EDL\uFF09\u3092\u751F\u6210\u3057\u3066\u304F\u3060\u3055\u3044\u3002
+var SYSTEM_PROMPT2 = `You are a professional video editor AI assistant.
+Given a set of source video files and detailed editing instructions, generate a structured Edit Decision List (EDL).
 
-EDL\u306F\u52D5\u753B\u306E\u7DE8\u96C6\u30D7\u30E9\u30F3\u3092JSON\u3067\u8FD4\u3057\u307E\u3059\u3002\u4EE5\u4E0B\u306E\u30EB\u30FC\u30EB\u306B\u5F93\u3063\u3066\u304F\u3060\u3055\u3044\uFF1A
-- edl\u914D\u5217\u306B5\u301C10\u500B\u306E\u7DE8\u96C6\u30DD\u30A4\u30F3\u30C8\u3092\u542B\u3081\u308B
-- \u5404\u30A8\u30F3\u30C8\u30EA\u306F\u30AB\u30C3\u30C8\u7B87\u6240\u30FB\u30BF\u30A4\u30E0\u30B9\u30BF\u30F3\u30D7\u30FB\u6F14\u51FA\u6307\u793A\u3092\u542B\u3080
-- type \u306F "cut" | "highlight" | "transition" | "caption" \u306E\u3044\u305A\u308C\u304B
-- startTime / endTime \u306F "MM:SS" \u5F62\u5F0F
+Rules:
+- Include 5\u201312 edit points in the edl array, proportional to the output duration target
+- Each entry must include a timestamp range, type, and clear actionable instruction
+- type must be one of: "cut" | "highlight" | "transition" | "caption"
+- startTime / endTime must be in "MM:SS" format (e.g. "03:45")
+- If a logo or telop text is provided, incorporate them into caption entries
+- Adapt pacing and style to the specified target audience and tone
+- Output ONLY valid JSON \u2014 no explanation text, no markdown fences
 
-\u8FD4\u5374\u5F62\u5F0F\uFF08\u3053\u306EJSON\u5F62\u5F0F\u306E\u307F\u3001\u8AAC\u660E\u6587\u4E0D\u8981\uFF09:
+Response format (strict JSON):
 {
-  "title": "\u7DE8\u96C6\u30D7\u30E9\u30F3\u306E\u30BF\u30A4\u30C8\u30EB",
-  "totalDuration": "3:00",
-  "summary": "\u3053\u306EEDL\u306E\u6982\u8981\uFF081\u301C2\u6587\uFF09",
+  "title": "Edit plan name",
+  "totalDuration": "X:XX",
+  "summary": "One or two sentence overview of this edit plan.",
   "edl": [
     {
       "index": 1,
       "startTime": "00:00",
       "endTime": "00:30",
       "type": "highlight",
-      "instruction": "\u30AA\u30FC\u30D7\u30CB\u30F3\u30B0\uFF1A\u8FEB\u529B\u3042\u308B\u6F14\u594F\u30B7\u30FC\u30F3",
-      "note": "\u30AE\u30BF\u30FC\u306E\u624B\u5143\u3092\u30A2\u30C3\u30D7\u3067"
+      "instruction": "Opening: strongest performance moment to hook viewers",
+      "note": "Optional directorial note"
     }
   ]
 }`;
-function getMockEditPlan(videoUrl, prompt) {
+function getMockEditPlan(input) {
+  const { planMinutes, prompt, targetAudience, tone, videoUrls, telop } = input;
   return {
-    title: `AI\u7DE8\u96C6\u30D7\u30E9\u30F3 \u2014 ${prompt.slice(0, 30)}`,
-    totalDuration: "3:00",
-    summary: "AI\u304C\u30D7\u30ED\u30F3\u30D7\u30C8\u3092\u5206\u6790\u3057\u3001\u52D5\u753B\u306E\u30D9\u30B9\u30C8\u30B7\u30FC\u30F3\u3092\u81EA\u52D5\u9078\u51FA\u3057\u307E\u3057\u305F\uFF08\u30E2\u30C3\u30AF\u30C7\u30FC\u30BF\uFF09\u3002",
+    title: `AI Edit Plan \u2014 ${prompt.slice(0, 30)}`,
+    totalDuration: `${planMinutes}:00`,
+    summary: `A ${tone ?? "energetic"} cut targeting ${targetAudience ?? "general audience"}, generated from ${videoUrls.length} source file(s). (Mock data \u2014 set ANTHROPIC_API_KEY to enable live generation)`,
     edl: [
       {
         index: 1,
         startTime: "00:00",
         endTime: "00:25",
         type: "highlight",
-        instruction: "\u30AA\u30FC\u30D7\u30CB\u30F3\u30B0\uFF1A\u6700\u3082\u76DB\u308A\u4E0A\u304C\u308B\u6F14\u594F\u30B7\u30FC\u30F3",
-        note: "\u30C6\u30F3\u30DD\u306E\u901F\u3044\u66F2\u982D\u3092\u4F7F\u7528"
+        instruction: "Opening: most impactful performance moment to hook viewers",
+        note: "Start at the peak energy point of the first video"
       },
       {
         index: 2,
         startTime: "01:10",
         endTime: "01:45",
         type: "cut",
-        instruction: "\u30BD\u30ED\u30D1\u30FC\u30C8\uFF1A\u30AE\u30BF\u30FC\u30BD\u30ED\u306E\u30AF\u30ED\u30FC\u30BA\u30A2\u30C3\u30D7",
-        note: "\u624B\u5143\u3092\u30A2\u30C3\u30D7\u3067\u64AE\u5F71\u3057\u305F\u7B87\u6240\u3092\u512A\u5148"
+        instruction: "Solo section close-up \u2014 tight hand and face shots",
+        note: "Prioritize intimate camera angles"
       },
       {
         index: 3,
         startTime: "02:30",
         endTime: "02:50",
         type: "transition",
-        instruction: "\u30AF\u30ED\u30B9\u30D5\u30A7\u30FC\u30C9\u3067\u5834\u9762\u8EE2\u63DB",
-        note: "\u89B3\u5BA2\u306E\u53CD\u5FDC\u30AB\u30C3\u30C8\u3078\u3064\u306A\u3050"
+        instruction: "Cross-fade to audience reaction shot",
+        note: "Soften energy before the mid-section"
       },
       {
         index: 4,
         startTime: "03:05",
         endTime: "03:20",
         type: "caption",
-        instruction: "\u30C6\u30ED\u30C3\u30D7\u633F\u5165\uFF1A\u66F2\u540D\u3068\u30A2\u30FC\u30C6\u30A3\u30B9\u30C8\u540D",
-        note: "\u767D\u6587\u5B57\u30FB\u5DE6\u4E0B\u914D\u7F6E"
+        instruction: telop ? `Insert telop: "${telop}"` : "Insert song title and artist name caption",
+        note: "White text, lower-left position, 3-second hold"
       },
       {
         index: 5,
         startTime: "04:15",
         endTime: "04:55",
         type: "highlight",
-        instruction: "\u30AF\u30E9\u30A4\u30DE\u30C3\u30AF\u30B9\uFF1A\u30D5\u30A3\u30CA\u30FC\u30EC\u306E\u6F14\u594F",
-        note: "\u5E83\u89D2\u30B7\u30E7\u30C3\u30C8\u3068\u624B\u5143\u306E\u4EA4\u4E92\u30AB\u30C3\u30C8"
+        instruction: "Climax: full-band wide shot with crowd energy",
+        note: "Alternate wide and close-up cuts every 2 seconds"
       },
       {
         index: 6,
-        startTime: "05:30",
-        endTime: "06:00",
+        startTime: `${planMinutes - 1}:00`,
+        endTime: `${planMinutes}:00`,
         type: "cut",
-        instruction: "\u30A8\u30F3\u30C7\u30A3\u30F3\u30B0\uFF1A\u30D5\u30A7\u30FC\u30C9\u30A2\u30A6\u30C8",
-        note: "\u9759\u304B\u306B\u97F3\u91CF\u3092\u4E0B\u3052\u306A\u304C\u3089\u30D5\u30A7\u30FC\u30C9"
+        instruction: "Outro: fade to black",
+        note: "Gradually lower audio volume over final 10 seconds"
       }
     ]
   };
 }
-async function generateEditPlan(videoUrl, prompt) {
+function buildUserMessage(input) {
+  const { planMinutes, videoUrls, logoUrl, telop, targetAudience, tone, prompt } = input;
+  const lines = [
+    `Output duration target: ${planMinutes} minutes`,
+    `Target audience: ${targetAudience ?? "General"}`,
+    `Tone / Style: ${tone ?? "Energetic"}`,
+    "",
+    `Source videos (${videoUrls.length}):`,
+    ...videoUrls.map((url, i) => `  ${i + 1}. ${url}`)
+  ];
+  if (logoUrl) lines.push("", `Logo (transparent PNG): ${logoUrl}`);
+  if (telop) lines.push(`Telop / caption text: "${telop}"`);
+  lines.push("", "Editing instructions:", prompt);
+  return lines.join("\n");
+}
+async function generateEditPlan(input) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     console.warn("[aiEditAssistant] ANTHROPIC_API_KEY not set \u2014 returning mock EDL");
-    return getMockEditPlan(videoUrl, prompt);
+    return getMockEditPlan(input);
   }
-  const userPrompt = `\u52D5\u753BURL: ${videoUrl}
-
-\u7DE8\u96C6\u6307\u793A: ${prompt}`;
+  const userMessage = buildUserMessage(input);
   try {
     const res = await fetch(ANTHROPIC_API_URL2, {
       method: "POST",
@@ -991,29 +1212,29 @@ async function generateEditPlan(videoUrl, prompt) {
         model: MODEL2,
         max_tokens: 2048,
         system: SYSTEM_PROMPT2,
-        messages: [{ role: "user", content: userPrompt }]
+        messages: [{ role: "user", content: userMessage }]
       })
     });
     if (!res.ok) {
       const errText = await res.text();
       console.error("[aiEditAssistant] Claude API error:", res.status, errText);
-      return getMockEditPlan(videoUrl, prompt);
+      return getMockEditPlan(input);
     }
     const data = await res.json();
     const text2 = data.content?.[0]?.text?.trim() ?? "";
     const jsonMatch = text2.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       console.error("[aiEditAssistant] No JSON found in Claude response");
-      return getMockEditPlan(videoUrl, prompt);
+      return getMockEditPlan(input);
     }
     const parsed = JSON.parse(jsonMatch[0]);
     if (!parsed.edl || !Array.isArray(parsed.edl)) {
-      return getMockEditPlan(videoUrl, prompt);
+      return getMockEditPlan(input);
     }
     return parsed;
   } catch (e) {
     console.error("[aiEditAssistant] Error calling Claude:", e);
-    return getMockEditPlan(videoUrl, prompt);
+    return getMockEditPlan(input);
   }
 }
 
@@ -1304,14 +1525,105 @@ async function getOrCreateUserWallet(userId) {
   const [created] = await db.insert(wallets).values({ userId, kind: null }).returning();
   return created.id;
 }
-async function recordRevenue(walletId, amount, source, referenceId) {
+var DEFAULT_LEVEL_THRESHOLDS = [
+  { level: 1, requiredTipGross: 0, requiredStreamCount: 0, tipBackRate: 0.5 },
+  { level: 2, requiredTipGross: 5e4, requiredStreamCount: 4, tipBackRate: 0.55 },
+  { level: 3, requiredTipGross: 1e5, requiredStreamCount: 8, tipBackRate: 0.6 },
+  { level: 4, requiredTipGross: 16e4, requiredStreamCount: 12, tipBackRate: 0.65 },
+  { level: 5, requiredTipGross: 24e4, requiredStreamCount: 16, tipBackRate: 0.7 },
+  { level: 6, requiredTipGross: 34e4, requiredStreamCount: 20, tipBackRate: 0.75 },
+  { level: 7, requiredTipGross: 46e4, requiredStreamCount: 24, tipBackRate: 0.8 }
+];
+function getYearMonth(date = /* @__PURE__ */ new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+async function ensureDefaultLevelThresholds() {
+  const rows = await db.select().from(creatorLevelThresholds).orderBy(asc2(creatorLevelThresholds.level));
+  if (rows.length > 0) return rows;
+  await db.insert(creatorLevelThresholds).values(
+    DEFAULT_LEVEL_THRESHOLDS.map((t) => ({
+      level: t.level,
+      requiredTipGross: t.requiredTipGross,
+      requiredStreamCount: t.requiredStreamCount,
+      tipBackRate: t.tipBackRate
+    }))
+  );
+  return db.select().from(creatorLevelThresholds).orderBy(asc2(creatorLevelThresholds.level));
+}
+async function syncCreatorLevelFromMonthlyProgress(creatorId, yearMonth) {
+  const thresholds = await ensureDefaultLevelThresholds();
+  const [score] = await db.select().from(creatorMonthlyScores).where(and2(eq2(creatorMonthlyScores.creatorId, creatorId), eq2(creatorMonthlyScores.yearMonth, yearMonth)));
+  const tipGross = score?.tipGross ?? 0;
+  const streamCountMonthly = score?.streamCountMonthly ?? 0;
+  const achieved = thresholds.reduce((acc, t) => {
+    if (tipGross >= t.requiredTipGross && streamCountMonthly >= t.requiredStreamCount) return Math.max(acc, t.level);
+    return acc;
+  }, 1);
+  await db.update(creators).set({ currentLevel: achieved }).where(eq2(creators.id, creatorId));
+  return achieved;
+}
+async function upsertCreatorMonthlyRevenue(creatorId, yearMonth, source, grossAmount) {
+  const [existing] = await db.select().from(creatorMonthlyScores).where(and2(eq2(creatorMonthlyScores.creatorId, creatorId), eq2(creatorMonthlyScores.yearMonth, yearMonth)));
+  if (!existing) {
+    await db.insert(creatorMonthlyScores).values({
+      creatorId,
+      yearMonth,
+      tipGross: source === "tip" ? grossAmount : 0,
+      paidLiveGross: source === "tip" ? 0 : grossAmount
+    });
+    return;
+  }
+  await db.update(creatorMonthlyScores).set({
+    tipGross: source === "tip" ? existing.tipGross + grossAmount : existing.tipGross,
+    paidLiveGross: source === "tip" ? existing.paidLiveGross : existing.paidLiveGross + grossAmount,
+    updatedAt: /* @__PURE__ */ new Date()
+  }).where(eq2(creatorMonthlyScores.id, existing.id));
+}
+async function recordRevenue(walletId, userId, creatorId, amount, source, referenceId) {
+  const yearMonth = getYearMonth();
+  let backRate = 0.9;
+  if (source === "tip") {
+    const thresholds = await ensureDefaultLevelThresholds();
+    const [creator] = creatorId ? await db.select().from(creators).where(eq2(creators.id, creatorId)) : [];
+    const level = creator?.currentLevel ?? 1;
+    const rate = thresholds.find((t) => t.level === level)?.tipBackRate;
+    backRate = typeof rate === "number" ? rate : 0.5;
+  }
+  const netAmount = Math.floor(amount * backRate);
   await db.insert(transactions).values({
     walletId,
     amount,
+    source,
+    grossAmount: amount,
+    backRate,
+    netAmount,
+    creatorId,
+    yearMonth,
     type: "REVENUE",
     status: "PENDING",
     referenceId
   });
+  await db.insert(earnings).values({
+    userId: `user-${userId}`,
+    type: source,
+    title: source === "tip" ? "\u6295\u3052\u92AD\u53CE\u76CA" : "\u6709\u6599\u914D\u4FE1\u53CE\u76CA",
+    amount,
+    revenueShare: Math.round(backRate * 100),
+    netAmount
+  });
+  if (creatorId) {
+    const [creator] = await db.select().from(creators).where(eq2(creators.id, creatorId));
+    if (creator) {
+      await db.update(creators).set({
+        revenue: creator.revenue + amount,
+        revenueShare: Math.round(backRate * 100)
+      }).where(eq2(creators.id, creatorId));
+    }
+    await upsertCreatorMonthlyRevenue(creatorId, yearMonth, source, amount);
+    await syncCreatorLevelFromMonthlyProgress(creatorId, yearMonth);
+  }
 }
 async function registerRoutes(app2) {
   app2.post("/api/auth/register", async (req, res) => {
@@ -1362,7 +1674,13 @@ async function registerRoutes(app2) {
       res.json({ token });
     } catch (err) {
       console.error("Demo login error:", err);
-      res.status(500).json({ error: "Demo login failed" });
+      const message = err instanceof Error ? err.message : String(err);
+      const isProd = process.env.NODE_ENV === "production";
+      res.status(500).json({
+        error: "Demo login failed",
+        code: "DEMO_LOGIN_FAILED",
+        ...isProd ? {} : { message }
+      });
     }
   });
   app2.post("/api/auth/login", async (req, res) => {
@@ -2205,7 +2523,7 @@ async function registerRoutes(app2) {
     const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const editors = await db.select().from(videoEditors).where(eq2(videoEditors.communityId, communityId)).orderBy(desc(videoEditors.rating));
-    const livers = await db.select().from(creators).where(eq2(creators.community, community.name)).orderBy(asc(creators.rank));
+    const livers = await db.select().from(creators).where(eq2(creators.community, community.name)).orderBy(asc2(creators.rank));
     res.json({
       editors: editors.map((e) => ({ ...e, kind: "editor" })),
       livers: livers.map((l) => ({ ...l, kind: "liver" }))
@@ -2356,7 +2674,7 @@ async function registerRoutes(app2) {
     const threadId = paramNum(req, "threadId");
     const [thread] = await db.select().from(communityThreads).where(and2(eq2(communityThreads.communityId, communityId), eq2(communityThreads.id, threadId)));
     if (!thread) return res.status(404).json({ message: "Not found" });
-    const posts = await db.select().from(communityThreadPosts).where(eq2(communityThreadPosts.threadId, threadId)).orderBy(asc(communityThreadPosts.createdAt));
+    const posts = await db.select().from(communityThreadPosts).where(eq2(communityThreadPosts.threadId, threadId)).orderBy(asc2(communityThreadPosts.createdAt));
     const authorIds = [thread.authorUserId, ...posts.map((p) => p.authorUserId)];
     const authorRows = await db.select({ id: users.id, displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(users).where(inArray(users.id, authorIds));
     const authorMap = new Map(authorRows.map((a) => [a.id, a]));
@@ -2435,7 +2753,7 @@ async function registerRoutes(app2) {
     const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
     const isMod = !!modRow;
     if (!isAdmin && !isMod) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u307E\u305F\u306F\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u306E\u307F\u30A2\u30AF\u30BB\u30B9\u53EF\u80FD\u3067\u3059" });
-    const rows = await db.select().from(jukeboxQueue).where(eq2(jukeboxQueue.communityId, communityId)).orderBy(asc(jukeboxQueue.position));
+    const rows = await db.select().from(jukeboxQueue).where(eq2(jukeboxQueue.communityId, communityId)).orderBy(asc2(jukeboxQueue.position));
     res.json(rows);
   });
   app2.delete("/api/communities/:id/admin/jukebox-queue/:itemId", async (req, res) => {
@@ -2464,7 +2782,7 @@ async function registerRoutes(app2) {
     const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
     const isMod = !!modRow;
     if (!isAdmin && !isMod) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u307E\u305F\u306F\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u306E\u307F\u30A2\u30AF\u30BB\u30B9\u53EF\u80FD\u3067\u3059" });
-    const rows = await db.select().from(communityAds).where(and2(eq2(communityAds.communityId, communityId), eq2(communityAds.status, "approved"))).orderBy(asc(communityAds.startDate));
+    const rows = await db.select().from(communityAds).where(and2(eq2(communityAds.communityId, communityId), eq2(communityAds.status, "approved"))).orderBy(asc2(communityAds.startDate));
     res.json(rows);
   });
   app2.get("/api/communities/:id/admin/reports", async (req, res) => {
@@ -2567,7 +2885,7 @@ async function registerRoutes(app2) {
     const polls = await db.select().from(communityPolls).where(eq2(communityPolls.communityId, communityId)).orderBy(desc(communityPolls.createdAt));
     const result = await Promise.all(
       polls.map(async (p) => {
-        const opts = await db.select().from(communityPollOptions).where(eq2(communityPollOptions.pollId, p.id)).orderBy(asc(communityPollOptions.order));
+        const opts = await db.select().from(communityPollOptions).where(eq2(communityPollOptions.pollId, p.id)).orderBy(asc2(communityPollOptions.order));
         const votes = await db.select().from(communityPollVotes).where(eq2(communityPollVotes.pollId, p.id));
         const voteCounts = opts.map((o) => ({ optionId: o.id, text: o.text, count: votes.filter((v) => v.optionId === o.id).length }));
         let myVoteOptionId = null;
@@ -3344,7 +3662,7 @@ async function registerRoutes(app2) {
     res.json(filtered);
   });
   app2.get("/api/videos/ranked", async (_req, res) => {
-    const rows = await db.select().from(videos).where(and2(eq2(videos.postType, "work"), eq2(videos.hidden, false))).orderBy(asc(videos.rank));
+    const rows = await db.select().from(videos).where(and2(eq2(videos.postType, "work"), eq2(videos.hidden, false))).orderBy(asc2(videos.rank));
     res.json(rows);
   });
   app2.get("/api/videos/saved", async (req, res) => {
@@ -3391,7 +3709,7 @@ async function registerRoutes(app2) {
       createdAt: videoComments.createdAt,
       displayName: users.displayName,
       profileImageUrl: users.profileImageUrl
-    }).from(videoComments).leftJoin(users, eq2(users.id, videoComments.userId)).where(and2(eq2(videoComments.videoId, videoId), eq2(videoComments.hidden, false))).orderBy(asc(videoComments.createdAt));
+    }).from(videoComments).leftJoin(users, eq2(users.id, videoComments.userId)).where(and2(eq2(videoComments.videoId, videoId), eq2(videoComments.hidden, false))).orderBy(asc2(videoComments.createdAt));
     res.json(rows);
   });
   app2.post("/api/videos/:id/comments", async (req, res) => {
@@ -3525,7 +3843,7 @@ async function registerRoutes(app2) {
     res.json(rows);
   });
   app2.get("/api/creators", async (_req, res) => {
-    const rows = await db.select().from(creators).orderBy(asc(creators.rank));
+    const rows = await db.select().from(creators).orderBy(asc2(creators.rank));
     res.json(rows);
   });
   app2.get("/api/booking-sessions", async (req, res) => {
@@ -3542,7 +3860,7 @@ async function registerRoutes(app2) {
     res.json(updated);
   });
   app2.get("/api/dm-messages", async (_req, res) => {
-    const rows = await db.select().from(dmMessages).orderBy(asc(dmMessages.sortOrder));
+    const rows = await db.select().from(dmMessages).orderBy(asc2(dmMessages.sortOrder));
     res.json(rows);
   });
   app2.post("/api/dm-messages/:id/read", async (req, res) => {
@@ -3576,7 +3894,7 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/live-streams/:id/chat", async (req, res) => {
     const id = paramNum(req, "id");
-    const msgs = await db.select().from(liveStreamChat).where(eq2(liveStreamChat.streamId, id)).orderBy(asc(liveStreamChat.createdAt));
+    const msgs = await db.select().from(liveStreamChat).where(eq2(liveStreamChat.streamId, id)).orderBy(asc2(liveStreamChat.createdAt));
     res.json(msgs);
   });
   app2.post("/api/live-streams/:id/chat", async (req, res) => {
@@ -3600,7 +3918,7 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/dm-messages/:id/conversation", async (req, res) => {
     const id = paramNum(req, "id");
-    const msgs = await db.select().from(dmConversationMessages).where(eq2(dmConversationMessages.dmId, id)).orderBy(asc(dmConversationMessages.createdAt));
+    const msgs = await db.select().from(dmConversationMessages).where(eq2(dmConversationMessages.dmId, id)).orderBy(asc2(dmConversationMessages.createdAt));
     res.json(msgs);
   });
   app2.post("/api/dm-messages/:id/conversation", async (req, res) => {
@@ -3619,7 +3937,7 @@ async function registerRoutes(app2) {
     const communityId = paramNum(req, "communityId");
     const now = /* @__PURE__ */ new Date();
     const [stateRaw] = await db.select().from(jukeboxState).where(eq2(jukeboxState.communityId, communityId));
-    const queue = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc(jukeboxQueue.position));
+    const queue = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position));
     let state = stateRaw ?? null;
     let queueModified = false;
     if (state && state.currentVideoDurationSecs && state.currentVideoDurationSecs > 0 && state.startedAt) {
@@ -3673,7 +3991,7 @@ async function registerRoutes(app2) {
         }
       }
     }
-    const queueToReturn = queueModified ? await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc(jukeboxQueue.position)) : queue;
+    const queueToReturn = queueModified ? await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position)) : queue;
     const chat = await db.select().from(jukeboxChat).where(eq2(jukeboxChat.communityId, communityId)).orderBy(desc(jukeboxChat.createdAt)).limit(30).then((rows) => rows.reverse());
     let elapsedSecs = 0;
     if (state?.startedAt && (state.currentVideoDurationSecs ?? 0) > 0) {
@@ -3713,7 +4031,7 @@ data: ${JSON.stringify({ type: "state_update", data: stateData, ts: Date.now() }
 
 `);
       }
-      const currentQueue = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc(jukeboxQueue.position));
+      const currentQueue = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position));
       res.write(`event: queue_update
 data: ${JSON.stringify({ type: "queue_update", data: currentQueue, ts: Date.now() })}
 
@@ -3842,7 +4160,7 @@ data: ${data}
         }
       });
     }
-    const updatedQueue = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc(jukeboxQueue.position));
+    const updatedQueue = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position));
     await publishJukeboxEvent(communityId, {
       type: "queue_update",
       data: updatedQueue
@@ -3861,7 +4179,7 @@ data: ${data}
   app2.post("/api/jukebox/:communityId/next", async (req, res) => {
     const communityId = paramNum(req, "communityId");
     const [stateRaw] = await db.select().from(jukeboxState).where(eq2(jukeboxState.communityId, communityId));
-    const queue = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc(jukeboxQueue.position));
+    const queue = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position));
     let currentItemId = null;
     if (stateRaw?.currentVideoId != null || stateRaw?.currentVideoYoutubeId) {
       const currentItem = queue.find(
@@ -3915,7 +4233,7 @@ data: ${data}
         data: latestState
       });
     }
-    const latestQueue = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc(jukeboxQueue.position));
+    const latestQueue = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position));
     await publishJukeboxEvent(communityId, {
       type: "queue_update",
       data: latestQueue
@@ -3983,7 +4301,7 @@ data: ${data}
   });
   app2.get("/api/twoshot/:streamId/bookings", async (req, res) => {
     const streamId = paramNum(req, "streamId");
-    const rows = await db.select().from(twoshotBookings).where(eq2(twoshotBookings.streamId, streamId)).orderBy(asc(twoshotBookings.queuePosition));
+    const rows = await db.select().from(twoshotBookings).where(eq2(twoshotBookings.streamId, streamId)).orderBy(asc2(twoshotBookings.queuePosition));
     res.json(rows);
   });
   app2.get("/api/twoshot/:streamId/queue-count", async (req, res) => {
@@ -4067,7 +4385,8 @@ data: ${data}
         const [creatorUser] = await db.select().from(users).where(eq2(users.displayName, stream.creator));
         if (creatorUser) {
           const walletId = await getOrCreateUserWallet(creatorUser.id);
-          await recordRevenue(walletId, booking.price, "twoshot", String(booking.id));
+          const [creatorRow] = await db.select().from(creators).where(eq2(creators.name, stream.creator));
+          await recordRevenue(walletId, creatorUser.id, creatorRow?.id ?? null, booking.price, "twoshot", String(booking.id));
         }
       }
       res.json({ ok: true, booking });
@@ -4102,8 +4421,12 @@ data: ${data}
     const { amount, source, referenceId } = req.body;
     if (!amount || amount <= 0) return res.status(400).json({ error: "amount \u306F\u6B63\u306E\u6570\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
     const src = source ?? "tip";
+    if (!["tip", "paid_live", "twoshot"].includes(src)) {
+      return res.status(400).json({ error: "source \u306F tip / paid_live / twoshot \u306E\u3044\u305A\u308C\u304B\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
+    }
     const walletId = await getOrCreateUserWallet(user.id);
-    await recordRevenue(walletId, amount, src, referenceId ?? null);
+    const [creatorRow] = await db.select().from(creators).where(eq2(creators.name, user.displayName));
+    await recordRevenue(walletId, user.id, creatorRow?.id ?? null, amount, src, referenceId ?? null);
     res.status(201).json({ ok: true, amount, source: src });
   });
   app2.get("/api/revenue/summary", async (req, res) => {
@@ -4142,8 +4465,16 @@ data: ${data}
     if (!match) {
       return res.status(400).json({ error: "month \u306F YYYY-MM \u5F62\u5F0F\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
     }
+    const kind = queryStr(req, "kind") || "overall";
+    if (queryStr(req, "refresh") === "1") {
+      await runMonthlyCreatorAggregation(month);
+    }
+    if (kind === "overall" || kind === "paid_live") {
+      const rankings2 = await getCreatorMonthlyRankings(month, kind === "paid_live" ? "paid_live" : "overall");
+      return res.json({ month, kind, rankings: rankings2 });
+    }
     const rankings = await getMonthlyRevenueRank(month);
-    res.json({ month, rankings });
+    res.json({ month, kind: "revenue", rankings });
   });
   app2.get("/api/revenue/withdrawals", async (req, res) => {
     const user = await getAuthUser(req);
@@ -4182,7 +4513,23 @@ data: ${data}
     const minScore = queryStr(req, "minScore");
     const category = queryStr(req, "category");
     const date = queryStr(req, "date");
-    let rows = await db.select().from(creators).orderBy(asc(creators.rank));
+    const rankingType = queryStr(req, "rankingType") || "overall";
+    const month = queryStr(req, "month") || getYearMonth();
+    let rows = await db.select().from(creators).orderBy(asc2(creators.rank));
+    if (rankingType === "overall" || rankingType === "paid_live") {
+      const scores = await db.select().from(creatorMonthlyScores).where(eq2(creatorMonthlyScores.yearMonth, month));
+      const rankMap = /* @__PURE__ */ new Map();
+      scores.forEach((s) => {
+        rankMap.set(
+          s.creatorId,
+          rankingType === "paid_live" ? s.rankPaidLive ?? 999 : s.rankOverall ?? 999
+        );
+      });
+      rows = rows.map((r) => ({
+        ...r,
+        rank: rankMap.get(r.id) ?? r.rank
+      })).sort((a, b) => a.rank - b.rank);
+    }
     if (name) {
       const q = name.toLowerCase();
       rows = rows.filter((r) => r.name.toLowerCase().includes(q));
@@ -4199,13 +4546,70 @@ data: ${data}
       const availIds = new Set(avail.map((a) => a.liverId));
       rows = rows.filter((r) => availIds.has(r.id));
     }
-    res.json(rows);
+    res.json({ rankingType, month, rows });
   });
   app2.get("/api/livers/:id", async (req, res) => {
     const id = paramNum(req, "id");
     const [liver] = await db.select().from(creators).where(eq2(creators.id, id));
     if (!liver) return res.status(404).json({ error: "Not found" });
     res.json(liver);
+  });
+  app2.get("/api/livers/me/level-progress", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u304C\u5FC5\u8981\u3067\u3059" });
+    const [creator] = await db.select().from(creators).where(eq2(creators.name, user.displayName));
+    if (!creator) {
+      return res.status(404).json({ error: "\u914D\u4FE1\u8005\u767B\u9332\u304C\u5FC5\u8981\u3067\u3059" });
+    }
+    const month = queryStr(req, "month") || getYearMonth();
+    await ensureDefaultLevelThresholds();
+    const [score] = await db.select().from(creatorMonthlyScores).where(and2(eq2(creatorMonthlyScores.creatorId, creator.id), eq2(creatorMonthlyScores.yearMonth, month)));
+    const tipGrossThisMonth = score?.tipGross ?? 0;
+    const streamCountThisMonth = score?.streamCountMonthly ?? 0;
+    const level = await syncCreatorLevelFromMonthlyProgress(creator.id, month);
+    const thresholds = await db.select().from(creatorLevelThresholds).orderBy(asc2(creatorLevelThresholds.level));
+    const current = thresholds.find((t) => t.level === level) ?? thresholds[0];
+    const next = thresholds.find((t) => t.level === level + 1) ?? current;
+    const requiredTipGross = next?.requiredTipGross ?? 0;
+    const requiredStreamCount = next?.requiredStreamCount ?? 0;
+    const remainingTipGross = Math.max(0, requiredTipGross - tipGrossThisMonth);
+    const remainingStreamCount = Math.max(0, requiredStreamCount - streamCountThisMonth);
+    res.json({
+      month,
+      creatorId: creator.id,
+      currentLevel: level,
+      nextLevel: next?.level ?? level,
+      tipBackRate: current?.tipBackRate ?? 0.5,
+      tipGrossThisMonth,
+      streamCountThisMonth,
+      requiredTipGross,
+      requiredStreamCount,
+      remainingTipGross,
+      remainingStreamCount
+    });
+  });
+  app2.post("/api/livers/me/streams/record", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u304C\u5FC5\u8981\u3067\u3059" });
+    const [creator] = await db.select().from(creators).where(eq2(creators.name, user.displayName));
+    if (!creator) return res.status(404).json({ error: "\u914D\u4FE1\u8005\u767B\u9332\u304C\u5FC5\u8981\u3067\u3059" });
+    const month = getYearMonth();
+    const [score] = await db.select().from(creatorMonthlyScores).where(and2(eq2(creatorMonthlyScores.creatorId, creator.id), eq2(creatorMonthlyScores.yearMonth, month)));
+    if (score) {
+      await db.update(creatorMonthlyScores).set({
+        streamCountMonthly: score.streamCountMonthly + 1,
+        updatedAt: /* @__PURE__ */ new Date()
+      }).where(eq2(creatorMonthlyScores.id, score.id));
+    } else {
+      await db.insert(creatorMonthlyScores).values({
+        creatorId: creator.id,
+        yearMonth: month,
+        streamCountMonthly: 1
+      });
+    }
+    await db.update(creators).set({ streamCount: creator.streamCount + 1 }).where(eq2(creators.id, creator.id));
+    const newLevel = await syncCreatorLevelFromMonthlyProgress(creator.id, month);
+    res.status(201).json({ ok: true, month, currentLevel: newLevel });
   });
   app2.get("/api/profile/roles", async (req, res) => {
     const user = await getAuthUser(req);
@@ -4287,7 +4691,7 @@ data: ${data}
   });
   app2.get("/api/livers/:id/availability", async (req, res) => {
     const id = paramNum(req, "id");
-    const rows = await db.select().from(liverAvailability).where(eq2(liverAvailability.liverId, id)).orderBy(asc(liverAvailability.date), asc(liverAvailability.startTime));
+    const rows = await db.select().from(liverAvailability).where(eq2(liverAvailability.liverId, id)).orderBy(asc2(liverAvailability.date), asc2(liverAvailability.startTime));
     res.json(rows);
   });
   app2.post("/api/livers/:id/availability", async (req, res) => {
@@ -5126,7 +5530,7 @@ data: ${data}
   });
   app2.get("/api/platform-banners", async (_req, res) => {
     try {
-      const rows = await db.select().from(bannerAds).where(eq2(bannerAds.isActive, true)).orderBy(asc(bannerAds.displayOrder), desc(bannerAds.createdAt));
+      const rows = await db.select().from(bannerAds).where(eq2(bannerAds.isActive, true)).orderBy(asc2(bannerAds.displayOrder), desc(bannerAds.createdAt));
       res.json(rows);
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -5206,23 +5610,66 @@ data: ${data}
       res.status(500).json({ error: e.message });
     }
   });
+  const AI_EDIT_PLAN_TICKETS = { 15: 200, 30: 400, 45: 600, 60: 800 };
+  const AI_EDIT_REVISION_TICKETS = 100;
   app2.post("/api/ai-edit/jobs", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
-    const { videoUrl, prompt } = req.body;
-    if (!videoUrl?.trim() || !prompt?.trim()) {
-      return res.status(400).json({ error: "videoUrl \u3068 prompt \u306F\u5FC5\u9808\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const { planMinutes, videoUrls, logoUrl, telop, targetAudience, tone, prompt } = req.body;
+    if (!planMinutes || !(planMinutes in AI_EDIT_PLAN_TICKETS)) {
+      return res.status(400).json({ error: "planMinutes must be 15, 30, 45, or 60" });
     }
+    if (!Array.isArray(videoUrls) || videoUrls.length === 0) {
+      return res.status(400).json({ error: "At least one video URL is required" });
+    }
+    if (!prompt?.trim()) {
+      return res.status(400).json({ error: "prompt is required" });
+    }
+    const ticketCost = AI_EDIT_PLAN_TICKETS[planMinutes];
+    const userId = String(user.id);
+    const balRows = await db.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
+    const currentBalance = balRows[0]?.balance ?? 0;
+    if (currentBalance < ticketCost) {
+      return res.status(402).json({ error: "Insufficient tickets", balance: currentBalance, required: ticketCost });
+    }
+    if (balRows.length === 0) {
+      await db.insert(ticketBalances).values({ userId, balance: -ticketCost });
+    } else {
+      await db.update(ticketBalances).set({ balance: currentBalance - ticketCost, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
+    }
+    await db.insert(ticketTransactions).values({
+      userId,
+      amount: -ticketCost,
+      type: "spend_ai_edit",
+      description: `AI Edit: ${planMinutes}min plan`
+    });
     const [job] = await db.insert(aiEditJobs).values({
       userId: user.id,
-      videoUrl: videoUrl.trim(),
+      videoUrl: videoUrls[0],
       prompt: prompt.trim(),
-      status: "pending"
+      status: "pending",
+      planMinutes,
+      videoUrls: JSON.stringify(videoUrls),
+      logoUrl: logoUrl ?? null,
+      telop: telop ?? null,
+      targetAudience: targetAudience ?? null,
+      tone: tone ?? null,
+      revisionCount: 0,
+      ticketCost
     }).returning();
     (async () => {
       try {
         await db.update(aiEditJobs).set({ status: "processing", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, job.id));
-        const plan = await generateEditPlan(videoUrl.trim(), prompt.trim());
+        const editInput = {
+          planMinutes,
+          videoUrls,
+          logoUrl,
+          telop,
+          targetAudience,
+          tone,
+          prompt: prompt.trim()
+        };
+        const plan = await generateEditPlan(editInput);
         await db.update(aiEditJobs).set({
           status: "completed",
           result: JSON.stringify(plan),
@@ -5237,12 +5684,12 @@ data: ${data}
   });
   app2.get("/api/ai-edit/jobs/:id", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
     const id = paramNum(req, "id");
     const [job] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.id, id));
-    if (!job) return res.status(404).json({ error: "\u30B8\u30E7\u30D6\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    if (!job) return res.status(404).json({ error: "Job not found" });
     if (job.userId !== user.id) {
-      return res.status(403).json({ error: "\u30A2\u30AF\u30BB\u30B9\u6A29\u9650\u304C\u3042\u308A\u307E\u305B\u3093" });
+      return res.status(403).json({ error: "Forbidden" });
     }
     let result = null;
     if (job.result) {
@@ -5252,31 +5699,149 @@ data: ${data}
         result = null;
       }
     }
+    let parsedVideoUrls = null;
+    if (job.videoUrls) {
+      try {
+        parsedVideoUrls = JSON.parse(job.videoUrls);
+      } catch {
+        parsedVideoUrls = null;
+      }
+    }
     res.json({
       id: job.id,
       userId: job.userId,
       videoUrl: job.videoUrl,
+      videoUrls: parsedVideoUrls,
       prompt: job.prompt,
       status: job.status,
       result,
+      planMinutes: job.planMinutes,
+      logoUrl: job.logoUrl,
+      telop: job.telop,
+      targetAudience: job.targetAudience,
+      tone: job.tone,
+      revisionCount: job.revisionCount ?? 0,
+      ticketCost: job.ticketCost,
+      deliveredUrl: job.deliveredUrl ?? null,
+      deliveredAt: job.deliveredAt ?? null,
       createdAt: job.createdAt,
       updatedAt: job.updatedAt
     });
   });
   app2.post("/api/ai-edit/jobs/:id/approve", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
     const id = paramNum(req, "id");
     const [job] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.id, id));
-    if (!job) return res.status(404).json({ error: "\u30B8\u30E7\u30D6\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    if (!job) return res.status(404).json({ error: "Job not found" });
     if (job.userId !== user.id) {
-      return res.status(403).json({ error: "\u30A2\u30AF\u30BB\u30B9\u6A29\u9650\u304C\u3042\u308A\u307E\u305B\u3093" });
+      return res.status(403).json({ error: "Forbidden" });
     }
     if (job.status !== "completed") {
-      return res.status(400).json({ error: "\u5B8C\u4E86\u6E08\u307F\u306E\u30B8\u30E7\u30D6\u306E\u307F\u627F\u8A8D\u3067\u304D\u307E\u3059" });
+      return res.status(400).json({ error: "Only completed jobs can be approved" });
     }
     await db.update(aiEditJobs).set({ status: "approved", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, id));
     res.json({ ok: true, id, status: "approved" });
+  });
+  app2.post("/api/ai-edit/jobs/:id/revise", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const id = paramNum(req, "id");
+    const [job] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.id, id));
+    if (!job) return res.status(404).json({ error: "Job not found" });
+    if (job.userId !== user.id) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    if (job.status !== "completed" && job.status !== "approved") {
+      return res.status(400).json({ error: "Only completed or approved jobs can be revised" });
+    }
+    const revisionCount = job.revisionCount ?? 0;
+    if (revisionCount >= 1) {
+      const userId = String(user.id);
+      const balRows = await db.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
+      const currentBalance = balRows[0]?.balance ?? 0;
+      if (currentBalance < AI_EDIT_REVISION_TICKETS) {
+        return res.status(402).json({ error: "Insufficient tickets", balance: currentBalance, required: AI_EDIT_REVISION_TICKETS });
+      }
+      if (balRows.length === 0) {
+        await db.insert(ticketBalances).values({ userId, balance: -AI_EDIT_REVISION_TICKETS });
+      } else {
+        await db.update(ticketBalances).set({ balance: currentBalance - AI_EDIT_REVISION_TICKETS, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
+      }
+      await db.insert(ticketTransactions).values({
+        userId,
+        amount: -AI_EDIT_REVISION_TICKETS,
+        type: "spend_ai_edit_revision",
+        referenceId: String(job.id),
+        description: `AI Edit Revision #${revisionCount + 1} (job ${job.id})`
+      });
+    }
+    const newRevisionCount = revisionCount + 1;
+    await db.update(aiEditJobs).set({ status: "processing", revisionCount: newRevisionCount, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, id));
+    let videoUrlsArr;
+    try {
+      videoUrlsArr = job.videoUrls ? JSON.parse(job.videoUrls) : [job.videoUrl];
+    } catch {
+      videoUrlsArr = [job.videoUrl];
+    }
+    const reviseInput = {
+      planMinutes: job.planMinutes ?? 15,
+      videoUrls: videoUrlsArr,
+      logoUrl: job.logoUrl,
+      telop: job.telop,
+      targetAudience: job.targetAudience,
+      tone: job.tone,
+      prompt: job.prompt
+    };
+    (async () => {
+      try {
+        const plan = await generateEditPlan(reviseInput);
+        await db.update(aiEditJobs).set({ status: "completed", result: JSON.stringify(plan), updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, id));
+      } catch (e) {
+        console.error("[ai-edit] Revision failed:", e);
+        await db.update(aiEditJobs).set({ status: "failed", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, id));
+      }
+    })();
+    res.json({ ok: true, revisionCount: newRevisionCount, free: revisionCount === 0 });
+  });
+  app2.post("/api/ai-edit/jobs/:id/deliver", async (req, res) => {
+    const editor = await getAuthUser(req);
+    if (!editor) return res.status(401).json({ error: "Unauthorized" });
+    const id = paramNum(req, "id");
+    const { deliveredUrl } = req.body;
+    if (!deliveredUrl?.trim()) {
+      return res.status(400).json({ error: "deliveredUrl is required" });
+    }
+    const [job] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.id, id));
+    if (!job) return res.status(404).json({ error: "Job not found" });
+    if (job.status === "delivered") {
+      return res.status(409).json({ error: "This job has already been delivered" });
+    }
+    if (!["approved", "completed"].includes(job.status)) {
+      return res.status(400).json({ error: "Only approved or completed jobs can be delivered" });
+    }
+    const now = /* @__PURE__ */ new Date();
+    await db.update(aiEditJobs).set({
+      status: "delivered",
+      deliveredUrl: deliveredUrl.trim(),
+      deliveredAt: now,
+      updatedAt: now
+    }).where(eq2(aiEditJobs.id, id));
+    try {
+      const [owner] = await db.select().from(users).where(eq2(users.id, job.userId));
+      await db.insert(notifications).values({
+        type: "ai_edit_delivered",
+        title: "Your edited video is ready",
+        body: `Your AI Edit job #${job.id}${job.planMinutes ? ` (${job.planMinutes}-min plan)` : ""} has been delivered. Tap to download.`,
+        amount: null,
+        avatar: owner?.avatar ?? null,
+        thumbnail: null,
+        timeAgo: "Just now"
+      });
+    } catch (notifErr) {
+      console.error("[ai-edit/deliver] Failed to send notification:", notifErr);
+    }
+    res.json({ ok: true, id, status: "delivered", deliveredUrl: deliveredUrl.trim() });
   });
 }
 
