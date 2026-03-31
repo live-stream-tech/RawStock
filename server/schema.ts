@@ -292,9 +292,41 @@ export const creators = pgTable("creators", {
   revenueShare: integer("revenue_share").notNull().default(80),
   satisfactionScore: real("satisfaction_score").notNull().default(0),
   attendanceRate: real("attendance_rate").notNull().default(0),
+  currentLevel: integer("current_level").notNull().default(1),
   bio: text("bio").notNull().default(""),
   category: text("category").notNull().default("idol"),
 });
+
+export const creatorLevelThresholds = pgTable("creator_level_thresholds", {
+  id: serial("id").primaryKey(),
+  level: integer("level").notNull().unique(),
+  requiredTipGross: integer("required_tip_gross").notNull().default(0),
+  requiredStreamCount: integer("required_stream_count").notNull().default(0),
+  tipBackRate: real("tip_back_rate").notNull().default(0.5),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const creatorMonthlyScores = pgTable(
+  "creator_monthly_scores",
+  {
+    id: serial("id").primaryKey(),
+    creatorId: integer("creator_id").notNull(),
+    yearMonth: text("year_month").notNull(), // YYYY-MM
+    tipGross: integer("tip_gross").notNull().default(0),
+    paidLiveGross: integer("paid_live_gross").notNull().default(0),
+    streamCountMonthly: integer("stream_count_monthly").notNull().default(0),
+    avgSatisfaction: real("avg_satisfaction").notNull().default(0),
+    compositeScore: real("composite_score").notNull().default(0),
+    startRank: integer("start_rank"),
+    rankOverall: integer("rank_overall"),
+    rankPaidLive: integer("rank_paid_live"),
+    nextStartRank: integer("next_start_rank"),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (t) => [unique().on(t.creatorId, t.yearMonth)],
+);
 
 export const bookingSessions = pgTable("booking_sessions", {
   id: serial("id").primaryKey(),
@@ -475,6 +507,12 @@ export const transactions = pgTable("transactions", {
   id: serial("id").primaryKey(),
   walletId: integer("wallet_id").notNull(),
   amount: integer("amount").notNull(),
+  source: text("source").notNull().default("tip"), // tip | paid_live | twoshot
+  grossAmount: integer("gross_amount").notNull().default(0),
+  backRate: real("back_rate").notNull().default(1),
+  netAmount: integer("net_amount").notNull().default(0),
+  creatorId: integer("creator_id"),
+  yearMonth: text("year_month"), // YYYY-MM
   type: text("type").notNull(), // 'tip' | 'gift' | 'twoshot' | 'banner_ad' | 'payout' | 'revenue_share' | 'REVENUE' 等
   status: text("status").notNull().default("PENDING"), // PENDING | SETTLED | CANCELLED
   referenceId: text("reference_id"),

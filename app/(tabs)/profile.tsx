@@ -53,6 +53,19 @@ type MyCommunity = {
   category: string;
 };
 
+type LevelProgress = {
+  month: string;
+  currentLevel: number;
+  nextLevel: number;
+  tipBackRate: number;
+  tipGrossThisMonth: number;
+  streamCountThisMonth: number;
+  requiredTipGross: number;
+  requiredStreamCount: number;
+  remainingTipGross: number;
+  remainingStreamCount: number;
+};
+
 
 /** 公開プロフィール用の投稿一覧（プレビュー用） */
 function ProfilePreviewPosts({ userId }: { userId: number }) {
@@ -225,6 +238,10 @@ export default function ProfileScreen() {
     queryKey: ["/api/profile/roles"],
     enabled: !!user,
   });
+  const { data: levelProgress } = useQuery<LevelProgress>({
+    queryKey: ["/api/livers/me/level-progress"],
+    enabled: !!user && !!token,
+  });
 
   const { data: myVideos = [] } = useQuery<MyVideo[]>({
     queryKey: ["/api/videos/my"],
@@ -283,11 +300,13 @@ export default function ProfileScreen() {
     category: string;
     followers: number;
   };
+  type LiverSearchResponse = { rows: Liver[] };
 
-  const { data: searchResults = [] } = useQuery<Liver[]>({
+  const { data: searchPayload } = useQuery<LiverSearchResponse>({
     queryKey: [searchDebounced ? `/api/livers?name=${encodeURIComponent(searchDebounced)}` : "/api/livers"],
     enabled: searchDebounced.length > 0,
   });
+  const searchResults = searchPayload?.rows ?? [];
 
 
 
@@ -377,6 +396,11 @@ export default function ProfileScreen() {
         const res = await apiRequest("POST", "/api/auth/demo", {});
         if (res?.token) {
           await loginWithToken(res.token);
+          if (Platform.OS === "web" && typeof window !== "undefined") {
+            window.location.replace("/profile");
+          } else {
+            router.replace("/(tabs)/profile");
+          }
         }
       } catch (e: any) {
         Alert.alert("Error", e?.message ?? "Demo login failed");
@@ -409,6 +433,19 @@ export default function ProfileScreen() {
       </View>
     );
   }
+
+  const tipProgressRatio = levelProgress
+    ? levelProgress.requiredTipGross > 0
+      ? Math.min(1, levelProgress.tipGrossThisMonth / levelProgress.requiredTipGross)
+      : 1
+    : 0;
+  const streamProgressRatio = levelProgress
+    ? levelProgress.requiredStreamCount > 0
+      ? Math.min(1, levelProgress.streamCountThisMonth / levelProgress.requiredStreamCount)
+      : 1
+    : 0;
+  const overallProgressRatio = Math.min(1, (tipProgressRatio + streamProgressRatio) / 2);
+  const progressPercent = Math.round(overallProgressRatio * 100);
 
   return (
     <View style={[styles.container, { paddingBottom: bottomInset }]}>
@@ -560,16 +597,30 @@ export default function ProfileScreen() {
         <View style={styles.supporterCard}>
           <View style={styles.supporterHeader}>
             <Ionicons name="trending-up" size={16} color={C.accent} />
-            <Text style={styles.supporterTitle}>AUTHORIZED SUPPORTER LV.3</Text>
+            <Text style={styles.supporterTitle}>
+              {levelProgress ? `CREATOR LEVEL ${levelProgress.currentLevel}` : "CREATOR LEVEL"}
+            </Text>
             <View style={styles.activeBadge}>
-              <Text style={styles.activeText}>ACTIVE</Text>
+              <Text style={styles.activeText}>{`${progressPercent}%`}</Text>
             </View>
           </View>
           <View style={styles.progressBar}>
-            <View style={[styles.progressFill, { width: "72%" }]} />
+            <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
             <Ionicons name="trophy-outline" size={14} color={C.orange} style={styles.trophyIcon} />
           </View>
-          <Text style={styles.supporterSub}>REVENUE SHARE: 50% + 15% BONUS</Text>
+          {levelProgress ? (
+            <>
+              <Text style={styles.supporterSub}>
+                TIP BACK RATE: {Math.round(levelProgress.tipBackRate * 100)}% / PAID LIVE: 90%
+              </Text>
+              <Text style={styles.supporterHint}>
+                次レベルまであと {levelProgress.remainingStreamCount} 回配信 / あと ¥
+                {levelProgress.remainingTipGross.toLocaleString()} 投げ銭
+              </Text>
+            </>
+          ) : (
+            <Text style={styles.supporterHint}>配信者登録後にレベル進捗が表示されます</Text>
+          )}
         </View>
 
         {/* Ticket Balance */}
@@ -1229,6 +1280,7 @@ const styles = StyleSheet.create({
   progressFill: { height: "100%", backgroundColor: C.accent, borderRadius: 2 },
   trophyIcon: { position: "absolute", right: 0, top: -3 },
   supporterSub: { color: C.accent, fontSize: 10, fontWeight: "700", letterSpacing: 0.5 },
+  supporterHint: { color: C.textMuted, fontSize: 11, lineHeight: 16 },
   roleCard: {
     marginHorizontal: 16,
     backgroundColor: C.surface,

@@ -8,6 +8,8 @@ import {
   videoComments,
   liveStreams,
   creators,
+  creatorLevelThresholds,
+  creatorMonthlyScores,
   videoEditors,
   videoEditRequests,
   bookingSessions,
@@ -55,7 +57,7 @@ import {
 } from "./schema";
 import { eq, asc, desc, count, sql, and, or, gte, lte, isNull, inArray } from "drizzle-orm";
 import { getUncachableStripeClient, getStripePublishableKey, createConnectExpressAccount, createConnectAccountLink, getConnectAccount, createBannerPaymentIntent, getPaymentIntentStatus } from "./stripeClient";
-import { getMonthlyRevenueRank } from "./aggregateRevenue";
+import { getCreatorMonthlyRankings, getMonthlyRevenueRank, runMonthlyCreatorAggregation } from "./aggregateRevenue";
 import { judgeReportContent } from "./claudeReport";
 import { generateEditPlan, type EditJobInput } from "./aiEditAssistant";
 import { createSignedUploadUrl } from "./r2";
@@ -157,15 +159,145 @@ async function getOrCreateUserWallet(userId: number): Promise<number> {
   return created.id;
 }
 
+type RevenueSource = "tip" | "paid_live" | "twoshot";
+
+const DEFAULT_LEVEL_THRESHOLDS = [
+  { level: 1, requiredTipGross: 0, requiredStreamCount: 0, tipBackRate: 0.5 },
+  { level: 2, requiredTipGross: 50_000, requiredStreamCount: 4, tipBackRate: 0.55 },
+  { level: 3, requiredTipGross: 100_000, requiredStreamCount: 8, tipBackRate: 0.6 },
+  { level: 4, requiredTipGross: 160_000, requiredStreamCount: 12, tipBackRate: 0.65 },
+  { level: 5, requiredTipGross: 240_000, requiredStreamCount: 16, tipBackRate: 0.7 },
+  { level: 6, requiredTipGross: 340_000, requiredStreamCount: 20, tipBackRate: 0.75 },
+  { level: 7, requiredTipGross: 460_000, requiredStreamCount: 24, tipBackRate: 0.8 },
+] as const;
+
+function getYearMonth(date = new Date()): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+
+function getPrevYearMonth(yearMonth: string): string {
+  const [year, month] = yearMonth.split("-").map(Number);
+  const d = new Date(year, month - 2, 1);
+  return getYearMonth(d);
+}
+
+async function ensureDefaultLevelThresholds() {
+  const rows = await db.select().from(creatorLevelThresholds).orderBy(asc(creatorLevelThresholds.level));
+  if (rows.length > 0) return rows;
+  await db.insert(creatorLevelThresholds).values(
+    DEFAULT_LEVEL_THRESHOLDS.map((t) => ({
+      level: t.level,
+      requiredTipGross: t.requiredTipGross,
+      requiredStreamCount: t.requiredStreamCount,
+      tipBackRate: t.tipBackRate,
+    })) as unknown as typeof creatorLevelThresholds.$inferInsert[],
+  );
+  return db.select().from(creatorLevelThresholds).orderBy(asc(creatorLevelThresholds.level));
+}
+
+async function syncCreatorLevelFromMonthlyProgress(creatorId: number, yearMonth: string): Promise<number> {
+  const thresholds = await ensureDefaultLevelThresholds();
+  const [score] = await db
+    .select()
+    .from(creatorMonthlyScores)
+    .where(and(eq(creatorMonthlyScores.creatorId, creatorId), eq(creatorMonthlyScores.yearMonth, yearMonth)));
+  const tipGross = score?.tipGross ?? 0;
+  const streamCountMonthly = score?.streamCountMonthly ?? 0;
+  const achieved = thresholds.reduce((acc, t) => {
+    if (tipGross >= t.requiredTipGross && streamCountMonthly >= t.requiredStreamCount) return Math.max(acc, t.level);
+    return acc;
+  }, 1);
+  await db.update(creators).set({ currentLevel: achieved } as Partial<typeof creators.$inferInsert>).where(eq(creators.id, creatorId));
+  return achieved;
+}
+
+async function upsertCreatorMonthlyRevenue(
+  creatorId: number,
+  yearMonth: string,
+  source: RevenueSource,
+  grossAmount: number,
+): Promise<void> {
+  const [existing] = await db
+    .select()
+    .from(creatorMonthlyScores)
+    .where(and(eq(creatorMonthlyScores.creatorId, creatorId), eq(creatorMonthlyScores.yearMonth, yearMonth)));
+  if (!existing) {
+    await db.insert(creatorMonthlyScores).values({
+      creatorId,
+      yearMonth,
+      tipGross: source === "tip" ? grossAmount : 0,
+      paidLiveGross: source === "tip" ? 0 : grossAmount,
+    } as typeof creatorMonthlyScores.$inferInsert);
+    return;
+  }
+  await db
+    .update(creatorMonthlyScores)
+    .set({
+      tipGross: source === "tip" ? existing.tipGross + grossAmount : existing.tipGross,
+      paidLiveGross: source === "tip" ? existing.paidLiveGross : existing.paidLiveGross + grossAmount,
+      updatedAt: new Date(),
+    } as Partial<typeof creatorMonthlyScores.$inferInsert>)
+    .where(eq(creatorMonthlyScores.id, existing.id));
+}
+
 /** 収益を transactions に type: 'REVENUE' で記録（月末ランク集計用） */
-async function recordRevenue(walletId: number, amount: number, source: string, referenceId: string | null) {
+async function recordRevenue(
+  walletId: number,
+  userId: number,
+  creatorId: number | null,
+  amount: number,
+  source: RevenueSource,
+  referenceId: string | null,
+) {
+  const yearMonth = getYearMonth();
+  let backRate = 0.9; // paid_live/twoshot は常に 90%
+  if (source === "tip") {
+    const thresholds = await ensureDefaultLevelThresholds();
+    const [creator] = creatorId ? await db.select().from(creators).where(eq(creators.id, creatorId)) : [];
+    const level = creator?.currentLevel ?? 1;
+    const rate = thresholds.find((t) => t.level === level)?.tipBackRate;
+    backRate = typeof rate === "number" ? rate : 0.5;
+  }
+  const netAmount = Math.floor(amount * backRate);
   await db.insert(transactions).values({
     walletId,
     amount,
+    source,
+    grossAmount: amount,
+    backRate,
+    netAmount,
+    creatorId,
+    yearMonth,
     type: "REVENUE",
     status: "PENDING",
     referenceId,
   } as typeof transactions.$inferInsert);
+
+  await db.insert(earnings).values({
+    userId: `user-${userId}`,
+    type: source,
+    title: source === "tip" ? "投げ銭収益" : "有料配信収益",
+    amount,
+    revenueShare: Math.round(backRate * 100),
+    netAmount,
+  } as typeof earnings.$inferInsert);
+
+  if (creatorId) {
+    const [creator] = await db.select().from(creators).where(eq(creators.id, creatorId));
+    if (creator) {
+      await db
+        .update(creators)
+        .set({
+          revenue: creator.revenue + amount,
+          revenueShare: Math.round(backRate * 100),
+        } as Partial<typeof creators.$inferInsert>)
+        .where(eq(creators.id, creatorId));
+    }
+    await upsertCreatorMonthlyRevenue(creatorId, yearMonth, source, amount);
+    await syncCreatorLevelFromMonthlyProgress(creatorId, yearMonth);
+  }
 }
 
 export async function registerRoutes(app: Express): Promise<void> {
@@ -3909,7 +4041,8 @@ export async function registerRoutes(app: Express): Promise<void> {
         const [creatorUser] = await db.select().from(users).where(eq(users.displayName, stream.creator));
         if (creatorUser) {
           const walletId = await getOrCreateUserWallet(creatorUser.id);
-          await recordRevenue(walletId, booking.price, "twoshot", String(booking.id));
+          const [creatorRow] = await db.select().from(creators).where(eq(creators.name, stream.creator));
+          await recordRevenue(walletId, creatorUser.id, creatorRow?.id ?? null, booking.price, "twoshot", String(booking.id));
         }
       }
 
@@ -3959,10 +4092,14 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     const { amount, source, referenceId } = req.body as { amount?: number; source?: string; referenceId?: string };
     if (!amount || amount <= 0) return res.status(400).json({ error: "amount は正の数で指定してください" });
-    const src = source ?? "tip"; // tip | paid_live | twoshot
+    const src = (source ?? "tip") as RevenueSource; // tip | paid_live | twoshot
+    if (!["tip", "paid_live", "twoshot"].includes(src)) {
+      return res.status(400).json({ error: "source は tip / paid_live / twoshot のいずれかを指定してください" });
+    }
 
     const walletId = await getOrCreateUserWallet(user.id);
-    await recordRevenue(walletId, amount, src, referenceId ?? null);
+    const [creatorRow] = await db.select().from(creators).where(eq(creators.name, user.displayName));
+    await recordRevenue(walletId, user.id, creatorRow?.id ?? null, amount, src, referenceId ?? null);
     res.status(201).json({ ok: true, amount, source: src });
   });
 
@@ -4020,8 +4157,16 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (!match) {
       return res.status(400).json({ error: "month は YYYY-MM 形式で指定してください" });
     }
+    const kind = queryStr(req, "kind") || "overall";
+    if (queryStr(req, "refresh") === "1") {
+      await runMonthlyCreatorAggregation(month);
+    }
+    if (kind === "overall" || kind === "paid_live") {
+      const rankings = await getCreatorMonthlyRankings(month, kind === "paid_live" ? "paid_live" : "overall");
+      return res.json({ month, kind, rankings });
+    }
     const rankings = await getMonthlyRevenueRank(month);
-    res.json({ month, rankings });
+    res.json({ month, kind: "revenue", rankings });
   });
 
   app.get("/api/revenue/withdrawals", async (req: Request, res: Response) => {
@@ -4081,7 +4226,28 @@ export async function registerRoutes(app: Express): Promise<void> {
     const minScore = queryStr(req, "minScore");
     const category = queryStr(req, "category");
     const date = queryStr(req, "date");
+    const rankingType = queryStr(req, "rankingType") || "overall";
+    const month = queryStr(req, "month") || getYearMonth();
     let rows = await db.select().from(creators).orderBy(asc(creators.rank));
+    if (rankingType === "overall" || rankingType === "paid_live") {
+      const scores = await db
+        .select()
+        .from(creatorMonthlyScores)
+        .where(eq(creatorMonthlyScores.yearMonth, month));
+      const rankMap = new Map<number, number>();
+      scores.forEach((s) => {
+        rankMap.set(
+          s.creatorId,
+          rankingType === "paid_live" ? (s.rankPaidLive ?? 999) : (s.rankOverall ?? 999),
+        );
+      });
+      rows = rows
+        .map((r) => ({
+          ...r,
+          rank: rankMap.get(r.id) ?? r.rank,
+        }))
+        .sort((a, b) => a.rank - b.rank);
+    }
     if (name) {
       const q = name.toLowerCase();
       rows = rows.filter((r) => r.name.toLowerCase().includes(q));
@@ -4098,14 +4264,85 @@ export async function registerRoutes(app: Express): Promise<void> {
       const availIds = new Set(avail.map((a) => a.liverId));
       rows = rows.filter((r) => availIds.has(r.id));
     }
-    res.json(rows);
+    res.json({ rankingType, month, rows });
   });
 
-  app.get("/api/livers/:id", async (req: Request, res: Response) => {
+  app.get("/api/livers/:id(\\d+)", async (req: Request, res: Response) => {
     const id = paramNum(req, "id");
     const [liver] = await db.select().from(creators).where(eq(creators.id, id));
     if (!liver) return res.status(404).json({ error: "Not found" });
     res.json(liver);
+  });
+
+  app.get("/api/livers/me/level-progress", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "ログインが必要です" });
+    const [creator] = await db.select().from(creators).where(eq(creators.name, user.displayName));
+    if (!creator) {
+      return res.status(404).json({ error: "配信者登録が必要です" });
+    }
+    const month = queryStr(req, "month") || getYearMonth();
+    await ensureDefaultLevelThresholds();
+    const [score] = await db
+      .select()
+      .from(creatorMonthlyScores)
+      .where(and(eq(creatorMonthlyScores.creatorId, creator.id), eq(creatorMonthlyScores.yearMonth, month)));
+    const tipGrossThisMonth = score?.tipGross ?? 0;
+    const streamCountThisMonth = score?.streamCountMonthly ?? 0;
+    const level = await syncCreatorLevelFromMonthlyProgress(creator.id, month);
+    const thresholds = await db.select().from(creatorLevelThresholds).orderBy(asc(creatorLevelThresholds.level));
+    const current = thresholds.find((t) => t.level === level) ?? thresholds[0];
+    const next = thresholds.find((t) => t.level === level + 1) ?? current;
+    const requiredTipGross = next?.requiredTipGross ?? 0;
+    const requiredStreamCount = next?.requiredStreamCount ?? 0;
+    const remainingTipGross = Math.max(0, requiredTipGross - tipGrossThisMonth);
+    const remainingStreamCount = Math.max(0, requiredStreamCount - streamCountThisMonth);
+    res.json({
+      month,
+      creatorId: creator.id,
+      currentLevel: level,
+      nextLevel: next?.level ?? level,
+      tipBackRate: current?.tipBackRate ?? 0.5,
+      tipGrossThisMonth,
+      streamCountThisMonth,
+      requiredTipGross,
+      requiredStreamCount,
+      remainingTipGross,
+      remainingStreamCount,
+    });
+  });
+
+  app.post("/api/livers/me/streams/record", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "ログインが必要です" });
+    const [creator] = await db.select().from(creators).where(eq(creators.name, user.displayName));
+    if (!creator) return res.status(404).json({ error: "配信者登録が必要です" });
+    const month = getYearMonth();
+    const [score] = await db
+      .select()
+      .from(creatorMonthlyScores)
+      .where(and(eq(creatorMonthlyScores.creatorId, creator.id), eq(creatorMonthlyScores.yearMonth, month)));
+    if (score) {
+      await db
+        .update(creatorMonthlyScores)
+        .set({
+          streamCountMonthly: score.streamCountMonthly + 1,
+          updatedAt: new Date(),
+        } as Partial<typeof creatorMonthlyScores.$inferInsert>)
+        .where(eq(creatorMonthlyScores.id, score.id));
+    } else {
+      await db.insert(creatorMonthlyScores).values({
+        creatorId: creator.id,
+        yearMonth: month,
+        streamCountMonthly: 1,
+      } as typeof creatorMonthlyScores.$inferInsert);
+    }
+    await db
+      .update(creators)
+      .set({ streamCount: creator.streamCount + 1 } as Partial<typeof creators.$inferInsert>)
+      .where(eq(creators.id, creator.id));
+    const newLevel = await syncCreatorLevelFromMonthlyProgress(creator.id, month);
+    res.status(201).json({ ok: true, month, currentLevel: newLevel });
   });
 
   // ── Profile Roles (Creator / Twoshot Liver) ────────────────────────

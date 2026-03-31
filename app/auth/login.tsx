@@ -113,6 +113,7 @@ export default function LoginScreen() {
       let returnTo = saved ?? fallback;
 
       const isInvalidReturn =
+        returnTo === "/(tabs)" ||
         returnTo.startsWith("/auth/") ||
         returnTo.startsWith("/jukebox") ||
         returnTo.startsWith("/lp") ||
@@ -124,7 +125,13 @@ export default function LoginScreen() {
       if (isInvalidReturn) returnTo = fallback;
 
       console.info("[auth/login] Try Demo redirect to", returnTo);
-      router.replace(returnTo as any);
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        // Web/PWA では router.replace が環境依存で反映されないことがあるため、
+        // 成功時はブラウザ遷移を優先して確実に画面更新する。
+        window.location.replace(returnTo);
+      } else {
+        router.replace(returnTo as any);
+      }
     } catch (e: any) {
       if (e?.name === "AbortError") {
         setErrorMsg("Request timed out. Please try again.");

@@ -33,6 +33,12 @@ type Liver = {
   category: string;
 };
 
+type LiversResponse = {
+  rankingType: "overall" | "paid_live";
+  month: string;
+  rows: Liver[];
+};
+
 const CATEGORIES = [
   { id: "all", label: "All" },
   { id: "idol", label: "Idol" },
@@ -111,22 +117,25 @@ export default function LiversScreen() {
   const [category, setCategory] = useState("all");
   const [minScore, setMinScore] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
+  const [rankingType, setRankingType] = useState<"overall" | "paid_live">("overall");
 
   const queryParams = new URLSearchParams();
   if (searchText) queryParams.set("name", searchText);
   if (category !== "all") queryParams.set("category", category);
   if (minScore) queryParams.set("minScore", minScore);
   if (selectedDate) queryParams.set("date", selectedDate);
+  queryParams.set("rankingType", rankingType);
   const queryString = queryParams.toString();
 
-  const { data: apiLivers = [], isLoading } = useQuery<Liver[]>({
-    queryKey: [`/api/livers?${queryString}`, searchText, category, minScore, selectedDate],
+  const { data: apiPayload, isLoading } = useQuery<LiversResponse>({
+    queryKey: [`/api/livers?${queryString}`, searchText, category, minScore, selectedDate, rankingType],
     queryFn: async () => {
       const url = new URL(`/api/livers${queryString ? "?" + queryString : ""}`, getApiUrl());
       const res = await fetch(url.toString());
       return res.json();
     },
   });
+  const apiLivers = apiPayload?.rows ?? [];
 
   const fallbackLivers: Liver[] =
     apiLivers.length === 0 && !searchText && category === "all"
@@ -154,8 +163,27 @@ export default function LiversScreen() {
         <Pressable style={styles.backBtn} onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={22} color={C.text} />
         </Pressable>
-        <Text style={styles.headerTitle}>Find Creators</Text>
+        <Text style={styles.headerTitle}>Creator Rankings</Text>
         <View style={{ width: 36 }} />
+      </View>
+
+      <View style={styles.rankToggleRow}>
+        <Pressable
+          style={[styles.rankToggleBtn, rankingType === "overall" && styles.rankToggleBtnActive]}
+          onPress={() => setRankingType("overall")}
+        >
+          <Text style={[styles.rankToggleText, rankingType === "overall" && styles.rankToggleTextActive]}>
+            Overall (3 metrics)
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[styles.rankToggleBtn, rankingType === "paid_live" && styles.rankToggleBtnActive]}
+          onPress={() => setRankingType("paid_live")}
+        >
+          <Text style={[styles.rankToggleText, rankingType === "paid_live" && styles.rankToggleTextActive]}>
+            Paid Live (Sales)
+          </Text>
+        </Pressable>
       </View>
 
       <View style={styles.searchBar}>
@@ -264,6 +292,33 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: C.border,
   },
   searchInput: { flex: 1, fontSize: 14, color: C.text },
+  rankToggleRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginHorizontal: 16,
+    marginBottom: 10,
+  },
+  rankToggleBtn: {
+    flex: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface,
+    alignItems: "center",
+    paddingVertical: 9,
+  },
+  rankToggleBtnActive: {
+    borderColor: C.accent,
+    backgroundColor: C.accent + "22",
+  },
+  rankToggleText: {
+    fontSize: 11,
+    color: C.textSec,
+    fontWeight: "700",
+  },
+  rankToggleTextActive: {
+    color: C.accent,
+  },
   filterRow: {
     flexDirection: "row", gap: 8, marginHorizontal: 16, marginBottom: 10,
   },
