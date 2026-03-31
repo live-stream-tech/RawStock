@@ -28,7 +28,8 @@ export default function Root({ children }: PropsWithChildren) {
         <style>{`
           html, body, #root {
             height: 100%;
-            overflow: hidden;
+            overflow-y: auto;
+            overflow-x: hidden;
             background-color: #070F18;
           }
           * { font-family: 'Courier Prime', monospace; }
