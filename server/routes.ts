@@ -4267,7 +4267,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json({ rankingType, month, rows });
   });
 
-  app.get("/api/livers/:id(\\d+)", async (req: Request, res: Response) => {
+  app.get("/api/livers/:id", async (req: Request, res: Response) => {
     const id = paramNum(req, "id");
     const [liver] = await db.select().from(creators).where(eq(creators.id, id));
     if (!liver) return res.status(404).json({ error: "Not found" });
