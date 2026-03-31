@@ -45,7 +45,7 @@ export default function PrivacyScreen() {
         </Article>
 
         <Article title="Article 3 — Third-Party Sharing">
-          We do not share your information with third parties except with your consent, as required by law, or to protect life or public health.
+          We do not share your information with third parties except with your consent, as required by law, or to protect life or public health. We do not sell personal information to third parties. California residents have the right to opt out of the sale or sharing of personal information at any time by contacting us.
         </Article>
 
         <Article title="Article 4 — Sub-processors">
@@ -64,15 +64,23 @@ export default function PrivacyScreen() {
           You may request access to, correction of, or deletion of your personal data by contacting rawstock.infomation@gmail.com. We will verify your identity before responding.
         </Article>
 
-        <Article title="Article 8 — Minors">
+        <Article title="Article 8 — GDPR (EU Users)">
+          For users in the European Union, we process personal data based on the legal grounds of performance of a contract and legitimate interests, as applicable. EU users have the right to request access, rectification, erasure, and data portability of their personal data. Data Protection Officer (DPO) Contact: rawstock.infomation@gmail.com.
+        </Article>
+
+        <Article title="Article 9 — Data Retention">
+          We retain personal data only as long as necessary for service operation and legal compliance. After account deletion, personal data is deleted within 30 days unless a longer retention period is required by law.
+        </Article>
+
+        <Article title="Article 10 — Minors">
           Users under 18 years of age must have parental or guardian consent to use this service.
         </Article>
 
-        <Article title="Article 9 — Policy Updates">
+        <Article title="Article 11 — Policy Updates">
           Material changes to this policy will be announced within the service.
         </Article>
 
-        <Article title="Article 10 — Contact">
+        <Article title="Article 12 — Contact">
           Name: Hiromi Kanokifu{"\n"}
           Address: Shibuya Dogenzaka Tokyu Bldg 2F-C, 1-10-8 Dogenzaka, Shibuya, Tokyo 150-0043, Japan{"\n"}
           Email: rawstock.infomation@gmail.com{"\n\n"}
