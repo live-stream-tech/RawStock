@@ -1763,7 +1763,10 @@ const styles = StyleSheet.create({
   demoBtnProfile: { marginTop: 4, borderWidth: 1.5, borderColor: C.accent, borderRadius: 3, paddingHorizontal: 28, paddingVertical: 12, alignItems: "center" as const, minWidth: 200 },
   demoBtnProfileText: { color: C.accent, fontSize: 15, fontWeight: "700" as const },
   guestLegalLinks: {
-    marginTop: 24,
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 24,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
