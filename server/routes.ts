@@ -5581,10 +5581,11 @@ export async function registerRoutes(app: Express): Promise<void> {
   app.post("/api/tickets/create-checkout", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { packId, origin } = req.body as { packId: string; origin: string };
-
-    const pack = (TICKET_PACKS as readonly { id: string; tickets: number; priceUSD: number; label: string; bonus: string | null }[]).find(p => p.id === packId);
-    if (!pack) return res.status(400).json({ error: "Invalid packId" });
+    const { tickets, origin } = req.body as { tickets: number; origin: string };
+    const ticketCount = Number(tickets);
+    if (!Number.isInteger(ticketCount) || ticketCount < 100) {
+      return res.status(400).json({ error: "Minimum purchase is 100 tickets" });
+    }
 
     try {
       const stripe = await getUncachableStripeClient();
@@ -5594,20 +5595,19 @@ export async function registerRoutes(app: Express): Promise<void> {
           price_data: {
             currency: "usd",
             product_data: {
-              name: `RawStock ${pack.label}`,
-              description: `${pack.tickets} Tickets${pack.bonus ? ` (${pack.bonus})` : ""} — 1 Ticket = $0.01`,
+              name: `RawStock ${ticketCount.toLocaleString()} Tickets`,
+              description: `${ticketCount.toLocaleString()} Tickets — 1 Ticket = $0.01`,
             },
-            unit_amount: pack.priceUSD,
+            unit_amount: ticketCount,
           },
           quantity: 1,
         }],
         mode: "payment",
-        success_url: `${origin}/tickets?session_id={CHECKOUT_SESSION_ID}&tickets=${pack.tickets}`,
+        success_url: `${origin}/tickets?session_id={CHECKOUT_SESSION_ID}&tickets=${ticketCount}`,
         cancel_url: `${origin}/tickets`,
         metadata: {
           userId: String(user.id),
-          tickets: String(pack.tickets),
-          packId,
+          tickets: String(ticketCount),
         },
       });
       return res.json({ url: session.url, sessionId: session.id });

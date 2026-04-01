@@ -9,6 +9,7 @@ import {
   Alert,
   ActivityIndicator,
   Linking,
+  TextInput,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -18,12 +19,8 @@ import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
 
-const PACKS = [
-  { id: "pack-100",  tickets: 100,  priceUSD: 1.00,  label: "100 Tickets",   bonus: null, popular: false },
-  { id: "pack-500",  tickets: 500,  priceUSD: 5.00,  label: "500 Tickets",   bonus: null, popular: true  },
-  { id: "pack-1200", tickets: 1200, priceUSD: 12.00, label: "1,200 Tickets", bonus: null, popular: false },
-  { id: "pack-3000", tickets: 3000, priceUSD: 30.00, label: "3,000 Tickets", bonus: null, popular: false },
-] as const;
+const PRICE_PER_TICKET_USD = 0.01;
+const MIN_PURCHASE_TICKETS = 100;
 
 export default function TicketsScreen() {
   const insets = useSafeAreaInsets();
@@ -31,7 +28,8 @@ export default function TicketsScreen() {
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
   const { session_id, tickets: ticketsParam } = useLocalSearchParams<{ session_id?: string; tickets?: string }>();
 
-  const [loadingPack, setLoadingPack] = useState<string | null>(null);
+  const [ticketInput, setTicketInput] = useState(String(MIN_PURCHASE_TICKETS));
+  const [loadingCheckout, setLoadingCheckout] = useState(false);
   const { requireAuth } = useAuth();
 
   const { data: balanceData, refetch: refetchBalance } = useQuery<{ balance: number }>({
@@ -64,9 +62,20 @@ export default function TicketsScreen() {
     }
   }
 
-  async function handleBuyPack(packId: string) {
+  const parsedTickets = parseInt(ticketInput, 10) || 0;
+  const isValidPurchase = parsedTickets >= MIN_PURCHASE_TICKETS;
+  const totalPriceUSD = parsedTickets * PRICE_PER_TICKET_USD;
+
+  async function handleBuyTickets() {
     if (!requireAuth("Ticket Shop")) return;
-    setLoadingPack(packId);
+    if (!isValidPurchase) {
+      Alert.alert(
+        "Minimum Purchase",
+        `Please purchase at least ${MIN_PURCHASE_TICKETS.toLocaleString()} tickets.`
+      );
+      return;
+    }
+    setLoadingCheckout(true);
     try {
       // Derive origin from EXPO_PUBLIC_DOMAIN when available (production), then
       // fall back to window.location.origin on web, or the API base URL on native.
@@ -83,7 +92,7 @@ export default function TicketsScreen() {
       }
 
       const res = await apiRequest("POST", "/api/tickets/create-checkout", {
-        packId,
+        tickets: parsedTickets,
         origin,
       }) as any;
       if (res.url) {
@@ -93,7 +102,7 @@ export default function TicketsScreen() {
       console.error("[Tickets] checkout error:", err);
       Alert.alert("Error", "Failed to start checkout. Please try again.");
     } finally {
-      setLoadingPack(null);
+      setLoadingCheckout(false);
     }
   }
 
@@ -129,7 +138,6 @@ export default function TicketsScreen() {
           <Text style={styles.sectionTitle}>How Tickets Work</Text>
           <View style={styles.infoGrid}>
             {[
-              { icon: "ticket-outline" as const, label: "Mentor Session", value: "500 🎟" },
               { icon: "musical-notes-outline" as const, label: "Jukebox Request", value: "30 🎟" },
               { icon: "gift-outline" as const, label: "Send a Gift", value: "Varies" },
             ].map((item) => (
@@ -142,44 +150,39 @@ export default function TicketsScreen() {
           </View>
         </View>
 
-        {/* Pack selection */}
-        <Text style={[styles.sectionTitle, { marginHorizontal: 16, marginTop: 8 }]}>Choose a Pack</Text>
-
-        {PACKS.map((pack) => (
+        {/* Ticket amount input */}
+        <Text style={[styles.sectionTitle, { marginHorizontal: 16, marginTop: 8 }]}>Buy Tickets</Text>
+        <View style={styles.purchaseCard}>
+          <Text style={styles.inputLabel}>Ticket Quantity</Text>
+          <TextInput
+            style={styles.ticketInput}
+            value={ticketInput}
+            onChangeText={(text) => setTicketInput(text.replace(/[^0-9]/g, ""))}
+            keyboardType="number-pad"
+            placeholder="Enter tickets"
+            placeholderTextColor={C.textMuted}
+          />
+          <Text style={styles.purchaseHint}>
+            1 Ticket = ${PRICE_PER_TICKET_USD.toFixed(2)} USD
+          </Text>
+          <Text style={styles.totalPrice}>Total: ${totalPriceUSD.toFixed(2)} USD</Text>
+          {!isValidPurchase && (
+            <Text style={styles.minPurchaseError}>
+              Minimum purchase is {MIN_PURCHASE_TICKETS.toLocaleString()} tickets (${(MIN_PURCHASE_TICKETS * PRICE_PER_TICKET_USD).toFixed(2)}).
+            </Text>
+          )}
           <Pressable
-            key={pack.id}
-            style={[styles.packCard, pack.popular && styles.packCardPopular]}
-            onPress={() => handleBuyPack(pack.id)}
-            disabled={loadingPack !== null}
+            style={[styles.checkoutBtn, (!isValidPurchase || loadingCheckout) && styles.checkoutBtnDisabled]}
+            onPress={handleBuyTickets}
+            disabled={!isValidPurchase || loadingCheckout}
           >
-            {pack.popular && (
-              <View style={styles.popularBadge}>
-                <Text style={styles.popularBadgeText}>MOST POPULAR</Text>
-              </View>
+            {loadingCheckout ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.checkoutBtnText}>Proceed to Stripe Checkout</Text>
             )}
-            <View style={styles.packRow}>
-              <Text style={styles.packEmoji}>🎟</Text>
-              <View style={{ flex: 1 }}>
-                <View style={styles.packLabelRow}>
-                  <Text style={styles.packLabel}>{pack.label}</Text>
-                  {pack.bonus ? (
-                    <View style={styles.bonusBadge}>
-                      <Text style={styles.bonusBadgeText}>{pack.bonus}</Text>
-                    </View>
-                  ) : null}
-                </View>
-                <Text style={styles.packSub}>${pack.priceUSD.toFixed(2)} USD</Text>
-              </View>
-              <View style={styles.packBuyBtn}>
-                {loadingPack === pack.id ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.packBuyText}>${pack.priceUSD.toFixed(2)}</Text>
-                )}
-              </View>
-            </View>
           </Pressable>
-        ))}
+        </View>
 
         {/* Secure note */}
         <View style={styles.secureNote}>
@@ -247,49 +250,59 @@ const styles = StyleSheet.create({
   },
   infoCardLabel: { color: C.textSec, fontSize: 10, textAlign: "center" },
   infoCardValue: { color: C.accent, fontSize: 13, fontWeight: "800" },
-  packCard: {
+  purchaseCard: {
     marginHorizontal: 16,
-    marginBottom: 10,
+    marginBottom: 12,
     backgroundColor: C.surface,
     borderRadius: 14,
     padding: 16,
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: C.border,
   },
-  packCardPopular: {
-    borderColor: C.accent,
-    backgroundColor: "rgba(108,92,231,0.06)",
+  inputLabel: {
+    color: C.text,
+    fontSize: 13,
+    fontWeight: "700",
+    marginBottom: 8,
   },
-  popularBadge: {
-    alignSelf: "flex-start",
-    backgroundColor: C.accent,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    marginBottom: 10,
-  },
-  popularBadgeText: { color: "#fff", fontSize: 9, fontWeight: "800", letterSpacing: 0.5 },
-  packRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  packEmoji: { fontSize: 28 },
-  packLabelRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
-  packLabel: { color: C.text, fontSize: 15, fontWeight: "700" },
-  bonusBadge: {
-    backgroundColor: "rgba(0,200,83,0.12)",
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  bonusBadgeText: { color: C.green, fontSize: 10, fontWeight: "700" },
-  packSub: { color: C.textMuted, fontSize: 12, marginTop: 3 },
-  packBuyBtn: {
-    backgroundColor: C.accent,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+  ticketInput: {
+    borderWidth: 1,
+    borderColor: C.border,
     borderRadius: 10,
-    minWidth: 64,
-    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: C.text,
+    fontSize: 18,
+    fontWeight: "700",
+    backgroundColor: C.bg,
   },
-  packBuyText: { color: "#fff", fontSize: 14, fontWeight: "800" },
+  purchaseHint: {
+    color: C.textMuted,
+    fontSize: 12,
+    marginTop: 8,
+  },
+  totalPrice: {
+    color: C.text,
+    fontSize: 20,
+    fontWeight: "800",
+    marginTop: 8,
+  },
+  minPurchaseError: {
+    color: "#ff6b6b",
+    fontSize: 12,
+    marginTop: 8,
+  },
+  checkoutBtn: {
+    backgroundColor: C.accent,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    marginTop: 12,
+  },
+  checkoutBtnDisabled: {
+    opacity: 0.6,
+  },
+  checkoutBtnText: { color: "#fff", fontSize: 14, fontWeight: "800" },
   secureNote: {
     flexDirection: "row",
     alignItems: "flex-start",
