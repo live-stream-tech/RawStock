@@ -56,15 +56,15 @@ export async function getConnectAccount(accountId: string): Promise<Stripe.Accou
   }
 }
 
-/** Creates a Stripe Payment Intent for banner ads (JPY). */
+/** Creates a Stripe Payment Intent for banner ads (USD). */
 export async function createBannerPaymentIntent(params: {
-  amountYen: number;
+  amountUSD: number;
   metadata: Record<string, string>;
 }): Promise<{ clientSecret: string; paymentIntentId: string }> {
   const stripe = requireStripe();
   const intent = await stripe.paymentIntents.create({
-    amount: params.amountYen,
-    currency: "jpy",
+    amount: params.amountUSD,
+    currency: "usd",
     metadata: params.metadata,
     automatic_payment_methods: { enabled: true },
   });

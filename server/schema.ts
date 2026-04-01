@@ -494,7 +494,7 @@ export const wallets = pgTable("wallets", {
   kind: text("kind"),
   balanceAvailable: integer("balance_available").notNull().default(0),
   balancePending: integer("balance_pending").notNull().default(0),
-  currency: text("currency").notNull().default("JPY"),
+  currency: text("currency").notNull().default("USD"),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
@@ -680,7 +680,7 @@ export const ticketTransactions = pgTable("ticket_transactions", {
 
 /**
  * Coin balances per user.
- * 1 coin = ¥30 (converted to local currency via Stripe at checkout).
+ * 1 coin = $0.30 USD (30 cents).
  */
 export const coinBalances = pgTable("coin_balances", {
   id: serial("id").primaryKey(),
@@ -707,7 +707,7 @@ export const coinTransactions = pgTable("coin_transactions", {
 
 /**
  * Tracks daily jukebox request counts per user per community.
- * First 3 per day are free; 4th+ costs 1 coin (¥30).
+ * First 3 per day are free; 4th+ costs 1 coin ($0.30).
  */
 export const jukeboxRequestCounts = pgTable("jukebox_request_counts", {
   id: serial("id").primaryKey(),

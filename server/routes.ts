@@ -472,8 +472,8 @@ export async function registerRoutes(app: Express): Promise<void> {
     });
   });
 
-  // ── バナー広告：決済・分配（人数×5円×日数、最低15,000円）────────────────────
-  const BANNER_MIN_AMOUNT = 15_000;
+  // ── バナー広告：決済・分配（人数×5セント×日数、最低$100）────────────────────
+  const BANNER_MIN_AMOUNT = 10_000;
   const BANNER_RATE_MODERATOR = 0.2;
   const BANNER_RATE_ADMIN = 0.2;
   const BANNER_RATE_EVENT = 0.1;
@@ -486,14 +486,14 @@ export async function registerRoutes(app: Express): Promise<void> {
     const { people, days } = req.body as { people?: number; days?: number };
     const p = Math.max(1, Number(people) || 1);
     const d = Math.max(1, Number(days) || 1);
-    const amountYen = Math.max(BANNER_MIN_AMOUNT, p * 5 * d);
+    const amountUSD = Math.max(BANNER_MIN_AMOUNT, p * 5 * d);
 
     try {
       const { clientSecret, paymentIntentId } = await createBannerPaymentIntent({
-        amountYen,
+        amountUSD,
         metadata: { userId: String(user.id), people: String(p), days: String(d), type: "banner_ad" },
       });
-      res.json({ clientSecret, paymentIntentId, amountYen });
+      res.json({ clientSecret, paymentIntentId, amountUSD });
     } catch (e: any) {
       console.error("Banner checkout error:", e);
       res.status(500).json({ error: e.message ?? "決済の準備に失敗しました" });
@@ -514,13 +514,13 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     const stripe = await getUncachableStripeClient();
     const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
-    const amountYen = pi.amount;
+    const amountUSD = pi.amount;
 
     const sys = await getOrCreateSystemWallets();
-    const amountMod = Math.floor(amountYen * BANNER_RATE_MODERATOR);
-    const amountAdmin = Math.floor(amountYen * BANNER_RATE_ADMIN);
-    const amountEvent = Math.floor(amountYen * BANNER_RATE_EVENT);
-    const amountPlatform = amountYen - amountMod - amountAdmin - amountEvent;
+    const amountMod = Math.floor(amountUSD * BANNER_RATE_MODERATOR);
+    const amountAdmin = Math.floor(amountUSD * BANNER_RATE_ADMIN);
+    const amountEvent = Math.floor(amountUSD * BANNER_RATE_EVENT);
+    const amountPlatform = amountUSD - amountMod - amountAdmin - amountEvent;
 
     await db.insert(transactions).values(([
       { walletId: sys.MODERATOR, amount: amountMod, type: "banner_ad", status: "PENDING", referenceId: paymentIntentId },
@@ -529,12 +529,12 @@ export async function registerRoutes(app: Express): Promise<void> {
       { walletId: sys.PLATFORM, amount: amountPlatform, type: "banner_ad", status: "PENDING", referenceId: paymentIntentId },
     ] as unknown) as typeof transactions.$inferInsert[]);
 
-    res.json({ ok: true, amountYen, split: { moderator: amountMod, admin: amountAdmin, eventReserve: amountEvent, platform: amountPlatform } });
+    res.json({ ok: true, amountUSD, split: { moderator: amountMod, admin: amountAdmin, eventReserve: amountEvent, platform: amountPlatform } });
   });
 
-  // コミュニティ広告バナー用 Stripe Checkout（3日間 15,000円）
+  // コミュニティ広告バナー用 Stripe Checkout（3日間 $100）
   const BANNER_CHECKOUT_DAYS = 3;
-  const BANNER_CHECKOUT_AMOUNT_YEN = 15_000;
+  const BANNER_CHECKOUT_AMOUNT_USD = 10_000;
 
   app.post("/api/banner/checkout-session", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
@@ -551,11 +551,11 @@ export async function registerRoutes(app: Express): Promise<void> {
         line_items: [
           {
             price_data: {
-              currency: "jpy",
-              unit_amount: BANNER_CHECKOUT_AMOUNT_YEN,
+              currency: "usd",
+              unit_amount: BANNER_CHECKOUT_AMOUNT_USD,
               product_data: {
                 name: "コミュニティ広告バナー（3日間）",
-                description: `コミュニティページの広告バナー枠 3日間出稿（¥${BANNER_CHECKOUT_AMOUNT_YEN.toLocaleString()}）`,
+                description: `コミュニティページの広告バナー枠 3日間出稿（$${(BANNER_CHECKOUT_AMOUNT_USD / 100).toFixed(2)}）`,
               },
             },
             quantity: 1,
@@ -590,14 +590,14 @@ export async function registerRoutes(app: Express): Promise<void> {
         return res.status(400).json({ error: "決済が完了していません" });
       }
 
-      const amountYen = session.amount_total ?? BANNER_CHECKOUT_AMOUNT_YEN;
+      const amountUSD = session.amount_total ?? BANNER_CHECKOUT_AMOUNT_USD;
       const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? session.id;
 
       const sys = await getOrCreateSystemWallets();
-      const amountMod = Math.floor(amountYen * BANNER_RATE_MODERATOR);
-      const amountAdmin = Math.floor(amountYen * BANNER_RATE_ADMIN);
-      const amountEvent = Math.floor(amountYen * BANNER_RATE_EVENT);
-      const amountPlatform = amountYen - amountMod - amountAdmin - amountEvent;
+      const amountMod = Math.floor(amountUSD * BANNER_RATE_MODERATOR);
+      const amountAdmin = Math.floor(amountUSD * BANNER_RATE_ADMIN);
+      const amountEvent = Math.floor(amountUSD * BANNER_RATE_EVENT);
+      const amountPlatform = amountUSD - amountMod - amountAdmin - amountEvent;
 
       await db.insert(transactions).values(([
         { walletId: sys.MODERATOR, amount: amountMod, type: "banner_ad", status: "PENDING", referenceId: paymentIntentId },
@@ -608,7 +608,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
       res.json({
         ok: true,
-        amountYen,
+        amountUSD,
         split: { moderator: amountMod, admin: amountAdmin, eventReserve: amountEvent, platform: amountPlatform },
       });
     } catch (e: any) {
@@ -2150,9 +2150,9 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   // ── Community Ads（広告申し込み・審査）────────────────────────────────
-  const MIN_AD_AMOUNT = 10000;
-  const DAILY_RATE_PER_MEMBER = 7; // コミュニティ内広告: 7円/日
-  const GENRE_DAILY_RATE_PER_MEMBER = 5; // ジャンル別広告: 5円/日
+  const MIN_AD_AMOUNT = 7_000;
+  const DAILY_RATE_PER_MEMBER = 5; // community ad: $0.05/day (cents)
+  const GENRE_DAILY_RATE_PER_MEMBER = 3; // genre ad: $0.03/day (cents)
   const MAX_MONTHS_AHEAD = 3;
 
   // 広告料金・最短日数計算API
@@ -2237,7 +2237,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const days = Math.ceil((endD.getTime() - startD.getTime()) / (24 * 60 * 60 * 1000)) + 1;
     const totalAmount = days * dailyRate;
     if (totalAmount < MIN_AD_AMOUNT) {
-      return res.status(400).json({ error: `最低出稿金額は${MIN_AD_AMOUNT.toLocaleString()}円以上です。日数またはメンバー数をご確認ください。` });
+      return res.status(400).json({ error: `Minimum ad spend is $${(MIN_AD_AMOUNT / 100).toFixed(2)}. Please check the duration or member count.` });
     }
     const maxEnd = new Date();
     maxEnd.setMonth(maxEnd.getMonth() + MAX_MONTHS_AHEAD);
@@ -2714,7 +2714,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   // ── Genre Ads（ジャンルページ広告）───────────────────────────────────────
-  const GENRE_MIN_AMOUNT = 10_000;
+  const GENRE_MIN_AMOUNT = 7_000;
   const GENRE_MAX_MONTHS_AHEAD = 3;
 
   app.post("/api/genre-ads", async (req: Request, res: Response) => {
@@ -2772,7 +2772,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const totalAmount = dailyRate * days;
 
     if (totalAmount < GENRE_MIN_AMOUNT) {
-      return res.status(400).json({ error: `最低出稿金額は${GENRE_MIN_AMOUNT.toLocaleString()}円以上です` });
+      return res.status(400).json({ error: `Minimum ad spend is $${(GENRE_MIN_AMOUNT / 100).toFixed(2)}` });
     }
 
     const [row] = await db
@@ -5028,7 +5028,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     return res.json({ success: true });
   });
 
-  /** POST /api/coins/use-revenue - 収益残高からコインに変換して消費（1コイン=¥30） */
+  /** POST /api/coins/use-revenue - 収益残高からコインに変換して消費（1コイン=$0.30） */
   app.post("/api/coins/use-revenue", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -5036,17 +5036,17 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (!communityId) return res.status(400).json({ error: "communityId required" });
     const userId = String(user.id);
     const today = new Date().toISOString().slice(0, 10);
-    const COIN_PRICE_JPY = 30;
+    const COIN_PRICE_USD = 30;
 
     // 収益残高確認（wallets テーブル）
     const walletRows = await db.select().from(wallets).where(eq(wallets.userId, user.id)).limit(1);
     const walletBalance = walletRows[0]?.balanceAvailable ?? 0;
-    if (walletBalance < COIN_PRICE_JPY) {
+    if (walletBalance < COIN_PRICE_USD) {
       return res.status(402).json({ error: "Insufficient revenue balance", balance: walletBalance });
     }
 
     // 収益残高を減らす
-    await db.update(wallets).set({ balanceAvailable: walletBalance - COIN_PRICE_JPY, updatedAt: new Date() }).where(eq(wallets.userId, user.id));
+    await db.update(wallets).set({ balanceAvailable: walletBalance - COIN_PRICE_USD, updatedAt: new Date() }).where(eq(wallets.userId, user.id));
 
     // コイントランザクション記録（収益→コイン変換）
     await db.insert(coinTransactions).values({
@@ -5054,7 +5054,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       amount: -1,
       type: "revenue_convert",
       referenceId: queueItemId ? String(queueItemId) : null,
-      description: `Revenue balance used for jukebox request in community ${communityId} (¥${COIN_PRICE_JPY})`,
+      description: `Revenue balance used for jukebox request in community ${communityId} ($${(COIN_PRICE_USD / 100).toFixed(2)})`,
     });
 
     // リクエスト回数を増やす
@@ -5071,7 +5071,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         .where(eq(jukeboxRequestCounts.id, countRows[0].id));
     }
 
-    return res.json({ success: true, newWalletBalance: walletBalance - COIN_PRICE_JPY });
+    return res.json({ success: true, newWalletBalance: walletBalance - COIN_PRICE_USD });
   });
 
   /** POST /api/coins/create-checkout - Stripe Checkout セッションを作成してコインを購入 */
@@ -5080,12 +5080,12 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const { packageId, origin } = req.body as { packageId: string; origin: string };
 
-    // コインパッケージ定義（1コイン=¥30）
-    const COIN_PACKAGES: Record<string, { coins: number; priceGBP: number; priceJPY: number; label: string }> = {
-      "pack-1": { coins: 1, priceGBP: 16, priceJPY: 30, label: "1 Coin" },
-      "pack-5": { coins: 5, priceGBP: 75, priceJPY: 150, label: "5 Coins" },
-      "pack-10": { coins: 10, priceGBP: 140, priceJPY: 280, label: "10 Coins" },
-      "pack-30": { coins: 30, priceGBP: 390, priceJPY: 780, label: "30 Coins" },
+    // コインパッケージ定義（1コイン=$0.30）
+    const COIN_PACKAGES: Record<string, { coins: number; priceUSD: number; label: string }> = {
+      "pack-1": { coins: 1, priceUSD: 30, label: "1 Coin" },
+      "pack-5": { coins: 5, priceUSD: 150, label: "5 Coins" },
+      "pack-10": { coins: 10, priceUSD: 300, label: "10 Coins" },
+      "pack-30": { coins: 30, priceUSD: 900, label: "30 Coins" },
     };
     const pkg = COIN_PACKAGES[packageId];
     if (!pkg) return res.status(400).json({ error: "Invalid packageId" });
@@ -5096,12 +5096,12 @@ export async function registerRoutes(app: Express): Promise<void> {
         payment_method_types: ["card"],
         line_items: [{
           price_data: {
-            currency: "gbp",
+            currency: "usd",
             product_data: {
               name: `Rawstock ${pkg.label}`,
               description: `${pkg.coins} coin${pkg.coins > 1 ? "s" : ""} for jukebox requests`,
             },
-            unit_amount: pkg.priceGBP,
+            unit_amount: pkg.priceUSD,
           },
           quantity: 1,
         }],
