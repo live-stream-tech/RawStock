@@ -183,6 +183,9 @@ function RootLayoutNav() {
       <Stack.Screen name="lp" options={{ headerShown: false }} />
       <Stack.Screen name="rawstock-lp/index" options={{ headerShown: false }} />
       <Stack.Screen name="community/genre-ad-apply" options={{ headerShown: false }} />
+      <Stack.Screen name="admin/index" options={{ headerShown: false }} />
+      <Stack.Screen name="admin/users" options={{ headerShown: false }} />
+      <Stack.Screen name="admin/content" options={{ headerShown: false }} />
       <Stack.Screen name="admin/reports" options={{ headerShown: false }} />
       <Stack.Screen name="concert/create" options={{ headerShown: false }} />
       <Stack.Screen name="concert/[id]" options={{ headerShown: false }} />

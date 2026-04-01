@@ -8,7 +8,10 @@
       "Bash(git commit:*)",
       "Bash(git remote:*)",
       "Bash(git push:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(grep -rn \"paid_live\\\\|twoshot.*price\\\\|session.*price\" --include=*.ts --include=*.tsx app/ server/)",
+      "Bash(grep -n \"spend.*jukebox\\\\|JUKEBOX\\\\|pay.*jukebox\" app/**/*.tsx)",
+      "Bash(grep -rn \"admin\\\\|ADMIN\\\\|manage.*price\\\\|edit.*price\" --include=*.ts --include=*.tsx app/admin/)"
     ]
   }
 }

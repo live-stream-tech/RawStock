@@ -69,6 +69,7 @@ import bcrypt from "bcryptjs";
 const JWT_SECRET = process.env.SESSION_SECRET ?? "livestage-dev-secret";
 const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID ?? "";
 const CLOUDFLARE_STREAM_TOKEN = process.env.CLOUDFLARE_STREAM_TOKEN ?? "";
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
 
 function makeToken(userId: number) {
   return jwt.sign({ sub: userId }, JWT_SECRET, { expiresIn: "90d" });
@@ -131,6 +132,111 @@ async function getAuthUser(req: Request): Promise<{
     };
   } catch {
     return null;
+  }
+}
+
+function isAdminRole(role: string | null | undefined): boolean {
+  return (role ?? "").toUpperCase() === "ADMIN";
+}
+
+async function getAdminUserOrReject(req: Request, res: Response) {
+  const user = await getAuthUser(req);
+  if (!user) {
+    res.status(401).json({ error: "Unauthorized" });
+    return null;
+  }
+  if (!isAdminRole(user.role)) {
+    res.status(403).json({ error: "Admin access required" });
+    return null;
+  }
+  return user;
+}
+
+async function promoteAdminByEmail(target?: { id: number; email: string | null | undefined }) {
+  if (!ADMIN_EMAIL) return;
+
+  if (target) {
+    const normalized = (target.email ?? "").trim().toLowerCase();
+    if (normalized !== ADMIN_EMAIL) return;
+    await db
+      .update(users)
+      .set({ role: "ADMIN", updatedAt: new Date() } as Partial<typeof users.$inferInsert>)
+      .where(eq(users.id, target.id));
+    return;
+  }
+
+  await db
+    .update(users)
+    .set({ role: "ADMIN", updatedAt: new Date() } as Partial<typeof users.$inferInsert>)
+    .where(eq(users.email, ADMIN_EMAIL));
+}
+
+const OPERATIONS_DM_NAME = "Operations Team";
+const OPERATIONS_DM_AVATAR = "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=100&h=100&fit=crop";
+const WELCOME_DM_TEXT = [
+  "Welcome to RawStock!",
+  "",
+  "Quick start guide:",
+  "1) Complete your profile to help people find you.",
+  "2) Join communities and say hello in chat.",
+  "3) Start posting videos or go live when ready.",
+  "4) Open Revenue to track earnings and withdrawals.",
+  "",
+  "If you need help, reply to this DM anytime.",
+].join("\n");
+
+async function sendWelcomeDmIfNeeded(userId: number): Promise<void> {
+  try {
+    await db.transaction(async (tx) => {
+      const [claimed] = await tx
+        .update(users)
+        .set({ welcomeDmSentAt: new Date(), updatedAt: new Date() } as Partial<typeof users.$inferInsert>)
+        .where(and(eq(users.id, userId), isNull(users.welcomeDmSentAt)))
+        .returning({ id: users.id });
+
+      if (!claimed) return;
+
+      let [operationsDm] = await tx
+        .select()
+        .from(dmMessages)
+        .where(eq(dmMessages.name, OPERATIONS_DM_NAME));
+
+      if (!operationsDm) {
+        [operationsDm] = await tx
+          .insert(dmMessages)
+          .values({
+            name: OPERATIONS_DM_NAME,
+            avatar: OPERATIONS_DM_AVATAR,
+            lastMessage: WELCOME_DM_TEXT,
+            time: "Just now",
+            unread: 1,
+            online: true,
+            sortOrder: 0,
+          } as typeof dmMessages.$inferInsert)
+          .returning();
+      } else {
+        const [updatedDm] = await tx
+          .update(dmMessages)
+          .set({
+            lastMessage: WELCOME_DM_TEXT,
+            time: "Just now",
+            unread: (operationsDm.unread ?? 0) + 1,
+            online: true,
+          } as Partial<typeof dmMessages.$inferInsert>)
+          .where(eq(dmMessages.id, operationsDm.id))
+          .returning();
+        operationsDm = updatedDm ?? operationsDm;
+      }
+
+      await tx.insert(dmConversationMessages).values({
+        dmId: operationsDm.id,
+        sender: "them",
+        text: WELCOME_DM_TEXT,
+        isRead: false,
+      } as typeof dmConversationMessages.$inferInsert);
+    });
+  } catch (error) {
+    console.error("Failed to send welcome DM:", error);
   }
 }
 
@@ -301,6 +407,8 @@ async function recordRevenue(
 }
 
 export async function registerRoutes(app: Express): Promise<void> {
+  await promoteAdminByEmail();
+
   // ── Email/Password Auth ──────────────────────────────────────────────
   app.post("/api/auth/register", async (req: Request, res: Response) => {
     const { password, name } = req.body ?? {};
@@ -326,6 +434,8 @@ export async function registerRoutes(app: Express): Promise<void> {
       role: "USER",
       bio: "",
     } as typeof users.$inferInsert).returning();
+    await promoteAdminByEmail({ id: user.id, email: user.email });
+    await sendWelcomeDmIfNeeded(user.id);
     const token = makeToken(user.id);
     res.json({ token, user: { id: user.id, name: user.displayName, email: user.email } });
   });
@@ -351,6 +461,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           } as Partial<typeof users.$inferInsert>,
         })
         .returning();
+      await sendWelcomeDmIfNeeded(demoUser.id);
       const token = makeToken(demoUser.id);
       res.json({ token });
     } catch (err) {
@@ -379,6 +490,8 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (!valid) {
       return res.status(401).json({ error: "Invalid email or password" });
     }
+    await promoteAdminByEmail({ id: user.id, email: user.email });
+    await sendWelcomeDmIfNeeded(user.id);
     const token = makeToken(user.id);
     res.json({ token, user: { id: user.id, name: user.displayName, email: user.email } });
   });
@@ -918,6 +1031,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       const googleKey = `google:${profile.sub}`;
       const displayName = profile.name ?? profile.email ?? "Google User";
       const avatar = profile.picture ?? null;
+      const googleEmail = typeof profile.email === "string" ? profile.email.trim().toLowerCase() : null;
 
       const expiresAt = tokenData.expires_in
         ? new Date(Date.now() + tokenData.expires_in * 1000)
@@ -936,22 +1050,27 @@ export async function registerRoutes(app: Express): Promise<void> {
             lineId: googleKey,
             displayName,
             profileImageUrl: avatar,
+            email: googleEmail,
             role: "USER",
             ...tokenUpdate,
           } as typeof users.$inferInsert)
           .returning();
       } else {
+        const nextValues: Partial<typeof users.$inferInsert> = {
+          displayName,
+          profileImageUrl: avatar,
+          updatedAt: new Date(),
+          ...tokenUpdate,
+        };
+        if (googleEmail) nextValues.email = googleEmail;
         [existing] = await db
           .update(users)
-          .set({
-            displayName,
-            profileImageUrl: avatar,
-            updatedAt: new Date(),
-            ...tokenUpdate,
-          } as Partial<typeof users.$inferInsert>)
+          .set(nextValues)
           .where(eq(users.id, existing.id))
           .returning();
       }
+      await promoteAdminByEmail({ id: existing.id, email: existing.email });
+      await sendWelcomeDmIfNeeded(existing.id);
 
       const jwtToken = makeToken(existing.id);
       // iOS Safari PWA対応: PWAのstartUrl(/)にリダイレクトしてPWA内でトークン処理
@@ -1265,6 +1384,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           .returning();
       }
 
+      await sendWelcomeDmIfNeeded(existing.id);
       const jwtToken = makeToken(existing.id);
       // iOS Safari PWA対応: PWAのstartUrl(/)にリダイレクトしてPWA内でトークン処理
       res.redirect(lineRedirect(`/?token=${encodeURIComponent(jwtToken)}`));
@@ -1334,6 +1454,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           .returning();
       }
 
+      await sendWelcomeDmIfNeeded(existing.id);
       const jwtToken = makeToken(existing.id);
       console.log("[LINE callback] success", { userId: existing.id });
       // iOS Safari PWA対応: PWAのstartUrl(/)にリダイレクトしてPWA内でトークン処理
@@ -2873,9 +2994,8 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   /** Admin: report queue — pending (gray_zone) items only. Pass ?all=1 to see everything. */
   app.get("/api/admin/reports", async (req: Request, res: Response) => {
-    const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
-    if (user.role !== "ADMIN") return res.status(403).json({ error: "Admin access required" });
+    const user = await getAdminUserOrReject(req, res);
+    if (!user) return;
 
     const showAll = req.query.all === "1";
     const rows = await db
@@ -2889,9 +3009,8 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   /** 管理者向け: 通報されたコンテンツを非表示にする（動画 or コメント） */
   app.patch("/api/admin/reports/:id/hide", async (req: Request, res: Response) => {
-    const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
-    if (user.role !== "ADMIN") return res.status(403).json({ error: "管理者のみ操作可能です" });
+    const user = await getAdminUserOrReject(req, res);
+    if (!user) return;
 
     const id = paramNum(req, "id");
     const [report] = await db.select().from(reports).where(eq(reports.id, id));
@@ -2909,9 +3028,8 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   /** 管理者向け: 問題なしとしてクローズ（ステータスを reviewed に） */
   app.patch("/api/admin/reports/:id/dismiss", async (req: Request, res: Response) => {
-    const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
-    if (user.role !== "ADMIN") return res.status(403).json({ error: "管理者のみ操作可能です" });
+    const user = await getAdminUserOrReject(req, res);
+    if (!user) return;
 
     const id = paramNum(req, "id");
     const [report] = await db.select().from(reports).where(eq(reports.id, id));
@@ -2919,6 +3037,150 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     await db.update(reports).set({ status: "reviewed" } as Partial<typeof reports.$inferInsert>).where(eq(reports.id, id));
     res.json({ ok: true });
+  });
+
+  app.get("/api/admin/stats", async (req: Request, res: Response) => {
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+
+    const [{ userCount }] = await db.select({ userCount: sql<number>`count(*)::int` }).from(users);
+    const [{ videoCount }] = await db.select({ videoCount: sql<number>`count(*)::int` }).from(videos);
+
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const [{ salesLast30Days }] = await db
+      .select({
+        salesLast30Days: sql<number>`coalesce(sum(${earnings.amount}), 0)::int`,
+      })
+      .from(earnings)
+      .where(gte(earnings.createdAt, since));
+
+    res.json({
+      userCount: Number(userCount ?? 0),
+      videoCount: Number(videoCount ?? 0),
+      salesLast30Days: Number(salesLast30Days ?? 0),
+    });
+  });
+
+  app.get("/api/admin/users", async (req: Request, res: Response) => {
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+
+    const rows = await db
+      .select({
+        id: users.id,
+        displayName: users.displayName,
+        email: users.email,
+        role: users.role,
+        isBanned: users.isBanned,
+        createdAt: users.createdAt,
+      })
+      .from(users)
+      .orderBy(desc(users.createdAt));
+
+    res.json(rows);
+  });
+
+  app.patch("/api/admin/users/:id", async (req: Request, res: Response) => {
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+
+    const targetUserId = paramNum(req, "id");
+    if (!targetUserId) return res.status(400).json({ error: "Invalid user id" });
+
+    const role = typeof req.body?.role === "string" ? req.body.role.trim().toUpperCase() : undefined;
+    const isBanned = typeof req.body?.isBanned === "boolean" ? req.body.isBanned : undefined;
+
+    const nextValues: Partial<typeof users.$inferInsert> = { updatedAt: new Date() };
+    if (role !== undefined) {
+      if (!["USER", "ADMIN"].includes(role)) {
+        return res.status(400).json({ error: "role must be USER or ADMIN" });
+      }
+      nextValues.role = role;
+    }
+    if (isBanned !== undefined) {
+      nextValues.isBanned = isBanned;
+    }
+    if (role === undefined && isBanned === undefined) {
+      return res.status(400).json({ error: "No updatable fields provided" });
+    }
+
+    const [updated] = await db
+      .update(users)
+      .set(nextValues)
+      .where(eq(users.id, targetUserId))
+      .returning({
+        id: users.id,
+        displayName: users.displayName,
+        email: users.email,
+        role: users.role,
+        isBanned: users.isBanned,
+        createdAt: users.createdAt,
+      });
+    if (!updated) return res.status(404).json({ error: "User not found" });
+
+    res.json(updated);
+  });
+
+  app.get("/api/admin/content", async (req: Request, res: Response) => {
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+
+    const rows = await db
+      .select({
+        id: videos.id,
+        title: videos.title,
+        creator: videos.creator,
+        thumbnail: videos.thumbnail,
+        hidden: videos.hidden,
+        visibility: videos.visibility,
+        price: videos.price,
+        createdAt: videos.createdAt,
+      })
+      .from(videos)
+      .orderBy(desc(videos.createdAt));
+
+    res.json(rows);
+  });
+
+  app.patch("/api/admin/content/:id", async (req: Request, res: Response) => {
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+
+    const videoId = paramNum(req, "id");
+    if (!videoId) return res.status(400).json({ error: "Invalid content id" });
+    const hidden = typeof req.body?.hidden === "boolean" ? req.body.hidden : true;
+
+    const [updated] = await db
+      .update(videos)
+      .set({
+        hidden,
+      } as Partial<typeof videos.$inferInsert>)
+      .where(eq(videos.id, videoId))
+      .returning({
+        id: videos.id,
+        title: videos.title,
+        hidden: videos.hidden,
+        visibility: videos.visibility,
+      });
+    if (!updated) return res.status(404).json({ error: "Content not found" });
+    res.json(updated);
+  });
+
+  app.delete("/api/admin/content/:id", async (req: Request, res: Response) => {
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+
+    const videoId = paramNum(req, "id");
+    if (!videoId) return res.status(400).json({ error: "Invalid content id" });
+
+    await db.delete(savedVideos).where(eq(savedVideos.videoId, videoId));
+    await db.delete(videoComments).where(eq(videoComments.videoId, videoId));
+    await db.delete(reports).where(and(eq(reports.contentType, "video"), eq(reports.contentId, videoId)));
+    await db.delete(jukeboxQueue).where(eq(jukeboxQueue.videoId, videoId));
+    const deleted = await db.delete(videos).where(eq(videos.id, videoId)).returning({ id: videos.id });
+    if (deleted.length === 0) return res.status(404).json({ error: "Content not found" });
+
+    res.json({ ok: true, id: videoId });
   });
 
   // ── Upload signed URL (Cloudflare R2) ────────────────────────────

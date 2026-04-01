@@ -660,6 +660,13 @@ export default function ProfileScreen() {
           <Text style={styles.adReviewBtnText}>Ad Review (Admins & Mods)</Text>
         </Pressable>
 
+        {(user?.role ?? "").toUpperCase() === "ADMIN" && (
+          <Pressable style={styles.adminPanelBtn} onPress={() => router.push("/admin")}>
+            <Ionicons name="settings-outline" size={16} color="#050505" />
+            <Text style={styles.adminPanelBtnText}>Admin Panel</Text>
+          </Pressable>
+        )}
+
         {/* Creator / Twoshot registration */}
         <View style={styles.roleCard}>
           <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
@@ -1372,6 +1379,18 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   adReviewBtnText: { color: "#050505", fontSize: 14, fontWeight: "800", letterSpacing: 0.5 },
+  adminPanelBtn: {
+    marginHorizontal: 16,
+    backgroundColor: C.accent,
+    borderRadius: 3,
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 20,
+  },
+  adminPanelBtnText: { color: "#050505", fontSize: 14, fontWeight: "800", letterSpacing: 0.5 },
   searchResults: {
     marginHorizontal: 16,
     marginBottom: 16,

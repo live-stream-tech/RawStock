@@ -437,6 +437,7 @@ export const users = pgTable("users", {
   displayName: text("display_name").notNull().default("User"),
   profileImageUrl: text("profile_image_url"),
   role: text("role").notNull().default("USER"),
+  isBanned: boolean("is_banned").notNull().default(false),
   bio: text("bio").notNull().default(""),
   // NOTE: 以下のカラムはNeon側で事前に追加してください:
   // ALTER TABLE users ADD COLUMN IF NOT EXISTS spotify_url TEXT;
@@ -468,6 +469,7 @@ export const users = pgTable("users", {
   pinnedCommunityIds: text("pinned_community_ids"),
   email: text("email").unique(),
   passwordHash: text("password_hash"),
+  welcomeDmSentAt: timestamp("welcome_dm_sent_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
