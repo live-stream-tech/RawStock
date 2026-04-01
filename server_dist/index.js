@@ -475,6 +475,7 @@ var users = pgTable("users", {
   displayName: text("display_name").notNull().default("User"),
   profileImageUrl: text("profile_image_url"),
   role: text("role").notNull().default("USER"),
+  isBanned: boolean("is_banned").notNull().default(false),
   bio: text("bio").notNull().default(""),
   // NOTE: 以下のカラムはNeon側で事前に追加してください:
   // ALTER TABLE users ADD COLUMN IF NOT EXISTS spotify_url TEXT;
@@ -506,6 +507,7 @@ var users = pgTable("users", {
   pinnedCommunityIds: text("pinned_community_ids"),
   email: text("email").unique(),
   passwordHash: text("password_hash"),
+  welcomeDmSentAt: timestamp("welcome_dm_sent_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow()
 });
@@ -529,7 +531,7 @@ var wallets = pgTable("wallets", {
   kind: text("kind"),
   balanceAvailable: integer("balance_available").notNull().default(0),
   balancePending: integer("balance_pending").notNull().default(0),
-  currency: text("currency").notNull().default("JPY"),
+  currency: text("currency").notNull().default("USD"),
   updatedAt: timestamp("updated_at").defaultNow()
 });
 var TRANSACTION_STATUSES = ["PENDING", "SETTLED", "CANCELLED"];
@@ -826,8 +828,8 @@ async function getConnectAccount(accountId) {
 async function createBannerPaymentIntent(params) {
   const stripe = requireStripe();
   const intent = await stripe.paymentIntents.create({
-    amount: params.amountYen,
-    currency: "jpy",
+    amount: params.amountUSD,
+    currency: "usd",
     metadata: params.metadata,
     automatic_payment_methods: { enabled: true }
   });
@@ -844,6 +846,16 @@ async function getPaymentIntentStatus(paymentIntentId) {
   } catch {
     return null;
   }
+}
+async function createTransferToConnectedAccount(params) {
+  const stripe = requireStripe();
+  const transfer = await stripe.transfers.create({
+    amount: params.amountUsdCents,
+    currency: "usd",
+    destination: params.destinationAccountId,
+    ...params.metadata ? { metadata: params.metadata } : {}
+  });
+  return { transferId: transfer.id };
 }
 
 // server/aggregateRevenue.ts
@@ -1456,6 +1468,7 @@ import bcrypt from "bcryptjs";
 var JWT_SECRET = process.env.SESSION_SECRET ?? "livestage-dev-secret";
 var CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID ?? "";
 var CLOUDFLARE_STREAM_TOKEN = process.env.CLOUDFLARE_STREAM_TOKEN ?? "";
+var ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
 function makeToken(userId) {
   return jwt.sign({ sub: userId }, JWT_SECRET, { expiresIn: "90d" });
 }
@@ -1503,6 +1516,80 @@ async function getAuthUser(req) {
     };
   } catch {
     return null;
+  }
+}
+function isAdminRole(role) {
+  return (role ?? "").toUpperCase() === "ADMIN";
+}
+async function getAdminUserOrReject(req, res) {
+  const user = await getAuthUser(req);
+  if (!user) {
+    res.status(401).json({ error: "Unauthorized" });
+    return null;
+  }
+  if (!isAdminRole(user.role)) {
+    res.status(403).json({ error: "Admin access required" });
+    return null;
+  }
+  return user;
+}
+async function promoteAdminByEmail(target) {
+  if (!ADMIN_EMAIL) return;
+  if (target) {
+    const normalized = (target.email ?? "").trim().toLowerCase();
+    if (normalized !== ADMIN_EMAIL) return;
+    await db.update(users).set({ role: "ADMIN", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(users.id, target.id));
+    return;
+  }
+  await db.update(users).set({ role: "ADMIN", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(users.email, ADMIN_EMAIL));
+}
+var OPERATIONS_DM_NAME = "Operations Team";
+var OPERATIONS_DM_AVATAR = "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=100&h=100&fit=crop";
+var WELCOME_DM_TEXT = [
+  "Welcome to RawStock!",
+  "",
+  "Quick start guide:",
+  "1) Complete your profile to help people find you.",
+  "2) Join communities and say hello in chat.",
+  "3) Start posting videos or go live when ready.",
+  "4) Open Revenue to track earnings and withdrawals.",
+  "",
+  "If you need help, reply to this DM anytime."
+].join("\n");
+async function sendWelcomeDmIfNeeded(userId) {
+  try {
+    await db.transaction(async (tx) => {
+      const [claimed] = await tx.update(users).set({ welcomeDmSentAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(and2(eq2(users.id, userId), isNull(users.welcomeDmSentAt))).returning({ id: users.id });
+      if (!claimed) return;
+      let [operationsDm] = await tx.select().from(dmMessages).where(eq2(dmMessages.name, OPERATIONS_DM_NAME));
+      if (!operationsDm) {
+        [operationsDm] = await tx.insert(dmMessages).values({
+          name: OPERATIONS_DM_NAME,
+          avatar: OPERATIONS_DM_AVATAR,
+          lastMessage: WELCOME_DM_TEXT,
+          time: "Just now",
+          unread: 1,
+          online: true,
+          sortOrder: 0
+        }).returning();
+      } else {
+        const [updatedDm] = await tx.update(dmMessages).set({
+          lastMessage: WELCOME_DM_TEXT,
+          time: "Just now",
+          unread: (operationsDm.unread ?? 0) + 1,
+          online: true
+        }).where(eq2(dmMessages.id, operationsDm.id)).returning();
+        operationsDm = updatedDm ?? operationsDm;
+      }
+      await tx.insert(dmConversationMessages).values({
+        dmId: operationsDm.id,
+        sender: "them",
+        text: WELCOME_DM_TEXT,
+        isRead: false
+      });
+    });
+  } catch (error) {
+    console.error("Failed to send welcome DM:", error);
   }
 }
 var SYSTEM_WALLET_KINDS = ["MODERATOR", "ADMIN", "EVENT_RESERVE", "PLATFORM"];
@@ -1626,6 +1713,7 @@ async function recordRevenue(walletId, userId, creatorId, amount, source, refere
   }
 }
 async function registerRoutes(app2) {
+  await promoteAdminByEmail();
   app2.post("/api/auth/register", async (req, res) => {
     const { password, name } = req.body ?? {};
     const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
@@ -1650,6 +1738,8 @@ async function registerRoutes(app2) {
       role: "USER",
       bio: ""
     }).returning();
+    await promoteAdminByEmail({ id: user.id, email: user.email });
+    await sendWelcomeDmIfNeeded(user.id);
     const token = makeToken(user.id);
     res.json({ token, user: { id: user.id, name: user.displayName, email: user.email } });
   });
@@ -1670,6 +1760,7 @@ async function registerRoutes(app2) {
           updatedAt: /* @__PURE__ */ new Date()
         }
       }).returning();
+      await sendWelcomeDmIfNeeded(demoUser.id);
       const token = makeToken(demoUser.id);
       res.json({ token });
     } catch (err) {
@@ -1697,6 +1788,8 @@ async function registerRoutes(app2) {
     if (!valid) {
       return res.status(401).json({ error: "Invalid email or password" });
     }
+    await promoteAdminByEmail({ id: user.id, email: user.email });
+    await sendWelcomeDmIfNeeded(user.id);
     const token = makeToken(user.id);
     res.json({ token, user: { id: user.id, name: user.displayName, email: user.email } });
   });
@@ -1779,7 +1872,7 @@ async function registerRoutes(app2) {
       detailsSubmitted: account?.details_submitted ?? false
     });
   });
-  const BANNER_MIN_AMOUNT = 15e3;
+  const BANNER_MIN_AMOUNT = 1e4;
   const BANNER_RATE_MODERATOR = 0.2;
   const BANNER_RATE_ADMIN = 0.2;
   const BANNER_RATE_EVENT = 0.1;
@@ -1790,13 +1883,13 @@ async function registerRoutes(app2) {
     const { people, days } = req.body;
     const p = Math.max(1, Number(people) || 1);
     const d = Math.max(1, Number(days) || 1);
-    const amountYen = Math.max(BANNER_MIN_AMOUNT, p * 5 * d);
+    const amountUSD = Math.max(BANNER_MIN_AMOUNT, p * 5 * d);
     try {
       const { clientSecret, paymentIntentId } = await createBannerPaymentIntent({
-        amountYen,
+        amountUSD,
         metadata: { userId: String(user.id), people: String(p), days: String(d), type: "banner_ad" }
       });
-      res.json({ clientSecret, paymentIntentId, amountYen });
+      res.json({ clientSecret, paymentIntentId, amountUSD });
     } catch (e) {
       console.error("Banner checkout error:", e);
       res.status(500).json({ error: e.message ?? "\u6C7A\u6E08\u306E\u6E96\u5099\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
@@ -1813,22 +1906,22 @@ async function registerRoutes(app2) {
     }
     const stripe = await getUncachableStripeClient();
     const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
-    const amountYen = pi.amount;
+    const amountUSD = pi.amount;
     const sys = await getOrCreateSystemWallets();
-    const amountMod = Math.floor(amountYen * BANNER_RATE_MODERATOR);
-    const amountAdmin = Math.floor(amountYen * BANNER_RATE_ADMIN);
-    const amountEvent = Math.floor(amountYen * BANNER_RATE_EVENT);
-    const amountPlatform = amountYen - amountMod - amountAdmin - amountEvent;
+    const amountMod = Math.floor(amountUSD * BANNER_RATE_MODERATOR);
+    const amountAdmin = Math.floor(amountUSD * BANNER_RATE_ADMIN);
+    const amountEvent = Math.floor(amountUSD * BANNER_RATE_EVENT);
+    const amountPlatform = amountUSD - amountMod - amountAdmin - amountEvent;
     await db.insert(transactions).values([
       { walletId: sys.MODERATOR, amount: amountMod, type: "banner_ad", status: "PENDING", referenceId: paymentIntentId },
       { walletId: sys.ADMIN, amount: amountAdmin, type: "banner_ad", status: "PENDING", referenceId: paymentIntentId },
       { walletId: sys.EVENT_RESERVE, amount: amountEvent, type: "banner_ad", status: "PENDING", referenceId: paymentIntentId },
       { walletId: sys.PLATFORM, amount: amountPlatform, type: "banner_ad", status: "PENDING", referenceId: paymentIntentId }
     ]);
-    res.json({ ok: true, amountYen, split: { moderator: amountMod, admin: amountAdmin, eventReserve: amountEvent, platform: amountPlatform } });
+    res.json({ ok: true, amountUSD, split: { moderator: amountMod, admin: amountAdmin, eventReserve: amountEvent, platform: amountPlatform } });
   });
   const BANNER_CHECKOUT_DAYS = 3;
-  const BANNER_CHECKOUT_AMOUNT_YEN = 15e3;
+  const BANNER_CHECKOUT_AMOUNT_USD = 1e4;
   app2.post("/api/banner/checkout-session", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
@@ -1840,11 +1933,11 @@ async function registerRoutes(app2) {
         line_items: [
           {
             price_data: {
-              currency: "jpy",
-              unit_amount: BANNER_CHECKOUT_AMOUNT_YEN,
+              currency: "usd",
+              unit_amount: BANNER_CHECKOUT_AMOUNT_USD,
               product_data: {
                 name: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u5E83\u544A\u30D0\u30CA\u30FC\uFF083\u65E5\u9593\uFF09",
-                description: `\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u30DA\u30FC\u30B8\u306E\u5E83\u544A\u30D0\u30CA\u30FC\u67A0 3\u65E5\u9593\u51FA\u7A3F\uFF08\xA5${BANNER_CHECKOUT_AMOUNT_YEN.toLocaleString()}\uFF09`
+                description: `\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u30DA\u30FC\u30B8\u306E\u5E83\u544A\u30D0\u30CA\u30FC\u67A0 3\u65E5\u9593\u51FA\u7A3F\uFF08$${(BANNER_CHECKOUT_AMOUNT_USD / 100).toFixed(2)}\uFF09`
               }
             },
             quantity: 1
@@ -1874,13 +1967,13 @@ async function registerRoutes(app2) {
       if (session.payment_status !== "paid") {
         return res.status(400).json({ error: "\u6C7A\u6E08\u304C\u5B8C\u4E86\u3057\u3066\u3044\u307E\u305B\u3093" });
       }
-      const amountYen = session.amount_total ?? BANNER_CHECKOUT_AMOUNT_YEN;
+      const amountUSD = session.amount_total ?? BANNER_CHECKOUT_AMOUNT_USD;
       const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? session.id;
       const sys = await getOrCreateSystemWallets();
-      const amountMod = Math.floor(amountYen * BANNER_RATE_MODERATOR);
-      const amountAdmin = Math.floor(amountYen * BANNER_RATE_ADMIN);
-      const amountEvent = Math.floor(amountYen * BANNER_RATE_EVENT);
-      const amountPlatform = amountYen - amountMod - amountAdmin - amountEvent;
+      const amountMod = Math.floor(amountUSD * BANNER_RATE_MODERATOR);
+      const amountAdmin = Math.floor(amountUSD * BANNER_RATE_ADMIN);
+      const amountEvent = Math.floor(amountUSD * BANNER_RATE_EVENT);
+      const amountPlatform = amountUSD - amountMod - amountAdmin - amountEvent;
       await db.insert(transactions).values([
         { walletId: sys.MODERATOR, amount: amountMod, type: "banner_ad", status: "PENDING", referenceId: paymentIntentId },
         { walletId: sys.ADMIN, amount: amountAdmin, type: "banner_ad", status: "PENDING", referenceId: paymentIntentId },
@@ -1889,7 +1982,7 @@ async function registerRoutes(app2) {
       ]);
       res.json({
         ok: true,
-        amountYen,
+        amountUSD,
         split: { moderator: amountMod, admin: amountAdmin, eventReserve: amountEvent, platform: amountPlatform }
       });
     } catch (e) {
@@ -2129,6 +2222,7 @@ async function registerRoutes(app2) {
       const googleKey = `google:${profile.sub}`;
       const displayName = profile.name ?? profile.email ?? "Google User";
       const avatar = profile.picture ?? null;
+      const googleEmail = typeof profile.email === "string" ? profile.email.trim().toLowerCase() : null;
       const expiresAt = tokenData.expires_in ? new Date(Date.now() + tokenData.expires_in * 1e3) : null;
       const tokenUpdate = {
         googleAccessToken: tokenData.access_token,
@@ -2141,17 +2235,22 @@ async function registerRoutes(app2) {
           lineId: googleKey,
           displayName,
           profileImageUrl: avatar,
+          email: googleEmail,
           role: "USER",
           ...tokenUpdate
         }).returning();
       } else {
-        [existing] = await db.update(users).set({
+        const nextValues = {
           displayName,
           profileImageUrl: avatar,
           updatedAt: /* @__PURE__ */ new Date(),
           ...tokenUpdate
-        }).where(eq2(users.id, existing.id)).returning();
+        };
+        if (googleEmail) nextValues.email = googleEmail;
+        [existing] = await db.update(users).set(nextValues).where(eq2(users.id, existing.id)).returning();
       }
+      await promoteAdminByEmail({ id: existing.id, email: existing.email });
+      await sendWelcomeDmIfNeeded(existing.id);
       const jwtToken = makeToken(existing.id);
       res.redirect(lineRedirect(`/?token=${encodeURIComponent(jwtToken)}`));
     } catch (err) {
@@ -2414,6 +2513,7 @@ async function registerRoutes(app2) {
       } else {
         [existing] = await db.update(users).set({ displayName: lineName, profileImageUrl: lineAvatar, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(users.id, existing.id)).returning();
       }
+      await sendWelcomeDmIfNeeded(existing.id);
       const jwtToken = makeToken(existing.id);
       res.redirect(lineRedirect(`/?token=${encodeURIComponent(jwtToken)}`));
     } catch (err) {
@@ -2469,6 +2569,7 @@ async function registerRoutes(app2) {
       } else {
         [existing] = await db.update(users).set({ displayName: lineName, profileImageUrl: lineAvatar, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(users.id, existing.id)).returning();
       }
+      await sendWelcomeDmIfNeeded(existing.id);
       const jwtToken = makeToken(existing.id);
       console.log("[LINE callback] success", { userId: existing.id });
       res.redirect(lineRedirect(`/?token=${encodeURIComponent(jwtToken)}`));
@@ -3072,9 +3173,9 @@ async function registerRoutes(app2) {
       res.status(500).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306E\u524A\u9664\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
     }
   });
-  const MIN_AD_AMOUNT = 1e4;
-  const DAILY_RATE_PER_MEMBER = 7;
-  const GENRE_DAILY_RATE_PER_MEMBER = 5;
+  const MIN_AD_AMOUNT = 7e3;
+  const DAILY_RATE_PER_MEMBER = 5;
+  const GENRE_DAILY_RATE_PER_MEMBER = 3;
   const MAX_MONTHS_AHEAD = 3;
   app2.get("/api/community-ads/pricing", async (req, res) => {
     const cid = Number(queryStr(req, "communityId")) || 0;
@@ -3137,7 +3238,7 @@ async function registerRoutes(app2) {
     const days = Math.ceil((endD.getTime() - startD.getTime()) / (24 * 60 * 60 * 1e3)) + 1;
     const totalAmount = days * dailyRate;
     if (totalAmount < MIN_AD_AMOUNT) {
-      return res.status(400).json({ error: `\u6700\u4F4E\u51FA\u7A3F\u91D1\u984D\u306F${MIN_AD_AMOUNT.toLocaleString()}\u5186\u4EE5\u4E0A\u3067\u3059\u3002\u65E5\u6570\u307E\u305F\u306F\u30E1\u30F3\u30D0\u30FC\u6570\u3092\u3054\u78BA\u8A8D\u304F\u3060\u3055\u3044\u3002` });
+      return res.status(400).json({ error: `Minimum ad spend is $${(MIN_AD_AMOUNT / 100).toFixed(2)}. Please check the duration or member count.` });
     }
     const maxEnd = /* @__PURE__ */ new Date();
     maxEnd.setMonth(maxEnd.getMonth() + MAX_MONTHS_AHEAD);
@@ -3474,7 +3575,7 @@ async function registerRoutes(app2) {
     const [updated] = await db.update(concertStaff).set({ status: "rejected" }).where(eq2(concertStaff.id, staffId)).returning();
     res.json(updated);
   });
-  const GENRE_MIN_AMOUNT = 1e4;
+  const GENRE_MIN_AMOUNT = 7e3;
   const GENRE_MAX_MONTHS_AHEAD = 3;
   app2.post("/api/genre-ads", async (req, res) => {
     const user = await getAuthUser(req);
@@ -3514,7 +3615,7 @@ async function registerRoutes(app2) {
     const days = Math.ceil((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1e3)) + 1;
     const totalAmount = dailyRate * days;
     if (totalAmount < GENRE_MIN_AMOUNT) {
-      return res.status(400).json({ error: `\u6700\u4F4E\u51FA\u7A3F\u91D1\u984D\u306F${GENRE_MIN_AMOUNT.toLocaleString()}\u5186\u4EE5\u4E0A\u3067\u3059` });
+      return res.status(400).json({ error: `Minimum ad spend is $${(GENRE_MIN_AMOUNT / 100).toFixed(2)}` });
     }
     const [row] = await db.insert(genreAds).values({
       genreId: gid,
@@ -3581,17 +3682,15 @@ async function registerRoutes(app2) {
     res.json({ ok: true });
   });
   app2.get("/api/admin/reports", async (req, res) => {
-    const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
-    if (user.role !== "ADMIN") return res.status(403).json({ error: "Admin access required" });
+    const user = await getAdminUserOrReject(req, res);
+    if (!user) return;
     const showAll = req.query.all === "1";
     const rows = await db.select().from(reports).where(showAll ? void 0 : eq2(reports.status, "pending")).orderBy(desc(reports.createdAt));
     res.json(rows);
   });
   app2.patch("/api/admin/reports/:id/hide", async (req, res) => {
-    const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
-    if (user.role !== "ADMIN") return res.status(403).json({ error: "\u7BA1\u7406\u8005\u306E\u307F\u64CD\u4F5C\u53EF\u80FD\u3067\u3059" });
+    const user = await getAdminUserOrReject(req, res);
+    if (!user) return;
     const id = paramNum(req, "id");
     const [report] = await db.select().from(reports).where(eq2(reports.id, id));
     if (!report) return res.status(404).json({ error: "\u901A\u5831\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
@@ -3604,14 +3703,117 @@ async function registerRoutes(app2) {
     res.json({ ok: true });
   });
   app2.patch("/api/admin/reports/:id/dismiss", async (req, res) => {
-    const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
-    if (user.role !== "ADMIN") return res.status(403).json({ error: "\u7BA1\u7406\u8005\u306E\u307F\u64CD\u4F5C\u53EF\u80FD\u3067\u3059" });
+    const user = await getAdminUserOrReject(req, res);
+    if (!user) return;
     const id = paramNum(req, "id");
     const [report] = await db.select().from(reports).where(eq2(reports.id, id));
     if (!report) return res.status(404).json({ error: "\u901A\u5831\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
     await db.update(reports).set({ status: "reviewed" }).where(eq2(reports.id, id));
     res.json({ ok: true });
+  });
+  app2.get("/api/admin/stats", async (req, res) => {
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+    const [{ userCount }] = await db.select({ userCount: sql2`count(*)::int` }).from(users);
+    const [{ videoCount }] = await db.select({ videoCount: sql2`count(*)::int` }).from(videos);
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1e3);
+    const [{ salesLast30Days }] = await db.select({
+      salesLast30Days: sql2`coalesce(sum(${earnings.amount}), 0)::int`
+    }).from(earnings).where(gte2(earnings.createdAt, since));
+    res.json({
+      userCount: Number(userCount ?? 0),
+      videoCount: Number(videoCount ?? 0),
+      salesLast30Days: Number(salesLast30Days ?? 0)
+    });
+  });
+  app2.get("/api/admin/users", async (req, res) => {
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+    const rows = await db.select({
+      id: users.id,
+      displayName: users.displayName,
+      email: users.email,
+      role: users.role,
+      isBanned: users.isBanned,
+      createdAt: users.createdAt
+    }).from(users).orderBy(desc(users.createdAt));
+    res.json(rows);
+  });
+  app2.patch("/api/admin/users/:id", async (req, res) => {
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+    const targetUserId = paramNum(req, "id");
+    if (!targetUserId) return res.status(400).json({ error: "Invalid user id" });
+    const role = typeof req.body?.role === "string" ? req.body.role.trim().toUpperCase() : void 0;
+    const isBanned = typeof req.body?.isBanned === "boolean" ? req.body.isBanned : void 0;
+    const nextValues = { updatedAt: /* @__PURE__ */ new Date() };
+    if (role !== void 0) {
+      if (!["USER", "ADMIN"].includes(role)) {
+        return res.status(400).json({ error: "role must be USER or ADMIN" });
+      }
+      nextValues.role = role;
+    }
+    if (isBanned !== void 0) {
+      nextValues.isBanned = isBanned;
+    }
+    if (role === void 0 && isBanned === void 0) {
+      return res.status(400).json({ error: "No updatable fields provided" });
+    }
+    const [updated] = await db.update(users).set(nextValues).where(eq2(users.id, targetUserId)).returning({
+      id: users.id,
+      displayName: users.displayName,
+      email: users.email,
+      role: users.role,
+      isBanned: users.isBanned,
+      createdAt: users.createdAt
+    });
+    if (!updated) return res.status(404).json({ error: "User not found" });
+    res.json(updated);
+  });
+  app2.get("/api/admin/content", async (req, res) => {
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+    const rows = await db.select({
+      id: videos.id,
+      title: videos.title,
+      creator: videos.creator,
+      thumbnail: videos.thumbnail,
+      hidden: videos.hidden,
+      visibility: videos.visibility,
+      price: videos.price,
+      createdAt: videos.createdAt
+    }).from(videos).orderBy(desc(videos.createdAt));
+    res.json(rows);
+  });
+  app2.patch("/api/admin/content/:id", async (req, res) => {
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+    const videoId = paramNum(req, "id");
+    if (!videoId) return res.status(400).json({ error: "Invalid content id" });
+    const hidden = typeof req.body?.hidden === "boolean" ? req.body.hidden : true;
+    const [updated] = await db.update(videos).set({
+      hidden
+    }).where(eq2(videos.id, videoId)).returning({
+      id: videos.id,
+      title: videos.title,
+      hidden: videos.hidden,
+      visibility: videos.visibility
+    });
+    if (!updated) return res.status(404).json({ error: "Content not found" });
+    res.json(updated);
+  });
+  app2.delete("/api/admin/content/:id", async (req, res) => {
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+    const videoId = paramNum(req, "id");
+    if (!videoId) return res.status(400).json({ error: "Invalid content id" });
+    await db.delete(savedVideos).where(eq2(savedVideos.videoId, videoId));
+    await db.delete(videoComments).where(eq2(videoComments.videoId, videoId));
+    await db.delete(reports).where(and2(eq2(reports.contentType, "video"), eq2(reports.contentId, videoId)));
+    await db.delete(jukeboxQueue).where(eq2(jukeboxQueue.videoId, videoId));
+    const deleted = await db.delete(videos).where(eq2(videos.id, videoId)).returning({ id: videos.id });
+    if (deleted.length === 0) return res.status(404).json({ error: "Content not found" });
+    res.json({ ok: true, id: videoId });
   });
   app2.post("/api/upload-url", async (req, res) => {
     const user = await getAuthUser(req);
@@ -4485,22 +4687,55 @@ data: ${data}
   });
   app2.post("/api/revenue/withdraw", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u304C\u5FC5\u8981\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Authentication required" });
     const userId = `user-${user.id}`;
     const { amount, bankName, bankBranch, accountType, accountNumber, accountName } = req.body;
-    if (!amount || amount < 1e3) {
-      return res.status(400).json({ error: "\u6700\u4F4E\u5F15\u304D\u51FA\u3057\u984D\u306F\xA51,000\u3067\u3059" });
+    const amountUsdCents = Number(amount);
+    if (!Number.isInteger(amountUsdCents) || amountUsdCents < 1e3) {
+      return res.status(400).json({ error: "Minimum withdrawal amount is 1000 USD cents" });
+    }
+    if (!bankName || !bankBranch || !accountType || !accountNumber || !accountName) {
+      return res.status(400).json({ error: "Bank account fields are required" });
+    }
+    if (!user.stripeConnectId) {
+      return res.status(400).json({ error: "Stripe Connect account is not connected" });
+    }
+    const connectAccount = await getConnectAccount(user.stripeConnectId);
+    if (!connectAccount?.charges_enabled) {
+      return res.status(400).json({ error: "Stripe Connect account charges are not enabled" });
     }
     const earningRows = await db.select().from(earnings).where(eq2(earnings.userId, userId));
     const withdrawalRows = await db.select().from(withdrawals).where(eq2(withdrawals.userId, userId));
     const totalEarned = earningRows.reduce((s, e) => s + e.netAmount, 0);
     const totalUsed = withdrawalRows.filter((w) => w.status !== "failed").reduce((s, w) => s + w.amount, 0);
     const available = totalEarned - totalUsed;
-    if (amount > available) {
-      return res.status(400).json({ error: "\u5F15\u304D\u51FA\u3057\u53EF\u80FD\u6B8B\u9AD8\u3092\u8D85\u3048\u3066\u3044\u307E\u3059" });
+    if (amountUsdCents > available) {
+      return res.status(400).json({ error: "Requested amount exceeds available balance" });
     }
-    const [row] = await db.insert(withdrawals).values({ userId, amount, bankName, bankBranch, accountType, accountNumber, accountName, status: "pending" }).returning();
-    res.json(row);
+    const [row] = await db.insert(withdrawals).values({ userId, amount: amountUsdCents, bankName, bankBranch, accountType, accountNumber, accountName, status: "pending" }).returning();
+    try {
+      const { transferId } = await createTransferToConnectedAccount({
+        amountUsdCents,
+        destinationAccountId: user.stripeConnectId,
+        metadata: {
+          withdrawalId: String(row.id),
+          userId
+        }
+      });
+      const [completedRow] = await db.update(withdrawals).set({
+        status: "completed",
+        processedAt: /* @__PURE__ */ new Date(),
+        note: `Stripe transfer completed: ${transferId}`
+      }).where(eq2(withdrawals.id, row.id)).returning();
+      return res.json(completedRow);
+    } catch (error) {
+      await db.update(withdrawals).set({
+        status: "failed",
+        processedAt: /* @__PURE__ */ new Date(),
+        note: `Stripe transfer failed: ${error?.message ?? "unknown_error"}`
+      }).where(eq2(withdrawals.id, row.id));
+      return res.status(500).json({ error: error?.message ?? "Stripe transfer failed" });
+    }
   });
   app2.get("/api/announcements", async (_req, res) => {
     const rows = await db.select().from(announcements).where(
@@ -5185,19 +5420,19 @@ data: ${data}
     if (!communityId) return res.status(400).json({ error: "communityId required" });
     const userId = String(user.id);
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    const COIN_PRICE_JPY = 30;
+    const COIN_PRICE_USD = 30;
     const walletRows = await db.select().from(wallets).where(eq2(wallets.userId, user.id)).limit(1);
     const walletBalance = walletRows[0]?.balanceAvailable ?? 0;
-    if (walletBalance < COIN_PRICE_JPY) {
+    if (walletBalance < COIN_PRICE_USD) {
       return res.status(402).json({ error: "Insufficient revenue balance", balance: walletBalance });
     }
-    await db.update(wallets).set({ balanceAvailable: walletBalance - COIN_PRICE_JPY, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(wallets.userId, user.id));
+    await db.update(wallets).set({ balanceAvailable: walletBalance - COIN_PRICE_USD, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(wallets.userId, user.id));
     await db.insert(coinTransactions).values({
       userId,
       amount: -1,
       type: "revenue_convert",
       referenceId: queueItemId ? String(queueItemId) : null,
-      description: `Revenue balance used for jukebox request in community ${communityId} (\xA5${COIN_PRICE_JPY})`
+      description: `Revenue balance used for jukebox request in community ${communityId} ($${(COIN_PRICE_USD / 100).toFixed(2)})`
     });
     const countRows = await db.select().from(jukeboxRequestCounts).where(and2(
       eq2(jukeboxRequestCounts.userId, userId),
@@ -5209,17 +5444,17 @@ data: ${data}
     } else {
       await db.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(jukeboxRequestCounts.id, countRows[0].id));
     }
-    return res.json({ success: true, newWalletBalance: walletBalance - COIN_PRICE_JPY });
+    return res.json({ success: true, newWalletBalance: walletBalance - COIN_PRICE_USD });
   });
   app2.post("/api/coins/create-checkout", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const { packageId, origin } = req.body;
     const COIN_PACKAGES = {
-      "pack-1": { coins: 1, priceGBP: 16, priceJPY: 30, label: "1 Coin" },
-      "pack-5": { coins: 5, priceGBP: 75, priceJPY: 150, label: "5 Coins" },
-      "pack-10": { coins: 10, priceGBP: 140, priceJPY: 280, label: "10 Coins" },
-      "pack-30": { coins: 30, priceGBP: 390, priceJPY: 780, label: "30 Coins" }
+      "pack-1": { coins: 1, priceUSD: 30, label: "1 Coin" },
+      "pack-5": { coins: 5, priceUSD: 150, label: "5 Coins" },
+      "pack-10": { coins: 10, priceUSD: 300, label: "10 Coins" },
+      "pack-30": { coins: 30, priceUSD: 900, label: "30 Coins" }
     };
     const pkg = COIN_PACKAGES[packageId];
     if (!pkg) return res.status(400).json({ error: "Invalid packageId" });
@@ -5229,12 +5464,12 @@ data: ${data}
         payment_method_types: ["card"],
         line_items: [{
           price_data: {
-            currency: "gbp",
+            currency: "usd",
             product_data: {
               name: `Rawstock ${pkg.label}`,
               description: `${pkg.coins} coin${pkg.coins > 1 ? "s" : ""} for jukebox requests`
             },
-            unit_amount: pkg.priceGBP
+            unit_amount: pkg.priceUSD
           },
           quantity: 1
         }],
