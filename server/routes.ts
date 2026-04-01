@@ -56,7 +56,7 @@ import {
   aiEditJobs,
 } from "./schema";
 import { eq, asc, desc, count, sql, and, or, gte, lte, isNull, inArray } from "drizzle-orm";
-import { getUncachableStripeClient, getStripePublishableKey, createConnectExpressAccount, createConnectAccountLink, getConnectAccount, createBannerPaymentIntent, getPaymentIntentStatus } from "./stripeClient";
+import { getUncachableStripeClient, getStripePublishableKey, createConnectExpressAccount, createConnectAccountLink, getConnectAccount, createBannerPaymentIntent, getPaymentIntentStatus, createTransferToConnectedAccount } from "./stripeClient";
 import { getCreatorMonthlyRankings, getMonthlyRevenueRank, runMonthlyCreatorAggregation } from "./aggregateRevenue";
 import { judgeReportContent } from "./claudeReport";
 import { generateEditPlan, type EditJobInput } from "./aiEditAssistant";
@@ -4183,11 +4183,22 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.post("/api/revenue/withdraw", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインが必要です" });
+    if (!user) return res.status(401).json({ error: "Authentication required" });
     const userId = `user-${user.id}`;
     const { amount, bankName, bankBranch, accountType, accountNumber, accountName } = req.body;
-    if (!amount || amount < 1000) {
-      return res.status(400).json({ error: "最低引き出し額は¥1,000です" });
+    const amountUsdCents = Number(amount);
+    if (!Number.isInteger(amountUsdCents) || amountUsdCents < 1000) {
+      return res.status(400).json({ error: "Minimum withdrawal amount is 1000 USD cents" });
+    }
+    if (!bankName || !bankBranch || !accountType || !accountNumber || !accountName) {
+      return res.status(400).json({ error: "Bank account fields are required" });
+    }
+    if (!user.stripeConnectId) {
+      return res.status(400).json({ error: "Stripe Connect account is not connected" });
+    }
+    const connectAccount = await getConnectAccount(user.stripeConnectId);
+    if (!connectAccount?.charges_enabled) {
+      return res.status(400).json({ error: "Stripe Connect account charges are not enabled" });
     }
     // check available balance
     const earningRows = await db.select().from(earnings).where(eq(earnings.userId, userId));
@@ -4197,14 +4208,43 @@ export async function registerRoutes(app: Express): Promise<void> {
       .filter((w) => w.status !== "failed")
       .reduce((s, w) => s + w.amount, 0);
     const available = totalEarned - totalUsed;
-    if (amount > available) {
-      return res.status(400).json({ error: "引き出し可能残高を超えています" });
+    if (amountUsdCents > available) {
+      return res.status(400).json({ error: "Requested amount exceeds available balance" });
     }
     const [row] = await db
       .insert(withdrawals)
-      .values({ userId, amount, bankName, bankBranch, accountType, accountNumber, accountName, status: "pending" } as typeof withdrawals.$inferInsert)
+      .values({ userId, amount: amountUsdCents, bankName, bankBranch, accountType, accountNumber, accountName, status: "pending" } as typeof withdrawals.$inferInsert)
       .returning();
-    res.json(row);
+    try {
+      const { transferId } = await createTransferToConnectedAccount({
+        amountUsdCents,
+        destinationAccountId: user.stripeConnectId,
+        metadata: {
+          withdrawalId: String(row.id),
+          userId,
+        },
+      });
+      const [completedRow] = await db
+        .update(withdrawals)
+        .set({
+          status: "completed",
+          processedAt: new Date(),
+          note: `Stripe transfer completed: ${transferId}`,
+        })
+        .where(eq(withdrawals.id, row.id))
+        .returning();
+      return res.json(completedRow);
+    } catch (error: any) {
+      await db
+        .update(withdrawals)
+        .set({
+          status: "failed",
+          processedAt: new Date(),
+          note: `Stripe transfer failed: ${error?.message ?? "unknown_error"}`,
+        })
+        .where(eq(withdrawals.id, row.id));
+      return res.status(500).json({ error: error?.message ?? "Stripe transfer failed" });
+    }
   });
 
   // ── Announcements ───────────────────────────────────────────────────

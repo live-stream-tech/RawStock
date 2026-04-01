@@ -62,6 +62,10 @@ const STATUS_META: Record<string, { label: string; color: string; bg: string }> 
   failed: { label: "Failed", color: C.live, bg: C.live + "22" },
 };
 
+function formatUsdFromTickets(tickets: number): string {
+  return `$${(tickets / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 function BarChart({ data }: { data: { month: string; amount: number }[] }) {
   const W = 280;
   const H = 100;
@@ -151,7 +155,7 @@ function RevenueScreenContent() {
       qc.invalidateQueries({ queryKey: ["/api/revenue/withdrawals"] });
       setShowWithdrawModal(false);
       resetForm();
-      Alert.alert("Request Submitted", "Your withdrawal request has been received. Funds will be transferred within 3–5 business days.");
+      Alert.alert("Transfer Completed", "Your withdrawal was transferred successfully.");
     },
     onError: (e: any) => {
       Alert.alert("Error", e?.message ?? "Failed to submit request");
@@ -198,10 +202,12 @@ function RevenueScreenContent() {
           <Text style={styles.balanceAmount}>
             🎟{(summary?.available ?? 0).toLocaleString()}
           </Text>
+          <Text style={styles.balanceUsdHint}>{formatUsdFromTickets(summary?.available ?? 0)}</Text>
           <View style={styles.balanceStats}>
             <View style={styles.balanceStat}>
               <Text style={styles.balanceStatLabel}>Total Earned</Text>
               <Text style={styles.balanceStatValue}>🎟{(summary?.totalEarned ?? 0).toLocaleString()}</Text>
+              <Text style={styles.balanceStatSub}>{formatUsdFromTickets(summary?.totalEarned ?? 0)}</Text>
             </View>
             <View style={styles.balanceDivider} />
             <View style={styles.balanceStat}>
@@ -209,6 +215,7 @@ function RevenueScreenContent() {
               <Text style={[styles.balanceStatValue, { color: C.green }]}>
                 🎟{(summary?.totalWithdrawn ?? 0).toLocaleString()}
               </Text>
+              <Text style={styles.balanceStatSub}>{formatUsdFromTickets(summary?.totalWithdrawn ?? 0)}</Text>
             </View>
             <View style={styles.balanceDivider} />
             <View style={styles.balanceStat}>
@@ -216,6 +223,7 @@ function RevenueScreenContent() {
               <Text style={[styles.balanceStatValue, { color: C.orange }]}>
                 🎟{(summary?.pendingWithdrawal ?? 0).toLocaleString()}
               </Text>
+              <Text style={styles.balanceStatSub}>{formatUsdFromTickets(summary?.pendingWithdrawal ?? 0)}</Text>
             </View>
           </View>
           <Pressable
@@ -340,7 +348,7 @@ function RevenueScreenContent() {
               <Text style={styles.modalTitle}>Withdrawal Request</Text>
             </View>
             <Text style={styles.modalAvail}>
-              Available: <Text style={{ color: C.accent, fontWeight: "800" }}>🎟{(summary?.available ?? 0).toLocaleString()}</Text>
+              Available: <Text style={{ color: C.accent, fontWeight: "800" }}>🎟{(summary?.available ?? 0).toLocaleString()}</Text> ({formatUsdFromTickets(summary?.available ?? 0)})
             </Text>
 
             <ScrollView
@@ -349,20 +357,20 @@ function RevenueScreenContent() {
               keyboardShouldPersistTaps="handled"
             >
               {/* Amount */}
-              <Text style={styles.fieldLabel}>Amount in tickets (min. 🎟1,000)</Text>
+              <Text style={styles.fieldLabel}>Amount in tickets (1 ticket = $0.01, min. 🎟1,000 = $10.00)</Text>
               <View style={styles.amountRow}>
-                <Text style={styles.yenSign}>🎟</Text>
+                <Text style={styles.ticketSign}>🎟</Text>
                 <TextInput
                   style={styles.amountInput}
                   value={amountText}
                   onChangeText={setAmountText}
                   keyboardType="numeric"
-                  placeholder="e.g. 5000"
+                  placeholder="e.g. 200"
                   placeholderTextColor={C.textMuted}
                 />
               </View>
               {amountText && parseInt(amountText) < 1000 && (
-                <Text style={styles.fieldError}>Minimum withdrawal is 🎟1,000</Text>
+                <Text style={styles.fieldError}>Minimum withdrawal is 🎟1,000 ($10.00)</Text>
               )}
               {amountText && parseInt(amountText) > (summary?.available ?? 0) && (
                 <Text style={styles.fieldError}>Exceeds available balance</Text>
@@ -487,12 +495,14 @@ const styles = StyleSheet.create({
     borderColor: C.accent + "44",
   },
   balanceLabel: { color: C.textMuted, fontSize: 12, fontWeight: "600", marginBottom: 4 },
-  balanceAmount: { color: C.text, fontSize: 38, fontWeight: "800", marginBottom: 16 },
+  balanceAmount: { color: C.text, fontSize: 38, fontWeight: "800", marginBottom: 2 },
+  balanceUsdHint: { color: C.textMuted, fontSize: 13, marginBottom: 14 },
   balanceStats: { flexDirection: "row", marginBottom: 20, gap: 0 },
   balanceStat: { flex: 1, alignItems: "center" },
   balanceDivider: { width: 1, backgroundColor: C.border },
   balanceStatLabel: { color: C.textMuted, fontSize: 10, marginBottom: 4 },
   balanceStatValue: { color: C.text, fontSize: 14, fontWeight: "700" },
+  balanceStatSub: { color: C.textMuted, fontSize: 10, marginTop: 2 },
   withdrawBtn: {
     backgroundColor: C.accent,
     borderRadius: 14,
@@ -620,7 +630,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: C.accent + "44",
   },
-  yenSign: { color: C.accent, fontSize: 20, fontWeight: "800", marginRight: 4 },
+  ticketSign: { color: C.accent, fontSize: 20, fontWeight: "800", marginRight: 4 },
   amountInput: {
     flex: 1,
     color: C.text,

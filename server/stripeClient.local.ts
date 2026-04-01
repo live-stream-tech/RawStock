@@ -84,3 +84,19 @@ export async function getPaymentIntentStatus(paymentIntentId: string): Promise<s
     return null;
   }
 }
+
+/** Creates a Stripe transfer to a connected account. */
+export async function createTransferToConnectedAccount(params: {
+  amountUsdCents: number;
+  destinationAccountId: string;
+  metadata?: Record<string, string>;
+}): Promise<{ transferId: string }> {
+  const stripe = requireStripe();
+  const transfer = await stripe.transfers.create({
+    amount: params.amountUsdCents,
+    currency: "usd",
+    destination: params.destinationAccountId,
+    ...(params.metadata ? { metadata: params.metadata } : {}),
+  });
+  return { transferId: transfer.id };
+}
