@@ -405,6 +405,16 @@ export default function HomeScreen() {
           ))}
         </HorizontalScroll>
 
+        <View style={styles.footerLinks}>
+          <Pressable onPress={() => router.push("/terms" as any)}>
+            <Text style={styles.footerLinkText}>Terms</Text>
+          </Pressable>
+          <Text style={styles.footerLinkSeparator}>•</Text>
+          <Pressable onPress={() => router.push("/privacy" as any)}>
+            <Text style={styles.footerLinkText}>Privacy Policy</Text>
+          </Pressable>
+        </View>
+
         <View style={{ height: 80 }} />
       </ScrollView>
     </View>
@@ -636,6 +646,26 @@ const styles = StyleSheet.create({
   smallAvatar: { width: 18, height: 18, borderRadius: 2 },
   communityText: { color: C.textSec, fontSize: 10, fontFamily: F.mono, flex: 1 },
   videoTitle: { color: C.text, fontSize: 12, fontWeight: "600", lineHeight: 16 },
+
+  // Footer links
+  footerLinks: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 22,
+    opacity: 0.75,
+  },
+  footerLinkText: {
+    color: C.textMuted,
+    fontSize: 10,
+    fontFamily: F.mono,
+    letterSpacing: 0.2,
+  },
+  footerLinkSeparator: {
+    color: C.textMuted,
+    fontSize: 9,
+  },
 
   // Live Dot
   liveDotAnim: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.live },
