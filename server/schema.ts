@@ -773,6 +773,8 @@ export const aiEditJobs = pgTable("ai_edit_jobs", {
   ticketCost: integer("ticket_cost"),
   /** RawStockVideoSpec の JSON（オーダー DSL。クライアント正規化済み） */
   videoSpec: text("video_spec"),
+  /** Templated.io レンダー ID（Create Render 応答の id） */
+  templatedRenderId: text("templated_render_id"),
   // Delivery fields — set by the editor when the finished video is uploaded
   deliveredUrl: text("delivered_url"),
   deliveredAt: timestamp("delivered_at"),

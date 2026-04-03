@@ -61,6 +61,8 @@ import { getCreatorMonthlyRankings, getMonthlyRevenueRank, runMonthlyCreatorAggr
 import { judgeReportContent } from "./claudeReport";
 import { generateEditPlan, type EditJobInput } from "./aiEditAssistant";
 import { normalizeVideoSpecPayload, parseStoredVideoSpec } from "./lib/parseVideoSpec";
+import { dslToTemplated } from "./lib/dslToTemplated";
+import { createTemplatedRender } from "./lib/templatedClient";
 import { createSignedUploadUrl } from "./r2";
 import { moderateContent } from "./moderation";
 import { publishJukeboxEvent, redis, jukeboxChannel, subscribeJukeboxEvents } from "./redis";
@@ -5820,11 +5822,214 @@ export async function registerRoutes(app: Express): Promise<void> {
       revisionCount: job.revisionCount ?? 0,
       ticketCost: job.ticketCost,
       videoSpec,
+      templatedRenderId: job.templatedRenderId ?? null,
       deliveredUrl: job.deliveredUrl ?? null,
       deliveredAt: job.deliveredAt ?? null,
       createdAt: job.createdAt,
       updatedAt: job.updatedAt,
     });
+  });
+
+  /** Templated webhook が叩く公開 URL のオリジン（末尾スラッシュなし） */
+  function templatedPublicBaseUrl(): string {
+    const u =
+      process.env.TEMPLATED_WEBHOOK_BASE_URL?.trim() ||
+      process.env.FRONTEND_URL?.trim() ||
+      "https://rawstock.live";
+    return u.replace(/\/$/, "");
+  }
+
+  // POST /api/ai-edit/jobs/:id/render — Templated で MP4 レンダー開始（オーナーのみ）
+  app.post("/api/ai-edit/jobs/:id/render", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+    const apiKey = (process.env.TEMPLATED_API_KEY ?? "").trim();
+    if (!apiKey) {
+      return res.status(503).json({ error: "Templated is not configured (TEMPLATED_API_KEY)" });
+    }
+
+    const id = paramNum(req, "id");
+    const [job] = await db.select().from(aiEditJobs).where(eq(aiEditJobs.id, id));
+    if (!job) return res.status(404).json({ error: "Job not found" });
+    if (job.userId !== user.id) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const spec = parseStoredVideoSpec(job.videoSpec ?? null);
+    if (!spec) {
+      return res.status(400).json({ error: "Job has no valid video spec (DSL). Submit the order with spec from the AI Edit form." });
+    }
+
+    let videoUrls: string[] = [];
+    if (job.videoUrls) {
+      try {
+        videoUrls = JSON.parse(job.videoUrls) as string[];
+      } catch {
+        videoUrls = [];
+      }
+    }
+    if (videoUrls.length === 0 && job.videoUrl) {
+      videoUrls = [job.videoUrl];
+    }
+    const inputVideoUrl = videoUrls[0]?.trim();
+    if (!inputVideoUrl) {
+      return res.status(400).json({ error: "No source video URL on this job" });
+    }
+
+    const webhookUrl = `${templatedPublicBaseUrl()}/api/webhooks/templated`;
+    const renderRequest = dslToTemplated(spec, {
+      inputVideoUrl,
+      logoUrl: job.logoUrl ?? undefined,
+      webhookUrl,
+      async: true,
+    });
+
+    const durationMs =
+      typeof spec.duration === "number" && Number.isFinite(spec.duration) && spec.duration > 0
+        ? Math.min(90, spec.duration) * 1000
+        : undefined;
+
+    const renderRes = await createTemplatedRender(renderRequest, {
+      apiKey,
+      externalId: String(job.id),
+      durationMs,
+    });
+
+    if (!renderRes.id || renderRes.status === "failed") {
+      return res.status(502).json({
+        error: renderRes.error ?? "Templated render request failed",
+        details: renderRes,
+      });
+    }
+
+    const now = new Date();
+    const syncUrl = renderRes.url?.trim();
+    await db
+      .update(aiEditJobs)
+      .set({
+        templatedRenderId: renderRes.id,
+        ...(syncUrl
+          ? {
+              status: "delivered",
+              deliveredUrl: syncUrl,
+              deliveredAt: now,
+            }
+          : {}),
+        updatedAt: now,
+      } as Partial<typeof aiEditJobs.$inferInsert>)
+      .where(eq(aiEditJobs.id, id));
+
+    if (syncUrl) {
+      try {
+        const [owner] = await db.select().from(users).where(eq(users.id, job.userId));
+        await db.insert(notifications).values({
+          type: "ai_edit_delivered",
+          title: "Your edited video is ready",
+          body: `Your AI Edit job #${job.id}${job.planMinutes ? ` (${job.planMinutes}-min plan)` : ""} has been delivered. Tap to download.`,
+          amount: null,
+          avatar: owner?.avatar ?? null,
+          thumbnail: null,
+          timeAgo: "Just now",
+        } as typeof notifications.$inferInsert);
+      } catch (notifErr) {
+        console.error("[ai-edit/render] notification failed:", notifErr);
+      }
+    }
+
+    res.json({
+      ok: true,
+      id: job.id,
+      templatedRenderId: renderRes.id,
+      status: syncUrl ? "delivered" : renderRes.status,
+      url: renderRes.url ?? null,
+    });
+  });
+
+  // POST /api/webhooks/templated — Templated 非同期レンダー完了
+  app.post("/api/webhooks/templated", async (req: Request, res: Response) => {
+    const body = req.body as Record<string, unknown>;
+    try {
+      const statusRaw =
+        typeof body.status === "string" ? body.status.toLowerCase() : "";
+      const output =
+        body.output && typeof body.output === "object" && body.output !== null
+          ? (body.output as Record<string, unknown>)
+          : null;
+      const url =
+        (output && typeof output.url === "string" ? output.url : null) ||
+        (typeof body.url === "string" ? body.url : null);
+
+      const succeeded =
+        statusRaw === "succeeded" ||
+        statusRaw === "completed" ||
+        statusRaw === "success";
+
+      let jobId: number | null = null;
+      const ext = body.external_id ?? body.externalId;
+      if (ext !== undefined && ext !== null) {
+        const n = parseInt(String(ext), 10);
+        if (Number.isFinite(n)) jobId = n;
+      }
+      if (jobId == null && typeof body.id === "string") {
+        const [row] = await db
+          .select()
+          .from(aiEditJobs)
+          .where(eq(aiEditJobs.templatedRenderId, body.id));
+        if (row) jobId = row.id;
+      }
+
+      if (jobId == null) {
+        console.warn("[webhooks/templated] Could not resolve job", { bodyKeys: Object.keys(body) });
+        return res.status(200).json({ ok: false, reason: "job_not_found" });
+      }
+
+      if (!succeeded || !url?.trim()) {
+        if (statusRaw === "failed" || statusRaw === "error") {
+          await db
+            .update(aiEditJobs)
+            .set({ status: "failed", updatedAt: new Date() } as Partial<typeof aiEditJobs.$inferInsert>)
+            .where(eq(aiEditJobs.id, jobId));
+        }
+        return res.status(200).json({ ok: true, ignored: true });
+      }
+
+      const [job] = await db.select().from(aiEditJobs).where(eq(aiEditJobs.id, jobId));
+      if (!job) {
+        return res.status(200).json({ ok: false, reason: "job_missing" });
+      }
+
+      const now = new Date();
+      await db
+        .update(aiEditJobs)
+        .set({
+          status: "delivered",
+          deliveredUrl: url.trim(),
+          deliveredAt: now,
+          updatedAt: now,
+        } as Partial<typeof aiEditJobs.$inferInsert>)
+        .where(eq(aiEditJobs.id, jobId));
+
+      try {
+        const [owner] = await db.select().from(users).where(eq(users.id, job.userId));
+        await db.insert(notifications).values({
+          type: "ai_edit_delivered",
+          title: "Your edited video is ready",
+          body: `Your AI Edit job #${job.id}${job.planMinutes ? ` (${job.planMinutes}-min plan)` : ""} has been delivered. Tap to download.`,
+          amount: null,
+          avatar: owner?.avatar ?? null,
+          thumbnail: null,
+          timeAgo: "Just now",
+        } as typeof notifications.$inferInsert);
+      } catch (notifErr) {
+        console.error("[webhooks/templated] notification failed:", notifErr);
+      }
+
+      return res.status(200).json({ ok: true, id: jobId });
+    } catch (e) {
+      console.error("[webhooks/templated]", e);
+      return res.status(200).json({ ok: false });
+    }
   });
 
   // POST /api/ai-edit/jobs/:id/approve — approve the edit plan (owner only)

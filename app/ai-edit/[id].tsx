@@ -50,6 +50,7 @@ type Job = {
   revisionCount: number;
   ticketCost: number | null;
   videoSpec: RawStockVideoSpec | null;
+  templatedRenderId: string | null;
   deliveredUrl: string | null;
   deliveredAt: string | null;
   createdAt: string;

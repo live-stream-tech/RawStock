@@ -49,10 +49,18 @@ const FORMAT_TEMPLATE_SUFFIX: Record<RawStockVideoFormat, string> = {
   horizontal_16_9: "horizontal",
 };
 
+/** 論理テンプレ名 → Templated ダッシュボードのテンプレート UUID */
+const TEMPLATED_TEMPLATE_ID_BY_LOGICAL: Readonly<Record<string, string>> = {
+  "rawstock-fast-cut-vertical": "2fe20a02-019e-4a1c-81e7-a8f0130c7978",
+  "rawstock-standard-vertical": "b4cccf2e-3962-4f3f-a884-186c50491602",
+  "rawstock-cinematic-vertical": "9da37313-33c9-45d6-851c-081a0796aaa8",
+};
+
 function resolveTemplateId(spec: RawStockVideoSpec): string {
   const base = TEMPLATE_BY_CUT_SPEED[spec.style.cut_speed];
   const suffix = FORMAT_TEMPLATE_SUFFIX[spec.format];
-  return `${base}-${suffix}`;
+  const logicalId = `${base}-${suffix}`;
+  return TEMPLATED_TEMPLATE_ID_BY_LOGICAL[logicalId] ?? logicalId;
 }
 
 function clipTypeToCaptionFallback(type: RawStockClipType): string {
