@@ -271,11 +271,23 @@ export const liveStreams = pgTable("live_streams", {
 export const streams = pgTable("streams", {
   id: serial("id").primaryKey(),
   cfLiveInputId: text("cf_live_input_id").notNull(),
+  /** WHEP 視聴用（playback）URL */
   webRtcUrl: text("webrtc_url").notNull(),
   rtmpsUrl: text("rtmps_url").notNull(),
   rtmpsStreamKey: text("rtmps_stream_key").notNull(),
   currentViewers: integer("current_viewers").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow(),
+  title: text("title"),
+  hostUserId: integer("host_user_id"),
+  isLive: boolean("is_live").notNull().default(false),
+  startedAt: timestamp("started_at"),
+  endedAt: timestamp("ended_at"),
+  /** WHIP 配信（publish）URL */
+  whipUrl: text("whip_url"),
+  /** public | followers | community */
+  visibility: text("visibility").notNull().default("public"),
+  /** visibility=community のとき、視聴に必要なコミュニティ */
+  restrictedCommunityId: integer("restricted_community_id"),
 });
 
 export const creators = pgTable("creators", {
@@ -380,6 +392,27 @@ export const dmConversationMessages = pgTable("dm_conversation_messages", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+/** ユーザー間 1:1 DM（user_1_id < user_2_id） */
+export const dmThreads = pgTable(
+  "dm_threads",
+  {
+    id: serial("id").primaryKey(),
+    user1Id: integer("user_1_id").notNull(),
+    user2Id: integer("user_2_id").notNull(),
+    lastMessagePreview: text("last_message_preview"),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (t) => [unique().on(t.user1Id, t.user2Id)],
+);
+
+export const dmThreadMessages = pgTable("dm_thread_messages", {
+  id: serial("id").primaryKey(),
+  threadId: integer("thread_id").notNull(),
+  senderUserId: integer("sender_user_id").notNull(),
+  text: text("text").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const jukeboxState = pgTable("jukebox_state", {
   id: serial("id").primaryKey(),
   communityId: integer("community_id").notNull().unique(),
@@ -473,6 +506,18 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+/** ユーザー間フォロー（フォロワー限定ライブの判定に使用） */
+export const userFollows = pgTable(
+  "user_follows",
+  {
+    id: serial("id").primaryKey(),
+    followerId: integer("follower_id").notNull(),
+    followingId: integer("following_id").notNull(),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (t) => [unique().on(t.followerId, t.followingId)],
+);
 
 /** 電話番号認証コード（SMS）の検証用テーブル */
 export const phoneVerifications = pgTable("phone_verifications", {
@@ -579,17 +624,53 @@ export const withdrawals = pgTable("withdrawals", {
   processedAt: timestamp("processed_at"),
 });
 
+// ─── Mentor Session Products ──────────────────────────────────────────────────
+
+/**
+ * クリエイターが作成するメンターセッション商品（枠定義）。
+ * ユーザーはこの商品を予約して mentor_bookings が生成される。
+ */
+export const mentorSessions = pgTable("mentor_sessions", {
+  id: serial("id").primaryKey(),
+  /** セッションを提供するクリエイター (users.id) */
+  creatorId: integer("creator_id").notNull(),
+  title: text("title").notNull(),
+  category: text("category").notNull().default("other"),
+  description: text("description").notNull().default(""),
+  /** チケット価格 */
+  price: integer("price").notNull(),
+  /** セッション時間（分） */
+  duration: integer("duration").notNull().default(30),
+  /** 同時参加可能人数 */
+  maxParticipants: integer("max_participants").notNull().default(1),
+  /** false = 非表示（物理削除しない） */
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export const mentorBookings = pgTable("mentor_bookings", {
   id: serial("id").primaryKey(),
-  streamId: integer("stream_id").notNull(),
+  /** 新モデル: mentor_sessions.id への参照 */
+  sessionId: integer("session_id"),
+  /** 旧モデル互換: live_streams.id */
+  streamId: integer("stream_id"),
   userId: text("user_id").notNull().default("guest"),
   userName: text("user_name").notNull(),
   userAvatar: text("user_avatar"),
+  /** 予約日時（新モデル用） */
+  scheduledAt: timestamp("scheduled_at"),
   stripeSessionId: text("stripe_session_id"),
   stripePaymentIntentId: text("stripe_payment_intent_id"),
   price: integer("price").notNull(),
   status: text("status").notNull().default("pending"),
   queuePosition: integer("queue_position").notNull().default(0),
+  /** ビデオ通話 WHIP URL（配信者側）*/
+  whipUrl: text("whip_url"),
+  /** ビデオ通話 WHEP URL（視聴者側）*/
+  whepUrl: text("whep_url"),
+  /** Cloudflare Stream の uid */
+  cfStreamUid: text("cf_stream_uid"),
   agreedToTerms: boolean("agreed_to_terms").notNull().default(false),
   agreedAt: timestamp("agreed_at"),
   notifiedAt: timestamp("notified_at"),

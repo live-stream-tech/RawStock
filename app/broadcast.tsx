@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -12,10 +12,18 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
+import { CameraView, useCameraPermissions } from "expo-camera";
 import { C } from "@/constants/colors";
+import { connectWHIP } from "@/lib/live/whip";
+import { apiCreateLiveStream, apiStartLiveStream, apiEndLiveStream, liveApiBase } from "@/lib/live/streamApi";
+import { acquireBroadcastMediaStream } from "@/lib/live/nativeBroadcastStream";
+import type { LiveStreamVisibility } from "@/lib/live/streamApi";
 
-const API_BASE = Platform.OS === "web" ? "" : process.env.EXPO_PUBLIC_API_URL ?? "";
+function parseRouteVisibility(v: string | undefined): LiveStreamVisibility {
+  if (v === "followers" || v === "community") return v;
+  return "public";
+}
 
 const FILTERS = [
   { id: "none", label: "None", icon: "ban-outline", css: "" },
@@ -27,14 +35,23 @@ const FILTERS = [
 ];
 
 export default function BroadcastScreen() {
+  const params = useLocalSearchParams<{ visibility?: string; communityId?: string }>();
+  const routeVisibility = parseRouteVisibility(
+    typeof params.visibility === "string" ? params.visibility : undefined,
+  );
+  const routeCommunityId =
+    typeof params.communityId === "string" && params.communityId.trim() !== ""
+      ? parseInt(params.communityId, 10)
+      : NaN;
+
   const insets = useSafeAreaInsets();
   const videoRef = useRef<any>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 
   const [phase, setPhase] = useState<"idle" | "creating" | "ready" | "starting" | "live" | "stopping">("idle");
   const [streamId, setStreamId] = useState<number | null>(null);
-  const [whipUrl, setWhipUrl] = useState<string>("");
   const [selectedFilter, setSelectedFilter] = useState("none");
   const [title, setTitle] = useState("");
   const [viewers, setViewers] = useState(0);
@@ -44,11 +61,18 @@ export default function BroadcastScreen() {
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const viewersPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const nativeWhipBlocked = Platform.OS !== "web";
+
   useEffect(() => {
     if (Platform.OS === "web") {
-      startCamera();
+      startWebCamera();
+    } else {
+      void startNativePreview();
     }
-    return () => { cleanup(); };
+    return () => {
+      cleanup();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -63,6 +87,7 @@ export default function BroadcastScreen() {
       viewersPollRef.current = setInterval(async () => {
         if (!streamId) return;
         try {
+          const API_BASE = liveApiBase();
           const r = await fetch(`${API_BASE}/api/stream/${streamId}`);
           if (r.ok) {
             const d = await r.json();
@@ -75,18 +100,21 @@ export default function BroadcastScreen() {
       blinkAnim.setValue(1);
       if (elapsedRef.current) clearInterval(elapsedRef.current);
       if (viewersPollRef.current) clearInterval(viewersPollRef.current);
-      if (phase === "idle") { setElapsed(0); setViewers(0); }
+      if (phase === "idle") {
+        setElapsed(0);
+        setViewers(0);
+      }
     }
     return () => {
       if (elapsedRef.current) clearInterval(elapsedRef.current);
       if (viewersPollRef.current) clearInterval(viewersPollRef.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- blinkAnim is stable ref-backed Animated.Value
   }, [phase, streamId]);
 
-  const startCamera = async () => {
-    if (Platform.OS !== "web") return;
+  const startWebCamera = async () => {
     try {
-      const stream = await (navigator as any).mediaDevices.getUserMedia({ video: true, audio: true });
+      const stream = await acquireBroadcastMediaStream();
       localStreamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -98,8 +126,26 @@ export default function BroadcastScreen() {
     }
   };
 
+  const startNativePreview = async () => {
+    try {
+      if (!cameraPermission?.granted) {
+        const res = await requestCameraPermission();
+        if (!res.granted) {
+          setCameraError(true);
+          return;
+        }
+      }
+      setPhase("ready");
+    } catch {
+      setCameraError(true);
+    }
+  };
+
   const cleanup = () => {
-    if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
+    if (pcRef.current) {
+      pcRef.current.close();
+      pcRef.current = null;
+    }
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((t) => t.stop());
       localStreamRef.current = null;
@@ -107,38 +153,14 @@ export default function BroadcastScreen() {
     if (videoRef.current) videoRef.current.srcObject = null;
   };
 
-  const connectWHIP = async (url: string, stream: MediaStream): Promise<RTCPeerConnection> => {
-    const pc = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }],
-      bundlePolicy: "max-bundle",
-    });
-    stream.getTracks().forEach((track) => pc.addTrack(track, stream));
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    await new Promise<void>((resolve) => {
-      if (pc.iceGatheringState === "complete") { resolve(); return; }
-      const check = () => {
-        if (pc.iceGatheringState === "complete") {
-          pc.removeEventListener("icegatheringstatechange", check);
-          resolve();
-        }
-      };
-      pc.addEventListener("icegatheringstatechange", check);
-      setTimeout(resolve, 3000);
-    });
-    const sdp = pc.localDescription!.sdp;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/sdp" },
-      body: sdp,
-    });
-    if (!res.ok) throw new Error(`WHIP error: ${res.status}`);
-    const answerSdp = await res.text();
-    await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
-    return pc;
-  };
-
   const handleGoLive = async () => {
+    if (nativeWhipBlocked) {
+      Alert.alert(
+        "ライブ配信",
+        "モバイルからの WHIP 配信は SNOW SDK と WebRTC ブリッジ接続後に有効になります。手順は docs/SNOW_SDK_INTEGRATION.md を参照してください。当面はブラウザ（Web）から Go Live してください。",
+      );
+      return;
+    }
     if (!title.trim()) {
       Alert.alert("Enter a title", "Please enter a stream title before going live.");
       return;
@@ -149,26 +171,18 @@ export default function BroadcastScreen() {
     }
     try {
       setPhase("creating");
-      const createRes = await fetch(`${API_BASE}/api/stream/create`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ title }),
+      const { id, whipUrl: wUrl } = await apiCreateLiveStream(title, {
+        visibility: routeVisibility,
+        restrictedCommunityId:
+          routeVisibility === "community" && Number.isFinite(routeCommunityId)
+            ? routeCommunityId
+            : undefined,
       });
-      if (!createRes.ok) {
-        const err = await createRes.json();
-        throw new Error(err.error ?? "Failed to create stream");
-      }
-      const { id, whipUrl: wUrl } = await createRes.json();
       setStreamId(id);
-      setWhipUrl(wUrl);
       setPhase("starting");
       const pc = await connectWHIP(wUrl, localStreamRef.current);
       pcRef.current = pc;
-      await fetch(`${API_BASE}/api/stream/${id}/start`, {
-        method: "POST",
-        credentials: "include",
-      });
+      await apiStartLiveStream(id);
       setPhase("live");
     } catch (e: any) {
       console.error("GoLive error:", e);
@@ -186,12 +200,7 @@ export default function BroadcastScreen() {
         onPress: async () => {
           setPhase("stopping");
           try {
-            if (streamId) {
-              await fetch(`${API_BASE}/api/stream/${streamId}/end`, {
-                method: "POST",
-                credentials: "include",
-              });
-            }
+            if (streamId) await apiEndLiveStream(streamId);
           } catch {}
           cleanup();
           setPhase("idle");
@@ -215,6 +224,8 @@ export default function BroadcastScreen() {
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
+  const goLiveDisabled = !title.trim() || isLoading || cameraError || nativeWhipBlocked;
+
   return (
     <View style={styles.container}>
       <View style={styles.cameraArea}>
@@ -234,10 +245,12 @@ export default function BroadcastScreen() {
             }}
           />
         ) : (
-          <View style={styles.nativeCameraPlaceholder}>
-            <Ionicons name="videocam" size={60} color={C.accent} />
-            <Text style={styles.placeholderText}>Camera Preview</Text>
-            <Text style={styles.placeholderSub}>Camera will appear on device</Text>
+          <CameraView style={styles.cameraFill} facing="front" mode="video" />
+        )}
+
+        {Platform.OS === "web" && !isLive && (
+          <View style={styles.filterHint}>
+            <Text style={styles.filterHintText}>CSS filters are preview-only; the encoded stream may look different.</Text>
           </View>
         )}
 
@@ -245,14 +258,33 @@ export default function BroadcastScreen() {
           <View style={styles.cameraErrorOverlay}>
             <Ionicons name="videocam-off-outline" size={48} color="#ffffff88" />
             <Text style={styles.cameraErrorText}>Camera access required</Text>
-            <Text style={styles.cameraErrorSub}>Please allow camera access in your browser settings</Text>
+            <Text style={styles.cameraErrorSub}>
+              {Platform.OS === "web"
+                ? "Please allow camera access in your browser settings"
+                : "Please allow camera and microphone in system settings"}
+            </Text>
+          </View>
+        )}
+
+        {nativeWhipBlocked && !cameraError && phase === "ready" && (
+          <View style={styles.nativeHint}>
+            <Text style={styles.nativeHintText}>
+              プレビューのみ（モバイル WHIP は SNOW 連携後）。配信は Web から実行してください。
+            </Text>
           </View>
         )}
 
         <View style={[styles.topOverlay, { paddingTop: topInset + 8 }]}>
-          <Pressable style={styles.closeButton} onPress={() => {
-            if (isLive) handleStop(); else { cleanup(); router.back(); }
-          }}>
+          <Pressable
+            style={styles.closeButton}
+            onPress={() => {
+              if (isLive) handleStop();
+              else {
+                cleanup();
+                router.back();
+              }
+            }}
+          >
             <Ionicons name="chevron-back" size={22} color="#fff" />
           </Pressable>
 
@@ -282,7 +314,7 @@ export default function BroadcastScreen() {
           )}
         </View>
 
-        {!isLive && (
+        {!isLive && Platform.OS === "web" && (
           <View style={styles.filterRow}>
             {FILTERS.map((f) => {
               const isActive = selectedFilter === f.id;
@@ -345,16 +377,16 @@ export default function BroadcastScreen() {
           </View>
         ) : (
           <Pressable
-            style={[styles.goLiveBtn, (!title.trim() || isLoading || cameraError) && styles.goLiveBtnDisabled]}
+            style={[styles.goLiveBtn, goLiveDisabled && styles.goLiveBtnDisabled]}
             onPress={handleGoLive}
-            disabled={!title.trim() || isLoading || cameraError}
+            disabled={goLiveDisabled}
           >
             {isLoading ? (
               <ActivityIndicator color="#fff" size="small" />
             ) : (
               <>
                 <View style={styles.goLiveDot} />
-                <Text style={styles.goLiveBtnText}>Go Live</Text>
+                <Text style={styles.goLiveBtnText}>{nativeWhipBlocked ? "Go Live (Web only)" : "Go Live"}</Text>
               </>
             )}
           </Pressable>
@@ -367,15 +399,28 @@ export default function BroadcastScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
   cameraArea: { flex: 1, backgroundColor: "#000", overflow: "hidden" },
-  nativeCameraPlaceholder: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#0d1b2a",
-    gap: 12,
+  cameraFill: { flex: 1, width: "100%" },
+  filterHint: {
+    position: "absolute",
+    bottom: 88,
+    left: 12,
+    right: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderRadius: 8,
   },
-  placeholderText: { color: "#fff", fontSize: 18, fontWeight: "700" },
-  placeholderSub: { color: "#ffffff88", fontSize: 13 },
+  filterHintText: { color: "#ffffffaa", fontSize: 10, textAlign: "center" },
+  nativeHint: {
+    position: "absolute",
+    bottom: 24,
+    left: 16,
+    right: 16,
+    padding: 10,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    borderRadius: 10,
+  },
+  nativeHintText: { color: "#ffffffcc", fontSize: 12, textAlign: "center", lineHeight: 17 },
   cameraErrorOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",

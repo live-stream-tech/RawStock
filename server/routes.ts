@@ -21,6 +21,7 @@ import {
   liveStreamChat,
   dmConversationMessages,
   mentorBookings,
+  mentorSessions,
   earnings,
   withdrawals,
   users,
@@ -54,6 +55,9 @@ import {
   bannerAds,
   dailyLogins,
   aiEditJobs,
+  userFollows,
+  dmThreads,
+  dmThreadMessages,
 } from "./schema";
 import { eq, asc, desc, count, sql, and, or, gte, lte, isNull, inArray } from "drizzle-orm";
 import { getUncachableStripeClient, getStripePublishableKey, createConnectExpressAccount, createConnectAccountLink, getConnectAccount, createBannerPaymentIntent, getPaymentIntentStatus, createTransferToConnectedAccount } from "./stripeClient";
@@ -187,6 +191,22 @@ const WELCOME_DM_TEXT = [
   "",
   "If you need help, reply to this DM anytime.",
 ].join("\n");
+
+function formatDmThreadTime(d: Date | null | undefined): string {
+  if (!d) return "";
+  const t = d instanceof Date ? d.getTime() : new Date(d as string).getTime();
+  if (Number.isNaN(t)) return "";
+  const ms = Date.now() - t;
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return "たった今";
+  if (m < 60) return `${m}分前`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}時間前`;
+  const days = Math.floor(h / 24);
+  if (days < 7) return `${days}日前`;
+  const dt = new Date(t);
+  return `${dt.getMonth() + 1}/${dt.getDate()}`;
+}
 
 async function sendWelcomeDmIfNeeded(userId: number): Promise<void> {
   try {
@@ -860,6 +880,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       displayName: users.displayName,
       profileImageUrl: users.profileImageUrl,
       bio: users.bio,
+      role: users.role,
       instagramUrl: users.instagramUrl,
       youtubeUrl: users.youtubeUrl,
       xUrl: users.xUrl,
@@ -900,6 +921,15 @@ export async function registerRoutes(app: Express): Promise<void> {
       } catch {}
     }
 
+    const [{ c: followersCountRaw }] = await db
+      .select({ c: count() })
+      .from(userFollows)
+      .where(eq(userFollows.followingId, id));
+    const [{ c: followingCountRaw }] = await db
+      .select({ c: count() })
+      .from(userFollows)
+      .where(eq(userFollows.followerId, id));
+
     res.json({
       id: u.id,
       name: u.displayName,
@@ -907,6 +937,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       avatar: u.profileImageUrl,
       profileImageUrl: u.profileImageUrl,
       bio: u.bio ?? "",
+      role: (u as any).role ?? "USER",
       instagramUrl: (u as any).instagramUrl ?? null,
       youtubeUrl: (u as any).youtubeUrl ?? null,
       xUrl: (u as any).xUrl ?? null,
@@ -915,7 +946,133 @@ export async function registerRoutes(app: Express): Promise<void> {
       bandcampUrl: (u as any).bandcampUrl ?? null,
       enneagramScores,
       pinnedCommunities,
+      followersCount: Number(followersCountRaw ?? 0),
+      followingCount: Number(followingCountRaw ?? 0),
     });
+  });
+
+  /** ログイン中ユーザーが :id をフォローしているか（要認証） */
+  app.get("/api/users/:id/follow-status", async (req: Request, res: Response) => {
+    const me = await getAuthUser(req);
+    if (!me) return res.status(401).json({ error: "未認証です" });
+    const targetId = paramNum(req, "id");
+    if (!targetId) return res.status(400).json({ error: "Invalid id" });
+    const [row] = await db
+      .select({ id: userFollows.id })
+      .from(userFollows)
+      .where(and(eq(userFollows.followerId, me.id), eq(userFollows.followingId, targetId)));
+    res.json({ isFollowing: !!row });
+  });
+
+  /** 公開: ユーザーのアクティブなメンターセッション商品（mentor_sessions） */
+  app.get("/api/users/:id/mentor-sessions", async (req: Request, res: Response) => {
+    const uid = paramNum(req, "id");
+    if (!uid) return res.status(400).json({ error: "Invalid id" });
+    const rows = await db
+      .select()
+      .from(mentorSessions)
+      .where(and(eq(mentorSessions.creatorId, uid), eq(mentorSessions.isActive, true)))
+      .orderBy(desc(mentorSessions.createdAt));
+    res.json(rows);
+  });
+
+  /** 公開: ユーザーが参加しているコミュニティ */
+  app.get("/api/users/:id/communities", async (req: Request, res: Response) => {
+    const uid = paramNum(req, "id");
+    if (!uid) return res.status(400).json({ error: "Invalid id" });
+    const memberships = await db
+      .select({ communityId: communityMembers.communityId })
+      .from(communityMembers)
+      .where(eq(communityMembers.userId, uid));
+    if (memberships.length === 0) return res.json([]);
+    const ids = memberships.map((m) => m.communityId);
+    const rows = await db
+      .select({
+        id: communities.id,
+        name: communities.name,
+        thumbnail: communities.thumbnail,
+        category: communities.category,
+      })
+      .from(communities)
+      .where(inArray(communities.id, ids))
+      .orderBy(desc(communities.members));
+    res.json(rows);
+  });
+
+  /** フォロワー一覧（認証不要） */
+  app.get("/api/users/:id/followers", async (req: Request, res: Response) => {
+    const targetId = paramNum(req, "id");
+    if (!targetId) return res.status(400).json({ error: "Invalid id" });
+    const rows = await db
+      .select({
+        id: users.id,
+        displayName: users.displayName,
+        profileImageUrl: users.profileImageUrl,
+        bio: users.bio,
+      })
+      .from(userFollows)
+      .innerJoin(users, eq(users.id, userFollows.followerId))
+      .where(eq(userFollows.followingId, targetId));
+    res.json(
+      rows.map((r) => ({
+        id: r.id,
+        displayName: r.displayName,
+        profileImageUrl: r.profileImageUrl,
+        bio: r.bio,
+        followersCount: 0,
+      })),
+    );
+  });
+
+  /** フォロー中一覧（認証不要） */
+  app.get("/api/users/:id/following", async (req: Request, res: Response) => {
+    const targetId = paramNum(req, "id");
+    if (!targetId) return res.status(400).json({ error: "Invalid id" });
+    const rows = await db
+      .select({
+        id: users.id,
+        displayName: users.displayName,
+        profileImageUrl: users.profileImageUrl,
+        bio: users.bio,
+      })
+      .from(userFollows)
+      .innerJoin(users, eq(users.id, userFollows.followingId))
+      .where(eq(userFollows.followerId, targetId));
+    res.json(
+      rows.map((r) => ({
+        id: r.id,
+        displayName: r.displayName,
+        profileImageUrl: r.profileImageUrl,
+        bio: r.bio,
+        followersCount: 0,
+      })),
+    );
+  });
+
+  app.post("/api/users/:id/follow", async (req: Request, res: Response) => {
+    const me = await getAuthUser(req);
+    if (!me) return res.status(401).json({ error: "未認証です" });
+    const targetId = paramNum(req, "id");
+    if (!targetId) return res.status(400).json({ error: "Invalid id" });
+    if (targetId === me.id) return res.status(400).json({ error: "自分自身はフォローできません" });
+    const [exists] = await db.select({ id: users.id }).from(users).where(eq(users.id, targetId));
+    if (!exists) return res.status(404).json({ error: "Not found" });
+    await db
+      .insert(userFollows)
+      .values({ followerId: me.id, followingId: targetId } as typeof userFollows.$inferInsert)
+      .onConflictDoNothing({ target: [userFollows.followerId, userFollows.followingId] });
+    res.json({ ok: true });
+  });
+
+  app.delete("/api/users/:id/follow", async (req: Request, res: Response) => {
+    const me = await getAuthUser(req);
+    if (!me) return res.status(401).json({ error: "未認証です" });
+    const targetId = paramNum(req, "id");
+    if (!targetId) return res.status(400).json({ error: "Invalid id" });
+    await db
+      .delete(userFollows)
+      .where(and(eq(userFollows.followerId, me.id), eq(userFollows.followingId, targetId)));
+    res.json({ ok: true });
   });
 
   // ── Base URL ──────────────────────────────────────────────────────
@@ -3406,20 +3563,98 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json(updated);
   });
 
-  // ── DM Messages ───────────────────────────────────────────────────
-  app.get("/api/dm-messages", async (_req: Request, res: Response) => {
-    const rows = await db.select().from(dmMessages).orderBy(asc(dmMessages.sortOrder));
-    res.json(rows);
+  // ── DM（dm_threads: ユーザー間スレッド）──────────────────────────────
+  app.post("/api/dm/open", async (req: Request, res: Response) => {
+    const me = await getAuthUser(req);
+    if (!me) return res.status(401).json({ error: "未認証です" });
+    const raw = (req.body as { peerUserId?: unknown })?.peerUserId;
+    const peer =
+      typeof raw === "number" && Number.isFinite(raw)
+        ? Math.floor(raw)
+        : typeof raw === "string"
+          ? parseInt(raw, 10)
+          : NaN;
+    if (!Number.isFinite(peer) || peer < 1) {
+      return res.status(400).json({ error: "peerUserId が必要です" });
+    }
+    if (peer === me.id) return res.status(400).json({ error: "自分自身とは DM できません" });
+    const [peerUser] = await db.select({ id: users.id }).from(users).where(eq(users.id, peer));
+    if (!peerUser) return res.status(404).json({ error: "ユーザーが見つかりません" });
+    const u1 = Math.min(me.id, peer);
+    const u2 = Math.max(me.id, peer);
+    let [th] = await db
+      .select()
+      .from(dmThreads)
+      .where(and(eq(dmThreads.user1Id, u1), eq(dmThreads.user2Id, u2)));
+    if (!th) {
+      [th] = await db
+        .insert(dmThreads)
+        .values({ user1Id: u1, user2Id: u2 } as typeof dmThreads.$inferInsert)
+        .returning();
+    }
+    res.json({ threadId: th.id });
+  });
+
+  app.get("/api/dm-messages", async (req: Request, res: Response) => {
+    const me = await getAuthUser(req);
+    if (!me) return res.json([]);
+    const threads = await db
+      .select()
+      .from(dmThreads)
+      .where(or(eq(dmThreads.user1Id, me.id), eq(dmThreads.user2Id, me.id)))
+      .orderBy(desc(dmThreads.updatedAt));
+    const out: {
+      id: number;
+      name: string;
+      avatar: string;
+      lastMessage: string;
+      time: string;
+      unread: number;
+      online: boolean;
+      otherUserId: number;
+    }[] = [];
+    for (const t of threads) {
+      const peerId = t.user1Id === me.id ? t.user2Id : t.user1Id;
+      const [peer] = await db
+        .select({ displayName: users.displayName, profileImageUrl: users.profileImageUrl })
+        .from(users)
+        .where(eq(users.id, peerId));
+      if (!peer) continue;
+      out.push({
+        id: t.id,
+        name: peer.displayName ?? "User",
+        avatar: peer.profileImageUrl ?? "",
+        lastMessage: t.lastMessagePreview ?? "",
+        time: formatDmThreadTime(t.updatedAt ?? undefined),
+        unread: 0,
+        online: false,
+        otherUserId: peerId,
+      });
+    }
+    res.json(out);
   });
 
   app.post("/api/dm-messages/:id/read", async (req: Request, res: Response) => {
     const id = paramNum(req, "id");
+    const me = await getAuthUser(req);
+    if (me) {
+      const [th] = await db
+        .select()
+        .from(dmThreads)
+        .where(
+          and(
+            eq(dmThreads.id, id),
+            or(eq(dmThreads.user1Id, me.id), eq(dmThreads.user2Id, me.id)),
+          ),
+        );
+      if (th) return res.json({ ok: true });
+    }
     const [updated] = await db
       .update(dmMessages)
       .set({ unread: 0 } as Partial<typeof dmMessages.$inferInsert>)
       .where(eq(dmMessages.id, id))
       .returning();
-    res.json(updated);
+    res.json(updated ?? { ok: true });
   });
 
   // ── Notifications ─────────────────────────────────────────────────
@@ -3487,10 +3722,62 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json(msg);
   });
 
-  // ── DM Conversations ──────────────────────────────────────────────
+  // ── DM 会話（:id = dm_threads.id。レガシー dm_messages.id は下でフォールバック） ──
+  app.get("/api/dm-messages/:id/peer", async (req: Request, res: Response) => {
+    const id = paramNum(req, "id");
+    const me = await getAuthUser(req);
+    if (!me) return res.status(401).json({ error: "未認証です" });
+    const [th] = await db
+      .select()
+      .from(dmThreads)
+      .where(
+        and(eq(dmThreads.id, id), or(eq(dmThreads.user1Id, me.id), eq(dmThreads.user2Id, me.id))),
+      );
+    if (!th) return res.status(404).json({ error: "Not found" });
+    const peerId = th.user1Id === me.id ? th.user2Id : th.user1Id;
+    const [peer] = await db
+      .select({ displayName: users.displayName, profileImageUrl: users.profileImageUrl })
+      .from(users)
+      .where(eq(users.id, peerId));
+    if (!peer) return res.status(404).json({ error: "Not found" });
+    res.json({
+      name: peer.displayName ?? "User",
+      avatar: peer.profileImageUrl ?? "",
+      otherUserId: peerId,
+    });
+  });
+
   app.get("/api/dm-messages/:id/conversation", async (req: Request, res: Response) => {
     const id = paramNum(req, "id");
-    const msgs = await db.select().from(dmConversationMessages)
+    const me = await getAuthUser(req);
+    if (!me) return res.status(401).json({ error: "未認証です" });
+    const [th] = await db
+      .select()
+      .from(dmThreads)
+      .where(
+        and(eq(dmThreads.id, id), or(eq(dmThreads.user1Id, me.id), eq(dmThreads.user2Id, me.id))),
+      );
+    if (th) {
+      const rows = await db
+        .select()
+        .from(dmThreadMessages)
+        .where(eq(dmThreadMessages.threadId, id))
+        .orderBy(asc(dmThreadMessages.createdAt));
+      return res.json(
+        rows.map((m) => ({
+          id: m.id,
+          sender: m.senderUserId === me.id ? "me" : "them",
+          senderId: m.senderUserId,
+          text: m.text,
+          isRead: true,
+          createdAt: (m.createdAt ?? new Date()).toISOString(),
+          imageUrl: null as string | null,
+        })),
+      );
+    }
+    const msgs = await db
+      .select()
+      .from(dmConversationMessages)
       .where(eq(dmConversationMessages.dmId, id))
       .orderBy(asc(dmConversationMessages.createdAt));
     res.json(msgs);
@@ -3498,12 +3785,55 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.post("/api/dm-messages/:id/conversation", async (req: Request, res: Response) => {
     const id = paramNum(req, "id");
-    const { text } = req.body;
-    const [msg] = await db.insert(dmConversationMessages).values({
-      dmId: id, sender: "me", text, isRead: true,
-    } as typeof dmConversationMessages.$inferInsert).returning();
-    // Update last message in dm_messages
-    await db.update(dmMessages).set({ lastMessage: text, unread: 0 } as Partial<typeof dmMessages.$inferInsert>).where(eq(dmMessages.id, id));
+    const me = await getAuthUser(req);
+    if (!me) return res.status(401).json({ error: "未認証です" });
+    const text = typeof (req.body as { text?: unknown })?.text === "string" ? (req.body as { text: string }).text : "";
+    if (!text.trim()) return res.status(400).json({ error: "メッセージを入力してください" });
+    const [th] = await db
+      .select()
+      .from(dmThreads)
+      .where(
+        and(eq(dmThreads.id, id), or(eq(dmThreads.user1Id, me.id), eq(dmThreads.user2Id, me.id))),
+      );
+    if (th) {
+      const [msg] = await db
+        .insert(dmThreadMessages)
+        .values({
+          threadId: id,
+          senderUserId: me.id,
+          text: text.trim(),
+        } as typeof dmThreadMessages.$inferInsert)
+        .returning();
+      await db
+        .update(dmThreads)
+        .set({
+          lastMessagePreview: text.trim().slice(0, 200),
+          updatedAt: new Date(),
+        } as Partial<typeof dmThreads.$inferInsert>)
+        .where(eq(dmThreads.id, id));
+      return res.json({
+        id: msg.id,
+        sender: "me",
+        senderId: me.id,
+        text: msg.text,
+        isRead: true,
+        createdAt: (msg.createdAt ?? new Date()).toISOString(),
+        imageUrl: null,
+      });
+    }
+    const [msg] = await db
+      .insert(dmConversationMessages)
+      .values({
+        dmId: id,
+        sender: "me",
+        text: text.trim(),
+        isRead: true,
+      } as typeof dmConversationMessages.$inferInsert)
+      .returning();
+    await db
+      .update(dmMessages)
+      .set({ lastMessage: text.trim(), unread: 0 } as Partial<typeof dmMessages.$inferInsert>)
+      .where(eq(dmMessages.id, id));
     res.json(msg);
   });
 
@@ -3696,6 +4026,43 @@ export async function registerRoutes(app: Express): Promise<void> {
     });
   });
 
+  type StreamVisibility = "public" | "followers" | "community";
+
+  function normalizeStreamVisibility(v: unknown): StreamVisibility {
+    if (v === "followers" || v === "community") return v;
+    return "public";
+  }
+
+  async function canViewerAccessLiveStream(
+    srow: typeof streams.$inferSelect,
+    viewer: Awaited<ReturnType<typeof getAuthUser>>,
+  ): Promise<boolean> {
+    const vis = (srow.visibility ?? "public") as StreamVisibility;
+    if (vis === "public") return true;
+    const hostId = srow.hostUserId;
+    if (viewer && hostId != null && viewer.id === hostId) return true;
+    if (vis === "followers") {
+      if (hostId == null) return true;
+      if (!viewer) return false;
+      const [f] = await db
+        .select({ id: userFollows.id })
+        .from(userFollows)
+        .where(and(eq(userFollows.followerId, viewer.id), eq(userFollows.followingId, hostId)));
+      return !!f;
+    }
+    if (vis === "community") {
+      const cid = srow.restrictedCommunityId;
+      if (cid == null) return false;
+      if (!viewer) return false;
+      const [m] = await db
+        .select({ id: communityMembers.id })
+        .from(communityMembers)
+        .where(and(eq(communityMembers.userId, viewer.id), eq(communityMembers.communityId, cid)));
+      return !!m;
+    }
+    return true;
+  }
+
   // ── Cloudflare Stream Live Input 作成 ───────────────────────────────
   app.post("/api/stream/create", async (req: Request, res: Response) => {
     if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_STREAM_TOKEN) {
@@ -3705,9 +4072,36 @@ export async function registerRoutes(app: Express): Promise<void> {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "未認証です" });
 
-    const { name } = req.body ?? {};
+    const { name, title, visibility: visIn, restrictedCommunityId: rcIn } = (req.body ?? {}) as {
+      name?: string;
+      title?: string;
+      visibility?: unknown;
+      restrictedCommunityId?: unknown;
+    };
+    const visibility = normalizeStreamVisibility(visIn);
+    let restrictedCommunityId: number | null = null;
+    if (visibility === "community") {
+      const cid =
+        typeof rcIn === "number" && Number.isFinite(rcIn)
+          ? rcIn
+          : parseInt(String(rcIn ?? ""), 10);
+      if (!Number.isFinite(cid)) {
+        return res.status(400).json({ error: "コミュニティ限定配信では restrictedCommunityId が必要です" });
+      }
+      const [mem] = await db
+        .select({ id: communityMembers.id })
+        .from(communityMembers)
+        .where(and(eq(communityMembers.userId, user.id), eq(communityMembers.communityId, cid)));
+      if (!mem) {
+        return res.status(403).json({ error: "選択したコミュニティのメンバーではありません" });
+      }
+      restrictedCommunityId = cid;
+    }
 
     try {
+      const displayTitle = (typeof title === "string" && title.trim()) || (typeof name === "string" && name.trim()) || "";
+      const metaName = displayTitle || `RawStock Stream by ${user.displayName}`;
+
       const cfRes = await fetch(
         `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/stream/live_inputs`,
         {
@@ -3718,7 +4112,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           },
           body: JSON.stringify({
             meta: {
-              name: name || `RawStock Stream by ${user.displayName}`,
+              name: metaName,
             },
           }),
         }
@@ -3744,12 +4138,14 @@ export async function registerRoutes(app: Express): Promise<void> {
       const cfId = result.uid ?? "";
       const rtmpsUrl = result.rtmps?.url ?? "";
       const rtmpsStreamKey = result.rtmps?.streamKey ?? "";
-      const webRtcPlaybackUrl =
-        result.webRTCPlayback?.url ?? result.webRTC?.url ?? "";
+      const whipPublish = (result.webRTC?.url ?? "").trim();
+      const webRtcPlaybackUrl = (result.webRTCPlayback?.url ?? "").trim() || whipPublish;
 
       if (!cfId || !rtmpsUrl || !rtmpsStreamKey || !webRtcPlaybackUrl) {
         return res.status(502).json({ error: "Cloudflare Stream レスポンスが不完全です" });
       }
+
+      const whipUrlStored = whipPublish || webRtcPlaybackUrl;
 
       const [row] = await db
         .insert(streams)
@@ -3759,11 +4155,19 @@ export async function registerRoutes(app: Express): Promise<void> {
           rtmpsUrl,
           rtmpsStreamKey,
           currentViewers: 0,
+          title: displayTitle || null,
+          hostUserId: user.id,
+          isLive: false,
+          whipUrl: whipPublish || null,
+          visibility,
+          restrictedCommunityId: visibility === "community" ? restrictedCommunityId : null,
         } as typeof streams.$inferInsert)
         .returning();
 
       res.json({
         id: row.id,
+        whipUrl: whipUrlStored,
+        whepUrl: webRtcPlaybackUrl,
         webRtc: { url: webRtcPlaybackUrl },
         rtmps: { url: rtmpsUrl, streamKey: rtmpsStreamKey },
       });
@@ -3771,6 +4175,182 @@ export async function registerRoutes(app: Express): Promise<void> {
       console.error("Cloudflare Stream create exception:", e);
       res.status(500).json({ error: "Cloudflare Stream API 通信でエラーが発生しました" });
     }
+  });
+
+  /** 配信セッション状態 + 視聴者数（broadcast ポーリング / 視聴ページ） */
+  app.get("/api/stream/:id", async (req: Request, res: Response) => {
+    const id = paramNum(req, "id");
+    if (!id) return res.status(400).json({ error: "Invalid id" });
+
+    const [srow] = await db.select().from(streams).where(eq(streams.id, id));
+    if (srow) {
+      let creator = "Host";
+      let avatar = "";
+      if (srow.hostUserId != null) {
+        const [u] = await db.select().from(users).where(eq(users.id, srow.hostUserId));
+        if (u) {
+          creator = u.displayName ?? creator;
+          avatar = u.profileImageUrl ?? "";
+        }
+      }
+      const viewer = await getAuthUser(req);
+      const playbackOk = await canViewerAccessLiveStream(srow, viewer);
+      const vis = (srow.visibility ?? "public") as StreamVisibility;
+      const streamAccessDenied = !playbackOk && vis !== "public";
+      const hid = srow.hostUserId;
+      let isFollowingHost = false;
+      if (viewer && hid != null && viewer.id !== hid) {
+        const [f] = await db
+          .select({ id: userFollows.id })
+          .from(userFollows)
+          .where(and(eq(userFollows.followerId, viewer.id), eq(userFollows.followingId, hid)));
+        isFollowingHost = !!f;
+      }
+      return res.json({
+        id: srow.id,
+        title: srow.title ?? "Live",
+        creator,
+        avatar,
+        thumbnail: "",
+        viewers: srow.currentViewers,
+        currentViewers: srow.currentViewers,
+        category: "live",
+        fee: "Free",
+        price: null,
+        whepUrl: playbackOk ? srow.webRtcUrl : null,
+        whipUrl: playbackOk ? (srow.whipUrl ?? srow.webRtcUrl) : null,
+        isActive: srow.isLive,
+        isLive: srow.isLive,
+        community: "",
+        timeAgo: srow.isLive ? "LIVE" : "Offline",
+        visibility: vis,
+        streamAccessDenied,
+        hostUserId: hid ?? null,
+        isFollowingHost: viewer && hid != null && viewer.id !== hid ? isFollowingHost : false,
+      });
+    }
+
+    const [live] = await db.select().from(liveStreams).where(eq(liveStreams.id, id));
+    if (!live) return res.status(404).json({ error: "Not found" });
+    return res.json({
+      id: live.id,
+      title: live.title,
+      creator: live.creator,
+      avatar: live.avatar,
+      thumbnail: live.thumbnail,
+      viewers: live.viewers,
+      currentViewers: live.viewers,
+      category: live.community,
+      fee: "Free",
+      price: null,
+      whepUrl: null,
+      whipUrl: null,
+      isActive: live.isLive,
+      isLive: live.isLive,
+      community: live.community,
+      timeAgo: live.timeAgo,
+      hostUserId: null,
+      isFollowingHost: false,
+    });
+  });
+
+  /** 配信開始: is_live + started_at、視聴者カウントリセット（ホストのみ） */
+  app.post("/api/stream/:id/start", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const id = paramNum(req, "id");
+    const [row] = await db.select().from(streams).where(eq(streams.id, id));
+    if (!row) return res.status(404).json({ error: "Not found" });
+    if (row.hostUserId != null && row.hostUserId !== user.id) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const now = new Date();
+    const [updated] = await db
+      .update(streams)
+      .set({
+        isLive: true,
+        startedAt: now,
+        endedAt: null,
+        currentViewers: 0,
+      } as Partial<typeof streams.$inferInsert>)
+      .where(eq(streams.id, id))
+      .returning();
+    res.json(updated);
+  });
+
+  /** 配信終了（ホストのみ） */
+  app.post("/api/stream/:id/end", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const id = paramNum(req, "id");
+    const [row] = await db.select().from(streams).where(eq(streams.id, id));
+    if (!row) return res.status(404).json({ error: "Not found" });
+    if (row.hostUserId != null && row.hostUserId !== user.id) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const now = new Date();
+    const [updated] = await db
+      .update(streams)
+      .set({
+        isLive: false,
+        endedAt: now,
+      } as Partial<typeof streams.$inferInsert>)
+      .where(eq(streams.id, id))
+      .returning();
+    res.json(updated);
+  });
+
+  /** 視聴者参加 */
+  app.post("/api/stream/:id/join", async (req: Request, res: Response) => {
+    const id = paramNum(req, "id");
+    const [srow] = await db.select().from(streams).where(eq(streams.id, id));
+    if (srow) {
+      const viewer = await getAuthUser(req);
+      const allowed = await canViewerAccessLiveStream(srow, viewer);
+      if (!allowed) {
+        return res.status(403).json({
+          error: "この配信を視聴する権限がありません",
+          code: "STREAM_ACCESS_DENIED",
+        });
+      }
+      const [updated] = await db
+        .update(streams)
+        .set({ currentViewers: sql`${streams.currentViewers} + 1` } as Partial<typeof streams.$inferInsert>)
+        .where(eq(streams.id, id))
+        .returning();
+      return res.json({ viewerCount: updated.currentViewers, currentViewers: updated.currentViewers });
+    }
+    const [live] = await db.select().from(liveStreams).where(eq(liveStreams.id, id));
+    if (!live) return res.status(404).json({ error: "Not found" });
+    const next = Math.max(0, live.viewers + 1);
+    await db
+      .update(liveStreams)
+      .set({ viewers: next } as Partial<typeof liveStreams.$inferInsert>)
+      .where(eq(liveStreams.id, id));
+    return res.json({ viewerCount: next, currentViewers: next });
+  });
+
+  /** 視聴者退出 */
+  app.post("/api/stream/:id/leave", async (req: Request, res: Response) => {
+    const id = paramNum(req, "id");
+    const [srow] = await db.select().from(streams).where(eq(streams.id, id));
+    if (srow) {
+      const next = Math.max(0, srow.currentViewers - 1);
+      const [updated] = await db
+        .update(streams)
+        .set({ currentViewers: next } as Partial<typeof streams.$inferInsert>)
+        .where(eq(streams.id, id))
+        .returning();
+      return res.json({ viewerCount: updated.currentViewers, currentViewers: updated.currentViewers });
+    }
+    const [live] = await db.select().from(liveStreams).where(eq(liveStreams.id, id));
+    if (!live) return res.status(404).json({ error: "Not found" });
+    const next = Math.max(0, live.viewers - 1);
+    await db
+      .update(liveStreams)
+      .set({ viewers: next } as Partial<typeof liveStreams.$inferInsert>)
+      .where(eq(liveStreams.id, id));
+    return res.json({ viewerCount: next, currentViewers: next });
   });
 
   app.post("/api/jukebox/:communityId/add", async (req: Request, res: Response) => {
@@ -4184,6 +4764,191 @@ export async function registerRoutes(app: Express): Promise<void> {
         refundable: !isSelfCancel,
       } as Partial<typeof mentorBookings.$inferInsert>)
       .where(eq(mentorBookings.id, bookingId));
+    res.json({ ok: true });
+  });
+
+  // ── Mentor Sessions（セッション商品 CRUD）─────────────────────────────────────
+
+  /** クリエイター自身のセッション商品一覧 */
+  app.get("/api/mentor/my-sessions", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const rows = await db
+      .select()
+      .from(mentorSessions)
+      .where(eq(mentorSessions.creatorId, user.id))
+      .orderBy(desc(mentorSessions.createdAt));
+    res.json(rows);
+  });
+
+  /** セッション商品を作成 */
+  app.post("/api/mentor/sessions", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const { title, category, description, price, duration, maxParticipants } = req.body;
+    if (!title || !price) return res.status(400).json({ error: "title and price are required" });
+    const [row] = await db
+      .insert(mentorSessions)
+      .values({
+        creatorId: user.id,
+        title,
+        category: category ?? "other",
+        description: description ?? "",
+        price: Number(price),
+        duration: duration ?? 30,
+        maxParticipants: maxParticipants ?? 1,
+        isActive: true,
+      } as typeof mentorSessions.$inferInsert)
+      .returning();
+    res.json(row);
+  });
+
+  /** セッション商品を更新 */
+  app.put("/api/mentor/sessions/:id", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const id = paramNum(req, "id");
+    const [existing] = await db.select().from(mentorSessions).where(eq(mentorSessions.id, id));
+    if (!existing || existing.creatorId !== user.id) return res.status(403).json({ error: "Forbidden" });
+    const { title, category, description, price, duration, maxParticipants } = req.body;
+    const [row] = await db
+      .update(mentorSessions)
+      .set({
+        title: title ?? existing.title,
+        category: category ?? existing.category,
+        description: description ?? existing.description,
+        price: price !== undefined ? Number(price) : existing.price,
+        duration: duration ?? existing.duration,
+        maxParticipants: maxParticipants ?? existing.maxParticipants,
+        updatedAt: new Date(),
+      } as Partial<typeof mentorSessions.$inferInsert>)
+      .where(eq(mentorSessions.id, id))
+      .returning();
+    res.json(row);
+  });
+
+  /** セッション商品を非表示（物理削除しない） */
+  app.delete("/api/mentor/sessions/:id", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const id = paramNum(req, "id");
+    const [existing] = await db.select().from(mentorSessions).where(eq(mentorSessions.id, id));
+    if (!existing || existing.creatorId !== user.id) return res.status(403).json({ error: "Forbidden" });
+    await db
+      .update(mentorSessions)
+      .set({ isActive: false, updatedAt: new Date() } as Partial<typeof mentorSessions.$inferInsert>)
+      .where(eq(mentorSessions.id, id));
+    res.json({ ok: true });
+  });
+
+  /** クリエイター向け：自分セッションへの予約一覧 */
+  app.get("/api/mentor/creator-bookings", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const mySessions = await db
+      .select({ id: mentorSessions.id })
+      .from(mentorSessions)
+      .where(eq(mentorSessions.creatorId, user.id));
+    if (mySessions.length === 0) return res.json([]);
+    const sessionIds = mySessions.map(s => s.id);
+    const bookingRows = await db
+      .select()
+      .from(mentorBookings)
+      .where(and(
+        inArray(mentorBookings.sessionId, sessionIds),
+        sql`${mentorBookings.status} NOT IN ('cancelled')`
+      ))
+      .orderBy(desc(mentorBookings.createdAt));
+    // session 情報を結合
+    const sessionMap = new Map(
+      (await db.select().from(mentorSessions).where(inArray(mentorSessions.id, sessionIds)))
+        .map(s => [s.id, s])
+    );
+    const result = bookingRows.map(b => ({
+      booking: b,
+      session: sessionMap.get(b.sessionId!) ?? null,
+    }));
+    res.json(result);
+  });
+
+  /** クリエイター：セッション開始（Cloudflare Stream WHIP発行） */
+  app.post("/api/mentor/bookings/:bookingId/start", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const bookingId = paramNum(req, "bookingId");
+    const [booking] = await db.select().from(mentorBookings).where(eq(mentorBookings.id, bookingId));
+    if (!booking) return res.status(404).json({ error: "Booking not found" });
+
+    // 既に WHIP が発行済みなら再利用
+    if (booking.whipUrl) {
+      return res.json({ whipUrl: booking.whipUrl, whepUrl: booking.whepUrl });
+    }
+
+    // Cloudflare Stream でライブ入力を作成
+    if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_STREAM_TOKEN) {
+      return res.status(503).json({ error: "Cloudflare Stream not configured" });
+    }
+    const cfRes = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/stream/live_inputs`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${CLOUDFLARE_STREAM_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ meta: { name: `mentor-booking-${bookingId}` }, recording: { mode: "automatic" } }),
+      }
+    );
+    if (!cfRes.ok) {
+      const err = await cfRes.text();
+      return res.status(502).json({ error: `Cloudflare error: ${err}` });
+    }
+    const cfData = await cfRes.json() as { result: { uid: string; webRTC: { url: string }; webRTCPlayback: { url: string } } };
+    const { uid, webRTC, webRTCPlayback } = cfData.result;
+    const whipUrl = webRTC.url;
+    const whepUrl = webRTCPlayback.url;
+
+    await db
+      .update(mentorBookings)
+      .set({ status: "in_progress", whipUrl, whepUrl, cfStreamUid: uid } as Partial<typeof mentorBookings.$inferInsert>)
+      .where(eq(mentorBookings.id, bookingId));
+
+    res.json({ whipUrl, whepUrl });
+  });
+
+  /** ユーザー：セッション参加（WHEP URL取得） */
+  app.get("/api/mentor/bookings/:bookingId/join", async (req: Request, res: Response) => {
+    const bookingId = paramNum(req, "bookingId");
+    const [booking] = await db.select().from(mentorBookings).where(eq(mentorBookings.id, bookingId));
+    if (!booking) return res.status(404).json({ error: "Booking not found" });
+    if (!booking.whepUrl) return res.status(409).json({ error: "Session not started yet" });
+    res.json({ whepUrl: booking.whepUrl });
+  });
+
+  /** セッション終了 */
+  app.post("/api/mentor/bookings/:bookingId/end", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const bookingId = paramNum(req, "bookingId");
+    const [booking] = await db.select().from(mentorBookings).where(eq(mentorBookings.id, bookingId));
+    if (!booking) return res.status(404).json({ error: "Booking not found" });
+
+    // Cloudflare Stream のライブ入力を削除（任意）
+    if (booking.cfStreamUid && CLOUDFLARE_ACCOUNT_ID && CLOUDFLARE_STREAM_TOKEN) {
+      await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/stream/live_inputs/${booking.cfStreamUid}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${CLOUDFLARE_STREAM_TOKEN}` },
+        }
+      ).catch(() => {}); // 失敗しても続行
+    }
+
+    await db
+      .update(mentorBookings)
+      .set({ status: "completed", completedAt: new Date() } as Partial<typeof mentorBookings.$inferInsert>)
+      .where(eq(mentorBookings.id, bookingId));
+
     res.json({ ok: true });
   });
 

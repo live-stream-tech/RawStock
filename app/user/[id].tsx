@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useCallback } from "react";
 import {
   View,
   Text,
@@ -15,7 +15,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Linking } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
-import { getApiUrl } from "@/lib/query-client";
+import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { C } from "@/constants/colors";
 import { F } from "@/constants/fonts";
 
@@ -33,13 +33,24 @@ type UserProfile = {
   avatar: string | null;
   profileImageUrl: string | null;
   bio: string;
+  role?: string;
   instagramUrl?: string | null;
   youtubeUrl?: string | null;
   xUrl?: string | null;
+  spotifyUrl?: string | null;
+  appleMusicUrl?: string | null;
+  bandcampUrl?: string | null;
   enneagramScores?: number[] | null;
   pinnedCommunities?: PinnedCommunity[];
   followersCount?: number;
   followingCount?: number;
+};
+
+type MemberCommunity = {
+  id: number;
+  name: string;
+  thumbnail: string;
+  category: string;
 };
 
 type MentorSession = {
@@ -67,17 +78,24 @@ export default function UserProfileScreen() {
   const insets = useSafeAreaInsets();
   const { user: me, token } = useAuth();
   const queryClient = useQueryClient();
-  const { data: mentorSessions } = useQuery<MentorSession[]>({
-    queryKey: [`/api/mentor/sessions/${userId}`],
+  const { data: mentorSessions = [] } = useQuery<MentorSession[]>({
+    queryKey: [`/api/users/${userId}/mentor-sessions`],
     enabled: userId > 0,
     queryFn: async () => {
       const baseUrl = getApiUrl();
-      const res = await fetch(new URL(`/api/mentor/sessions/${userId}`, baseUrl).toString());
-      return res.json();
+      const res = await fetch(new URL(`/api/users/${userId}/mentor-sessions`, baseUrl).toString());
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
     },
   });
 
-  const { data: followStatus, refetch: refetchFollowStatus } = useQuery<{ isFollowing: boolean }>({
+  const { data: memberCommunities = [] } = useQuery<MemberCommunity[]>({
+    queryKey: [`/api/users/${userId}/communities`],
+    enabled: userId > 0,
+  });
+
+  const { data: followStatus } = useQuery<{ isFollowing: boolean }>({
     queryKey: [`/api/users/${userId}/follow-status`],
     enabled: userId > 0 && !!me,
     queryFn: async () => {
@@ -85,7 +103,8 @@ export default function UserProfileScreen() {
       const res = await fetch(new URL(`/api/users/${userId}/follow-status`, baseUrl).toString(), {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-      return res.json();
+      if (!res.ok) return { isFollowing: false };
+      return res.json() as Promise<{ isFollowing: boolean }>;
     },
   });
   const isFollowing = followStatus?.isFollowing ?? false;
@@ -101,17 +120,31 @@ export default function UserProfileScreen() {
       return res.json();
     },
     onSuccess: () => {
-      refetchFollowStatus();
-      queryClient.invalidateQueries({ queryKey: [`/api/users/${userId}`] });
+      void queryClient.invalidateQueries({ queryKey: [`/api/users/${userId}/follow-status`] });
+      void queryClient.invalidateQueries({ queryKey: [`/api/users/${userId}`] });
+      void queryClient.invalidateQueries({ queryKey: [`/api/users/${userId}/followers`] });
+      void queryClient.invalidateQueries({ queryKey: [`/api/users/${userId}/following`] });
     },
   });
-  const handleDM = useCallback(() => {
+  const handleDM = useCallback(async () => {
     if (!me) {
-      Alert.alert("Login Required", "Please sign in to send a DM");
+      Alert.alert("ログインが必要です", "DM を送るにはサインインしてください");
       return;
     }
-    router.push(`/dm/${userId}`);
-  }, [me, userId]);
+    try {
+      const res = await apiRequest("POST", "/api/dm/open", { peerUserId: userId });
+      const data = (await res.json()) as { threadId?: number };
+      if (data.threadId == null) {
+        Alert.alert("DM", "スレッドを開けませんでした");
+        return;
+      }
+      void queryClient.invalidateQueries({ queryKey: ["/api/dm-messages"] });
+      router.push(`/dm/${data.threadId}`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "DM を開けませんでした";
+      Alert.alert("DM", msg);
+    }
+  }, [me, userId, queryClient]);
 
   const handleFollow = useCallback(() => {
     if (!me) {
@@ -130,6 +163,20 @@ export default function UserProfileScreen() {
   const { data: posts = [] } = useQuery<VideoItem[]>({
     queryKey: [`/api/users/${userId}/posts`],
     enabled: userId > 0,
+    queryFn: async () => {
+      const baseUrl = getApiUrl();
+      const res = await fetch(new URL(`/api/users/${userId}/posts`, baseUrl).toString());
+      if (!res.ok) return [];
+      const rows = (await res.json()) as Record<string, unknown>[];
+      if (!Array.isArray(rows)) return [];
+      return rows.map((r) => ({
+        id: Number(r.id),
+        title: String(r.title ?? ""),
+        thumbnail: String(r.thumbnail ?? ""),
+        community: String(r.community ?? ""),
+        timeAgo: String((r as { timeAgo?: string }).timeAgo ?? (r as { time_ago?: string }).time_ago ?? ""),
+      }));
+    },
   });
 
   if (isLoading) {
@@ -191,6 +238,9 @@ export default function UserProfileScreen() {
             )}
           </View>
           <Text style={styles.name}>{profile.name}</Text>
+          {profile.role && profile.role !== "USER" ? (
+            <Text style={styles.roleBadge}>{profile.role}</Text>
+          ) : null}
           {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
           {/* フォロー数 */}
           <View style={styles.followStatsRow}>
@@ -222,7 +272,12 @@ export default function UserProfileScreen() {
             </View>
           )}
 
-          {(profile.instagramUrl || profile.youtubeUrl || profile.xUrl) ? (
+          {(profile.instagramUrl ||
+            profile.youtubeUrl ||
+            profile.xUrl ||
+            profile.spotifyUrl ||
+            profile.appleMusicUrl ||
+            profile.bandcampUrl) ? (
             <View style={styles.socialRow}>
               {profile.instagramUrl && (
                 <Pressable style={styles.socialBtn} onPress={() => profile.instagramUrl && Linking.openURL(profile.instagramUrl)}>
@@ -239,12 +294,27 @@ export default function UserProfileScreen() {
                   <Ionicons name="logo-twitter" size={22} color="#1DA1F2" />
                 </Pressable>
               )}
+              {profile.spotifyUrl && (
+                <Pressable style={styles.socialBtn} onPress={() => profile.spotifyUrl && Linking.openURL(profile.spotifyUrl)}>
+                  <Ionicons name="musical-notes" size={22} color="#1DB954" />
+                </Pressable>
+              )}
+              {profile.appleMusicUrl && (
+                <Pressable style={styles.socialBtn} onPress={() => profile.appleMusicUrl && Linking.openURL(profile.appleMusicUrl)}>
+                  <Ionicons name="musical-note" size={22} color="#FA243C" />
+                </Pressable>
+              )}
+              {profile.bandcampUrl && (
+                <Pressable style={styles.socialBtn} onPress={() => profile.bandcampUrl && Linking.openURL(profile.bandcampUrl)}>
+                  <Ionicons name="link" size={22} color="#629AA9" />
+                </Pressable>
+              )}
             </View>
           ) : null}
         </View>
 
         {/* メンターセッション */}
-        {mentorSessions && mentorSessions.length > 0 && (
+        {mentorSessions.length > 0 && (
           <View style={styles.mentorSection}>
             <Text style={styles.sectionTitle}>MENTOR SESSION</Text>
             {mentorSessions.map(s => (
@@ -279,7 +349,7 @@ export default function UserProfileScreen() {
         {/* 参加コミュニティ厳選4つ（パネル表示） */}
         {pinnedCommunities.length > 0 && (
           <View style={styles.communitiesSection}>
-            <Text style={styles.sectionTitle}>Communities</Text>
+            <Text style={styles.sectionTitle}>ピン留めコミュニティ</Text>
             <View style={styles.communityGrid}>
               {pinnedCommunities.slice(0, 4).map((c) => (
                 <Pressable
@@ -290,6 +360,28 @@ export default function UserProfileScreen() {
                   <Image source={{ uri: c.thumbnail }} style={styles.communityThumb} contentFit="cover" />
                   <Text style={styles.communityName} numberOfLines={2}>{c.name}</Text>
                   <Text style={styles.communityCategory} numberOfLines={1}>{c.category}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {memberCommunities.length > 0 && (
+          <View style={styles.communitiesSection}>
+            <Text style={styles.sectionTitle}>参加コミュニティ</Text>
+            <View style={styles.communityList}>
+              {memberCommunities.map((c) => (
+                <Pressable
+                  key={c.id}
+                  style={styles.communityListRow}
+                  onPress={() => router.push(`/community/${c.id}`)}
+                >
+                  <Image source={{ uri: c.thumbnail }} style={styles.communityListThumb} contentFit="cover" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.communityListName} numberOfLines={1}>{c.name}</Text>
+                    <Text style={styles.communityListCat} numberOfLines={1}>{c.category}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
                 </Pressable>
               ))}
             </View>
@@ -358,6 +450,13 @@ const styles = StyleSheet.create({
   },
   avatarInitial: { color: C.textMuted, fontSize: 36, fontWeight: "700" },
   name: { color: C.text, fontSize: 20, fontWeight: "800", marginBottom: 8 },
+  roleBadge: {
+    color: C.accent,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
   bio: { color: C.textSec, fontSize: 14, lineHeight: 22, textAlign: "center", maxWidth: "100%" },
   socialRow: { flexDirection: "row", gap: 12, marginTop: 12 },
   followStatsRow: { flexDirection: "row", gap: 24, marginTop: 12, marginBottom: 4 },
@@ -381,6 +480,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   communitiesSection: { paddingHorizontal: 16, paddingBottom: 24 },
+  communityList: { gap: 0 },
+  communityListRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+  },
+  communityListThumb: { width: 44, height: 44, borderRadius: 8, backgroundColor: C.surface2 },
+  communityListName: { color: C.text, fontSize: 14, fontWeight: "700" },
+  communityListCat: { color: C.textMuted, fontSize: 12, marginTop: 2 },
   communityGrid: {
     flexDirection: "row",
     flexWrap: "wrap",

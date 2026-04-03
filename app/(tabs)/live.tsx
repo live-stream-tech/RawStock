@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -21,8 +21,6 @@ import { getTabTopInset, getTabBottomInset } from "@/constants/layout";
 import { MetallicLine } from "@/components/MetallicLine";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import type { BookingSession } from "@/constants/data";
-import { apiRequest } from "@/lib/query-client";
-
 const MENTOR_CATEGORY_ICONS: Record<string, string> = {
   english: "language-outline",
   counselor: "heart-outline",
@@ -239,9 +237,11 @@ const crStyles = StyleSheet.create({
   statValue: { color: C.text, fontSize: 12, fontWeight: "700" },
 });
 
-type PublicScope = "public" | "invite" | "mentor";
+type PublicScope = "public" | "followers" | "community" | "mentor";
 type FeeType = "free" | "paid";
 type PriceOption = 500 | 1000 | 3000 | 5000;
+
+type MyCommunityRow = { id: number; name: string; thumbnail: string; category: string };
 
 function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const insets = useSafeAreaInsets();
@@ -249,6 +249,16 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
   const [fee, setFee] = useState<FeeType>("paid");
   const [price, setPrice] = useState<PriceOption>(500);
   const [creating, setCreating] = useState(false);
+  const [selectedCommunityId, setSelectedCommunityId] = useState<number | null>(null);
+
+  const { data: myCommunities = [] } = useQuery<MyCommunityRow[]>({
+    queryKey: ["/api/communities/me"],
+    enabled: visible && scope === "community",
+  });
+
+  useEffect(() => {
+    if (scope !== "community") setSelectedCommunityId(null);
+  }, [scope]);
 
   const prices: PriceOption[] = [500, 1000, 3000, 5000];
 
@@ -283,13 +293,27 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
                 </View>
               </Pressable>
               <Pressable
-                style={[styles.scopeOption, scope === "invite" && styles.scopeOptionActive]}
-                onPress={() => setScope("invite")}
+                style={[styles.scopeOption, scope === "followers" && styles.scopeOptionActive]}
+                onPress={() => setScope("followers")}
               >
-                <Ionicons name="lock-closed-outline" size={22} color={scope === "invite" ? C.accent : C.textSec} />
+                <Ionicons name="heart-outline" size={22} color={scope === "followers" ? C.accent : C.textSec} />
                 <View style={styles.scopeText}>
-                  <Text style={[styles.scopeTitle, scope === "invite" && styles.scopeTitleActive]}>Invite Only</Text>
-                  <Text style={styles.scopeDesc}>Invited viewers only</Text>
+                  <Text style={[styles.scopeTitle, scope === "followers" && styles.scopeTitleActive]}>
+                    Followers only
+                  </Text>
+                  <Text style={styles.scopeDesc}>あなたのフォロワーのみ視聴可</Text>
+                </View>
+              </Pressable>
+              <Pressable
+                style={[styles.scopeOption, scope === "community" && styles.scopeOptionActive]}
+                onPress={() => setScope("community")}
+              >
+                <Ionicons name="albums-outline" size={22} color={scope === "community" ? C.accent : C.textSec} />
+                <View style={styles.scopeText}>
+                  <Text style={[styles.scopeTitle, scope === "community" && styles.scopeTitleActive]}>
+                    Community only
+                  </Text>
+                  <Text style={styles.scopeDesc}>参加中のコミュニティのメンバーのみ</Text>
                 </View>
               </Pressable>
               <Pressable
@@ -303,6 +327,49 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
                 </View>
               </Pressable>
             </View>
+
+            {scope === "community" && (
+              <>
+                <Text style={[styles.settingLabel, { marginTop: 16 }]}>コミュニティ</Text>
+                <Text style={[styles.scopeDesc, { marginBottom: 8 }]}>視聴を許可するコミュニティを選んでください</Text>
+                {myCommunities.length === 0 ? (
+                  <Text style={styles.scopeDesc}>参加中のコミュニティがありません。コミュニティに参加してから再度お試しください。</Text>
+                ) : (
+                  <View style={{ gap: 8 }}>
+                    {myCommunities.map((c) => (
+                      <Pressable
+                        key={c.id}
+                        style={[
+                          styles.scopeOption,
+                          selectedCommunityId === c.id && styles.scopeOptionActive,
+                        ]}
+                        onPress={() => setSelectedCommunityId(c.id)}
+                      >
+                        <Ionicons
+                          name="people-circle-outline"
+                          size={22}
+                          color={selectedCommunityId === c.id ? C.accent : C.textSec}
+                        />
+                        <View style={styles.scopeText}>
+                          <Text
+                            style={[
+                              styles.scopeTitle,
+                              selectedCommunityId === c.id && styles.scopeTitleActive,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {c.name}
+                          </Text>
+                          <Text style={styles.scopeDesc} numberOfLines={1}>
+                            {c.category}
+                          </Text>
+                        </View>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+              </>
+            )}
 
             <Text style={[styles.settingLabel, { marginTop: 16 }]}>Pricing</Text>
             <View style={styles.feeRow}>
@@ -373,31 +440,34 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
               style={styles.startBtn}
               onPress={async () => {
                 if (creating) return;
-                const BROADCAST_ENABLED = false;
-                if (!BROADCAST_ENABLED) {
-                  Alert.alert("Coming Soon", "Live streaming will be available soon. Stay tuned!");
-                  return;
+                if (scope === "community") {
+                  if (myCommunities.length === 0) {
+                    Alert.alert("コミュニティ", "参加中のコミュニティを選べません。");
+                    return;
+                  }
+                  if (selectedCommunityId == null) {
+                    Alert.alert("コミュニティ", "視聴を許可するコミュニティを選択してください。");
+                    return;
+                  }
                 }
                 try {
                   setCreating(true);
-                  const res = await apiRequest("POST", "/api/stream/create", {
-                    scope,
-                    fee,
-                    price,
-                  });
-                  const data = (await res.json()) as {
-                    id: number;
-                    webRtc: { url: string };
-                    rtmps: { url: string; streamKey: string };
-                  };
+                  const visibility =
+                    scope === "followers"
+                      ? "followers"
+                      : scope === "community"
+                        ? "community"
+                        : "public";
                   onClose();
-                  Alert.alert(
-                    "Stream Input Created",
-                    `Use the following in OBS or your streaming app:\n\nServer URL:\n${data.rtmps.url}\n\nStream Key:\n${data.rtmps.streamKey}`
-                  );
-                  router.push("/broadcast");
+                  router.push({
+                    pathname: "/broadcast",
+                    params:
+                      visibility === "community" && selectedCommunityId != null
+                        ? { visibility, communityId: String(selectedCommunityId) }
+                        : { visibility, communityId: "" },
+                  });
                 } catch (e: any) {
-                  Alert.alert("Error", e?.message ?? "Failed to create stream input");
+                  Alert.alert("Error", e?.message ?? "配信画面を開けませんでした");
                 } finally {
                   setCreating(false);
                 }

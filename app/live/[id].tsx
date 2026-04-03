@@ -9,6 +9,8 @@ import {
   Modal,
   Platform,
   Animated,
+  ActivityIndicator,
+  Alert,
 } from "react-native";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -17,10 +19,29 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { C } from "@/constants/colors";
-import { apiRequest } from "@/lib/query-client";
+import { apiRequest, getApiUrl } from "@/lib/query-client";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/lib/auth";
 
-const API_BASE = Platform.OS === "web" ? "" : process.env.EXPO_PUBLIC_API_URL ?? "";
+async function viewerApiFetch(path: string, init?: RequestInit): Promise<Response> {
+  const headers: Record<string, string> = {
+    ...((init?.headers as Record<string, string>) ?? {}),
+  };
+  try {
+    const token = await AsyncStorage.getItem("auth_token");
+    if (token) headers.Authorization = `Bearer ${token}`;
+  } catch {
+    /* ignore */
+  }
+  const nativeBase = process.env.EXPO_PUBLIC_API_URL?.trim() || getApiUrl();
+  const url =
+    Platform.OS === "web"
+      ? path.startsWith("/")
+        ? path
+        : `/${path}`
+      : new URL(path.replace(/^\//, ""), nativeBase).toString();
+  return fetch(url, { ...init, credentials: "include", headers });
+}
 
 type LiveStream = {
   id: number;
@@ -29,11 +50,19 @@ type LiveStream = {
   avatar: string;
   thumbnail: string;
   viewers: number;
+  currentViewers?: number;
   category: string;
   fee: string;
   price: number | null;
   whepUrl?: string | null;
   isActive?: boolean;
+  isLive?: boolean;
+  /** API: 視聴条件を満たさないとき true（再生 URL は返さない） */
+  streamAccessDenied?: boolean;
+  visibility?: string;
+  hostUserId?: number | null;
+  /** ログイン中かつホストが自分以外のとき、既にフォロー済みか */
+  isFollowingHost?: boolean;
 };
 
 type ChatMsg = {
@@ -109,12 +138,48 @@ export default function LiveStreamScreen() {
   const myUserId = user ? `user-${user.id}` : "guest";
   const myUsername = user?.name ?? "Guest";
 
-  const { data: apiStream } = useQuery<LiveStream>({
-    queryKey: [`/api/live-streams/${streamId}`],
-    refetchInterval: 10000,
+  const { data: apiStream, isFetched: streamMetaFetched } = useQuery<LiveStream | null>({
+    queryKey: ["stream-viewer", streamId],
+    queryFn: async () => {
+      const r1 = await viewerApiFetch(`/api/stream/${streamId}`);
+      if (r1.ok) return r1.json() as Promise<LiveStream>;
+      const r2 = await viewerApiFetch(`/api/live-streams/${streamId}`);
+      if (r2.ok) return r2.json() as Promise<LiveStream>;
+      return null;
+    },
+    refetchInterval: 5000,
   });
 
   const stream = apiStream ?? DEMO_LIVE_STREAMS[streamId];
+  const streamAccessDenied = apiStream?.streamAccessDenied === true;
+  const hostUserId = apiStream?.hostUserId ?? null;
+  const showFollowControl = hostUserId != null && user?.id !== hostUserId;
+
+  const followHostMutation = useMutation({
+    mutationFn: async () => {
+      if (hostUserId == null) throw new Error("ホスト情報がありません");
+      const r = await viewerApiFetch(`/api/users/${hostUserId}/follow`, { method: "POST" });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error((body as { error?: string }).error ?? "フォローに失敗しました");
+      return body;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["stream-viewer", streamId] });
+    },
+    onError: (e: Error) => {
+      Alert.alert("フォロー", e.message);
+    },
+  });
+
+  /** ページ表示中は視聴者としてカウント（権限ありのときのみ join） */
+  useEffect(() => {
+    if (!streamId || !streamMetaFetched) return;
+    if (streamAccessDenied) return;
+    void viewerApiFetch(`/api/stream/${streamId}/join`, { method: "POST" });
+    return () => {
+      void viewerApiFetch(`/api/stream/${streamId}/leave`, { method: "POST" });
+    };
+  }, [streamId, streamMetaFetched, streamAccessDenied]);
 
   const { data: chat = [] } = useQuery<ChatMsg[]>({
     queryKey: [`/api/live-streams/${streamId}/chat`],
@@ -179,9 +244,6 @@ export default function LiveStreamScreen() {
       const answerSdp = await res.text();
       await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
       pcRef.current = pc;
-
-      // 視聴者カウント参加
-      await fetch(`${API_BASE}/api/stream/${streamId}/join`, { method: "POST", credentials: "include" });
     } catch (err) {
       console.error("WHEP error:", err);
       setWhepError(true);
@@ -189,16 +251,18 @@ export default function LiveStreamScreen() {
   }, [streamId]);
 
   useEffect(() => {
-    const s = (stream as LiveStream);
-    if (s?.whepUrl && s?.isActive && Platform.OS === "web") {
+    const s = stream as LiveStream;
+    const active = s?.isActive ?? s?.isLive;
+    if (s?.whepUrl && active && Platform.OS === "web") {
       connectWHEP(s.whepUrl);
     }
     return () => {
-      if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
-      // 視聴者カウント離脱
-      fetch(`${API_BASE}/api/stream/${streamId}/leave`, { method: "POST", credentials: "include" }).catch(() => {});
+      if (pcRef.current) {
+        pcRef.current.close();
+        pcRef.current = null;
+      }
     };
-  }, [(stream as LiveStream)?.whepUrl, (stream as LiveStream)?.isActive]);
+  }, [(stream as LiveStream)?.whepUrl, (stream as LiveStream)?.isActive, (stream as LiveStream)?.isLive]);
 
   const chatMutation = useMutation({
     mutationFn: ({ message, isGift, giftAmount }: { message: string; isGift?: boolean; giftAmount?: number }) =>
@@ -273,6 +337,33 @@ export default function LiveStreamScreen() {
               <Text style={{ color: "#fff", marginTop: 8, fontSize: 13 }}>Failed to load stream</Text>
             </View>
           )}
+          {streamAccessDenied && (
+            <View
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "rgba(0,0,0,0.75)",
+                paddingHorizontal: 24,
+              }}
+            >
+              <Ionicons name="lock-closed-outline" size={40} color="#ffffffaa" />
+              <Text style={{ color: "#fff", marginTop: 12, fontSize: 15, fontWeight: "700", textAlign: "center" }}>
+                この配信を視聴する権限がありません
+              </Text>
+              <Text style={{ color: "#ffffffb3", marginTop: 8, fontSize: 13, textAlign: "center" }}>
+                {apiStream?.visibility === "followers"
+                  ? "ログインし、配信者をフォローしている必要があります。"
+                  : apiStream?.visibility === "community"
+                    ? "ログインし、指定コミュニティのメンバーである必要があります。"
+                    : "条件を満たしてから再度お試しください。"}
+              </Text>
+            </View>
+          )}
           <View style={styles.playerDimmer} />
 
           {/* Top bar */}
@@ -298,9 +389,24 @@ export default function LiveStreamScreen() {
                 <Text style={styles.streamTitle} numberOfLines={2}>{stream.title}</Text>
                 <Text style={styles.creatorName}>{stream.creator}</Text>
               </View>
-              <Pressable style={styles.followBtn}>
-                <Text style={styles.followBtnText}>Follow</Text>
-              </Pressable>
+              {showFollowControl ? (
+                <Pressable
+                  style={[styles.followBtn, apiStream?.isFollowingHost && styles.followBtnFollowing]}
+                  disabled={followHostMutation.isPending || apiStream?.isFollowingHost}
+                  onPress={() => {
+                    if (!requireAuth("フォロー")) return;
+                    followHostMutation.mutate();
+                  }}
+                >
+                  {followHostMutation.isPending ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.followBtnText}>
+                      {apiStream?.isFollowingHost ? "フォロー中" : "フォロー"}
+                    </Text>
+                  )}
+                </Pressable>
+              ) : null}
             </View>
             {stream.price && (
               <View style={styles.paidBadge}>
@@ -342,7 +448,7 @@ export default function LiveStreamScreen() {
                 <Ionicons name="camera" size={20} color="#fff" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.mentorNotifTitle}>It's your turn!</Text>
+                <Text style={styles.mentorNotifTitle}>It’s your turn!</Text>
                 <Text style={styles.mentorNotifBody}>Please start your mentor session</Text>
               </View>
               <Pressable onPress={() => setShowMentorNotif(false)}>
@@ -551,6 +657,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 12,
+    minWidth: 72,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  followBtnFollowing: {
+    backgroundColor: "rgba(255,255,255,0.22)",
   },
   followBtnText: { color: "#fff", fontSize: 11, fontWeight: "700" },
   paidBadge: {

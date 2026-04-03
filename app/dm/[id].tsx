@@ -16,7 +16,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import * as ImagePicker from "expo-image-picker";
 import { C } from "@/constants/colors";
-import { apiRequest } from "@/lib/query-client";
+import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { useAuth } from "@/lib/auth";
 
 type DMItem = {
@@ -30,7 +30,7 @@ type DMItem = {
 
 type ConvMsg = {
   id: number;
-  senderId: number | null;
+  senderId?: number | null;
   sender: string;
   text: string | null;
   imageUrl: string | null;
@@ -60,7 +60,7 @@ export default function DMChatScreen() {
   const flatListRef = useRef<FlatList>(null);
   const [input, setInput] = useState("");
   const [uploadingImage, setUploadingImage] = useState(false);
-  const { user } = useAuth();
+  const { user, token } = useAuth();
 
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
@@ -70,8 +70,24 @@ export default function DMChatScreen() {
   });
   const dmInfo = dmList.find((d) => d.id === dmId);
 
+  const { data: peerMeta } = useQuery<{ name: string; avatar: string; otherUserId: number }>({
+    queryKey: [`/api/dm-messages/${dmId}/peer`],
+    enabled: dmId > 0 && !!token && !dmInfo,
+    queryFn: async () => {
+      const res = await fetch(new URL(`/api/dm-messages/${dmId}/peer`, getApiUrl()).toString(), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("peer");
+      return res.json() as Promise<{ name: string; avatar: string; otherUserId: number }>;
+    },
+  });
+
+  const headerName = dmInfo?.name ?? peerMeta?.name ?? "";
+  const headerAvatar = dmInfo?.avatar ?? peerMeta?.avatar ?? null;
+
   const { data: messages = [] } = useQuery<ConvMsg[]>({
     queryKey: [`/api/dm-messages/${dmId}/conversation`],
+    enabled: dmId > 0 && !!token,
     refetchInterval: 4000,
   });
 
@@ -114,16 +130,16 @@ export default function DMChatScreen() {
             <Ionicons name="chevron-back" size={22} color={C.text} />
           </Pressable>
 
-          {dmInfo ? (
+          {headerName ? (
             <Pressable style={styles.headerCenter}>
               <View style={styles.avatarWrap}>
-                <Image source={dmInfo.avatar ? { uri: dmInfo.avatar } : undefined} style={styles.headerAvatar} contentFit="cover" />
-                {dmInfo.online && <View style={styles.onlineDot} />}
+                <Image source={headerAvatar ? { uri: headerAvatar } : undefined} style={styles.headerAvatar} contentFit="cover" />
+                {(dmInfo?.online ?? false) && <View style={styles.onlineDot} />}
               </View>
               <View>
-                <Text style={styles.headerName}>{dmInfo.name}</Text>
+                <Text style={styles.headerName}>{headerName}</Text>
                 <Text style={styles.headerStatus}>
-                  {dmInfo.online ? "Online" : "Recently offline"}
+                  {dmInfo?.online ? "Online" : "Recently offline"}
                 </Text>
               </View>
             </Pressable>
@@ -154,8 +170,8 @@ export default function DMChatScreen() {
               ]}>
                 {item.sender === "them" && (
                   <View style={styles.avatarSpacer}>
-                    {showAvatar && dmInfo?.avatar ? (
-                      <Image source={{ uri: dmInfo.avatar }} style={styles.msgAvatar} contentFit="cover" />
+                    {showAvatar && headerAvatar ? (
+                      <Image source={{ uri: headerAvatar }} style={styles.msgAvatar} contentFit="cover" />
                     ) : null}
                   </View>
                 )}

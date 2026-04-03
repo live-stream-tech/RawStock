@@ -44,6 +44,8 @@ __export(schema_exports, {
   dailyLogins: () => dailyLogins,
   dmConversationMessages: () => dmConversationMessages,
   dmMessages: () => dmMessages,
+  dmThreadMessages: () => dmThreadMessages,
+  dmThreads: () => dmThreads,
   earnings: () => earnings,
   editingRequests: () => editingRequests,
   genreAds: () => genreAds,
@@ -56,6 +58,8 @@ __export(schema_exports, {
   liveStreams: () => liveStreams,
   liverAvailability: () => liverAvailability,
   liverReviews: () => liverReviews,
+  mentorBookings: () => mentorBookings,
+  mentorSessions: () => mentorSessions,
   notifications: () => notifications,
   phoneVerifications: () => phoneVerifications,
   reports: () => reports,
@@ -64,7 +68,7 @@ __export(schema_exports, {
   ticketBalances: () => ticketBalances,
   ticketTransactions: () => ticketTransactions,
   transactions: () => transactions,
-  twoshotBookings: () => twoshotBookings,
+  userFollows: () => userFollows,
   users: () => users,
   videoComments: () => videoComments,
   videoEditRequests: () => videoEditRequests,
@@ -321,11 +325,23 @@ var liveStreams = pgTable("live_streams", {
 var streams = pgTable("streams", {
   id: serial("id").primaryKey(),
   cfLiveInputId: text("cf_live_input_id").notNull(),
+  /** WHEP 視聴用（playback）URL */
   webRtcUrl: text("webrtc_url").notNull(),
   rtmpsUrl: text("rtmps_url").notNull(),
   rtmpsStreamKey: text("rtmps_stream_key").notNull(),
   currentViewers: integer("current_viewers").notNull().default(0),
-  createdAt: timestamp("created_at").defaultNow()
+  createdAt: timestamp("created_at").defaultNow(),
+  title: text("title"),
+  hostUserId: integer("host_user_id"),
+  isLive: boolean("is_live").notNull().default(false),
+  startedAt: timestamp("started_at"),
+  endedAt: timestamp("ended_at"),
+  /** WHIP 配信（publish）URL */
+  whipUrl: text("whip_url"),
+  /** public | followers | community */
+  visibility: text("visibility").notNull().default("public"),
+  /** visibility=community のとき、視聴に必要なコミュニティ */
+  restrictedCommunityId: integer("restricted_community_id")
 });
 var creators = pgTable("creators", {
   id: serial("id").primaryKey(),
@@ -423,6 +439,24 @@ var dmConversationMessages = pgTable("dm_conversation_messages", {
   isRead: boolean("is_read").default(false),
   createdAt: timestamp("created_at").defaultNow()
 });
+var dmThreads = pgTable(
+  "dm_threads",
+  {
+    id: serial("id").primaryKey(),
+    user1Id: integer("user_1_id").notNull(),
+    user2Id: integer("user_2_id").notNull(),
+    lastMessagePreview: text("last_message_preview"),
+    updatedAt: timestamp("updated_at").defaultNow()
+  },
+  (t) => [unique().on(t.user1Id, t.user2Id)]
+);
+var dmThreadMessages = pgTable("dm_thread_messages", {
+  id: serial("id").primaryKey(),
+  threadId: integer("thread_id").notNull(),
+  senderUserId: integer("sender_user_id").notNull(),
+  text: text("text").notNull(),
+  createdAt: timestamp("created_at").defaultNow()
+});
 var jukeboxState = pgTable("jukebox_state", {
   id: serial("id").primaryKey(),
   communityId: integer("community_id").notNull().unique(),
@@ -470,7 +504,7 @@ var dmMessages = pgTable("dm_messages", {
 });
 var users = pgTable("users", {
   id: serial("id").primaryKey(),
-  /** LINEアカウントID（必須・一意） */
+  /** 認証プロバイダキー（Googleユーザー: "google:{sub}"、メール登録: "email:{email}"） */
   lineId: text("line_id").notNull().unique(),
   displayName: text("display_name").notNull().default("User"),
   profileImageUrl: text("profile_image_url"),
@@ -511,6 +545,16 @@ var users = pgTable("users", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow()
 });
+var userFollows = pgTable(
+  "user_follows",
+  {
+    id: serial("id").primaryKey(),
+    followerId: integer("follower_id").notNull(),
+    followingId: integer("following_id").notNull(),
+    createdAt: timestamp("created_at").defaultNow()
+  },
+  (t) => [unique().on(t.followerId, t.followingId)]
+);
 var phoneVerifications = pgTable("phone_verifications", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull(),
@@ -540,7 +584,7 @@ var transactions = pgTable("transactions", {
   walletId: integer("wallet_id").notNull(),
   amount: integer("amount").notNull(),
   source: text("source").notNull().default("tip"),
-  // tip | paid_live | twoshot
+  // tip | paid_live | mentor
   grossAmount: integer("gross_amount").notNull().default(0),
   backRate: real("back_rate").notNull().default(1),
   netAmount: integer("net_amount").notNull().default(0),
@@ -548,7 +592,7 @@ var transactions = pgTable("transactions", {
   yearMonth: text("year_month"),
   // YYYY-MM
   type: text("type").notNull(),
-  // 'tip' | 'gift' | 'twoshot' | 'banner_ad' | 'payout' | 'revenue_share' | 'REVENUE' 等
+  // 'tip' | 'gift' | 'mentor' | 'banner_ad' | 'payout' | 'revenue_share' | 'REVENUE' 等
   status: text("status").notNull().default("PENDING"),
   // PENDING | SETTLED | CANCELLED
   referenceId: text("reference_id"),
@@ -606,17 +650,46 @@ var withdrawals = pgTable("withdrawals", {
   requestedAt: timestamp("requested_at").defaultNow(),
   processedAt: timestamp("processed_at")
 });
-var twoshotBookings = pgTable("twoshot_bookings", {
+var mentorSessions = pgTable("mentor_sessions", {
   id: serial("id").primaryKey(),
-  streamId: integer("stream_id").notNull(),
+  /** セッションを提供するクリエイター (users.id) */
+  creatorId: integer("creator_id").notNull(),
+  title: text("title").notNull(),
+  category: text("category").notNull().default("other"),
+  description: text("description").notNull().default(""),
+  /** チケット価格 */
+  price: integer("price").notNull(),
+  /** セッション時間（分） */
+  duration: integer("duration").notNull().default(30),
+  /** 同時参加可能人数 */
+  maxParticipants: integer("max_participants").notNull().default(1),
+  /** false = 非表示（物理削除しない） */
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow()
+});
+var mentorBookings = pgTable("mentor_bookings", {
+  id: serial("id").primaryKey(),
+  /** 新モデル: mentor_sessions.id への参照 */
+  sessionId: integer("session_id"),
+  /** 旧モデル互換: live_streams.id */
+  streamId: integer("stream_id"),
   userId: text("user_id").notNull().default("guest"),
   userName: text("user_name").notNull(),
   userAvatar: text("user_avatar"),
+  /** 予約日時（新モデル用） */
+  scheduledAt: timestamp("scheduled_at"),
   stripeSessionId: text("stripe_session_id"),
   stripePaymentIntentId: text("stripe_payment_intent_id"),
   price: integer("price").notNull(),
   status: text("status").notNull().default("pending"),
   queuePosition: integer("queue_position").notNull().default(0),
+  /** ビデオ通話 WHIP URL（配信者側）*/
+  whipUrl: text("whip_url"),
+  /** ビデオ通話 WHEP URL（視聴者側）*/
+  whepUrl: text("whep_url"),
+  /** Cloudflare Stream の uid */
+  cfStreamUid: text("cf_stream_uid"),
   agreedToTerms: boolean("agreed_to_terms").notNull().default(false),
   agreedAt: timestamp("agreed_at"),
   notifiedAt: timestamp("notified_at"),
@@ -750,6 +823,10 @@ var aiEditJobs = pgTable("ai_edit_jobs", {
   tone: text("tone"),
   revisionCount: integer("revision_count").notNull().default(0),
   ticketCost: integer("ticket_cost"),
+  /** RawStockVideoSpec の JSON（オーダー DSL。クライアント正規化済み） */
+  videoSpec: text("video_spec"),
+  /** Templated.io レンダー ID（Create Render 応答の id） */
+  templatedRenderId: text("templated_render_id"),
   // Delivery fields — set by the editor when the finished video is uploaded
   deliveredUrl: text("delivered_url"),
   deliveredAt: timestamp("delivered_at"),
@@ -1250,6 +1327,312 @@ async function generateEditPlan(input) {
   }
 }
 
+// shared/rawstock-video-spec.ts
+function rawStockClipEnergy(value) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) {
+    throw new RangeError(`RawStockClipEnergy must be finite and in [0, 1], got ${String(value)}`);
+  }
+  return value;
+}
+function sortRawStockClipsByStart(clips) {
+  return [...clips].sort((a, b) => a.start - b.start || a.end - b.end);
+}
+
+// server/lib/parseVideoSpec.ts
+var CLIP_TYPES = /* @__PURE__ */ new Set(["hook", "drop", "chorus", "crowd"]);
+var CUT_SPEEDS = /* @__PURE__ */ new Set(["slow", "medium", "fast"]);
+var CAPTION_DENSITIES = /* @__PURE__ */ new Set(["low", "medium", "high"]);
+var COLOR_GRADES = /* @__PURE__ */ new Set(["natural", "high_contrast", "gritty"]);
+var FORMATS = /* @__PURE__ */ new Set(["vertical_9_16", "square_1_1", "horizontal_16_9"]);
+var LOGO_POSITIONS = /* @__PURE__ */ new Set([
+  "top-left",
+  "top-right",
+  "bottom-left",
+  "bottom-right",
+  "center"
+]);
+function isPlainObject(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function parseClip(raw) {
+  if (!isPlainObject(raw)) return null;
+  const start = raw.start;
+  const end = raw.end;
+  const type = raw.type;
+  const energy = raw.energy;
+  if (typeof start !== "number" || typeof end !== "number" || !Number.isFinite(start) || !Number.isFinite(end)) {
+    return null;
+  }
+  if (start > end) return null;
+  if (typeof type !== "string" || !CLIP_TYPES.has(type)) return null;
+  if (typeof energy !== "number" || !Number.isFinite(energy)) return null;
+  try {
+    const e = rawStockClipEnergy(energy);
+    const intent = raw.intent;
+    const out = {
+      start,
+      end,
+      type,
+      energy: e
+    };
+    if (typeof intent === "string" && intent.trim()) {
+      out.intent = intent.trim();
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+function parseStyle(raw) {
+  if (!isPlainObject(raw)) return null;
+  const { cut_speed, caption_density, color_grade } = raw;
+  if (typeof cut_speed !== "string" || !CUT_SPEEDS.has(cut_speed)) return null;
+  if (typeof caption_density !== "string" || !CAPTION_DENSITIES.has(caption_density)) return null;
+  if (typeof color_grade !== "string" || !COLOR_GRADES.has(color_grade)) return null;
+  return {
+    cut_speed,
+    caption_density,
+    color_grade
+  };
+}
+function parseOverlays(raw) {
+  if (raw === void 0 || raw === null) return void 0;
+  if (!isPlainObject(raw)) return void 0;
+  if (typeof raw.logo !== "boolean") return void 0;
+  const out = { logo: raw.logo };
+  const pos = raw.position;
+  if (pos !== void 0) {
+    if (typeof pos !== "string" || !LOGO_POSITIONS.has(pos)) return void 0;
+    out.position = pos;
+  }
+  return out;
+}
+function normalizeVideoSpecPayload(raw) {
+  if (!isPlainObject(raw)) return null;
+  const clipsRaw = raw.clips;
+  if (!Array.isArray(clipsRaw) || clipsRaw.length === 0) return null;
+  const clips = [];
+  for (const c of clipsRaw) {
+    const p = parseClip(c);
+    if (!p) return null;
+    clips.push(p);
+  }
+  const style = parseStyle(raw.style);
+  if (!style) return null;
+  const format = raw.format;
+  if (typeof format !== "string" || !FORMATS.has(format)) return null;
+  const spec = {
+    clips: sortRawStockClipsByStart(clips),
+    style,
+    format,
+    overlays: parseOverlays(raw.overlays)
+  };
+  const duration = raw.duration;
+  if (typeof duration === "number" && Number.isFinite(duration) && duration >= 0) {
+    spec.duration = duration;
+  }
+  return JSON.stringify(spec);
+}
+function parseStoredVideoSpec(json) {
+  if (!json?.trim()) return null;
+  try {
+    const parsed = JSON.parse(json);
+    const normalized = normalizeVideoSpecPayload(parsed);
+    if (!normalized) return null;
+    return JSON.parse(normalized);
+  } catch {
+    return null;
+  }
+}
+
+// server/lib/dslToTemplated.ts
+var DSL_TO_TEMPLATED_INPUT_VIDEO_PLACEHOLDER = "INPUT_VIDEO_URL";
+var DSL_TO_TEMPLATED_LOGO_PLACEHOLDER = "INPUT_LOGO_URL";
+var TEMPLATE_BY_CUT_SPEED = {
+  fast: "rawstock-fast-cut",
+  medium: "rawstock-standard",
+  slow: "rawstock-cinematic"
+};
+var FORMAT_TEMPLATE_SUFFIX = {
+  vertical_9_16: "vertical",
+  square_1_1: "square",
+  horizontal_16_9: "horizontal"
+};
+var TEMPLATED_TEMPLATE_ID_BY_LOGICAL = {
+  "rawstock-fast-cut-vertical": "2fe20a02-019e-4a1c-81e7-a8f0130c7978",
+  "rawstock-standard-vertical": "b4cccf2e-3962-4f3f-a884-186c50491602",
+  "rawstock-cinematic-vertical": "9da37313-33c9-45d6-851c-081a0796aaa8"
+};
+function resolveTemplateId(spec) {
+  const base = TEMPLATE_BY_CUT_SPEED[spec.style.cut_speed];
+  const suffix = FORMAT_TEMPLATE_SUFFIX[spec.format];
+  const logicalId = `${base}-${suffix}`;
+  return TEMPLATED_TEMPLATE_ID_BY_LOGICAL[logicalId] ?? logicalId;
+}
+function clipTypeToCaptionFallback(type) {
+  switch (type) {
+    case "hook":
+      return "HOOK";
+    case "drop":
+      return "DROP";
+    case "chorus":
+      return "CHORUS";
+    case "crowd":
+      return "CROWD";
+  }
+}
+function captionValueForClip(clip) {
+  const intent = clip.intent?.trim();
+  if (intent) return intent;
+  return clipTypeToCaptionFallback(clip.type);
+}
+function mapCaptionTextStyle(style) {
+  if (style.caption_density === "high") return "kinetic";
+  if (style.caption_density === "low") return "minimal";
+  if (style.color_grade === "gritty") return "bold";
+  return "subtitle";
+}
+function shouldEmitCaptionForClip(clip, style) {
+  switch (style.caption_density) {
+    case "low":
+      return Boolean(clip.intent?.trim());
+    case "medium":
+    case "high":
+      return true;
+  }
+}
+function dslToTemplated(spec, options) {
+  if (spec.clips.length === 0) {
+    throw new Error("dslToTemplated: spec.clips must be non-empty");
+  }
+  const src = options.inputVideoUrl.trim() || DSL_TO_TEMPLATED_INPUT_VIDEO_PLACEHOLDER;
+  const modifications = {};
+  spec.clips.forEach((clip, i) => {
+    const n = i + 1;
+    const videoKey = `video${n}`;
+    modifications[videoKey] = {
+      video: {
+        src,
+        trim: [clip.start, clip.end]
+      }
+    };
+    if (shouldEmitCaptionForClip(clip, spec.style)) {
+      const captionKey = `caption${n}`;
+      modifications[captionKey] = {
+        text: {
+          value: captionValueForClip(clip),
+          style: mapCaptionTextStyle(spec.style)
+        }
+      };
+    }
+  });
+  if (spec.overlays?.logo === true) {
+    const logoSrc = options.logoUrl?.trim() && options.logoUrl.trim().length > 0 ? options.logoUrl.trim() : DSL_TO_TEMPLATED_LOGO_PLACEHOLDER;
+    modifications.logo1 = {
+      logo: {
+        src: logoSrc,
+        position: spec.overlays.position
+      }
+    };
+  }
+  return {
+    template: resolveTemplateId(spec),
+    modifications,
+    format: options.outputFormat ?? "mp4",
+    webhook_url: options.webhookUrl,
+    async: options.async !== false
+  };
+}
+
+// server/lib/templatedClient.ts
+var TEMPLATED_RENDER_URL = "https://api.templated.io/v1/render";
+function templatedModificationsToLayers(modifications) {
+  const layers = {};
+  for (const [layerName, mod] of Object.entries(modifications)) {
+    const layer = {};
+    if (mod.video) {
+      layer.video_url = mod.video.src;
+    }
+    if (mod.text) {
+      layer.text = mod.text.value;
+      if (mod.text.style === "bold" || mod.text.style === "kinetic") {
+        layer.font_weight = "bold";
+      }
+    }
+    if (mod.logo) {
+      layer.image_url = mod.logo.src;
+    }
+    layers[layerName] = layer;
+  }
+  return layers;
+}
+function toTemplatedApiBody(request, options) {
+  const body = {
+    template: request.template,
+    layers: templatedModificationsToLayers(request.modifications),
+    format: request.format,
+    async: true
+  };
+  if (request.webhook_url?.trim()) {
+    body.webhook_url = request.webhook_url.trim();
+  }
+  if (options.externalId?.trim()) {
+    body.external_id = options.externalId.trim();
+  }
+  if (request.format === "mp4" && options.durationMs != null) {
+    const ms = Math.round(options.durationMs);
+    body.duration = Math.min(9e4, Math.max(1e3, ms));
+  }
+  return body;
+}
+async function createTemplatedRender(request, options) {
+  const apiKey = options.apiKey.trim();
+  if (!apiKey) {
+    return { id: "", status: "failed", error: "TEMPLATED_API_KEY is not set" };
+  }
+  const body = toTemplatedApiBody(request, options);
+  let res;
+  try {
+    res = await fetch(TEMPLATED_RENDER_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(body)
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { id: "", status: "failed", error: msg };
+  }
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+  if (!res.ok) {
+    const errMsg = data && typeof data === "object" && data !== null && "message" in data ? String(data.message) : res.statusText;
+    return { id: "", status: "failed", error: errMsg || `HTTP ${res.status}` };
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  const obj = row && typeof row === "object" ? row : {};
+  const id = typeof obj.id === "string" ? obj.id : "";
+  const url = typeof obj.url === "string" ? obj.url : void 0;
+  const statusRaw = typeof obj.status === "string" ? obj.status.toLowerCase() : "";
+  let status = "pending";
+  if (url) status = "succeeded";
+  else if (statusRaw === "failed" || statusRaw === "error") status = "failed";
+  else if (statusRaw === "processing" || statusRaw === "pending") status = statusRaw;
+  return {
+    id,
+    status,
+    url,
+    webhook_url: request.webhook_url,
+    error: typeof obj.error === "string" ? obj.error : void 0
+  };
+}
+
 // server/r2.ts
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -1556,6 +1939,21 @@ var WELCOME_DM_TEXT = [
   "",
   "If you need help, reply to this DM anytime."
 ].join("\n");
+function formatDmThreadTime(d) {
+  if (!d) return "";
+  const t = d instanceof Date ? d.getTime() : new Date(d).getTime();
+  if (Number.isNaN(t)) return "";
+  const ms = Date.now() - t;
+  const m = Math.floor(ms / 6e4);
+  if (m < 1) return "\u305F\u3063\u305F\u4ECA";
+  if (m < 60) return `${m}\u5206\u524D`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}\u6642\u9593\u524D`;
+  const days = Math.floor(h / 24);
+  if (days < 7) return `${days}\u65E5\u524D`;
+  const dt = new Date(t);
+  return `${dt.getMonth() + 1}/${dt.getDate()}`;
+}
 async function sendWelcomeDmIfNeeded(userId) {
   try {
     await db.transaction(async (tx) => {
@@ -1842,7 +2240,7 @@ async function registerRoutes(app2) {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
     try {
-      const baseUrl = process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}` : process.env.APP_URL ?? "http://localhost:8081";
+      const baseUrl = "https://rawstock.live";
       const returnUrl = `${baseUrl}/payout-settings?connect=return`;
       const refreshUrl = `${baseUrl}/payout-settings?connect=refresh`;
       let accountId = user.stripeConnectId;
@@ -1927,7 +2325,7 @@ async function registerRoutes(app2) {
     if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
     try {
       const stripe = await getUncachableStripeClient();
-      const baseUrl = process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}` : process.env.APP_URL ?? "http://localhost:8081";
+      const baseUrl = "https://rawstock.live";
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ["card"],
         line_items: [
@@ -2086,6 +2484,7 @@ async function registerRoutes(app2) {
       displayName: users.displayName,
       profileImageUrl: users.profileImageUrl,
       bio: users.bio,
+      role: users.role,
       instagramUrl: users.instagramUrl,
       youtubeUrl: users.youtubeUrl,
       xUrl: users.xUrl,
@@ -2122,6 +2521,8 @@ async function registerRoutes(app2) {
       } catch {
       }
     }
+    const [{ c: followersCountRaw }] = await db.select({ c: count() }).from(userFollows).where(eq2(userFollows.followingId, id));
+    const [{ c: followingCountRaw }] = await db.select({ c: count() }).from(userFollows).where(eq2(userFollows.followerId, id));
     res.json({
       id: u.id,
       name: u.displayName,
@@ -2129,6 +2530,7 @@ async function registerRoutes(app2) {
       avatar: u.profileImageUrl,
       profileImageUrl: u.profileImageUrl,
       bio: u.bio ?? "",
+      role: u.role ?? "USER",
       instagramUrl: u.instagramUrl ?? null,
       youtubeUrl: u.youtubeUrl ?? null,
       xUrl: u.xUrl ?? null,
@@ -2136,44 +2538,108 @@ async function registerRoutes(app2) {
       appleMusicUrl: u.appleMusicUrl ?? null,
       bandcampUrl: u.bandcampUrl ?? null,
       enneagramScores,
-      pinnedCommunities
+      pinnedCommunities,
+      followersCount: Number(followersCountRaw ?? 0),
+      followingCount: Number(followingCountRaw ?? 0)
     });
   });
-  const REPLIT_BASE_URL = process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}` : process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "http://localhost:5000";
-  const LINE_CHANNEL_ID = process.env.LINE_CHANNEL_ID ?? "";
-  const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET ?? "";
-  const LINE_CALLBACK_URL = process.env.LINE_CALLBACK_URL ?? `${REPLIT_BASE_URL}/api/auth/line-callback`;
-  const FRONTEND_URL = (process.env.FRONTEND_URL || REPLIT_BASE_URL).replace(/\/$/, "");
-  const lineRedirect = (path2) => FRONTEND_URL ? `${FRONTEND_URL}${path2}` : path2;
-  const LINE_STATE = "livestage-line-state";
+  app2.get("/api/users/:id/follow-status", async (req, res) => {
+    const me = await getAuthUser(req);
+    if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    const targetId = paramNum(req, "id");
+    if (!targetId) return res.status(400).json({ error: "Invalid id" });
+    const [row] = await db.select({ id: userFollows.id }).from(userFollows).where(and2(eq2(userFollows.followerId, me.id), eq2(userFollows.followingId, targetId)));
+    res.json({ isFollowing: !!row });
+  });
+  app2.get("/api/users/:id/mentor-sessions", async (req, res) => {
+    const uid = paramNum(req, "id");
+    if (!uid) return res.status(400).json({ error: "Invalid id" });
+    const rows = await db.select().from(mentorSessions).where(and2(eq2(mentorSessions.creatorId, uid), eq2(mentorSessions.isActive, true))).orderBy(desc(mentorSessions.createdAt));
+    res.json(rows);
+  });
+  app2.get("/api/users/:id/communities", async (req, res) => {
+    const uid = paramNum(req, "id");
+    if (!uid) return res.status(400).json({ error: "Invalid id" });
+    const memberships = await db.select({ communityId: communityMembers.communityId }).from(communityMembers).where(eq2(communityMembers.userId, uid));
+    if (memberships.length === 0) return res.json([]);
+    const ids = memberships.map((m) => m.communityId);
+    const rows = await db.select({
+      id: communities.id,
+      name: communities.name,
+      thumbnail: communities.thumbnail,
+      category: communities.category
+    }).from(communities).where(inArray(communities.id, ids)).orderBy(desc(communities.members));
+    res.json(rows);
+  });
+  app2.get("/api/users/:id/followers", async (req, res) => {
+    const targetId = paramNum(req, "id");
+    if (!targetId) return res.status(400).json({ error: "Invalid id" });
+    const rows = await db.select({
+      id: users.id,
+      displayName: users.displayName,
+      profileImageUrl: users.profileImageUrl,
+      bio: users.bio
+    }).from(userFollows).innerJoin(users, eq2(users.id, userFollows.followerId)).where(eq2(userFollows.followingId, targetId));
+    res.json(
+      rows.map((r) => ({
+        id: r.id,
+        displayName: r.displayName,
+        profileImageUrl: r.profileImageUrl,
+        bio: r.bio,
+        followersCount: 0
+      }))
+    );
+  });
+  app2.get("/api/users/:id/following", async (req, res) => {
+    const targetId = paramNum(req, "id");
+    if (!targetId) return res.status(400).json({ error: "Invalid id" });
+    const rows = await db.select({
+      id: users.id,
+      displayName: users.displayName,
+      profileImageUrl: users.profileImageUrl,
+      bio: users.bio
+    }).from(userFollows).innerJoin(users, eq2(users.id, userFollows.followingId)).where(eq2(userFollows.followerId, targetId));
+    res.json(
+      rows.map((r) => ({
+        id: r.id,
+        displayName: r.displayName,
+        profileImageUrl: r.profileImageUrl,
+        bio: r.bio,
+        followersCount: 0
+      }))
+    );
+  });
+  app2.post("/api/users/:id/follow", async (req, res) => {
+    const me = await getAuthUser(req);
+    if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    const targetId = paramNum(req, "id");
+    if (!targetId) return res.status(400).json({ error: "Invalid id" });
+    if (targetId === me.id) return res.status(400).json({ error: "\u81EA\u5206\u81EA\u8EAB\u306F\u30D5\u30A9\u30ED\u30FC\u3067\u304D\u307E\u305B\u3093" });
+    const [exists] = await db.select({ id: users.id }).from(users).where(eq2(users.id, targetId));
+    if (!exists) return res.status(404).json({ error: "Not found" });
+    await db.insert(userFollows).values({ followerId: me.id, followingId: targetId }).onConflictDoNothing({ target: [userFollows.followerId, userFollows.followingId] });
+    res.json({ ok: true });
+  });
+  app2.delete("/api/users/:id/follow", async (req, res) => {
+    const me = await getAuthUser(req);
+    if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    const targetId = paramNum(req, "id");
+    if (!targetId) return res.status(400).json({ error: "Invalid id" });
+    await db.delete(userFollows).where(and2(eq2(userFollows.followerId, me.id), eq2(userFollows.followingId, targetId)));
+    res.json({ ok: true });
+  });
+  const BASE_URL = "https://rawstock.live";
   const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? "";
   const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET ?? "";
-  const GOOGLE_CALLBACK_URL = process.env.NODE_ENV === "production" ? `${REPLIT_BASE_URL}/api/auth/google-callback` : process.env.GOOGLE_CALLBACK_URL ?? `${REPLIT_BASE_URL}/api/auth/google-callback`;
+  const GOOGLE_CALLBACK_URL = `${BASE_URL}/api/auth/google-callback`;
   const GOOGLE_STATE = "livestage-google-state";
   const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY ?? "";
   app2.get("/api/auth/status", (_req, res) => {
     res.json({
-      line: {
-        configured: !!(LINE_CHANNEL_ID && LINE_CHANNEL_SECRET && LINE_CALLBACK_URL),
-        callbackUrl: LINE_CALLBACK_URL || null
-      },
       google: {
         configured: !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && GOOGLE_CALLBACK_URL)
       }
     });
-  });
-  app2.get("/api/auth/line", (_req, res) => {
-    if (!LINE_CHANNEL_ID || !LINE_CHANNEL_SECRET || !LINE_CALLBACK_URL) {
-      return res.status(500).json({ error: "LINE OAuth is not configured (LINE_CHANNEL_ID, LINE_CHANNEL_SECRET, LINE_CALLBACK_URL)" });
-    }
-    const params = new URLSearchParams({
-      response_type: "code",
-      client_id: LINE_CHANNEL_ID,
-      redirect_uri: LINE_CALLBACK_URL,
-      state: LINE_STATE,
-      scope: "profile"
-    });
-    res.redirect(`https://access.line.me/oauth2/v2.1/authorize?${params.toString()}`);
   });
   app2.get("/api/auth/google", (_req, res) => {
     if (!GOOGLE_CLIENT_ID || !GOOGLE_CALLBACK_URL) {
@@ -2194,7 +2660,7 @@ async function registerRoutes(app2) {
     const code = req.query.code;
     const state = req.query.state;
     if (!code || state !== GOOGLE_STATE) {
-      return res.redirect(lineRedirect("/auth/login?line_error=invalid_state"));
+      return res.redirect(`${BASE_URL}/auth/login?auth_error=invalid_state`);
     }
     try {
       const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -2210,14 +2676,14 @@ async function registerRoutes(app2) {
       });
       const tokenData = await tokenRes.json();
       if (!tokenData.access_token) {
-        return res.redirect(lineRedirect("/auth/login?line_error=token_failed"));
+        return res.redirect(`${BASE_URL}/auth/login?auth_error=token_failed`);
       }
       const profileRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
         headers: { Authorization: `Bearer ${tokenData.access_token}` }
       });
       const profile = await profileRes.json();
       if (!profile.sub) {
-        return res.redirect(lineRedirect("/auth/login?line_error=profile_failed"));
+        return res.redirect(`${BASE_URL}/auth/login?auth_error=profile_failed`);
       }
       const googleKey = `google:${profile.sub}`;
       const displayName = profile.name ?? profile.email ?? "Google User";
@@ -2252,10 +2718,10 @@ async function registerRoutes(app2) {
       await promoteAdminByEmail({ id: existing.id, email: existing.email });
       await sendWelcomeDmIfNeeded(existing.id);
       const jwtToken = makeToken(existing.id);
-      res.redirect(lineRedirect(`/?token=${encodeURIComponent(jwtToken)}`));
+      res.redirect(`${BASE_URL}/?token=${encodeURIComponent(jwtToken)}`);
     } catch (err) {
       console.error("Google callback error:", err);
-      res.redirect(lineRedirect("/auth/login?line_error=server_error"));
+      res.redirect(`${BASE_URL}/auth/login?auth_error=server_error`);
     }
   });
   app2.get("/api/youtube/search", async (req, res) => {
@@ -2463,120 +2929,6 @@ async function registerRoutes(app2) {
     } catch (e) {
       console.error("YouTube playlistItems exception:", e);
       res.status(500).json({ error: "\u30D7\u30EC\u30A4\u30EA\u30B9\u30C8\u306E\u53D6\u5F97\u3067\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F" });
-    }
-  });
-  app2.get("/api/auth/callback/line", async (req, res) => {
-    const code = req.query.code;
-    const state = req.query.state;
-    console.log("[LINE callback/line] received", { hasCode: !!code, stateMatch: state === LINE_STATE });
-    if (!code || state !== LINE_STATE) {
-      return res.redirect(lineRedirect("/auth/login?line_error=invalid_state"));
-    }
-    try {
-      const tokenRes = await fetch("https://api.line.me/oauth2/v2.1/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "authorization_code",
-          code,
-          redirect_uri: LINE_CALLBACK_URL,
-          client_id: LINE_CHANNEL_ID,
-          client_secret: LINE_CHANNEL_SECRET
-        }).toString()
-      });
-      const tokenData = await tokenRes.json();
-      if (!tokenData.access_token) {
-        console.error("[LINE callback] token failed", tokenData);
-        const err = tokenData.error_description ?? tokenData.error ?? "token_failed";
-        return res.redirect(lineRedirect(`/auth/login?line_error=${encodeURIComponent(err)}`));
-      }
-      const profileRes = await fetch("https://api.line.me/v2/profile", {
-        headers: { Authorization: `Bearer ${tokenData.access_token}` }
-      });
-      const profile = await profileRes.json();
-      if (!profile.userId) {
-        console.error("[LINE callback] profile failed", profile);
-        return res.redirect(lineRedirect("/auth/login?line_error=profile_failed"));
-      }
-      const lineId = profile.userId;
-      console.log("[LINE callback] profile ok", { lineId, displayName: profile.displayName });
-      const lineName = profile.displayName ?? "LINE User";
-      const lineAvatar = profile.pictureUrl ?? null;
-      let [existing] = await db.select().from(users).where(eq2(users.lineId, lineId));
-      if (!existing) {
-        [existing] = await db.insert(users).values({
-          lineId,
-          displayName: lineName,
-          profileImageUrl: lineAvatar,
-          role: "USER"
-        }).returning();
-      } else {
-        [existing] = await db.update(users).set({ displayName: lineName, profileImageUrl: lineAvatar, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(users.id, existing.id)).returning();
-      }
-      await sendWelcomeDmIfNeeded(existing.id);
-      const jwtToken = makeToken(existing.id);
-      res.redirect(lineRedirect(`/?token=${encodeURIComponent(jwtToken)}`));
-    } catch (err) {
-      console.error("LINE callback error:", err);
-      res.redirect(lineRedirect("/auth/login?line_error=server_error"));
-    }
-  });
-  app2.get("/api/auth/line-callback", async (req, res) => {
-    const code = req.query.code;
-    const state = req.query.state;
-    console.log("[LINE callback] received", { hasCode: !!code, stateMatch: state === LINE_STATE });
-    if (!code || state !== LINE_STATE) {
-      return res.redirect(lineRedirect("/auth/login?line_error=invalid_state"));
-    }
-    try {
-      const tokenRes = await fetch("https://api.line.me/oauth2/v2.1/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "authorization_code",
-          code,
-          redirect_uri: LINE_CALLBACK_URL,
-          client_id: LINE_CHANNEL_ID,
-          client_secret: LINE_CHANNEL_SECRET
-        }).toString()
-      });
-      const tokenData = await tokenRes.json();
-      if (!tokenData.access_token) {
-        console.error("[LINE callback] token failed", tokenData);
-        const err = tokenData.error_description ?? tokenData.error ?? "token_failed";
-        return res.redirect(lineRedirect(`/auth/login?line_error=${encodeURIComponent(err)}`));
-      }
-      const profileRes = await fetch("https://api.line.me/v2/profile", {
-        headers: { Authorization: `Bearer ${tokenData.access_token}` }
-      });
-      const profile = await profileRes.json();
-      if (!profile.userId) {
-        console.error("[LINE callback] profile failed", profile);
-        return res.redirect(lineRedirect("/auth/login?line_error=profile_failed"));
-      }
-      const lineId = profile.userId;
-      console.log("[LINE callback] profile ok", { lineId, displayName: profile.displayName });
-      const lineName = profile.displayName ?? "LINE User";
-      const lineAvatar = profile.pictureUrl ?? null;
-      let [existing] = await db.select().from(users).where(eq2(users.lineId, lineId));
-      if (!existing) {
-        [existing] = await db.insert(users).values({
-          lineId,
-          displayName: lineName,
-          profileImageUrl: lineAvatar,
-          role: "USER"
-        }).returning();
-      } else {
-        [existing] = await db.update(users).set({ displayName: lineName, profileImageUrl: lineAvatar, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(users.id, existing.id)).returning();
-      }
-      await sendWelcomeDmIfNeeded(existing.id);
-      const jwtToken = makeToken(existing.id);
-      console.log("[LINE callback] success", { userId: existing.id });
-      res.redirect(lineRedirect(`/?token=${encodeURIComponent(jwtToken)}`));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error("[LINE callback] server_error", err);
-      res.redirect(lineRedirect(`/auth/login?line_error=${encodeURIComponent("server_error:" + msg.slice(0, 80))}`));
     }
   });
   const GENRE_TO_CATEGORY = {
@@ -3047,6 +3399,22 @@ async function registerRoutes(app2) {
       userId: user.id
     });
     res.json({ ok: true });
+  });
+  app2.get("/api/editors", async (req, res) => {
+    const sort = req.query.sort || "rating";
+    let rows = await db.select().from(videoEditors);
+    if (sort === "delivery") {
+      rows = rows.sort((a, b) => a.deliveryDays - b.deliveryDays);
+    } else if (sort === "price") {
+      rows = rows.sort((a, b) => {
+        const pa = a.pricePerMinute ?? a.revenueSharePercent ?? 9999;
+        const pb = b.pricePerMinute ?? b.revenueSharePercent ?? 9999;
+        return pa - pb;
+      });
+    } else {
+      rows = rows.sort((a, b) => b.rating - a.rating);
+    }
+    res.json(rows);
   });
   app2.get("/api/editors/:id", async (req, res) => {
     const id = paramNum(req, "id");
@@ -4061,14 +4429,61 @@ async function registerRoutes(app2) {
     const [updated] = await db.update(bookingSessions).set({ spotsLeft: session.spotsLeft - 1 }).where(eq2(bookingSessions.id, id)).returning();
     res.json(updated);
   });
-  app2.get("/api/dm-messages", async (_req, res) => {
-    const rows = await db.select().from(dmMessages).orderBy(asc2(dmMessages.sortOrder));
-    res.json(rows);
+  app2.post("/api/dm/open", async (req, res) => {
+    const me = await getAuthUser(req);
+    if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    const raw = req.body?.peerUserId;
+    const peer = typeof raw === "number" && Number.isFinite(raw) ? Math.floor(raw) : typeof raw === "string" ? parseInt(raw, 10) : NaN;
+    if (!Number.isFinite(peer) || peer < 1) {
+      return res.status(400).json({ error: "peerUserId \u304C\u5FC5\u8981\u3067\u3059" });
+    }
+    if (peer === me.id) return res.status(400).json({ error: "\u81EA\u5206\u81EA\u8EAB\u3068\u306F DM \u3067\u304D\u307E\u305B\u3093" });
+    const [peerUser] = await db.select({ id: users.id }).from(users).where(eq2(users.id, peer));
+    if (!peerUser) return res.status(404).json({ error: "\u30E6\u30FC\u30B6\u30FC\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    const u1 = Math.min(me.id, peer);
+    const u2 = Math.max(me.id, peer);
+    let [th] = await db.select().from(dmThreads).where(and2(eq2(dmThreads.user1Id, u1), eq2(dmThreads.user2Id, u2)));
+    if (!th) {
+      [th] = await db.insert(dmThreads).values({ user1Id: u1, user2Id: u2 }).returning();
+    }
+    res.json({ threadId: th.id });
+  });
+  app2.get("/api/dm-messages", async (req, res) => {
+    const me = await getAuthUser(req);
+    if (!me) return res.json([]);
+    const threads = await db.select().from(dmThreads).where(or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id))).orderBy(desc(dmThreads.updatedAt));
+    const out = [];
+    for (const t of threads) {
+      const peerId = t.user1Id === me.id ? t.user2Id : t.user1Id;
+      const [peer] = await db.select({ displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(users).where(eq2(users.id, peerId));
+      if (!peer) continue;
+      out.push({
+        id: t.id,
+        name: peer.displayName ?? "User",
+        avatar: peer.profileImageUrl ?? "",
+        lastMessage: t.lastMessagePreview ?? "",
+        time: formatDmThreadTime(t.updatedAt ?? void 0),
+        unread: 0,
+        online: false,
+        otherUserId: peerId
+      });
+    }
+    res.json(out);
   });
   app2.post("/api/dm-messages/:id/read", async (req, res) => {
     const id = paramNum(req, "id");
+    const me = await getAuthUser(req);
+    if (me) {
+      const [th] = await db.select().from(dmThreads).where(
+        and2(
+          eq2(dmThreads.id, id),
+          or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id))
+        )
+      );
+      if (th) return res.json({ ok: true });
+    }
     const [updated] = await db.update(dmMessages).set({ unread: 0 }).where(eq2(dmMessages.id, id)).returning();
-    res.json(updated);
+    res.json(updated ?? { ok: true });
   });
   app2.get("/api/notifications/unread-count", async (_req, res) => {
     const [{ count: count2 }] = await db.select({ count: sql2`count(*)::int` }).from(notifications).where(eq2(notifications.isRead, false));
@@ -4118,21 +4533,83 @@ async function registerRoutes(app2) {
     }).returning();
     res.json(msg);
   });
+  app2.get("/api/dm-messages/:id/peer", async (req, res) => {
+    const id = paramNum(req, "id");
+    const me = await getAuthUser(req);
+    if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    const [th] = await db.select().from(dmThreads).where(
+      and2(eq2(dmThreads.id, id), or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id)))
+    );
+    if (!th) return res.status(404).json({ error: "Not found" });
+    const peerId = th.user1Id === me.id ? th.user2Id : th.user1Id;
+    const [peer] = await db.select({ displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(users).where(eq2(users.id, peerId));
+    if (!peer) return res.status(404).json({ error: "Not found" });
+    res.json({
+      name: peer.displayName ?? "User",
+      avatar: peer.profileImageUrl ?? "",
+      otherUserId: peerId
+    });
+  });
   app2.get("/api/dm-messages/:id/conversation", async (req, res) => {
     const id = paramNum(req, "id");
+    const me = await getAuthUser(req);
+    if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    const [th] = await db.select().from(dmThreads).where(
+      and2(eq2(dmThreads.id, id), or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id)))
+    );
+    if (th) {
+      const rows = await db.select().from(dmThreadMessages).where(eq2(dmThreadMessages.threadId, id)).orderBy(asc2(dmThreadMessages.createdAt));
+      return res.json(
+        rows.map((m) => ({
+          id: m.id,
+          sender: m.senderUserId === me.id ? "me" : "them",
+          senderId: m.senderUserId,
+          text: m.text,
+          isRead: true,
+          createdAt: (m.createdAt ?? /* @__PURE__ */ new Date()).toISOString(),
+          imageUrl: null
+        }))
+      );
+    }
     const msgs = await db.select().from(dmConversationMessages).where(eq2(dmConversationMessages.dmId, id)).orderBy(asc2(dmConversationMessages.createdAt));
     res.json(msgs);
   });
   app2.post("/api/dm-messages/:id/conversation", async (req, res) => {
     const id = paramNum(req, "id");
-    const { text: text2 } = req.body;
+    const me = await getAuthUser(req);
+    if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    const text2 = typeof req.body?.text === "string" ? req.body.text : "";
+    if (!text2.trim()) return res.status(400).json({ error: "\u30E1\u30C3\u30BB\u30FC\u30B8\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+    const [th] = await db.select().from(dmThreads).where(
+      and2(eq2(dmThreads.id, id), or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id)))
+    );
+    if (th) {
+      const [msg2] = await db.insert(dmThreadMessages).values({
+        threadId: id,
+        senderUserId: me.id,
+        text: text2.trim()
+      }).returning();
+      await db.update(dmThreads).set({
+        lastMessagePreview: text2.trim().slice(0, 200),
+        updatedAt: /* @__PURE__ */ new Date()
+      }).where(eq2(dmThreads.id, id));
+      return res.json({
+        id: msg2.id,
+        sender: "me",
+        senderId: me.id,
+        text: msg2.text,
+        isRead: true,
+        createdAt: (msg2.createdAt ?? /* @__PURE__ */ new Date()).toISOString(),
+        imageUrl: null
+      });
+    }
     const [msg] = await db.insert(dmConversationMessages).values({
       dmId: id,
       sender: "me",
-      text: text2,
+      text: text2.trim(),
       isRead: true
     }).returning();
-    await db.update(dmMessages).set({ lastMessage: text2, unread: 0 }).where(eq2(dmMessages.id, id));
+    await db.update(dmMessages).set({ lastMessage: text2.trim(), unread: 0 }).where(eq2(dmMessages.id, id));
     res.json(msg);
   });
   app2.get("/api/jukebox/:communityId", async (req, res) => {
@@ -4263,14 +4740,53 @@ data: ${data}
       clearInterval(pingInterval);
     });
   });
+  function normalizeStreamVisibility(v) {
+    if (v === "followers" || v === "community") return v;
+    return "public";
+  }
+  async function canViewerAccessLiveStream(srow, viewer) {
+    const vis = srow.visibility ?? "public";
+    if (vis === "public") return true;
+    const hostId = srow.hostUserId;
+    if (viewer && hostId != null && viewer.id === hostId) return true;
+    if (vis === "followers") {
+      if (hostId == null) return true;
+      if (!viewer) return false;
+      const [f] = await db.select({ id: userFollows.id }).from(userFollows).where(and2(eq2(userFollows.followerId, viewer.id), eq2(userFollows.followingId, hostId)));
+      return !!f;
+    }
+    if (vis === "community") {
+      const cid = srow.restrictedCommunityId;
+      if (cid == null) return false;
+      if (!viewer) return false;
+      const [m] = await db.select({ id: communityMembers.id }).from(communityMembers).where(and2(eq2(communityMembers.userId, viewer.id), eq2(communityMembers.communityId, cid)));
+      return !!m;
+    }
+    return true;
+  }
   app2.post("/api/stream/create", async (req, res) => {
     if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_STREAM_TOKEN) {
       return res.status(500).json({ error: "Cloudflare Stream is not configured" });
     }
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
-    const { name } = req.body ?? {};
+    const { name, title, visibility: visIn, restrictedCommunityId: rcIn } = req.body ?? {};
+    const visibility = normalizeStreamVisibility(visIn);
+    let restrictedCommunityId = null;
+    if (visibility === "community") {
+      const cid = typeof rcIn === "number" && Number.isFinite(rcIn) ? rcIn : parseInt(String(rcIn ?? ""), 10);
+      if (!Number.isFinite(cid)) {
+        return res.status(400).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u9650\u5B9A\u914D\u4FE1\u3067\u306F restrictedCommunityId \u304C\u5FC5\u8981\u3067\u3059" });
+      }
+      const [mem] = await db.select({ id: communityMembers.id }).from(communityMembers).where(and2(eq2(communityMembers.userId, user.id), eq2(communityMembers.communityId, cid)));
+      if (!mem) {
+        return res.status(403).json({ error: "\u9078\u629E\u3057\u305F\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306E\u30E1\u30F3\u30D0\u30FC\u3067\u306F\u3042\u308A\u307E\u305B\u3093" });
+      }
+      restrictedCommunityId = cid;
+    }
     try {
+      const displayTitle = typeof title === "string" && title.trim() || typeof name === "string" && name.trim() || "";
+      const metaName = displayTitle || `RawStock Stream by ${user.displayName}`;
       const cfRes = await fetch(
         `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/stream/live_inputs`,
         {
@@ -4281,7 +4797,7 @@ data: ${data}
           },
           body: JSON.stringify({
             meta: {
-              name: name || `RawStock Stream by ${user.displayName}`
+              name: metaName
             }
           })
         }
@@ -4295,19 +4811,29 @@ data: ${data}
       const cfId = result.uid ?? "";
       const rtmpsUrl = result.rtmps?.url ?? "";
       const rtmpsStreamKey = result.rtmps?.streamKey ?? "";
-      const webRtcPlaybackUrl = result.webRTCPlayback?.url ?? result.webRTC?.url ?? "";
+      const whipPublish = (result.webRTC?.url ?? "").trim();
+      const webRtcPlaybackUrl = (result.webRTCPlayback?.url ?? "").trim() || whipPublish;
       if (!cfId || !rtmpsUrl || !rtmpsStreamKey || !webRtcPlaybackUrl) {
         return res.status(502).json({ error: "Cloudflare Stream \u30EC\u30B9\u30DD\u30F3\u30B9\u304C\u4E0D\u5B8C\u5168\u3067\u3059" });
       }
+      const whipUrlStored = whipPublish || webRtcPlaybackUrl;
       const [row] = await db.insert(streams).values({
         cfLiveInputId: cfId,
         webRtcUrl: webRtcPlaybackUrl,
         rtmpsUrl,
         rtmpsStreamKey,
-        currentViewers: 0
+        currentViewers: 0,
+        title: displayTitle || null,
+        hostUserId: user.id,
+        isLive: false,
+        whipUrl: whipPublish || null,
+        visibility,
+        restrictedCommunityId: visibility === "community" ? restrictedCommunityId : null
       }).returning();
       res.json({
         id: row.id,
+        whipUrl: whipUrlStored,
+        whepUrl: webRtcPlaybackUrl,
         webRtc: { url: webRtcPlaybackUrl },
         rtmps: { url: rtmpsUrl, streamKey: rtmpsStreamKey }
       });
@@ -4315,6 +4841,145 @@ data: ${data}
       console.error("Cloudflare Stream create exception:", e);
       res.status(500).json({ error: "Cloudflare Stream API \u901A\u4FE1\u3067\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F" });
     }
+  });
+  app2.get("/api/stream/:id", async (req, res) => {
+    const id = paramNum(req, "id");
+    if (!id) return res.status(400).json({ error: "Invalid id" });
+    const [srow] = await db.select().from(streams).where(eq2(streams.id, id));
+    if (srow) {
+      let creator = "Host";
+      let avatar = "";
+      if (srow.hostUserId != null) {
+        const [u] = await db.select().from(users).where(eq2(users.id, srow.hostUserId));
+        if (u) {
+          creator = u.displayName ?? creator;
+          avatar = u.profileImageUrl ?? "";
+        }
+      }
+      const viewer = await getAuthUser(req);
+      const playbackOk = await canViewerAccessLiveStream(srow, viewer);
+      const vis = srow.visibility ?? "public";
+      const streamAccessDenied = !playbackOk && vis !== "public";
+      const hid = srow.hostUserId;
+      let isFollowingHost = false;
+      if (viewer && hid != null && viewer.id !== hid) {
+        const [f] = await db.select({ id: userFollows.id }).from(userFollows).where(and2(eq2(userFollows.followerId, viewer.id), eq2(userFollows.followingId, hid)));
+        isFollowingHost = !!f;
+      }
+      return res.json({
+        id: srow.id,
+        title: srow.title ?? "Live",
+        creator,
+        avatar,
+        thumbnail: "",
+        viewers: srow.currentViewers,
+        currentViewers: srow.currentViewers,
+        category: "live",
+        fee: "Free",
+        price: null,
+        whepUrl: playbackOk ? srow.webRtcUrl : null,
+        whipUrl: playbackOk ? srow.whipUrl ?? srow.webRtcUrl : null,
+        isActive: srow.isLive,
+        isLive: srow.isLive,
+        community: "",
+        timeAgo: srow.isLive ? "LIVE" : "Offline",
+        visibility: vis,
+        streamAccessDenied,
+        hostUserId: hid ?? null,
+        isFollowingHost: viewer && hid != null && viewer.id !== hid ? isFollowingHost : false
+      });
+    }
+    const [live] = await db.select().from(liveStreams).where(eq2(liveStreams.id, id));
+    if (!live) return res.status(404).json({ error: "Not found" });
+    return res.json({
+      id: live.id,
+      title: live.title,
+      creator: live.creator,
+      avatar: live.avatar,
+      thumbnail: live.thumbnail,
+      viewers: live.viewers,
+      currentViewers: live.viewers,
+      category: live.community,
+      fee: "Free",
+      price: null,
+      whepUrl: null,
+      whipUrl: null,
+      isActive: live.isLive,
+      isLive: live.isLive,
+      community: live.community,
+      timeAgo: live.timeAgo,
+      hostUserId: null,
+      isFollowingHost: false
+    });
+  });
+  app2.post("/api/stream/:id/start", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const id = paramNum(req, "id");
+    const [row] = await db.select().from(streams).where(eq2(streams.id, id));
+    if (!row) return res.status(404).json({ error: "Not found" });
+    if (row.hostUserId != null && row.hostUserId !== user.id) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const now = /* @__PURE__ */ new Date();
+    const [updated] = await db.update(streams).set({
+      isLive: true,
+      startedAt: now,
+      endedAt: null,
+      currentViewers: 0
+    }).where(eq2(streams.id, id)).returning();
+    res.json(updated);
+  });
+  app2.post("/api/stream/:id/end", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const id = paramNum(req, "id");
+    const [row] = await db.select().from(streams).where(eq2(streams.id, id));
+    if (!row) return res.status(404).json({ error: "Not found" });
+    if (row.hostUserId != null && row.hostUserId !== user.id) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const now = /* @__PURE__ */ new Date();
+    const [updated] = await db.update(streams).set({
+      isLive: false,
+      endedAt: now
+    }).where(eq2(streams.id, id)).returning();
+    res.json(updated);
+  });
+  app2.post("/api/stream/:id/join", async (req, res) => {
+    const id = paramNum(req, "id");
+    const [srow] = await db.select().from(streams).where(eq2(streams.id, id));
+    if (srow) {
+      const viewer = await getAuthUser(req);
+      const allowed = await canViewerAccessLiveStream(srow, viewer);
+      if (!allowed) {
+        return res.status(403).json({
+          error: "\u3053\u306E\u914D\u4FE1\u3092\u8996\u8074\u3059\u308B\u6A29\u9650\u304C\u3042\u308A\u307E\u305B\u3093",
+          code: "STREAM_ACCESS_DENIED"
+        });
+      }
+      const [updated] = await db.update(streams).set({ currentViewers: sql2`${streams.currentViewers} + 1` }).where(eq2(streams.id, id)).returning();
+      return res.json({ viewerCount: updated.currentViewers, currentViewers: updated.currentViewers });
+    }
+    const [live] = await db.select().from(liveStreams).where(eq2(liveStreams.id, id));
+    if (!live) return res.status(404).json({ error: "Not found" });
+    const next = Math.max(0, live.viewers + 1);
+    await db.update(liveStreams).set({ viewers: next }).where(eq2(liveStreams.id, id));
+    return res.json({ viewerCount: next, currentViewers: next });
+  });
+  app2.post("/api/stream/:id/leave", async (req, res) => {
+    const id = paramNum(req, "id");
+    const [srow] = await db.select().from(streams).where(eq2(streams.id, id));
+    if (srow) {
+      const next2 = Math.max(0, srow.currentViewers - 1);
+      const [updated] = await db.update(streams).set({ currentViewers: next2 }).where(eq2(streams.id, id)).returning();
+      return res.json({ viewerCount: updated.currentViewers, currentViewers: updated.currentViewers });
+    }
+    const [live] = await db.select().from(liveStreams).where(eq2(liveStreams.id, id));
+    if (!live) return res.status(404).json({ error: "Not found" });
+    const next = Math.max(0, live.viewers - 1);
+    await db.update(liveStreams).set({ viewers: next }).where(eq2(liveStreams.id, id));
+    return res.json({ viewerCount: next, currentViewers: next });
   });
   app2.post("/api/jukebox/:communityId/add", async (req, res) => {
     const communityId = paramNum(req, "communityId");
@@ -4493,7 +5158,7 @@ data: ${data}
     await db.delete(jukeboxQueue).where(eq2(jukeboxQueue.id, itemId));
     res.json({ ok: true });
   });
-  app2.get("/api/twoshot/publishable-key", async (_req, res) => {
+  app2.get("/api/mentor/publishable-key", async (_req, res) => {
     try {
       const key = await getStripePublishableKey();
       res.json({ publishableKey: key });
@@ -4501,28 +5166,28 @@ data: ${data}
       res.status(500).json({ error: e.message });
     }
   });
-  app2.get("/api/twoshot/:streamId/bookings", async (req, res) => {
+  app2.get("/api/mentor/:streamId/bookings", async (req, res) => {
     const streamId = paramNum(req, "streamId");
-    const rows = await db.select().from(twoshotBookings).where(eq2(twoshotBookings.streamId, streamId)).orderBy(asc2(twoshotBookings.queuePosition));
+    const rows = await db.select().from(mentorBookings).where(eq2(mentorBookings.streamId, streamId)).orderBy(asc2(mentorBookings.queuePosition));
     res.json(rows);
   });
-  app2.get("/api/twoshot/:streamId/queue-count", async (req, res) => {
+  app2.get("/api/mentor/:streamId/queue-count", async (req, res) => {
     const streamId = paramNum(req, "streamId");
-    const [{ total }] = await db.select({ total: count() }).from(twoshotBookings).where(sql2`stream_id = ${streamId} AND status IN ('paid','waiting','notified')`);
+    const [{ total }] = await db.select({ total: count() }).from(mentorBookings).where(sql2`stream_id = ${streamId} AND status IN ('paid','waiting','notified')`);
     res.json({ count: Number(total) });
   });
-  app2.post("/api/twoshot/:streamId/checkout", async (req, res) => {
+  app2.post("/api/mentor/:streamId/checkout", async (req, res) => {
     const streamId = paramNum(req, "streamId");
     const { userName, userAvatar, price = 3e3 } = req.body;
     if (!userName) return res.status(400).json({ error: "userName required" });
     try {
       const stripe = await getUncachableStripeClient();
-      const [{ total }] = await db.select({ total: count() }).from(twoshotBookings).where(sql2`stream_id = ${streamId} AND status IN ('paid','waiting','notified')`);
+      const [{ total }] = await db.select({ total: count() }).from(mentorBookings).where(sql2`stream_id = ${streamId} AND status IN ('paid','waiting','notified')`);
       const queuePos = Number(total) + 1;
       const [stream] = await db.select().from(liveStreams).where(eq2(liveStreams.id, streamId));
       const streamTitle = stream?.title ?? "\u30C4\u30FC\u30B7\u30E7\u30C3\u30C8\u64AE\u5F71";
       const creatorName = stream?.creator ?? "\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC";
-      const baseUrl = process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}` : "http://localhost:8081";
+      const baseUrl = "https://rawstock.live";
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ["card"],
         line_items: [
@@ -4539,7 +5204,7 @@ data: ${data}
           }
         ],
         mode: "payment",
-        success_url: `${baseUrl}/twoshot-success?session_id={CHECKOUT_SESSION_ID}&stream=${streamId}`,
+        success_url: `${baseUrl}/mentor-success?session_id={CHECKOUT_SESSION_ID}&stream=${streamId}`,
         cancel_url: `${baseUrl}/live/${streamId}`,
         metadata: {
           streamId: streamId.toString(),
@@ -4549,7 +5214,7 @@ data: ${data}
           price: price.toString()
         }
       });
-      const [booking] = await db.insert(twoshotBookings).values({
+      const [booking] = await db.insert(mentorBookings).values({
         streamId,
         userName,
         userAvatar,
@@ -4567,7 +5232,7 @@ data: ${data}
       res.status(500).json({ error: e.message });
     }
   });
-  app2.post("/api/twoshot/confirm-payment", async (req, res) => {
+  app2.post("/api/mentor/confirm-payment", async (req, res) => {
     const { sessionId } = req.body;
     if (!sessionId) return res.status(400).json({ error: "sessionId required" });
     try {
@@ -4576,19 +5241,19 @@ data: ${data}
       if (session.payment_status !== "paid") {
         return res.status(400).json({ error: "Payment not completed" });
       }
-      const [booking] = await db.select().from(twoshotBookings).where(eq2(twoshotBookings.stripeSessionId, sessionId));
+      const [booking] = await db.select().from(mentorBookings).where(eq2(mentorBookings.stripeSessionId, sessionId));
       if (!booking) return res.status(404).json({ error: "Booking not found" });
-      await db.update(twoshotBookings).set({
+      await db.update(mentorBookings).set({
         status: "paid",
         stripePaymentIntentId: session.payment_intent
-      }).where(eq2(twoshotBookings.stripeSessionId, sessionId));
+      }).where(eq2(mentorBookings.stripeSessionId, sessionId));
       const [stream] = await db.select().from(liveStreams).where(eq2(liveStreams.id, booking.streamId));
       if (stream) {
         const [creatorUser] = await db.select().from(users).where(eq2(users.displayName, stream.creator));
         if (creatorUser) {
           const walletId = await getOrCreateUserWallet(creatorUser.id);
           const [creatorRow] = await db.select().from(creators).where(eq2(creators.name, stream.creator));
-          await recordRevenue(walletId, creatorUser.id, creatorRow?.id ?? null, booking.price, "twoshot", String(booking.id));
+          await recordRevenue(walletId, creatorUser.id, creatorRow?.id ?? null, booking.price, "mentor", String(booking.id));
         }
       }
       res.json({ ok: true, booking });
@@ -4596,25 +5261,154 @@ data: ${data}
       res.status(500).json({ error: e.message });
     }
   });
-  app2.post("/api/twoshot/:bookingId/notify", async (req, res) => {
+  app2.post("/api/mentor/:bookingId/notify", async (req, res) => {
     const bookingId = paramNum(req, "bookingId");
-    await db.update(twoshotBookings).set({ status: "notified", notifiedAt: /* @__PURE__ */ new Date() }).where(eq2(twoshotBookings.id, bookingId));
+    await db.update(mentorBookings).set({ status: "notified", notifiedAt: /* @__PURE__ */ new Date() }).where(eq2(mentorBookings.id, bookingId));
     res.json({ ok: true });
   });
-  app2.post("/api/twoshot/:bookingId/complete", async (req, res) => {
+  app2.post("/api/mentor/:bookingId/complete", async (req, res) => {
     const bookingId = paramNum(req, "bookingId");
-    await db.update(twoshotBookings).set({ status: "completed", completedAt: /* @__PURE__ */ new Date() }).where(eq2(twoshotBookings.id, bookingId));
+    await db.update(mentorBookings).set({ status: "completed", completedAt: /* @__PURE__ */ new Date() }).where(eq2(mentorBookings.id, bookingId));
     res.json({ ok: true });
   });
-  app2.post("/api/twoshot/:bookingId/cancel", async (req, res) => {
+  app2.post("/api/mentor/:bookingId/cancel", async (req, res) => {
     const bookingId = paramNum(req, "bookingId");
     const { reason, isSelfCancel } = req.body;
-    await db.update(twoshotBookings).set({
+    await db.update(mentorBookings).set({
       status: "cancelled",
       cancelledAt: /* @__PURE__ */ new Date(),
       cancelReason: reason ?? "\u30E6\u30FC\u30B6\u30FC\u30AD\u30E3\u30F3\u30BB\u30EB",
       refundable: !isSelfCancel
-    }).where(eq2(twoshotBookings.id, bookingId));
+    }).where(eq2(mentorBookings.id, bookingId));
+    res.json({ ok: true });
+  });
+  app2.get("/api/mentor/my-sessions", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const rows = await db.select().from(mentorSessions).where(eq2(mentorSessions.creatorId, user.id)).orderBy(desc(mentorSessions.createdAt));
+    res.json(rows);
+  });
+  app2.post("/api/mentor/sessions", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const { title, category, description, price, duration, maxParticipants } = req.body;
+    if (!title || !price) return res.status(400).json({ error: "title and price are required" });
+    const [row] = await db.insert(mentorSessions).values({
+      creatorId: user.id,
+      title,
+      category: category ?? "other",
+      description: description ?? "",
+      price: Number(price),
+      duration: duration ?? 30,
+      maxParticipants: maxParticipants ?? 1,
+      isActive: true
+    }).returning();
+    res.json(row);
+  });
+  app2.put("/api/mentor/sessions/:id", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const id = paramNum(req, "id");
+    const [existing] = await db.select().from(mentorSessions).where(eq2(mentorSessions.id, id));
+    if (!existing || existing.creatorId !== user.id) return res.status(403).json({ error: "Forbidden" });
+    const { title, category, description, price, duration, maxParticipants } = req.body;
+    const [row] = await db.update(mentorSessions).set({
+      title: title ?? existing.title,
+      category: category ?? existing.category,
+      description: description ?? existing.description,
+      price: price !== void 0 ? Number(price) : existing.price,
+      duration: duration ?? existing.duration,
+      maxParticipants: maxParticipants ?? existing.maxParticipants,
+      updatedAt: /* @__PURE__ */ new Date()
+    }).where(eq2(mentorSessions.id, id)).returning();
+    res.json(row);
+  });
+  app2.delete("/api/mentor/sessions/:id", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const id = paramNum(req, "id");
+    const [existing] = await db.select().from(mentorSessions).where(eq2(mentorSessions.id, id));
+    if (!existing || existing.creatorId !== user.id) return res.status(403).json({ error: "Forbidden" });
+    await db.update(mentorSessions).set({ isActive: false, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(mentorSessions.id, id));
+    res.json({ ok: true });
+  });
+  app2.get("/api/mentor/creator-bookings", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const mySessions = await db.select({ id: mentorSessions.id }).from(mentorSessions).where(eq2(mentorSessions.creatorId, user.id));
+    if (mySessions.length === 0) return res.json([]);
+    const sessionIds = mySessions.map((s) => s.id);
+    const bookingRows = await db.select().from(mentorBookings).where(and2(
+      inArray(mentorBookings.sessionId, sessionIds),
+      sql2`${mentorBookings.status} NOT IN ('cancelled')`
+    )).orderBy(desc(mentorBookings.createdAt));
+    const sessionMap = new Map(
+      (await db.select().from(mentorSessions).where(inArray(mentorSessions.id, sessionIds))).map((s) => [s.id, s])
+    );
+    const result = bookingRows.map((b) => ({
+      booking: b,
+      session: sessionMap.get(b.sessionId) ?? null
+    }));
+    res.json(result);
+  });
+  app2.post("/api/mentor/bookings/:bookingId/start", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const bookingId = paramNum(req, "bookingId");
+    const [booking] = await db.select().from(mentorBookings).where(eq2(mentorBookings.id, bookingId));
+    if (!booking) return res.status(404).json({ error: "Booking not found" });
+    if (booking.whipUrl) {
+      return res.json({ whipUrl: booking.whipUrl, whepUrl: booking.whepUrl });
+    }
+    if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_STREAM_TOKEN) {
+      return res.status(503).json({ error: "Cloudflare Stream not configured" });
+    }
+    const cfRes = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/stream/live_inputs`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${CLOUDFLARE_STREAM_TOKEN}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ meta: { name: `mentor-booking-${bookingId}` }, recording: { mode: "automatic" } })
+      }
+    );
+    if (!cfRes.ok) {
+      const err = await cfRes.text();
+      return res.status(502).json({ error: `Cloudflare error: ${err}` });
+    }
+    const cfData = await cfRes.json();
+    const { uid, webRTC, webRTCPlayback } = cfData.result;
+    const whipUrl = webRTC.url;
+    const whepUrl = webRTCPlayback.url;
+    await db.update(mentorBookings).set({ status: "in_progress", whipUrl, whepUrl, cfStreamUid: uid }).where(eq2(mentorBookings.id, bookingId));
+    res.json({ whipUrl, whepUrl });
+  });
+  app2.get("/api/mentor/bookings/:bookingId/join", async (req, res) => {
+    const bookingId = paramNum(req, "bookingId");
+    const [booking] = await db.select().from(mentorBookings).where(eq2(mentorBookings.id, bookingId));
+    if (!booking) return res.status(404).json({ error: "Booking not found" });
+    if (!booking.whepUrl) return res.status(409).json({ error: "Session not started yet" });
+    res.json({ whepUrl: booking.whepUrl });
+  });
+  app2.post("/api/mentor/bookings/:bookingId/end", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const bookingId = paramNum(req, "bookingId");
+    const [booking] = await db.select().from(mentorBookings).where(eq2(mentorBookings.id, bookingId));
+    if (!booking) return res.status(404).json({ error: "Booking not found" });
+    if (booking.cfStreamUid && CLOUDFLARE_ACCOUNT_ID && CLOUDFLARE_STREAM_TOKEN) {
+      await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/stream/live_inputs/${booking.cfStreamUid}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${CLOUDFLARE_STREAM_TOKEN}` }
+        }
+      ).catch(() => {
+      });
+    }
+    await db.update(mentorBookings).set({ status: "completed", completedAt: /* @__PURE__ */ new Date() }).where(eq2(mentorBookings.id, bookingId));
     res.json({ ok: true });
   });
   app2.post("/api/revenue/record", async (req, res) => {
@@ -4623,8 +5417,8 @@ data: ${data}
     const { amount, source, referenceId } = req.body;
     if (!amount || amount <= 0) return res.status(400).json({ error: "amount \u306F\u6B63\u306E\u6570\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
     const src = source ?? "tip";
-    if (!["tip", "paid_live", "twoshot"].includes(src)) {
-      return res.status(400).json({ error: "source \u306F tip / paid_live / twoshot \u306E\u3044\u305A\u308C\u304B\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!["tip", "paid_live", "mentor"].includes(src)) {
+      return res.status(400).json({ error: "source \u306F tip / paid_live / mentor \u306E\u3044\u305A\u308C\u304B\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
     }
     const walletId = await getOrCreateUserWallet(user.id);
     const [creatorRow] = await db.select().from(creators).where(eq2(creators.name, user.displayName));
@@ -4851,18 +5645,18 @@ data: ${data}
     if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
     const rows = await db.select().from(creators).where(eq2(creators.name, user.displayName));
     const isEditor = rows.some((r) => r.category === "editor");
-    const isTwoshot = rows.some((r) => r.category === "twoshot");
-    res.json({ isEditor, isTwoshot });
+    const isMentor = rows.some((r) => r.category === "mentor");
+    res.json({ isEditor, isMentor });
   });
   app2.post("/api/profile/register-role", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
     const { role } = req.body;
-    if (role !== "editor" && role !== "twoshot") {
-      return res.status(400).json({ error: "role \u306F editor \u304B twoshot \u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (role !== "editor" && role !== "mentor") {
+      return res.status(400).json({ error: "role \u306F editor \u304B mentor \u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
     }
-    const category = role === "editor" ? "editor" : "twoshot";
-    const communityLabel = role === "editor" ? "\u52D5\u753B\u7DE8\u96C6\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC" : "\u30C4\u30FC\u30B7\u30E7\u30C3\u30C8\u30E9\u30A4\u30D0\u30FC";
+    const category = role === "editor" ? "editor" : "mentor";
+    const communityLabel = role === "editor" ? "\u52D5\u753B\u7DE8\u96C6\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC" : "\u30E1\u30F3\u30BF\u30FC\u30BB\u30C3\u30B7\u30E7\u30F3\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC";
     const existing = await db.select().from(creators).where(
       and2(
         eq2(creators.name, user.displayName),
@@ -5534,7 +6328,7 @@ data: ${data}
   });
   const FREE_JUKEBOX_PER_DAY = 3;
   const TICKETS_PER_JUKEBOX = 30;
-  const TWOSHOT_TICKET_PRICE = 500;
+  const MENTOR_TICKET_PRICE = 500;
   app2.get("/api/tickets/balance", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -5642,9 +6436,11 @@ data: ${data}
   app2.post("/api/tickets/create-checkout", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { packId, origin } = req.body;
-    const pack = TICKET_PACKS.find((p) => p.id === packId);
-    if (!pack) return res.status(400).json({ error: "Invalid packId" });
+    const { tickets, origin } = req.body;
+    const ticketCount = Number(tickets);
+    if (!Number.isInteger(ticketCount) || ticketCount < 100) {
+      return res.status(400).json({ error: "Minimum purchase is 100 tickets" });
+    }
     try {
       const stripe = await getUncachableStripeClient();
       const session = await stripe.checkout.sessions.create({
@@ -5653,20 +6449,19 @@ data: ${data}
           price_data: {
             currency: "usd",
             product_data: {
-              name: `RawStock ${pack.label}`,
-              description: `${pack.tickets} Tickets${pack.bonus ? ` (${pack.bonus})` : ""} \u2014 1 Ticket = $0.01`
+              name: `RawStock ${ticketCount.toLocaleString()} Tickets`,
+              description: `${ticketCount.toLocaleString()} Tickets \u2014 1 Ticket = $0.01`
             },
-            unit_amount: pack.priceUSD
+            unit_amount: ticketCount
           },
           quantity: 1
         }],
         mode: "payment",
-        success_url: `${origin}/tickets?session_id={CHECKOUT_SESSION_ID}&tickets=${pack.tickets}`,
+        success_url: `${origin}/tickets?session_id={CHECKOUT_SESSION_ID}&tickets=${ticketCount}`,
         cancel_url: `${origin}/tickets`,
         metadata: {
           userId: String(user.id),
-          tickets: String(pack.tickets),
-          packId
+          tickets: String(ticketCount)
         }
       });
       return res.json({ url: session.url, sessionId: session.id });
@@ -5850,7 +6645,15 @@ data: ${data}
   app2.post("/api/ai-edit/jobs", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { planMinutes, videoUrls, logoUrl, telop, targetAudience, tone, prompt } = req.body;
+    const { planMinutes, videoUrls, logoUrl, telop, targetAudience, tone, prompt, spec } = req.body;
+    let videoSpecJson = null;
+    if (spec !== void 0 && spec !== null) {
+      const normalized = normalizeVideoSpecPayload(spec);
+      if (!normalized) {
+        return res.status(400).json({ error: "Invalid video spec (DSL)" });
+      }
+      videoSpecJson = normalized;
+    }
     if (!planMinutes || !(planMinutes in AI_EDIT_PLAN_TICKETS)) {
       return res.status(400).json({ error: "planMinutes must be 15, 30, 45, or 60" });
     }
@@ -5890,7 +6693,8 @@ data: ${data}
       targetAudience: targetAudience ?? null,
       tone: tone ?? null,
       revisionCount: 0,
-      ticketCost
+      ticketCost,
+      videoSpec: videoSpecJson
     }).returning();
     (async () => {
       try {
@@ -5942,6 +6746,7 @@ data: ${data}
         parsedVideoUrls = null;
       }
     }
+    const videoSpec = parseStoredVideoSpec(job.videoSpec ?? null);
     res.json({
       id: job.id,
       userId: job.userId,
@@ -5957,11 +6762,161 @@ data: ${data}
       tone: job.tone,
       revisionCount: job.revisionCount ?? 0,
       ticketCost: job.ticketCost,
+      videoSpec,
+      templatedRenderId: job.templatedRenderId ?? null,
       deliveredUrl: job.deliveredUrl ?? null,
       deliveredAt: job.deliveredAt ?? null,
       createdAt: job.createdAt,
       updatedAt: job.updatedAt
     });
+  });
+  function templatedPublicBaseUrl() {
+    const u = process.env.TEMPLATED_WEBHOOK_BASE_URL?.trim() || process.env.FRONTEND_URL?.trim() || "https://rawstock.live";
+    return u.replace(/\/$/, "");
+  }
+  app2.post("/api/ai-edit/jobs/:id/render", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const apiKey = (process.env.TEMPLATED_API_KEY ?? "").trim();
+    if (!apiKey) {
+      return res.status(503).json({ error: "Templated is not configured (TEMPLATED_API_KEY)" });
+    }
+    const id = paramNum(req, "id");
+    const [job] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.id, id));
+    if (!job) return res.status(404).json({ error: "Job not found" });
+    if (job.userId !== user.id) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const spec = parseStoredVideoSpec(job.videoSpec ?? null);
+    if (!spec) {
+      return res.status(400).json({ error: "Job has no valid video spec (DSL). Submit the order with spec from the AI Edit form." });
+    }
+    let videoUrls = [];
+    if (job.videoUrls) {
+      try {
+        videoUrls = JSON.parse(job.videoUrls);
+      } catch {
+        videoUrls = [];
+      }
+    }
+    if (videoUrls.length === 0 && job.videoUrl) {
+      videoUrls = [job.videoUrl];
+    }
+    const inputVideoUrl = videoUrls[0]?.trim();
+    if (!inputVideoUrl) {
+      return res.status(400).json({ error: "No source video URL on this job" });
+    }
+    const webhookUrl = `${templatedPublicBaseUrl()}/api/webhooks/templated`;
+    const renderRequest = dslToTemplated(spec, {
+      inputVideoUrl,
+      logoUrl: job.logoUrl ?? void 0,
+      webhookUrl,
+      async: true
+    });
+    const durationMs = typeof spec.duration === "number" && Number.isFinite(spec.duration) && spec.duration > 0 ? Math.min(90, spec.duration) * 1e3 : void 0;
+    const renderRes = await createTemplatedRender(renderRequest, {
+      apiKey,
+      externalId: String(job.id),
+      durationMs
+    });
+    if (!renderRes.id || renderRes.status === "failed") {
+      return res.status(502).json({
+        error: renderRes.error ?? "Templated render request failed",
+        details: renderRes
+      });
+    }
+    const now = /* @__PURE__ */ new Date();
+    const syncUrl = renderRes.url?.trim();
+    await db.update(aiEditJobs).set({
+      templatedRenderId: renderRes.id,
+      ...syncUrl ? {
+        status: "delivered",
+        deliveredUrl: syncUrl,
+        deliveredAt: now
+      } : {},
+      updatedAt: now
+    }).where(eq2(aiEditJobs.id, id));
+    if (syncUrl) {
+      try {
+        const [owner] = await db.select().from(users).where(eq2(users.id, job.userId));
+        await db.insert(notifications).values({
+          type: "ai_edit_delivered",
+          title: "Your edited video is ready",
+          body: `Your AI Edit job #${job.id}${job.planMinutes ? ` (${job.planMinutes}-min plan)` : ""} has been delivered. Tap to download.`,
+          amount: null,
+          avatar: owner?.avatar ?? null,
+          thumbnail: null,
+          timeAgo: "Just now"
+        });
+      } catch (notifErr) {
+        console.error("[ai-edit/render] notification failed:", notifErr);
+      }
+    }
+    res.json({
+      ok: true,
+      id: job.id,
+      templatedRenderId: renderRes.id,
+      status: syncUrl ? "delivered" : renderRes.status,
+      url: renderRes.url ?? null
+    });
+  });
+  app2.post("/api/webhooks/templated", async (req, res) => {
+    const body = req.body;
+    try {
+      const statusRaw = typeof body.status === "string" ? body.status.toLowerCase() : "";
+      const output = body.output && typeof body.output === "object" && body.output !== null ? body.output : null;
+      const url = (output && typeof output.url === "string" ? output.url : null) || (typeof body.url === "string" ? body.url : null);
+      const succeeded = statusRaw === "succeeded" || statusRaw === "completed" || statusRaw === "success";
+      let jobId = null;
+      const ext = body.external_id ?? body.externalId;
+      if (ext !== void 0 && ext !== null) {
+        const n = parseInt(String(ext), 10);
+        if (Number.isFinite(n)) jobId = n;
+      }
+      if (jobId == null && typeof body.id === "string") {
+        const [row] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.templatedRenderId, body.id));
+        if (row) jobId = row.id;
+      }
+      if (jobId == null) {
+        console.warn("[webhooks/templated] Could not resolve job", { bodyKeys: Object.keys(body) });
+        return res.status(200).json({ ok: false, reason: "job_not_found" });
+      }
+      if (!succeeded || !url?.trim()) {
+        if (statusRaw === "failed" || statusRaw === "error") {
+          await db.update(aiEditJobs).set({ status: "failed", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, jobId));
+        }
+        return res.status(200).json({ ok: true, ignored: true });
+      }
+      const [job] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.id, jobId));
+      if (!job) {
+        return res.status(200).json({ ok: false, reason: "job_missing" });
+      }
+      const now = /* @__PURE__ */ new Date();
+      await db.update(aiEditJobs).set({
+        status: "delivered",
+        deliveredUrl: url.trim(),
+        deliveredAt: now,
+        updatedAt: now
+      }).where(eq2(aiEditJobs.id, jobId));
+      try {
+        const [owner] = await db.select().from(users).where(eq2(users.id, job.userId));
+        await db.insert(notifications).values({
+          type: "ai_edit_delivered",
+          title: "Your edited video is ready",
+          body: `Your AI Edit job #${job.id}${job.planMinutes ? ` (${job.planMinutes}-min plan)` : ""} has been delivered. Tap to download.`,
+          amount: null,
+          avatar: owner?.avatar ?? null,
+          thumbnail: null,
+          timeAgo: "Just now"
+        });
+      } catch (notifErr) {
+        console.error("[webhooks/templated] notification failed:", notifErr);
+      }
+      return res.status(200).json({ ok: true, id: jobId });
+    } catch (e) {
+      console.error("[webhooks/templated]", e);
+      return res.status(200).json({ ok: false });
+    }
   });
   app2.post("/api/ai-edit/jobs/:id/approve", async (req, res) => {
     const user = await getAuthUser(req);
