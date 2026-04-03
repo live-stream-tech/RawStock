@@ -9,7 +9,7 @@ import { C } from "@/constants/colors";
  * 同一タブリダイレクト方式のOAuth認証コールバックページ。
  * サーバーが /auth/callback?token=xxx にリダイレクトしてくる。
  *
- * ポップアップウィンドウ内で動作している場合（マイページのLINEログインなど）:
+ * ポップアップウィンドウ内で動作している場合（Google OAuthなど）:
  *   → window.opener にpostMessageを送ってメインウィンドウを更新し、ポップアップを閉じる
  * 同一タブで動作している場合（ログインページからのリダイレクト）:
  *   → 直接loginWithTokenを呼んでログイン処理する
@@ -29,7 +29,7 @@ export default function AuthCallbackScreen() {
     const token = params.get("token");
 
     if (!token) {
-      router.replace("/auth/login?line_error=me_failed" as any);
+      router.replace("/auth/login?auth_error=me_failed" as any);
       return;
     }
 
@@ -77,7 +77,7 @@ export default function AuthCallbackScreen() {
         if (!cancelled) {
           setStatus("error");
           setTimeout(() => {
-            router.replace("/auth/login?line_error=me_failed" as any);
+            router.replace("/auth/login?auth_error=me_failed" as any);
           }, 1500);
         }
       }

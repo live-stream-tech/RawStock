@@ -429,10 +429,10 @@ export const dmMessages = pgTable("dm_messages", {
   sortOrder: integer("sort_order").notNull().default(0),
 });
 
-/** 認証はLINEログインのみ。email/password は廃止。 */
+/** 認証はGoogleログイン（またはEmail/Password）。lineIdカラムはGoogleユーザーには "google:{sub}" を格納。 */
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
-  /** LINEアカウントID（必須・一意） */
+  /** 認証プロバイダキー（Googleユーザー: "google:{sub}"、メール登録: "email:{email}"） */
   lineId: text("line_id").notNull().unique(),
   displayName: text("display_name").notNull().default("User"),
   profileImageUrl: text("profile_image_url"),

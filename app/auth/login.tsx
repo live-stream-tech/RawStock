@@ -23,20 +23,20 @@ const getErrorLabel = (key: string) => {
 };
 
 export default function LoginScreen() {
-  const { line_error } = useLocalSearchParams<{ line_error?: string }>();
+  const { auth_error } = useLocalSearchParams<{ auth_error?: string }>();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [demoLoading, setDemoLoading] = useState(false);
   const { loginWithToken } = useAuth();
 
   useEffect(() => {
-    if (line_error && Platform.OS === "web" && typeof window !== "undefined") {
-      const msg = getErrorLabel(line_error);
+    if (auth_error && Platform.OS === "web" && typeof window !== "undefined") {
+      const msg = getErrorLabel(auth_error);
       setErrorMsg(msg);
       const url = new URL(window.location.href);
-      url.searchParams.delete("line_error");
+      url.searchParams.delete("auth_error");
       window.history.replaceState({}, "", url.toString());
     }
-  }, [line_error]);
+  }, [auth_error]);
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 12 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;

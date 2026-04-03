@@ -5,7 +5,6 @@ import { getApiUrl } from "@/lib/query-client";
 import { saveLoginReturn } from "@/lib/login-return";
 import { router } from "expo-router";
 
-/** 認証はLINEログインのみ。メール/パスワードは廃止。 */
 export type User = {
   id: number;
   name: string;
@@ -34,7 +33,7 @@ type AuthCtx = {
   loginWithToken: (token: string) => Promise<void>;
   logout: () => void;
   updateProfile: (data: Partial<Pick<User, "name" | "bio" | "avatar" | "spotifyUrl" | "appleMusicUrl" | "bandcampUrl" | "instagramUrl" | "youtubeUrl" | "xUrl" | "phoneNumber">> & { enneagramScores?: number[] | null; pinnedCommunityIds?: number[] | null }) => Promise<void>;
-  /** 未ログイン時にLINEログインへ誘導する。戻り値はログイン済みなら true */
+  /** 未ログイン時にGoogleログインへ誘導する。戻り値はログイン済みなら true */
   requireAuth: (actionLabel?: string) => boolean;
 };
 
@@ -215,19 +214,19 @@ export function useAuth() {
   return useContext(AuthContext);
 }
 
-/** URL に line_token があるか（LINEコールバック処理中はログインへ飛ばさない） */
-function hasLineTokenInUrl(): boolean {
+/** URL に token があるか（OAuthコールバック処理中はログインへ飛ばさない） */
+function hasTokenInUrl(): boolean {
   if (typeof window === "undefined") return false;
-  return !!new URLSearchParams(window.location.search).get("line_token");
+  return !!new URLSearchParams(window.location.search).get("token");
 }
 
-/** ログイン必須画面で未ログインならLINEログインへリダイレクトするガード */
+/** ログイン必須画面で未ログインならGoogleログインへリダイレクトするガード */
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
 
   useEffect(() => {
     if (loading) return;
-    if (hasLineTokenInUrl()) return; // コールバック処理中はリダイレクトしない
+    if (hasTokenInUrl()) return; // コールバック処理中はリダイレクトしない
     if (!user) {
       if (typeof window !== "undefined") {
         const returnTo = window.location.pathname + window.location.search;
