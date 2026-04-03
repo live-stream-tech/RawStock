@@ -21,15 +21,13 @@ if (Platform.OS === "web" && typeof window !== "undefined" && "serviceWorker" in
   });
 }
 
-/** URL に line_token / auth/callback?token / ?token があるか（web のみ）。初回から正しく検知してフラッシュを防ぐ */
-function useHasLineTokenInUrl(): boolean {
+/** URL に auth/callback?token / ?token があるか（web のみ）。初回から正しく検知してフラッシュを防ぐ */
+function useHasTokenInUrl(): boolean {
   const [hasToken] = useState(() => {
     if (Platform.OS !== "web" || typeof window === "undefined") return false;
-    // 旧方式: /?line_token=xxx
-    if (new URLSearchParams(window.location.search).get("line_token")) return true;
-    // 旧方式2: /auth/callback?token=xxx
+    // /auth/callback?token=xxx
     if (window.location.pathname === "/auth/callback" && new URLSearchParams(window.location.search).get("token")) return true;
-    // 新方式: /?token=xxx（iOS Safari PWA対応）
+    // /?token=xxx（iOS Safari PWA対応）
     if (window.location.pathname === "/" && new URLSearchParams(window.location.search).get("token")) return true;
     return false;
   });
@@ -39,10 +37,8 @@ function useHasLineTokenInUrl(): boolean {
 /**
  * 認証トークンハンドラ。
  * - /?token=xxx（iOS Safari PWA対応）: ルートで直接トークン処理
- * - ネイティブ: line_token パラメータを処理
  */
-function LineTokenHandler({ children }: { children: React.ReactNode }) {
-  const { line_token } = useLocalSearchParams<{ line_token?: string }>();
+function TokenHandler({ children }: { children: React.ReactNode }) {
   const { loginWithToken } = useAuth();
 
   // Web: /?token=xxx パターン（iOS Safari PWA対応）
@@ -56,17 +52,8 @@ function LineTokenHandler({ children }: { children: React.ReactNode }) {
     window.history.replaceState({}, "", newUrl);
     loginWithToken(token)
       .then(() => router.replace("/(tabs)/profile"))
-      .catch(() => router.replace("/auth/login?line_error=me_failed"));
+      .catch(() => router.replace("/auth/login?auth_error=me_failed"));
   }, [loginWithToken]);
-
-  // ネイティブ: line_token パラメータを処理（ネイティブアプリ用）
-  useEffect(() => {
-    if (Platform.OS !== "web" && line_token) {
-      loginWithToken(line_token as string)
-        .then(() => router.navigate("/(tabs)/profile"))
-        .catch(() => {});
-    }
-  }, [line_token, loginWithToken]);
 
   return <>{children}</>;
 }
@@ -87,7 +74,7 @@ function isPublicPath(_pathname: string): boolean {
 }
 
 /** 初回ログイン時は設定（登録情報編集）を必須にする */
-const PROFILE_SETUP_REQUIRED_NAMES = ["LINE User", "Google User", "User"];
+const PROFILE_SETUP_REQUIRED_NAMES = ["Google User", "User"];
 function needsProfileSetup(displayName: string | undefined): boolean {
   const name = (displayName ?? "").trim();
   return !name || PROFILE_SETUP_REQUIRED_NAMES.includes(name);
@@ -125,13 +112,13 @@ function EventPreviewBanner() {
 function GlobalAuthGate({ children }: { children: React.ReactNode }) {
   const { user, token, loading } = useAuth();
   const pathname = usePathname();
-  const hasLineTokenInUrl = useHasLineTokenInUrl();
+  const hasTokenInUrl = useHasTokenInUrl();
   // ログイン済み判定: userがあるか、ネットワークエラー時に tokenだけ復元された場合も含む
   const isLoggedIn = !!user || !!token;
 
   useEffect(() => {
     if (loading) return;
-    if (hasLineTokenInUrl) return; // LINEコールバック処理中は何もしない
+    if (hasTokenInUrl) return; // OAuthコールバック処理中は何もしない
     if (!pathname) return;
     if (isLoggedIn) return;
     if (isPublicPath(pathname)) return;
@@ -141,10 +128,10 @@ function GlobalAuthGate({ children }: { children: React.ReactNode }) {
       saveLoginReturn(full);
     }
     router.replace("/auth/login");
-  }, [user, token, loading, pathname, hasLineTokenInUrl, isLoggedIn]);
+  }, [user, token, loading, pathname, hasTokenInUrl, isLoggedIn]);
 
   // 未ログインかつ保護ページの場合は何も描画しない（リダイレクト待ち）
-  if (!isLoggedIn && !loading && !hasLineTokenInUrl && pathname && !isPublicPath(pathname)) {
+  if (!isLoggedIn && !loading && !hasTokenInUrl && pathname && !isPublicPath(pathname)) {
     return null;
   }
 
@@ -206,7 +193,7 @@ export default function RootLayout() {
           <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#050505" }}>
             <View style={{ flex: 1, ...(Platform.OS === "web" ? { maxWidth: 500, alignSelf: "center", width: "100%" } : {}) }}>
             <KeyboardProvider>
-              <LineTokenHandler>
+              <TokenHandler>
                 <GlobalAuthGate>
                   <ProfileSetupGuard>
                   <DemoModeProvider>
@@ -220,7 +207,7 @@ export default function RootLayout() {
                   </DemoModeProvider>
                   </ProfileSetupGuard>
                 </GlobalAuthGate>
-              </LineTokenHandler>
+              </TokenHandler>
             </KeyboardProvider>
             </View>
           </GestureHandlerRootView>

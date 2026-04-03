@@ -60,6 +60,9 @@ import { getUncachableStripeClient, getStripePublishableKey, createConnectExpres
 import { getCreatorMonthlyRankings, getMonthlyRevenueRank, runMonthlyCreatorAggregation } from "./aggregateRevenue";
 import { judgeReportContent } from "./claudeReport";
 import { generateEditPlan, type EditJobInput } from "./aiEditAssistant";
+import { normalizeVideoSpecPayload, parseStoredVideoSpec } from "./lib/parseVideoSpec";
+import { dslToTemplated } from "./lib/dslToTemplated";
+import { createTemplatedRender } from "./lib/templatedClient";
 import { createSignedUploadUrl } from "./r2";
 import { moderateContent } from "./moderation";
 import { publishJukeboxEvent, redis, jukeboxChannel, subscribeJukeboxEvents } from "./redis";
@@ -547,9 +550,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (!user) return res.status(401).json({ error: "未認証です" });
 
     try {
-      const baseUrl = process.env.REPLIT_DOMAINS
-        ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}`
-        : process.env.APP_URL ?? "http://localhost:8081";
+      const baseUrl = "https://rawstock.live";
       const returnUrl = `${baseUrl}/payout-settings?connect=return`;
       const refreshUrl = `${baseUrl}/payout-settings?connect=refresh`;
 
@@ -655,9 +656,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     try {
       const stripe = await getUncachableStripeClient();
-      const baseUrl = process.env.REPLIT_DOMAINS
-        ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}`
-        : process.env.APP_URL ?? "http://localhost:8081";
+      const baseUrl = "https://rawstock.live";
 
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ["card"],
@@ -919,55 +918,22 @@ export async function registerRoutes(app: Express): Promise<void> {
     });
   });
 
-  // ── Dynamic Base URL (Replit-native) ─────────────────────────────
-  const REPLIT_BASE_URL = process.env.REPLIT_DOMAINS
-    ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}`
-    : process.env.REPLIT_DEV_DOMAIN
-      ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-      : "http://localhost:5000";
-
-  // ── LINE OAuth ────────────────────────────────────────────────────
-  const LINE_CHANNEL_ID = process.env.LINE_CHANNEL_ID ?? "";
-  const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET ?? "";
-  const LINE_CALLBACK_URL = process.env.LINE_CALLBACK_URL ?? `${REPLIT_BASE_URL}/api/auth/line-callback`;
-  const FRONTEND_URL = (process.env.FRONTEND_URL || REPLIT_BASE_URL).replace(/\/$/, "");
-  const lineRedirect = (path: string) => (FRONTEND_URL ? `${FRONTEND_URL}${path}` : path);
-  const LINE_STATE = "livestage-line-state";
+  // ── Base URL ──────────────────────────────────────────────────────
+  const BASE_URL = "https://rawstock.live";
 
   // ── Google OAuth ──────────────────────────────────────────────────
   const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? "";
   const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET ?? "";
-  const GOOGLE_CALLBACK_URL =
-    process.env.NODE_ENV === "production"
-      ? `${REPLIT_BASE_URL}/api/auth/google-callback`
-      : (process.env.GOOGLE_CALLBACK_URL ?? `${REPLIT_BASE_URL}/api/auth/google-callback`);
+  const GOOGLE_CALLBACK_URL = `${BASE_URL}/api/auth/google-callback`;
   const GOOGLE_STATE = "livestage-google-state";
   const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY ?? "";
 
   app.get("/api/auth/status", (_req: Request, res: Response) => {
     res.json({
-      line: {
-        configured: !!(LINE_CHANNEL_ID && LINE_CHANNEL_SECRET && LINE_CALLBACK_URL),
-        callbackUrl: LINE_CALLBACK_URL || null,
-      },
       google: {
         configured: !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && GOOGLE_CALLBACK_URL),
       },
     });
-  });
-
-  app.get("/api/auth/line", (_req: Request, res: Response) => {
-    if (!LINE_CHANNEL_ID || !LINE_CHANNEL_SECRET || !LINE_CALLBACK_URL) {
-      return res.status(500).json({ error: "LINE OAuth is not configured (LINE_CHANNEL_ID, LINE_CHANNEL_SECRET, LINE_CALLBACK_URL)" });
-    }
-    const params = new URLSearchParams({
-      response_type: "code",
-      client_id: LINE_CHANNEL_ID,
-      redirect_uri: LINE_CALLBACK_URL,
-      state: LINE_STATE,
-      scope: "profile",
-    });
-    res.redirect(`https://access.line.me/oauth2/v2.1/authorize?${params.toString()}`);
   });
 
   app.get("/api/auth/google", (_req: Request, res: Response) => {
@@ -990,7 +956,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const code = req.query.code as string;
     const state = req.query.state as string;
     if (!code || state !== GOOGLE_STATE) {
-      return res.redirect(lineRedirect("/auth/login?line_error=invalid_state"));
+      return res.redirect(`${BASE_URL}/auth/login?auth_error=invalid_state`);
     }
     try {
       const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -1012,7 +978,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         error?: string;
       };
       if (!tokenData.access_token) {
-        return res.redirect(lineRedirect("/auth/login?line_error=token_failed"));
+        return res.redirect(`${BASE_URL}/auth/login?auth_error=token_failed`);
       }
 
       const profileRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
@@ -1025,7 +991,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         email?: string;
       };
       if (!profile.sub) {
-        return res.redirect(lineRedirect("/auth/login?line_error=profile_failed"));
+        return res.redirect(`${BASE_URL}/auth/login?auth_error=profile_failed`);
       }
 
       const googleKey = `google:${profile.sub}`;
@@ -1074,10 +1040,10 @@ export async function registerRoutes(app: Express): Promise<void> {
 
       const jwtToken = makeToken(existing.id);
       // iOS Safari PWA対応: PWAのstartUrl(/)にリダイレクトしてPWA内でトークン処理
-      res.redirect(lineRedirect(`/?token=${encodeURIComponent(jwtToken)}`));
+      res.redirect(`${BASE_URL}/?token=${encodeURIComponent(jwtToken)}`);
     } catch (err) {
       console.error("Google callback error:", err);
-      res.redirect(lineRedirect("/auth/login?line_error=server_error"));
+      res.redirect(`${BASE_URL}/auth/login?auth_error=server_error`);
     }
   });
 
@@ -1322,147 +1288,6 @@ export async function registerRoutes(app: Express): Promise<void> {
     } catch (e: any) {
       console.error("YouTube playlistItems exception:", e);
       res.status(500).json({ error: "プレイリストの取得でエラーが発生しました" });
-    }
-  });
-
-  app.get("/api/auth/callback/line", async (req: Request, res: Response) => {
-    const code = req.query.code as string;
-    const state = req.query.state as string;
-    console.log("[LINE callback/line] received", { hasCode: !!code, stateMatch: state === LINE_STATE });
-    if (!code || state !== LINE_STATE) {
-      return res.redirect(lineRedirect("/auth/login?line_error=invalid_state"));
-    }
-    try {
-      const tokenRes = await fetch("https://api.line.me/oauth2/v2.1/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "authorization_code",
-          code,
-          redirect_uri: LINE_CALLBACK_URL,
-          client_id: LINE_CHANNEL_ID,
-          client_secret: LINE_CHANNEL_SECRET,
-        }).toString(),
-      });
-      const tokenData = (await tokenRes.json()) as { access_token?: string; error?: string; error_description?: string };
-      if (!tokenData.access_token) {
-        console.error("[LINE callback] token failed", tokenData);
-        const err = tokenData.error_description ?? tokenData.error ?? "token_failed";
-        return res.redirect(lineRedirect(`/auth/login?line_error=${encodeURIComponent(err)}`));
-      }
-
-      const profileRes = await fetch("https://api.line.me/v2/profile", {
-        headers: { Authorization: `Bearer ${tokenData.access_token}` },
-      });
-      const profile = await profileRes.json() as { userId?: string; displayName?: string; pictureUrl?: string };
-      if (!profile.userId) {
-        console.error("[LINE callback] profile failed", profile);
-        return res.redirect(lineRedirect("/auth/login?line_error=profile_failed"));
-      }
-
-      const lineId = profile.userId;
-      console.log("[LINE callback] profile ok", { lineId, displayName: profile.displayName });
-      const lineName = profile.displayName ?? "LINE User";
-      const lineAvatar = profile.pictureUrl ?? null;
-
-      let [existing] = await db.select().from(users).where(eq(users.lineId, lineId));
-      if (!existing) {
-        [existing] = await db
-          .insert(users)
-          .values({
-            lineId,
-            displayName: lineName,
-            profileImageUrl: lineAvatar,
-            role: "USER",
-          } as typeof users.$inferInsert)
-          .returning();
-      } else {
-        [existing] = await db
-          .update(users)
-          .set({ displayName: lineName, profileImageUrl: lineAvatar, updatedAt: new Date() } as Partial<typeof users.$inferInsert>)
-          .where(eq(users.id, existing.id))
-          .returning();
-      }
-
-      await sendWelcomeDmIfNeeded(existing.id);
-      const jwtToken = makeToken(existing.id);
-      // iOS Safari PWA対応: PWAのstartUrl(/)にリダイレクトしてPWA内でトークン処理
-      res.redirect(lineRedirect(`/?token=${encodeURIComponent(jwtToken)}`));
-    } catch (err) {
-      console.error("LINE callback error:", err);
-      res.redirect(lineRedirect("/auth/login?line_error=server_error"));
-    }
-  });
-
-  // LINE OAuth コールバック（line-callback パス。LINE Developers のコールバックURLをこちらにしている場合）
-  app.get("/api/auth/line-callback", async (req: Request, res: Response) => {
-    const code = req.query.code as string;
-    const state = req.query.state as string;
-    console.log("[LINE callback] received", { hasCode: !!code, stateMatch: state === LINE_STATE });
-    if (!code || state !== LINE_STATE) {
-      return res.redirect(lineRedirect("/auth/login?line_error=invalid_state"));
-    }
-    try {
-      const tokenRes = await fetch("https://api.line.me/oauth2/v2.1/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "authorization_code",
-          code,
-          redirect_uri: LINE_CALLBACK_URL,
-          client_id: LINE_CHANNEL_ID,
-          client_secret: LINE_CHANNEL_SECRET,
-        }).toString(),
-      });
-      const tokenData = (await tokenRes.json()) as { access_token?: string; error?: string; error_description?: string };
-      if (!tokenData.access_token) {
-        console.error("[LINE callback] token failed", tokenData);
-        const err = tokenData.error_description ?? tokenData.error ?? "token_failed";
-        return res.redirect(lineRedirect(`/auth/login?line_error=${encodeURIComponent(err)}`));
-      }
-
-      const profileRes = await fetch("https://api.line.me/v2/profile", {
-        headers: { Authorization: `Bearer ${tokenData.access_token}` },
-      });
-      const profile = await profileRes.json() as { userId?: string; displayName?: string; pictureUrl?: string };
-      if (!profile.userId) {
-        console.error("[LINE callback] profile failed", profile);
-        return res.redirect(lineRedirect("/auth/login?line_error=profile_failed"));
-      }
-
-      const lineId = profile.userId;
-      console.log("[LINE callback] profile ok", { lineId, displayName: profile.displayName });
-      const lineName = profile.displayName ?? "LINE User";
-      const lineAvatar = profile.pictureUrl ?? null;
-
-      let [existing] = await db.select().from(users).where(eq(users.lineId, lineId));
-      if (!existing) {
-        [existing] = await db
-          .insert(users)
-          .values({
-            lineId,
-            displayName: lineName,
-            profileImageUrl: lineAvatar,
-            role: "USER",
-          } as typeof users.$inferInsert)
-          .returning();
-      } else {
-        [existing] = await db
-          .update(users)
-          .set({ displayName: lineName, profileImageUrl: lineAvatar, updatedAt: new Date() } as Partial<typeof users.$inferInsert>)
-          .where(eq(users.id, existing.id))
-          .returning();
-      }
-
-      await sendWelcomeDmIfNeeded(existing.id);
-      const jwtToken = makeToken(existing.id);
-      console.log("[LINE callback] success", { userId: existing.id });
-      // iOS Safari PWA対応: PWAのstartUrl(/)にリダイレクトしてPWA内でトークン処理
-      res.redirect(lineRedirect(`/?token=${encodeURIComponent(jwtToken)}`));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error("[LINE callback] server_error", err);
-      res.redirect(lineRedirect(`/auth/login?line_error=${encodeURIComponent("server_error:" + msg.slice(0, 80))}`));
     }
   });
 
@@ -4217,9 +4042,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       const streamTitle = stream?.title ?? "ツーショット撮影";
       const creatorName = stream?.creator ?? "クリエイター";
 
-      const baseUrl = process.env.REPLIT_DOMAINS
-        ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}`
-        : "http://localhost:8081";
+      const baseUrl = "https://rawstock.live";
 
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ["card"],
@@ -5848,7 +5671,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
 
-    const { planMinutes, videoUrls, logoUrl, telop, targetAudience, tone, prompt } = req.body as {
+    const { planMinutes, videoUrls, logoUrl, telop, targetAudience, tone, prompt, spec } = req.body as {
       planMinutes?: number;
       videoUrls?: string[];
       logoUrl?: string;
@@ -5856,7 +5679,17 @@ export async function registerRoutes(app: Express): Promise<void> {
       targetAudience?: string;
       tone?: string;
       prompt?: string;
+      spec?: unknown;
     };
+
+    let videoSpecJson: string | null = null;
+    if (spec !== undefined && spec !== null) {
+      const normalized = normalizeVideoSpecPayload(spec);
+      if (!normalized) {
+        return res.status(400).json({ error: "Invalid video spec (DSL)" });
+      }
+      videoSpecJson = normalized;
+    }
 
     if (!planMinutes || !(planMinutes in AI_EDIT_PLAN_TICKETS)) {
       return res.status(400).json({ error: "planMinutes must be 15, 30, 45, or 60" });
@@ -5906,6 +5739,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         tone: tone ?? null,
         revisionCount: 0,
         ticketCost,
+        videoSpec: videoSpecJson,
       } as typeof aiEditJobs.$inferInsert)
       .returning();
 
@@ -5970,6 +5804,8 @@ export async function registerRoutes(app: Express): Promise<void> {
       try { parsedVideoUrls = JSON.parse(job.videoUrls); } catch { parsedVideoUrls = null; }
     }
 
+    const videoSpec = parseStoredVideoSpec(job.videoSpec ?? null);
+
     res.json({
       id: job.id,
       userId: job.userId,
@@ -5985,11 +5821,215 @@ export async function registerRoutes(app: Express): Promise<void> {
       tone: job.tone,
       revisionCount: job.revisionCount ?? 0,
       ticketCost: job.ticketCost,
+      videoSpec,
+      templatedRenderId: job.templatedRenderId ?? null,
       deliveredUrl: job.deliveredUrl ?? null,
       deliveredAt: job.deliveredAt ?? null,
       createdAt: job.createdAt,
       updatedAt: job.updatedAt,
     });
+  });
+
+  /** Templated webhook が叩く公開 URL のオリジン（末尾スラッシュなし） */
+  function templatedPublicBaseUrl(): string {
+    const u =
+      process.env.TEMPLATED_WEBHOOK_BASE_URL?.trim() ||
+      process.env.FRONTEND_URL?.trim() ||
+      "https://rawstock.live";
+    return u.replace(/\/$/, "");
+  }
+
+  // POST /api/ai-edit/jobs/:id/render — Templated で MP4 レンダー開始（オーナーのみ）
+  app.post("/api/ai-edit/jobs/:id/render", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+    const apiKey = (process.env.TEMPLATED_API_KEY ?? "").trim();
+    if (!apiKey) {
+      return res.status(503).json({ error: "Templated is not configured (TEMPLATED_API_KEY)" });
+    }
+
+    const id = paramNum(req, "id");
+    const [job] = await db.select().from(aiEditJobs).where(eq(aiEditJobs.id, id));
+    if (!job) return res.status(404).json({ error: "Job not found" });
+    if (job.userId !== user.id) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const spec = parseStoredVideoSpec(job.videoSpec ?? null);
+    if (!spec) {
+      return res.status(400).json({ error: "Job has no valid video spec (DSL). Submit the order with spec from the AI Edit form." });
+    }
+
+    let videoUrls: string[] = [];
+    if (job.videoUrls) {
+      try {
+        videoUrls = JSON.parse(job.videoUrls) as string[];
+      } catch {
+        videoUrls = [];
+      }
+    }
+    if (videoUrls.length === 0 && job.videoUrl) {
+      videoUrls = [job.videoUrl];
+    }
+    const inputVideoUrl = videoUrls[0]?.trim();
+    if (!inputVideoUrl) {
+      return res.status(400).json({ error: "No source video URL on this job" });
+    }
+
+    const webhookUrl = `${templatedPublicBaseUrl()}/api/webhooks/templated`;
+    const renderRequest = dslToTemplated(spec, {
+      inputVideoUrl,
+      logoUrl: job.logoUrl ?? undefined,
+      webhookUrl,
+      async: true,
+    });
+
+    const durationMs =
+      typeof spec.duration === "number" && Number.isFinite(spec.duration) && spec.duration > 0
+        ? Math.min(90, spec.duration) * 1000
+        : undefined;
+
+    const renderRes = await createTemplatedRender(renderRequest, {
+      apiKey,
+      externalId: String(job.id),
+      durationMs,
+    });
+
+    if (!renderRes.id || renderRes.status === "failed") {
+      return res.status(502).json({
+        error: renderRes.error ?? "Templated render request failed",
+        details: renderRes,
+      });
+    }
+
+    const now = new Date();
+    const syncUrl = renderRes.url?.trim();
+    await db
+      .update(aiEditJobs)
+      .set({
+        templatedRenderId: renderRes.id,
+        ...(syncUrl
+          ? {
+              status: "delivered",
+              deliveredUrl: syncUrl,
+              deliveredAt: now,
+            }
+          : {}),
+        updatedAt: now,
+      } as Partial<typeof aiEditJobs.$inferInsert>)
+      .where(eq(aiEditJobs.id, id));
+
+    if (syncUrl) {
+      try {
+        const [owner] = await db.select().from(users).where(eq(users.id, job.userId));
+        await db.insert(notifications).values({
+          type: "ai_edit_delivered",
+          title: "Your edited video is ready",
+          body: `Your AI Edit job #${job.id}${job.planMinutes ? ` (${job.planMinutes}-min plan)` : ""} has been delivered. Tap to download.`,
+          amount: null,
+          avatar: owner?.avatar ?? null,
+          thumbnail: null,
+          timeAgo: "Just now",
+        } as typeof notifications.$inferInsert);
+      } catch (notifErr) {
+        console.error("[ai-edit/render] notification failed:", notifErr);
+      }
+    }
+
+    res.json({
+      ok: true,
+      id: job.id,
+      templatedRenderId: renderRes.id,
+      status: syncUrl ? "delivered" : renderRes.status,
+      url: renderRes.url ?? null,
+    });
+  });
+
+  // POST /api/webhooks/templated — Templated 非同期レンダー完了
+  app.post("/api/webhooks/templated", async (req: Request, res: Response) => {
+    const body = req.body as Record<string, unknown>;
+    try {
+      const statusRaw =
+        typeof body.status === "string" ? body.status.toLowerCase() : "";
+      const output =
+        body.output && typeof body.output === "object" && body.output !== null
+          ? (body.output as Record<string, unknown>)
+          : null;
+      const url =
+        (output && typeof output.url === "string" ? output.url : null) ||
+        (typeof body.url === "string" ? body.url : null);
+
+      const succeeded =
+        statusRaw === "succeeded" ||
+        statusRaw === "completed" ||
+        statusRaw === "success";
+
+      let jobId: number | null = null;
+      const ext = body.external_id ?? body.externalId;
+      if (ext !== undefined && ext !== null) {
+        const n = parseInt(String(ext), 10);
+        if (Number.isFinite(n)) jobId = n;
+      }
+      if (jobId == null && typeof body.id === "string") {
+        const [row] = await db
+          .select()
+          .from(aiEditJobs)
+          .where(eq(aiEditJobs.templatedRenderId, body.id));
+        if (row) jobId = row.id;
+      }
+
+      if (jobId == null) {
+        console.warn("[webhooks/templated] Could not resolve job", { bodyKeys: Object.keys(body) });
+        return res.status(200).json({ ok: false, reason: "job_not_found" });
+      }
+
+      if (!succeeded || !url?.trim()) {
+        if (statusRaw === "failed" || statusRaw === "error") {
+          await db
+            .update(aiEditJobs)
+            .set({ status: "failed", updatedAt: new Date() } as Partial<typeof aiEditJobs.$inferInsert>)
+            .where(eq(aiEditJobs.id, jobId));
+        }
+        return res.status(200).json({ ok: true, ignored: true });
+      }
+
+      const [job] = await db.select().from(aiEditJobs).where(eq(aiEditJobs.id, jobId));
+      if (!job) {
+        return res.status(200).json({ ok: false, reason: "job_missing" });
+      }
+
+      const now = new Date();
+      await db
+        .update(aiEditJobs)
+        .set({
+          status: "delivered",
+          deliveredUrl: url.trim(),
+          deliveredAt: now,
+          updatedAt: now,
+        } as Partial<typeof aiEditJobs.$inferInsert>)
+        .where(eq(aiEditJobs.id, jobId));
+
+      try {
+        const [owner] = await db.select().from(users).where(eq(users.id, job.userId));
+        await db.insert(notifications).values({
+          type: "ai_edit_delivered",
+          title: "Your edited video is ready",
+          body: `Your AI Edit job #${job.id}${job.planMinutes ? ` (${job.planMinutes}-min plan)` : ""} has been delivered. Tap to download.`,
+          amount: null,
+          avatar: owner?.avatar ?? null,
+          thumbnail: null,
+          timeAgo: "Just now",
+        } as typeof notifications.$inferInsert);
+      } catch (notifErr) {
+        console.error("[webhooks/templated] notification failed:", notifErr);
+      }
+
+      return res.status(200).json({ ok: true, id: jobId });
+    } catch (e) {
+      console.error("[webhooks/templated]", e);
+      return res.status(200).json({ ok: false });
+    }
   });
 
   // POST /api/ai-edit/jobs/:id/approve — approve the edit plan (owner only)

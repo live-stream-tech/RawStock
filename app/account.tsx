@@ -25,7 +25,7 @@ export default function AccountEditScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const { user, updateProfile } = useAuth();
-  const needsSetup = !!(user && ["LINE User", "Google User", "User"].includes((user.displayName ?? user.name ?? "").trim()));
+  const needsSetup = !!(user && ["Google User", "User"].includes((user.displayName ?? user.name ?? "").trim()));
 
   const [name, setName] = useState(user?.name ?? user?.displayName ?? "");
   const [bio, setBio] = useState(user?.bio ?? "");

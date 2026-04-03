@@ -6,7 +6,7 @@ import { getLoginReturn } from "@/lib/login-return";
 import { C } from "@/constants/colors";
 
 /**
- * ポップアップが window.opener を持てない環境（LINEなど外部OAuthがopenerを切断する場合）のフォールバック。
+ * ポップアップが window.opener を持てない環境（外部OAuthがopenerを切断する場合）のフォールバック。
  * /auth/popup-fallback?token=... にリダイレクトされた場合にトークンを処理する。
  *
  * このページがポップアップ内で動作している場合:
@@ -55,7 +55,7 @@ export default function PopupFallbackScreen() {
         if (returnTo.startsWith("/auth/")) returnTo = "/(tabs)/profile";
         router.replace(returnTo as any);
       } catch {
-        if (!cancelled) router.replace("/auth/login?line_error=me_failed" as any);
+        if (!cancelled) router.replace("/auth/login?auth_error=me_failed" as any);
       }
     })();
     return () => { cancelled = true; };
