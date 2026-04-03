@@ -22,25 +22,26 @@ const DESKTOP_SCROLLBAR_CSS = `
   html {
     scrollbar-gutter: stable;
   }
+  /* RN Web ScrollView: showsVerticalScrollIndicator={false} → inline scrollbar-width:none を上書き */
   * {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(0, 255, 204, 0.45) rgba(5, 5, 5, 0.8);
+    scrollbar-width: thin !important;
+    scrollbar-color: rgba(0, 255, 204, 0.45) rgba(5, 5, 5, 0.8) !important;
   }
   *::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
+    width: 10px !important;
+    height: 10px !important;
   }
   *::-webkit-scrollbar-track {
-    background: rgba(5, 5, 5, 0.75);
+    background: rgba(5, 5, 5, 0.75) !important;
     border-radius: 8px;
   }
   *::-webkit-scrollbar-thumb {
-    background: rgba(0, 255, 204, 0.32);
+    background: rgba(0, 255, 204, 0.32) !important;
     border-radius: 8px;
     border: 2px solid rgba(5, 5, 5, 0.85);
   }
   *::-webkit-scrollbar-thumb:hover {
-    background: rgba(0, 255, 204, 0.55);
+    background: rgba(0, 255, 204, 0.55) !important;
   }
 }
 `;
