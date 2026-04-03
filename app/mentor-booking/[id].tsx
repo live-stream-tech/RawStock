@@ -56,9 +56,9 @@ const TERMS = [
   },
 ];
 
-const TWOSHOT_TICKET_PRICE = 500; // $5.00 — must match server/routes.ts
+const MENTOR_TICKET_PRICE = 500; // $5.00 — must match server/routes.ts
 
-export default function TwoshotBookingScreen() {
+export default function MentorBookingScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const streamId = parseInt(id ?? "1");
   const insets = useSafeAreaInsets();
@@ -74,7 +74,7 @@ export default function TwoshotBookingScreen() {
     queryKey: [`/api/live-streams/${streamId}`],
   });
   const { data: queueData } = useQuery<{ count: number }>({
-    queryKey: [`/api/twoshot/${streamId}/queue-count`],
+    queryKey: [`/api/mentor/${streamId}/queue-count`],
   });
   const { data: ticketData, refetch: refetchTickets } = useQuery<{ balance: number }>({
     queryKey: ["/api/tickets/balance"],
@@ -83,14 +83,14 @@ export default function TwoshotBookingScreen() {
   const allAgreed = TERMS.every((t) => agreed[t.id]);
   const queuePos = (queueData?.count ?? 0) + 1;
   const ticketBalance = ticketData?.balance ?? 0;
-  const canAfford = ticketBalance >= TWOSHOT_TICKET_PRICE;
+  const canAfford = ticketBalance >= MENTOR_TICKET_PRICE;
 
   async function handleSpendTickets() {
     if (!requireAuth("Mentor Session")) return;
     if (!canAfford) {
       Alert.alert(
         "Not Enough Tickets",
-        `You need ${TWOSHOT_TICKET_PRICE} 🎟 to book this session.\nYou currently have ${ticketBalance} 🎟.\n\nHead to the Ticket Shop to top up.`,
+        `You need ${MENTOR_TICKET_PRICE} 🎟 to book this session.\nYou currently have ${ticketBalance} 🎟.\n\nHead to the Ticket Shop to top up.`,
         [
           { text: "Cancel", style: "cancel" },
           { text: "Get Tickets", onPress: () => router.push("/tickets") },
@@ -101,7 +101,7 @@ export default function TwoshotBookingScreen() {
     setLoading(true);
     try {
       await apiRequest("POST", `/api/tickets/spend`, {
-        amount: TWOSHOT_TICKET_PRICE,
+        amount: MENTOR_TICKET_PRICE,
         type: "spend_session",
         referenceId: String(streamId),
         description: `Mentor session with ${stream?.creator ?? "creator"} (stream #${streamId})`,
@@ -109,13 +109,13 @@ export default function TwoshotBookingScreen() {
       await refetchTickets();
       Alert.alert(
         "Booking Confirmed! 🎉",
-        `You are #${queuePos} in the queue.\nYour session will begin when it's your turn during the live stream.\n\n${TWOSHOT_TICKET_PRICE} 🎟 have been deducted.`,
+        `You are #${queuePos} in the queue.\nYour session will begin when it's your turn during the live stream.\n\n${MENTOR_TICKET_PRICE} 🎟 have been deducted.`,
         [{ text: "OK", onPress: () => router.back() }]
       );
     } catch (e: any) {
       const errBody = e?.body ?? e ?? {};
       if (errBody?.error === "Insufficient tickets") {
-        Alert.alert("Not Enough Tickets", `You need ${TWOSHOT_TICKET_PRICE} 🎟 but only have ${errBody.balance ?? ticketBalance} 🎟.`);
+        Alert.alert("Not Enough Tickets", `You need ${MENTOR_TICKET_PRICE} 🎟 but only have ${errBody.balance ?? ticketBalance} 🎟.`);
       } else {
         Alert.alert("Error", "Something went wrong. Please try again.");
       }
@@ -239,7 +239,7 @@ export default function TwoshotBookingScreen() {
               {[
                 ["Operator", "RawStock Operations"],
                 ["Service", "Mentor Session Booking"],
-                ["Price", `🎟 ${TWOSHOT_TICKET_PRICE.toLocaleString()} Tickets ($${(TWOSHOT_TICKET_PRICE * 0.01).toFixed(2)} USD)`],
+                ["Price", `🎟 ${MENTOR_TICKET_PRICE.toLocaleString()} Tickets ($${(MENTOR_TICKET_PRICE * 0.01).toFixed(2)} USD)`],
                 ["Payment Timing", "At time of booking (Ticket deduction)"],
                 ["Service Timing", "During the live stream, when your queue position is reached"],
                 ["Cancellation", "No refunds for user-initiated cancellations. Full refund if cancelled by creator."],
@@ -294,7 +294,7 @@ export default function TwoshotBookingScreen() {
               <View style={styles.confirmDivider} />
               <View style={styles.confirmRow}>
                 <Text style={[styles.confirmLabel, { fontSize: 15 }]}>Cost</Text>
-                <Text style={styles.priceText}>🎟 {TWOSHOT_TICKET_PRICE.toLocaleString()}</Text>
+                <Text style={styles.priceText}>🎟 {MENTOR_TICKET_PRICE.toLocaleString()}</Text>
               </View>
               <View style={styles.balanceRow}>
                 <Text style={styles.balanceLabel}>Your Balance</Text>
@@ -308,7 +308,7 @@ export default function TwoshotBookingScreen() {
               <View style={styles.warningBox}>
                 <Ionicons name="alert-circle" size={15} color={C.live} />
                 <Text style={[styles.warningText, { color: C.live }]}>
-                  You need {TWOSHOT_TICKET_PRICE} 🎟 but only have {ticketBalance}. Tap "Get Tickets" to top up.
+                  You need {MENTOR_TICKET_PRICE} 🎟 but only have {ticketBalance}. Tap "Get Tickets" to top up.
                 </Text>
               </View>
             )}
@@ -337,7 +337,7 @@ export default function TwoshotBookingScreen() {
                     <Text style={styles.ticketIcon}>🎟</Text>
                   )}
                   <Text style={styles.payBtnText}>
-                    {loading ? "Processing..." : `Book for ${TWOSHOT_TICKET_PRICE} Tickets`}
+                    {loading ? "Processing..." : `Book for ${MENTOR_TICKET_PRICE} Tickets`}
                   </Text>
                 </Pressable>
               ) : (

@@ -4,7 +4,7 @@
 
 This checklist verifies the new ranking and reward behavior:
 
-- Source-aware revenue persistence (`tip` / `paid_live` / `twoshot`)
+- Source-aware revenue persistence (`tip` / `paid_live` / `mentor`)
 - Fixed 90% payout for paid live revenue
 - Variable tip payout by creator level
 - Monthly ranking aggregation (overall and paid live)

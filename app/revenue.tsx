@@ -52,6 +52,7 @@ type Withdrawal = {
 const TYPE_META: Record<string, { label: string; icon: string; color: string }> = {
   video_sale: { label: "Video Sale", icon: "play-circle", color: C.accent },
   gift: { label: "Gift", icon: "gift", color: C.orange },
+  mentor: { label: "Mentor Session", icon: "camera", color: "#E91E63" },
   twoshot: { label: "Mentor Session", icon: "camera", color: "#E91E63" },
   other: { label: "Other", icon: "cash", color: C.green },
 };

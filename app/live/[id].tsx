@@ -68,7 +68,7 @@ function PulseDot() {
   );
 }
 
-type TwoshotBooking = {
+type MentorBooking = {
   id: number;
   queuePosition: number;
   status: string;
@@ -93,7 +93,7 @@ export default function LiveStreamScreen() {
 
   const [chatInput, setChatInput] = useState("");
   const [showGiftModal, setShowGiftModal] = useState(false);
-  const [showTwoshotNotif, setShowTwoshotNotif] = useState(false);
+  const [showMentorNotif, setShowMentorNotif] = useState(false);
   const notifAnim = useRef(new Animated.Value(0)).current;
 
   // WHEP WebRTC viewer
@@ -121,17 +121,17 @@ export default function LiveStreamScreen() {
     refetchInterval: 3000,
   });
 
-  const { data: myBooking } = useQuery<TwoshotBooking[], Error, TwoshotBooking | null>({
-    queryKey: [`/api/twoshot/${streamId}/bookings`],
+  const { data: myBooking } = useQuery<MentorBooking[], Error, MentorBooking | null>({
+    queryKey: [`/api/mentor/${streamId}/bookings`],
     refetchInterval: 5000,
-    select: (bookings: TwoshotBooking[]) =>
+    select: (bookings: MentorBooking[]) =>
       bookings.find((b) => b.userId === myUserId) ?? null,
   });
 
-  const myBookingTyped = myBooking as unknown as TwoshotBooking | null;
+  const myBookingTyped = myBooking as unknown as MentorBooking | null;
   useEffect(() => {
-    if (myBookingTyped?.status === "notified" && !showTwoshotNotif) {
-      setShowTwoshotNotif(true);
+    if (myBookingTyped?.status === "notified" && !showMentorNotif) {
+      setShowMentorNotif(true);
       Animated.spring(notifAnim, { toValue: 1, useNativeDriver: true, tension: 80, friction: 8 }).start();
     }
   }, [myBookingTyped?.status]);
@@ -308,52 +308,52 @@ export default function LiveStreamScreen() {
                 <Text style={styles.paidText}>🎟{stream.price.toLocaleString()}</Text>
               </View>
             )}
-            {/* Twoshot booking button */}
+            {/* Mentor session booking button */}
             {myBooking ? (
-              <View style={styles.twoshotBooked}>
+              <View style={styles.mentorBooked}>
                 <Ionicons name="people" size={12} color={C.accent} />
-                <Text style={styles.twoshotBookedText}>Session booked #{(myBooking as unknown as TwoshotBooking).queuePosition}</Text>
+                <Text style={styles.mentorBookedText}>Session booked #{(myBooking as unknown as MentorBooking).queuePosition}</Text>
               </View>
             ) : (
               <Pressable
-                style={styles.twoshotBtn}
-                onPress={() => router.push(`/twoshot-booking/${streamId}`)}
+                style={styles.mentorBtn}
+                onPress={() => router.push(`/mentor-booking/${streamId}`)}
               >
                 <Ionicons name="people-outline" size={13} color="#fff" />
-                <Text style={styles.twoshotBtnText}>Mentor Session</Text>
+                <Text style={styles.mentorBtnText}>Mentor Session</Text>
               </Pressable>
             )}
           </View>
         </View>
 
-        {/* Twoshot turn notification */}
-        {showTwoshotNotif && (
+        {/* Mentor session turn notification */}
+        {showMentorNotif && (
           <Animated.View
             style={[
-              styles.twoshotNotif,
+              styles.mentorNotif,
               {
                 transform: [{ scale: notifAnim }],
                 opacity: notifAnim,
               },
             ]}
           >
-            <View style={styles.twoshotNotifInner}>
-              <View style={styles.twoshotNotifIcon}>
+            <View style={styles.mentorNotifInner}>
+              <View style={styles.mentorNotifIcon}>
                 <Ionicons name="camera" size={20} color="#fff" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.twoshotNotifTitle}>It's your turn!</Text>
-                <Text style={styles.twoshotNotifBody}>Please start your mentor session</Text>
+                <Text style={styles.mentorNotifTitle}>It's your turn!</Text>
+                <Text style={styles.mentorNotifBody}>Please start your mentor session</Text>
               </View>
-              <Pressable onPress={() => setShowTwoshotNotif(false)}>
+              <Pressable onPress={() => setShowMentorNotif(false)}>
                 <Ionicons name="close" size={18} color="rgba(255,255,255,0.6)" />
               </Pressable>
             </View>
           </Animated.View>
         )}
 
-        {/* Watermark overlay (when twoshot notified/active) */}
-        {(myBooking as unknown as TwoshotBooking | null)?.status === "notified" && (
+        {/* Watermark overlay (when mentor session notified/active) */}
+        {(myBooking as unknown as MentorBooking | null)?.status === "notified" && (
           <View style={styles.watermarkOverlay} pointerEvents="none">
             {[0, 1, 2, 3, 4, 5].map((i) => (
               <Text
@@ -681,7 +681,7 @@ const styles = StyleSheet.create({
   giftEmoji: { fontSize: 28 },
   giftOptionLabel: { color: C.orange, fontSize: 13, fontWeight: "700" },
 
-  twoshotBtn: {
+  mentorBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
@@ -692,8 +692,8 @@ const styles = StyleSheet.create({
     marginTop: 8,
     alignSelf: "flex-start",
   },
-  twoshotBtnText: { color: "#fff", fontSize: 11, fontWeight: "800" },
-  twoshotBooked: {
+  mentorBtnText: { color: "#fff", fontSize: 11, fontWeight: "800" },
+  mentorBooked: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
@@ -706,8 +706,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.accent + "66",
   },
-  twoshotBookedText: { color: C.accent, fontSize: 11, fontWeight: "700" },
-  twoshotNotif: {
+  mentorBookedText: { color: C.accent, fontSize: 11, fontWeight: "700" },
+  mentorNotif: {
     position: "absolute",
     left: 12,
     right: 12,
@@ -716,14 +716,14 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     overflow: "hidden",
   },
-  twoshotNotifInner: {
+  mentorNotifInner: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     backgroundColor: C.live,
     padding: 16,
   },
-  twoshotNotifIcon: {
+  mentorNotifIcon: {
     width: 44,
     height: 44,
     borderRadius: 22,
@@ -731,8 +731,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  twoshotNotifTitle: { color: "#fff", fontSize: 16, fontWeight: "800" },
-  twoshotNotifBody: { color: "rgba(255,255,255,0.8)", fontSize: 12, marginTop: 2 },
+  mentorNotifTitle: { color: "#fff", fontSize: 16, fontWeight: "800" },
+  mentorNotifBody: { color: "rgba(255,255,255,0.8)", fontSize: 12, marginTop: 2 },
   watermarkOverlay: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 50,

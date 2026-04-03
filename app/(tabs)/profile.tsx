@@ -234,7 +234,7 @@ export default function ProfileScreen() {
   const [profileSaving, setProfileSaving] = useState(false);
 
   // Role / creator registration state
-  const { data: roleStatus, refetch: refetchRoles } = useQuery<{ isEditor: boolean; isTwoshot: boolean } | null>({
+  const { data: roleStatus, refetch: refetchRoles } = useQuery<{ isEditor: boolean; isMentor: boolean } | null>({
     queryKey: ["/api/profile/roles"],
     enabled: !!user,
   });
@@ -271,7 +271,7 @@ export default function ProfileScreen() {
       return res.json();
     },
   });
-  const [roleLoading, setRoleLoading] = useState<"editor" | "twoshot" | null>(null);
+  const [roleLoading, setRoleLoading] = useState<"editor" | "mentor" | null>(null);
 
   const { data: ticketData } = useQuery<{ balance: number }>({
     queryKey: ["/api/tickets/balance"],
@@ -357,7 +357,7 @@ export default function ProfileScreen() {
     ]);
   }
 
-  async function registerRole(role: "editor" | "twoshot") {
+  async function registerRole(role: "editor" | "mentor") {
     if (!user || roleLoading) return;
     setRoleLoading(role);
     try {
@@ -667,7 +667,7 @@ export default function ProfileScreen() {
           </Pressable>
         )}
 
-        {/* Creator / Twoshot registration */}
+        {/* Creator / mentor session registration */}
         <View style={styles.roleCard}>
           <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
             <View style={{ flex: 1 }}>
@@ -703,20 +703,20 @@ export default function ProfileScreen() {
             <Pressable
               style={[
                 styles.roleButton,
-                roleStatus?.isTwoshot && styles.roleButtonActive,
+                roleStatus?.isMentor && styles.roleButtonActive,
               ]}
-              disabled={!!roleStatus?.isTwoshot || roleLoading === "twoshot"}
-              onPress={() => registerRole("twoshot")}
+              disabled={!!roleStatus?.isMentor || roleLoading === "mentor"}
+              onPress={() => registerRole("mentor")}
             >
               <Ionicons
                 name="camera-outline"
                 size={16}
-                color={roleStatus?.isTwoshot ? "#050505" : C.textSec}
+                color={roleStatus?.isMentor ? "#050505" : C.textSec}
               />
               <Text
                 style={[
                   styles.roleButtonText,
-                  roleStatus?.isTwoshot && styles.roleButtonTextActive,
+                  roleStatus?.isMentor && styles.roleButtonTextActive,
                 ]}
               >
                 Session Liver
@@ -1045,7 +1045,7 @@ export default function ProfileScreen() {
                       <Text style={styles.previewRoleBadgeText}>Video Editor</Text>
                     </View>
                   )}
-                  {roleStatus?.isTwoshot && (
+                  {roleStatus?.isMentor && (
                     <View style={styles.previewRoleBadge}>
                       <Ionicons name="camera-outline" size={11} color={C.accent} />
                       <Text style={styles.previewRoleBadgeText}>Session Liver</Text>

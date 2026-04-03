@@ -29,7 +29,7 @@ DELETE FROM genre_owners;
 -- 6. デモデータ（creators = livers の子テーブルを先に削除）
 DELETE FROM liver_reviews;
 DELETE FROM liver_availability;
-DELETE FROM twoshot_bookings;
+DELETE FROM mentor_bookings;
 DELETE FROM booking_sessions;
 DELETE FROM live_streams;
 DELETE FROM creators;

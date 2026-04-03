@@ -20,7 +20,7 @@ import {
   jukeboxChat,
   liveStreamChat,
   dmConversationMessages,
-  twoshotBookings,
+  mentorBookings,
   earnings,
   withdrawals,
   users,
@@ -268,7 +268,7 @@ async function getOrCreateUserWallet(userId: number): Promise<number> {
   return created.id;
 }
 
-type RevenueSource = "tip" | "paid_live" | "twoshot";
+type RevenueSource = "tip" | "paid_live" | "mentor";
 
 const DEFAULT_LEVEL_THRESHOLDS = [
   { level: 1, requiredTipGross: 0, requiredStreamCount: 0, tipBackRate: 0.5 },
@@ -361,7 +361,7 @@ async function recordRevenue(
   referenceId: string | null,
 ) {
   const yearMonth = getYearMonth();
-  let backRate = 0.9; // paid_live/twoshot は常に 90%
+  let backRate = 0.9; // paid_live/mentor は常に 90%
   if (source === "tip") {
     const thresholds = await ensureDefaultLevelThresholds();
     const [creator] = creatorId ? await db.select().from(creators).where(eq(creators.id, creatorId)) : [];
@@ -4010,9 +4010,9 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json({ ok: true });
   });
 
-  // ── Twoshot Booking ───────────────────────────────────────────────────
+  // ── Mentor session bookings ───────────────────────────────────────────────────
 
-  app.get("/api/twoshot/publishable-key", async (_req: Request, res: Response) => {
+  app.get("/api/mentor/publishable-key", async (_req: Request, res: Response) => {
     try {
       const key = await getStripePublishableKey();
       res.json({ publishableKey: key });
@@ -4021,26 +4021,26 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
   });
 
-  app.get("/api/twoshot/:streamId/bookings", async (req: Request, res: Response) => {
+  app.get("/api/mentor/:streamId/bookings", async (req: Request, res: Response) => {
     const streamId = paramNum(req, "streamId");
     const rows = await db
       .select()
-      .from(twoshotBookings)
-      .where(eq(twoshotBookings.streamId, streamId))
-      .orderBy(asc(twoshotBookings.queuePosition));
+      .from(mentorBookings)
+      .where(eq(mentorBookings.streamId, streamId))
+      .orderBy(asc(mentorBookings.queuePosition));
     res.json(rows);
   });
 
-  app.get("/api/twoshot/:streamId/queue-count", async (req: Request, res: Response) => {
+  app.get("/api/mentor/:streamId/queue-count", async (req: Request, res: Response) => {
     const streamId = paramNum(req, "streamId");
     const [{ total }] = await db
       .select({ total: count() })
-      .from(twoshotBookings)
+      .from(mentorBookings)
       .where(sql`stream_id = ${streamId} AND status IN ('paid','waiting','notified')`);
     res.json({ count: Number(total) });
   });
 
-  app.post("/api/twoshot/:streamId/checkout", async (req: Request, res: Response) => {
+  app.post("/api/mentor/:streamId/checkout", async (req: Request, res: Response) => {
     const streamId = paramNum(req, "streamId");
     const { userName, userAvatar, price = 3000 } = req.body;
 
@@ -4051,7 +4051,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
       const [{ total }] = await db
         .select({ total: count() })
-        .from(twoshotBookings)
+        .from(mentorBookings)
         .where(sql`stream_id = ${streamId} AND status IN ('paid','waiting','notified')`);
       const queuePos = Number(total) + 1;
 
@@ -4077,7 +4077,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           },
         ],
         mode: "payment",
-        success_url: `${baseUrl}/twoshot-success?session_id={CHECKOUT_SESSION_ID}&stream=${streamId}`,
+        success_url: `${baseUrl}/mentor-success?session_id={CHECKOUT_SESSION_ID}&stream=${streamId}`,
         cancel_url: `${baseUrl}/live/${streamId}`,
         metadata: {
           streamId: streamId.toString(),
@@ -4089,7 +4089,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       });
 
       const [booking] = await db
-        .insert(twoshotBookings)
+        .insert(mentorBookings)
         .values({
           streamId,
           userName,
@@ -4101,7 +4101,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           agreedToTerms: true,
           agreedAt: new Date(),
           refundable: false,
-        } as typeof twoshotBookings.$inferInsert)
+        } as typeof mentorBookings.$inferInsert)
         .returning();
 
       res.json({ checkoutUrl: session.url, bookingId: booking.id, queuePosition: queuePos });
@@ -4111,7 +4111,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
   });
 
-  app.post("/api/twoshot/confirm-payment", async (req: Request, res: Response) => {
+  app.post("/api/mentor/confirm-payment", async (req: Request, res: Response) => {
     const { sessionId } = req.body;
     if (!sessionId) return res.status(400).json({ error: "sessionId required" });
 
@@ -4125,17 +4125,17 @@ export async function registerRoutes(app: Express): Promise<void> {
 
       const [booking] = await db
         .select()
-        .from(twoshotBookings)
-        .where(eq(twoshotBookings.stripeSessionId, sessionId));
+        .from(mentorBookings)
+        .where(eq(mentorBookings.stripeSessionId, sessionId));
       if (!booking) return res.status(404).json({ error: "Booking not found" });
 
       await db
-        .update(twoshotBookings)
+        .update(mentorBookings)
         .set({
           status: "paid",
           stripePaymentIntentId: session.payment_intent as string,
-        } as Partial<typeof twoshotBookings.$inferInsert>)
-        .where(eq(twoshotBookings.stripeSessionId, sessionId));
+        } as Partial<typeof mentorBookings.$inferInsert>)
+        .where(eq(mentorBookings.stripeSessionId, sessionId));
 
       // 共通スコア集計用：REVENUE を transactions に記録（ライバー＝配信者に紐づくウォレット）
       const [stream] = await db.select().from(liveStreams).where(eq(liveStreams.id, booking.streamId));
@@ -4144,7 +4144,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         if (creatorUser) {
           const walletId = await getOrCreateUserWallet(creatorUser.id);
           const [creatorRow] = await db.select().from(creators).where(eq(creators.name, stream.creator));
-          await recordRevenue(walletId, creatorUser.id, creatorRow?.id ?? null, booking.price, "twoshot", String(booking.id));
+          await recordRevenue(walletId, creatorUser.id, creatorRow?.id ?? null, booking.price, "mentor", String(booking.id));
         }
       }
 
@@ -4154,36 +4154,36 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
   });
 
-  app.post("/api/twoshot/:bookingId/notify", async (req: Request, res: Response) => {
+  app.post("/api/mentor/:bookingId/notify", async (req: Request, res: Response) => {
     const bookingId = paramNum(req, "bookingId");
     await db
-      .update(twoshotBookings)
-      .set({ status: "notified", notifiedAt: new Date() } as Partial<typeof twoshotBookings.$inferInsert>)
-      .where(eq(twoshotBookings.id, bookingId));
+      .update(mentorBookings)
+      .set({ status: "notified", notifiedAt: new Date() } as Partial<typeof mentorBookings.$inferInsert>)
+      .where(eq(mentorBookings.id, bookingId));
     res.json({ ok: true });
   });
 
-  app.post("/api/twoshot/:bookingId/complete", async (req: Request, res: Response) => {
+  app.post("/api/mentor/:bookingId/complete", async (req: Request, res: Response) => {
     const bookingId = paramNum(req, "bookingId");
     await db
-      .update(twoshotBookings)
-      .set({ status: "completed", completedAt: new Date() } as Partial<typeof twoshotBookings.$inferInsert>)
-      .where(eq(twoshotBookings.id, bookingId));
+      .update(mentorBookings)
+      .set({ status: "completed", completedAt: new Date() } as Partial<typeof mentorBookings.$inferInsert>)
+      .where(eq(mentorBookings.id, bookingId));
     res.json({ ok: true });
   });
 
-  app.post("/api/twoshot/:bookingId/cancel", async (req: Request, res: Response) => {
+  app.post("/api/mentor/:bookingId/cancel", async (req: Request, res: Response) => {
     const bookingId = paramNum(req, "bookingId");
     const { reason, isSelfCancel } = req.body;
     await db
-      .update(twoshotBookings)
+      .update(mentorBookings)
       .set({
         status: "cancelled",
         cancelledAt: new Date(),
         cancelReason: reason ?? "ユーザーキャンセル",
         refundable: !isSelfCancel,
-      } as Partial<typeof twoshotBookings.$inferInsert>)
-      .where(eq(twoshotBookings.id, bookingId));
+      } as Partial<typeof mentorBookings.$inferInsert>)
+      .where(eq(mentorBookings.id, bookingId));
     res.json({ ok: true });
   });
 
@@ -4194,9 +4194,9 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     const { amount, source, referenceId } = req.body as { amount?: number; source?: string; referenceId?: string };
     if (!amount || amount <= 0) return res.status(400).json({ error: "amount は正の数で指定してください" });
-    const src = (source ?? "tip") as RevenueSource; // tip | paid_live | twoshot
-    if (!["tip", "paid_live", "twoshot"].includes(src)) {
-      return res.status(400).json({ error: "source は tip / paid_live / twoshot のいずれかを指定してください" });
+    const src = (source ?? "tip") as RevenueSource; // tip | paid_live | mentor
+    if (!["tip", "paid_live", "mentor"].includes(src)) {
+      return res.status(400).json({ error: "source は tip / paid_live / mentor のいずれかを指定してください" });
     }
 
     const walletId = await getOrCreateUserWallet(user.id);
@@ -4487,29 +4487,29 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.status(201).json({ ok: true, month, currentLevel: newLevel });
   });
 
-  // ── Profile Roles (Creator / Twoshot Liver) ────────────────────────
+  // ── Profile Roles (Creator / Mentor session liver) ────────────────────────
   app.get("/api/profile/roles", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "未認証です" });
 
     const rows = await db.select().from(creators).where(eq(creators.name, user.displayName));
     const isEditor = rows.some((r) => r.category === "editor");
-    const isTwoshot = rows.some((r) => r.category === "twoshot");
+    const isMentor = rows.some((r) => r.category === "mentor");
 
-    res.json({ isEditor, isTwoshot });
+    res.json({ isEditor, isMentor });
   });
 
   app.post("/api/profile/register-role", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "未認証です" });
 
-    const { role } = req.body as { role?: "editor" | "twoshot" };
-    if (role !== "editor" && role !== "twoshot") {
-      return res.status(400).json({ error: "role は editor か twoshot を指定してください" });
+    const { role } = req.body as { role?: "editor" | "mentor" };
+    if (role !== "editor" && role !== "mentor") {
+      return res.status(400).json({ error: "role は editor か mentor を指定してください" });
     }
 
-    const category = role === "editor" ? "editor" : "twoshot";
-    const communityLabel = role === "editor" ? "動画編集クリエイター" : "ツーショットライバー";
+    const category = role === "editor" ? "editor" : "mentor";
+    const communityLabel = role === "editor" ? "動画編集クリエイター" : "メンターセッションクリエイター";
 
     const existing = await db
       .select()
@@ -5283,7 +5283,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   const FREE_JUKEBOX_PER_DAY = 3;
   const TICKETS_PER_JUKEBOX = 30;   // $0.30 per paid request
-  const TWOSHOT_TICKET_PRICE = 500; // $5.00 per mentor session
+  const MENTOR_TICKET_PRICE = 500; // $5.00 per mentor session
 
   /** GET /api/tickets/balance */
   app.get("/api/tickets/balance", async (req: Request, res: Response) => {
