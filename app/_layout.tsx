@@ -15,6 +15,36 @@ import { PlayingVideoProvider } from "@/lib/playing-video-context";
 
 SplashScreen.preventAutoHideAsync();
 
+/** PC のみ可視スクロールバー（幅768px以上 + マウス等）。タッチ優先端末ではメディアクエリで外れる */
+const DESKTOP_SCROLLBAR_STYLE_ID = "rawstock-desktop-scrollbar";
+const DESKTOP_SCROLLBAR_CSS = `
+@media (min-width: 768px) and (pointer: fine) {
+  html {
+    scrollbar-gutter: stable;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 255, 204, 0.45) rgba(5, 5, 5, 0.8);
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-track {
+    background: rgba(5, 5, 5, 0.75);
+    border-radius: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: rgba(0, 255, 204, 0.32);
+    border-radius: 8px;
+    border: 2px solid rgba(5, 5, 5, 0.85);
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 255, 204, 0.55);
+  }
+}
+`;
+
 if (Platform.OS === "web" && typeof window !== "undefined" && "serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
@@ -184,6 +214,18 @@ function RootLayoutNav() {
 export default function RootLayout() {
   useEffect(() => {
     SplashScreen.hideAsync();
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+    if (document.getElementById(DESKTOP_SCROLLBAR_STYLE_ID)) return;
+    const el = document.createElement("style");
+    el.id = DESKTOP_SCROLLBAR_STYLE_ID;
+    el.textContent = DESKTOP_SCROLLBAR_CSS;
+    document.head.appendChild(el);
+    return () => {
+      el.remove();
+    };
   }, []);
 
   return (
