@@ -73,8 +73,8 @@ externalPort = 3002
 [userenv]
 
 [userenv.shared]
-FRONTEND_URL = "https://6542d57d-f8ce-404c-adb7-16f6dc84b252-00-1ncerp2gwoflp.spock.replit.dev"
-GOOGLE_CALLBACK_URL = "https://6542d57d-f8ce-404c-adb7-16f6dc84b252-00-1ncerp2gwoflp.spock.replit.dev/api/auth/google-callback"
+FRONTEND_URL = "https://rawstock.live"
+GOOGLE_CALLBACK_URL = "https://rawstock.live/api/auth/google-callback"
 
 [deployment]
 deploymentTarget = "autoscale"

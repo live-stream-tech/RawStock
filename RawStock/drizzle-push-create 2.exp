@@ -1,0 +1,25 @@
+#!/usr/bin/expect -f
+set timeout 120
+spawn npx drizzle-kit push --force
+
+# すべて「create table」「create column」を選択（デフォルトの1番目なので Enter のみ）
+expect {
+    -re "created or renamed|from another table" {
+        send "\r"
+        sleep 0.3
+        exp_continue
+    }
+    -re "from another column" {
+        send "\r"
+        sleep 0.2
+        exp_continue
+    }
+    eof {
+        catch wait result
+        exit [lindex $result 3]
+    }
+    timeout {
+        puts "Timeout"
+        exit 1
+    }
+}
