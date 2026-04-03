@@ -1920,6 +1920,23 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json({ ok: true });
   });
 
+  app.get("/api/editors", async (req: Request, res: Response) => {
+    const sort = (req.query.sort as string) || "rating";
+    let rows = await db.select().from(videoEditors);
+    if (sort === "delivery") {
+      rows = rows.sort((a, b) => a.deliveryDays - b.deliveryDays);
+    } else if (sort === "price") {
+      rows = rows.sort((a, b) => {
+        const pa = a.pricePerMinute ?? a.revenueSharePercent ?? 9999;
+        const pb = b.pricePerMinute ?? b.revenueSharePercent ?? 9999;
+        return pa - pb;
+      });
+    } else {
+      rows = rows.sort((a, b) => b.rating - a.rating);
+    }
+    res.json(rows);
+  });
+
   app.get("/api/editors/:id", async (req: Request, res: Response) => {
     const id = paramNum(req, "id");
     const [editor] = await db.select().from(videoEditors).where(eq(videoEditors.id, id));
