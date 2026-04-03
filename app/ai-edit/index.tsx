@@ -15,6 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/query-client";
+import { buildOrderVideoSpec } from "@/lib/ai-edit/buildOrderVideoSpec";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
 
@@ -242,6 +243,13 @@ export default function AIEditIndexScreen() {
         logoUrl = await uploadToR2(logo.file);
       }
 
+      const spec = buildOrderVideoSpec({
+        videos: videos.map((v) => ({ durationSec: v.durationSec })),
+        hasLogo: logo !== null,
+        tone: tone!,
+        editingInstructions: prompt.trim(),
+      });
+
       setUploadProgress("Submitting to Claude AI…");
       const res = await apiRequest("POST", "/api/ai-edit/jobs", {
         planMinutes: selectedPlan,
@@ -251,6 +259,7 @@ export default function AIEditIndexScreen() {
         targetAudience,
         tone,
         prompt: prompt.trim(),
+        spec,
       });
 
       if (!res.ok) {

@@ -15,6 +15,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/query-client";
 import { C } from "@/constants/colors";
+import type { RawStockVideoSpec } from "../../shared/rawstock-video-spec";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -48,6 +49,7 @@ type Job = {
   tone: string | null;
   revisionCount: number;
   ticketCost: number | null;
+  videoSpec: RawStockVideoSpec | null;
   deliveredUrl: string | null;
   deliveredAt: string | null;
   createdAt: string;

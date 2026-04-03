@@ -771,6 +771,8 @@ export const aiEditJobs = pgTable("ai_edit_jobs", {
   tone: text("tone"),
   revisionCount: integer("revision_count").notNull().default(0),
   ticketCost: integer("ticket_cost"),
+  /** RawStockVideoSpec の JSON（オーダー DSL。クライアント正規化済み） */
+  videoSpec: text("video_spec"),
   // Delivery fields — set by the editor when the finished video is uploaded
   deliveredUrl: text("delivered_url"),
   deliveredAt: timestamp("delivered_at"),

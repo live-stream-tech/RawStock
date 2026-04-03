@@ -60,6 +60,7 @@ import { getUncachableStripeClient, getStripePublishableKey, createConnectExpres
 import { getCreatorMonthlyRankings, getMonthlyRevenueRank, runMonthlyCreatorAggregation } from "./aggregateRevenue";
 import { judgeReportContent } from "./claudeReport";
 import { generateEditPlan, type EditJobInput } from "./aiEditAssistant";
+import { normalizeVideoSpecPayload, parseStoredVideoSpec } from "./lib/parseVideoSpec";
 import { createSignedUploadUrl } from "./r2";
 import { moderateContent } from "./moderation";
 import { publishJukeboxEvent, redis, jukeboxChannel, subscribeJukeboxEvents } from "./redis";
@@ -5668,7 +5669,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
 
-    const { planMinutes, videoUrls, logoUrl, telop, targetAudience, tone, prompt } = req.body as {
+    const { planMinutes, videoUrls, logoUrl, telop, targetAudience, tone, prompt, spec } = req.body as {
       planMinutes?: number;
       videoUrls?: string[];
       logoUrl?: string;
@@ -5676,7 +5677,17 @@ export async function registerRoutes(app: Express): Promise<void> {
       targetAudience?: string;
       tone?: string;
       prompt?: string;
+      spec?: unknown;
     };
+
+    let videoSpecJson: string | null = null;
+    if (spec !== undefined && spec !== null) {
+      const normalized = normalizeVideoSpecPayload(spec);
+      if (!normalized) {
+        return res.status(400).json({ error: "Invalid video spec (DSL)" });
+      }
+      videoSpecJson = normalized;
+    }
 
     if (!planMinutes || !(planMinutes in AI_EDIT_PLAN_TICKETS)) {
       return res.status(400).json({ error: "planMinutes must be 15, 30, 45, or 60" });
@@ -5726,6 +5737,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         tone: tone ?? null,
         revisionCount: 0,
         ticketCost,
+        videoSpec: videoSpecJson,
       } as typeof aiEditJobs.$inferInsert)
       .returning();
 
@@ -5790,6 +5802,8 @@ export async function registerRoutes(app: Express): Promise<void> {
       try { parsedVideoUrls = JSON.parse(job.videoUrls); } catch { parsedVideoUrls = null; }
     }
 
+    const videoSpec = parseStoredVideoSpec(job.videoSpec ?? null);
+
     res.json({
       id: job.id,
       userId: job.userId,
@@ -5805,6 +5819,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       tone: job.tone,
       revisionCount: job.revisionCount ?? 0,
       ticketCost: job.ticketCost,
+      videoSpec,
       deliveredUrl: job.deliveredUrl ?? null,
       deliveredAt: job.deliveredAt ?? null,
       createdAt: job.createdAt,
