@@ -120,6 +120,10 @@ Paid lessons and breakdowns are sold as content with the same 90/10 split. Tutor
 
 ---
 
+## Native live & SNOW SDK
+
+Mobile **WHIP live broadcast** and **mentor-room WebRTC** are not enabled in-app until the **SNOW SDK** (or equivalent) and **react-native-webrtc** bridge supply a `MediaStream`. Shared WHIP logic lives in [`lib/live/whip.ts`](lib/live/whip.ts). See [`docs/SNOW_SDK_INTEGRATION.md`](docs/SNOW_SDK_INTEGRATION.md) for the checklist, Expo prebuild permissions plugin, and store privacy notes.
+
 ## Architecture
 
 ```

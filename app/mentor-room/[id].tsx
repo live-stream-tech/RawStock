@@ -20,7 +20,7 @@ import { C } from "@/constants/colors";
 import { getApiUrl } from "@/lib/query-client";
 import { F } from "@/constants/fonts";
 import { useAuth } from "@/lib/auth";
-
+import { connectWHIP } from "@/lib/live/whip";
 
 export default function MentorRoomScreen() {
   const { id, role, whipUrl: whipParam, whepUrl: whepParam } = useLocalSearchParams<{
@@ -43,9 +43,15 @@ export default function MentorRoomScreen() {
     Authorization: `Bearer ${token}`,
   });
 
-  // Web のみ WebRTC を使用（Native は今後実装）
+  // Web のみ WebRTC（Native は SNOW + react-native-webrtc 後に connectWHIP を共有利用予定）
   useEffect(() => {
-    if (Platform.OS !== "web") return;
+    if (Platform.OS !== "web") {
+      setStatus("error");
+      setErrorMsg(
+        "メンターセッションの映像は現在ブラウザ（Web）のみ対応です。モバイルは SNOW SDK 連携後に有効化予定です（docs/SNOW_SDK_INTEGRATION.md）。",
+      );
+      return;
+    }
     if (role === "mentor") {
       startMentor();
     } else {
@@ -68,7 +74,7 @@ export default function MentorRoomScreen() {
     return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
   };
 
-  /** メンター側: WHIP で配信 */
+  /** メンター側: WHIP で配信（SNOW 連携後は同 connectWHIP に加工済み MediaStream を渡す） */
   const startMentor = async () => {
     if (!whipParam) { setStatus("error"); setErrorMsg("WHIP URL not found"); return; }
     try {
@@ -76,29 +82,9 @@ export default function MentorRoomScreen() {
       const localVideo = document.getElementById("local-video") as HTMLVideoElement;
       if (localVideo) { localVideo.srcObject = stream; localVideo.muted = true; }
 
-      const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }] });
-      pcRef.current = pc;
-      stream.getTracks().forEach((t: MediaStreamTrack) => pc.addTrack(t, stream));
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-
-      // ICE gathering 完了まで待つ
-      await new Promise<void>(resolve => {
-        if (pc.iceGatheringState === "complete") { resolve(); return; }
-        pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === "complete") resolve(); };
-        setTimeout(resolve, 3000);
-      });
-
       const whip = decodeURIComponent(whipParam);
-      const res = await fetch(whip, {
-        method: "POST",
-        headers: { "Content-Type": "application/sdp" },
-        body: pc.localDescription?.sdp,
-      });
-      if (!res.ok) throw new Error(`WHIP error: ${res.status}`);
-      const answer = await res.text();
-      await pc.setRemoteDescription({ type: "answer", sdp: answer });
+      const pc = await connectWHIP(whip, stream);
+      pcRef.current = pc;
       setStatus("connected");
       startTimer();
     } catch (e: any) {
@@ -218,7 +204,14 @@ export default function MentorRoomScreen() {
           <View style={styles.center}>
             <Ionicons name="alert-circle-outline" size={48} color={C.live} />
             <Text style={styles.errorText}>{errorMsg}</Text>
-            <TouchableOpacity style={styles.retryBtn} onPress={() => { setStatus("connecting"); role === "mentor" ? startMentor() : joinAsUser(); }}>
+            <TouchableOpacity
+              style={styles.retryBtn}
+              onPress={() => {
+                setStatus("connecting");
+                if (role === "mentor") void startMentor();
+                else void joinAsUser();
+              }}
+            >
               <Text style={styles.retryBtnText}>Reconnect</Text>
             </TouchableOpacity>
           </View>

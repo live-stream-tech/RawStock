@@ -50,7 +50,9 @@
       ],
       "expo-font",
       "expo-web-browser",
-      "expo-image"
+      "expo-image",
+      "expo-camera",
+      "./plugins/withLiveBroadcastPermissions.js"
     ],
     "experiments": {
       "typedRoutes": true,
