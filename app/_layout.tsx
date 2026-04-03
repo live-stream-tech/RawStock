@@ -155,8 +155,8 @@ function RootLayoutNav() {
       <Stack.Screen name="jukebox/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="live/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="dm/[id]" options={{ headerShown: false }} />
-      <Stack.Screen name="twoshot-booking/[id]" options={{ headerShown: false }} />
-      <Stack.Screen name="twoshot-success" options={{ headerShown: false }} />
+      <Stack.Screen name="mentor-booking/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="mentor-success" options={{ headerShown: false }} />
       <Stack.Screen name="success" options={{ headerShown: false }} />
       <Stack.Screen name="revenue" options={{ headerShown: false }} />
       <Stack.Screen name="settings" options={{ headerShown: false }} />

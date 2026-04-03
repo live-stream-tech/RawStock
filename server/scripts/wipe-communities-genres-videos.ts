@@ -27,7 +27,7 @@ const statements = [
   "DELETE FROM genre_owners",
   "DELETE FROM liver_reviews",
   "DELETE FROM liver_availability",
-  "DELETE FROM twoshot_bookings",
+  "DELETE FROM mentor_bookings",
   "DELETE FROM booking_sessions",
   "DELETE FROM live_streams",
   "DELETE FROM creators",

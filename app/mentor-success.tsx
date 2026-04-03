@@ -13,7 +13,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { apiRequest } from "@/lib/query-client";
 import { C } from "@/constants/colors";
 
-export default function TwoshotSuccessScreen() {
+export default function MentorSuccessScreen() {
   const { session_id, stream } = useLocalSearchParams<{ session_id: string; stream: string }>();
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
@@ -25,7 +25,7 @@ export default function TwoshotSuccessScreen() {
 
   useEffect(() => {
     if (!session_id) { setLoading(false); return; }
-    apiRequest("POST", "/api/twoshot/confirm-payment", { sessionId: session_id })
+    apiRequest("POST", "/api/mentor/confirm-payment", { sessionId: session_id })
       .then((res: any) => { setBooking(res.booking); })
       .catch(() => setError("Failed to confirm payment."))
       .finally(() => setLoading(false));

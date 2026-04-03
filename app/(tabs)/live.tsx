@@ -107,7 +107,7 @@ function BookingCard({ session }: { session: BookingSession }) {
           </View>
           <Pressable
             style={[styles.bookingActionBtn, { backgroundColor: categoryColor }]}
-            onPress={() => router.push(`/twoshot-booking/${session.id}`)}
+            onPress={() => router.push(`/mentor-booking/${session.id}`)}
           >
             <Text style={styles.bookingBtnText}>Book</Text>
           </Pressable>
@@ -239,7 +239,7 @@ const crStyles = StyleSheet.create({
   statValue: { color: C.text, fontSize: 12, fontWeight: "700" },
 });
 
-type PublicScope = "public" | "invite" | "twoshot";
+type PublicScope = "public" | "invite" | "mentor";
 type FeeType = "free" | "paid";
 type PriceOption = 500 | 1000 | 3000 | 5000;
 
@@ -293,12 +293,12 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
                 </View>
               </Pressable>
               <Pressable
-                style={[styles.scopeOption, scope === "twoshot" && styles.scopeOptionActive]}
-                onPress={() => setScope("twoshot")}
+                style={[styles.scopeOption, scope === "mentor" && styles.scopeOptionActive]}
+                onPress={() => setScope("mentor")}
               >
-                <Ionicons name="people-outline" size={22} color={scope === "twoshot" ? C.accent : C.textSec} />
+                <Ionicons name="people-outline" size={22} color={scope === "mentor" ? C.accent : C.textSec} />
                 <View style={styles.scopeText}>
-                  <Text style={[styles.scopeTitle, scope === "twoshot" && styles.scopeTitleActive]}>Mentor Session</Text>
+                  <Text style={[styles.scopeTitle, scope === "mentor" && styles.scopeTitleActive]}>Mentor Session</Text>
                   <Text style={styles.scopeDesc}>Private 1-on-1 session</Text>
                 </View>
               </Pressable>
@@ -591,7 +591,7 @@ export default function LiveScreen() {
                 <Pressable
                   key={session.id}
                   style={{ width: 180, backgroundColor: C.surface, borderRadius: 2, borderWidth: 1.5, borderColor: "#00c85355", overflow: "hidden" }}
-                  onPress={() => router.push(`/twoshot-booking/${session.id}`)}
+                  onPress={() => router.push(`/mentor-booking/${session.id}`)}
                 >
                   <Image source={{ uri: session.thumbnail }} style={{ width: 180, height: 90 }} contentFit="cover" />
                   <View style={{ padding: 10, gap: 4 }}>

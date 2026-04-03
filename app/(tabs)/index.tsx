@@ -202,7 +202,7 @@ function SessionCard({ item }: { item: any }) {
   return (
     <Pressable
       style={styles.sessionCard}
-      onPress={() => router.push(`/twoshot-booking/${item.id}`)}
+      onPress={() => router.push(`/mentor-booking/${item.id}`)}
     >
       <View style={styles.sessionThumbWrap}>
         <Image source={{ uri: item.thumbnail }} style={styles.sessionThumb} contentFit="cover" />
@@ -280,7 +280,7 @@ export default function HomeScreen() {
     avatar: string; thumbnail: string; date: string; time: string; duration: string;
     price: number; spotsTotal: number; spotsLeft: number;
   };
-  const { data: twoshotSessions = [] } = useQuery<BookingSession[]>({ queryKey: ["/api/booking-sessions"] });
+  const { data: mentorSessions = [] } = useQuery<BookingSession[]>({ queryKey: ["/api/booking-sessions"] });
 
   const paidVideos = (() => {
     const paid = apiVideos
@@ -292,7 +292,7 @@ export default function HomeScreen() {
   const usingDemoPaid = apiVideos.filter((v: any) => v.price != null && v.price > 0).length === 0;
 
   const allLiveStreams = apiLive.length > 0 ? apiLive : DUMMY_LIVE;
-  const sessions = twoshotSessions.length > 0 ? twoshotSessions : DUMMY_SESSIONS;
+  const sessions = mentorSessions.length > 0 ? mentorSessions : DUMMY_SESSIONS;
 
   const topInset = getTabTopInset(insets);
   const bottomInset = getTabBottomInset();

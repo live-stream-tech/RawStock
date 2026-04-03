@@ -509,13 +509,13 @@ export const transactions = pgTable("transactions", {
   id: serial("id").primaryKey(),
   walletId: integer("wallet_id").notNull(),
   amount: integer("amount").notNull(),
-  source: text("source").notNull().default("tip"), // tip | paid_live | twoshot
+  source: text("source").notNull().default("tip"), // tip | paid_live | mentor
   grossAmount: integer("gross_amount").notNull().default(0),
   backRate: real("back_rate").notNull().default(1),
   netAmount: integer("net_amount").notNull().default(0),
   creatorId: integer("creator_id"),
   yearMonth: text("year_month"), // YYYY-MM
-  type: text("type").notNull(), // 'tip' | 'gift' | 'twoshot' | 'banner_ad' | 'payout' | 'revenue_share' | 'REVENUE' 等
+  type: text("type").notNull(), // 'tip' | 'gift' | 'mentor' | 'banner_ad' | 'payout' | 'revenue_share' | 'REVENUE' 等
   status: text("status").notNull().default("PENDING"), // PENDING | SETTLED | CANCELLED
   referenceId: text("reference_id"),
   settledAt: timestamp("settled_at"),
@@ -579,7 +579,7 @@ export const withdrawals = pgTable("withdrawals", {
   processedAt: timestamp("processed_at"),
 });
 
-export const twoshotBookings = pgTable("twoshot_bookings", {
+export const mentorBookings = pgTable("mentor_bookings", {
   id: serial("id").primaryKey(),
   streamId: integer("stream_id").notNull(),
   userId: text("user_id").notNull().default("guest"),
