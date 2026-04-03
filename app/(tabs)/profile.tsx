@@ -632,7 +632,7 @@ export default function ProfileScreen() {
               </Text>
             </>
           ) : (
-            <Text style={styles.supporterHint}>配信者登録後にレベル進捗が表示されます</Text>
+            <Text style={styles.supporterHint}>Register as a creator to see your level progress.</Text>
           )}
         </View>
 
