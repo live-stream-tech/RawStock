@@ -6433,6 +6433,10 @@ data: ${data}
     });
     return res.json({ success: true, newBalance: currentBalance - amount });
   });
+  app2.get("/api/tickets/create-checkout", (_req, res) => {
+    res.setHeader("Allow", "POST");
+    return res.status(405).json({ error: "Use POST /api/tickets/create-checkout with JSON body { tickets, origin }" });
+  });
   app2.post("/api/tickets/create-checkout", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });

@@ -6182,6 +6182,12 @@ export async function registerRoutes(app: Express): Promise<void> {
     return res.json({ success: true, newBalance: currentBalance - amount });
   });
 
+  /** GET on checkout URL is a client mistake (e.g. opening API path in browser); only POST is valid. */
+  app.get("/api/tickets/create-checkout", (_req: Request, res: Response) => {
+    res.setHeader("Allow", "POST");
+    return res.status(405).json({ error: "Use POST /api/tickets/create-checkout with JSON body { tickets, origin }" });
+  });
+
   /** POST /api/tickets/create-checkout — create Stripe session to purchase tickets (USD) */
   app.post("/api/tickets/create-checkout", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);

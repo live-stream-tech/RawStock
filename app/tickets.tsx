@@ -46,8 +46,9 @@ export default function TicketsScreen() {
 
   async function handleVerifyPurchase(sessionId: string) {
     try {
-      const res = await apiRequest("POST", "/api/tickets/verify-purchase", { sessionId }) as any;
-      if (res.success) {
+      const res = await apiRequest("POST", "/api/tickets/verify-purchase", { sessionId });
+      const data = (await res.json()) as { success?: boolean };
+      if (data.success) {
         await refetchBalance();
         const granted = parseInt(ticketsParam ?? "0") || 0;
         Alert.alert(
@@ -91,12 +92,13 @@ export default function TicketsScreen() {
         origin = new URL("/", getApiUrl()).origin;
       }
 
-      const res = await apiRequest("POST", "/api/tickets/create-checkout", {
+      const response = await apiRequest("POST", "/api/tickets/create-checkout", {
         tickets: parsedTickets,
         origin,
-      }) as any;
-      if (res.url) {
-        await Linking.openURL(res.url);
+      });
+      const checkout = (await response.json()) as { url?: string };
+      if (checkout.url) {
+        await Linking.openURL(checkout.url);
       }
     } catch (err) {
       console.error("[Tickets] checkout error:", err);
