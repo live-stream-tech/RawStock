@@ -98,7 +98,11 @@ export default function TicketsScreen() {
       });
       const checkout = (await response.json()) as { url?: string };
       if (checkout.url) {
-        await Linking.openURL(checkout.url);
+        if (Platform.OS === "web" && typeof window !== "undefined") {
+          window.location.href = checkout.url;
+        } else {
+          await Linking.openURL(checkout.url);
+        }
       }
     } catch (err) {
       console.error("[Tickets] checkout error:", err);
