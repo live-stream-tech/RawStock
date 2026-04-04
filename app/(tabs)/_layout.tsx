@@ -1,7 +1,4 @@
-import { isLiquidGlassAvailable } from "expo-glass-effect";
 import { Tabs } from "expo-router";
-import { NativeTabs, NativeTabTrigger } from "expo-router/unstable-native-tabs";
-import { BlurView } from "expo-blur";
 import { Platform, StyleSheet, View } from "react-native";
 import React from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -10,34 +7,10 @@ import { WEB_TAB_BAR_CONTENT_HEIGHT } from "@/constants/layout";
 import { C } from "@/constants/colors";
 import { MetallicLine } from "@/components/MetallicLine";
 
-function NativeTabLayout() {
-  return (
-    <NativeTabs>
-      <NativeTabTrigger name="index">
-        <NativeTabTrigger.Icon sf={{ default: "house", selected: "house.fill" }} />
-        <NativeTabTrigger.Label>Top</NativeTabTrigger.Label>
-      </NativeTabTrigger>
-      <NativeTabTrigger name="community">
-        <NativeTabTrigger.Icon sf={{ default: "map", selected: "map.fill" }} />
-        <NativeTabTrigger.Label>Districts</NativeTabTrigger.Label>
-      </NativeTabTrigger>
-      <NativeTabTrigger name="live">
-        <NativeTabTrigger.Icon sf={{ default: "antenna.radiowaves.left.and.right", selected: "antenna.radiowaves.left.and.right" }} />
-        <NativeTabTrigger.Label>Live Cast</NativeTabTrigger.Label>
-      </NativeTabTrigger>
-      <NativeTabTrigger name="profile">
-        <NativeTabTrigger.Icon sf={{ default: "person", selected: "person.fill" }} />
-        <NativeTabTrigger.Label>Mypage</NativeTabTrigger.Label>
-      </NativeTabTrigger>
-    </NativeTabs>
-  );
-}
-
-function ClassicTabLayout() {
-  const isIOS = Platform.OS === "ios";
+export default function TabLayout() {
   const isWeb = Platform.OS === "web";
   const insets = useSafeAreaInsets();
-  const webBottomInset = isWeb ? Math.max(insets.bottom, 0) : 0;
+  const bottomPad = Math.max(insets.bottom, 0);
 
   return (
     <Tabs
@@ -47,13 +20,13 @@ function ClassicTabLayout() {
         tabBarInactiveTintColor: C.textMuted,
         tabBarStyle: {
           position: "absolute",
-          backgroundColor: isIOS ? "transparent" : C.tabBg,
+          backgroundColor: C.tabBg,
           borderTopWidth: 0,
           elevation: 0,
+          height: WEB_TAB_BAR_CONTENT_HEIGHT + bottomPad,
+          paddingBottom: bottomPad,
           ...(isWeb
             ? {
-                height: WEB_TAB_BAR_CONTENT_HEIGHT + webBottomInset,
-                paddingBottom: webBottomInset,
                 maxWidth: 500,
                 alignSelf: "center" as const,
                 width: "100%",
@@ -69,15 +42,12 @@ function ClassicTabLayout() {
           fontWeight: "600",
           marginTop: -2,
         },
-        tabBarBackground: () =>
-          isIOS ? (
-            <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
-          ) : isWeb ? (
-            <View style={StyleSheet.absoluteFill}>
-              <View style={[StyleSheet.absoluteFill, { backgroundColor: C.tabBg }]} />
-              <MetallicLine thickness={1} style={{ position: "absolute", top: 0, left: 0, right: 0 }} />
-            </View>
-          ) : null,
+        tabBarBackground: () => (
+          <View style={StyleSheet.absoluteFill}>
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: C.tabBg }]} />
+            <MetallicLine thickness={1} style={{ position: "absolute", top: 0, left: 0, right: 0 }} />
+          </View>
+        ),
       }}
     >
       <Tabs.Screen
@@ -117,18 +87,9 @@ function ClassicTabLayout() {
         name="profile"
         options={{
           title: "Mypage",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="finger-print" size={size} color={color} />
-          ),
+          tabBarIcon: ({ color, size }) => <Ionicons name="finger-print" size={size} color={color} />,
         }}
       />
     </Tabs>
   );
-}
-
-export default function TabLayout() {
-  if (isLiquidGlassAvailable()) {
-    return <NativeTabLayout />;
-  }
-  return <ClassicTabLayout />;
 }

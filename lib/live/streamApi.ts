@@ -1,7 +1,6 @@
-import { Platform } from "react-native";
-
+/** 静的 Web / PWA は同一オリジンの /api を叩く */
 export function liveApiBase(): string {
-  return Platform.OS === "web" ? "" : process.env.EXPO_PUBLIC_API_URL ?? "";
+  return "";
 }
 
 export type LiveStreamVisibility = "public" | "followers" | "community";
