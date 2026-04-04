@@ -6,6 +6,9 @@ node_modules/
 # Expo
 .expo/
 web-build/
+
+# DeepAR Web assets (copied from node_modules/deepar on postinstall)
+public/deepar/
 # dist/ is committed so deployment doesn't need to run expo export
 expo-env.d.ts
 
