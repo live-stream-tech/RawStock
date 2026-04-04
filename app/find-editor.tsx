@@ -314,7 +314,7 @@ export default function FindEditorScreen() {
             <Text style={styles.fieldLabel}>Max tickets / min (optional)</Text>
             <TextInput
               style={styles.input}
-              placeholder="e.g. 200"
+              placeholder="e.g. 100"
               placeholderTextColor={C.textMuted}
               value={maxTicketsPerMin}
               onChangeText={setMaxTicketsPerMin}
@@ -372,11 +372,6 @@ export default function FindEditorScreen() {
         <Pressable style={styles.searchBtn} onPress={runSearch}>
           <Ionicons name="search" size={18} color="#050505" />
           <Text style={styles.searchBtnText}>Search editors</Text>
-        </Pressable>
-
-        <Pressable style={styles.platformLink} onPress={() => router.push("/editing-request" as any)}>
-          <Text style={styles.platformLinkText}>Submit to platform queue (200 tickets) instead</Text>
-          <Ionicons name="chevron-forward" size={14} color={C.accent} />
         </Pressable>
 
         <Text style={styles.resultsTitle}>Results</Text>
@@ -511,15 +506,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   searchBtnText: { color: "#050505", fontSize: 15, fontWeight: "800" },
-  platformLink: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    marginTop: 14,
-    paddingVertical: 8,
-  },
-  platformLinkText: { color: C.accent, fontSize: 12, fontWeight: "600" },
   resultsTitle: {
     color: C.text,
     fontSize: 15,
