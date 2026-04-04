@@ -83,7 +83,7 @@ function BroadcastWeb() {
   const [webPreviewLoading, setWebPreviewLoading] = useState(false);
   const [deeparBusy, setDeeparBusy] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
-  const [useDeepARBlur, setUseDeepARBlur] = useState(() => Boolean(DEEPAR_LICENSE_KEY));
+  const [useDeepARBlur, setUseDeepARBlur] = useState(false);
   const [lastLiveError, setLastLiveError] = useState<string | null>(null);
   const blinkAnim = useRef(new Animated.Value(1)).current;
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
