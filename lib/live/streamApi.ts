@@ -1,3 +1,21 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const AUTH_TOKEN_KEY = "auth_token";
+
+/** Express の getAuthUser は Bearer JWT のみ見る。credentials だけでは未認証になる。 */
+export async function liveAuthHeaders(
+  base?: Record<string, string>,
+): Promise<Record<string, string>> {
+  const h = { ...(base ?? {}) };
+  try {
+    const token = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+    if (token) h.Authorization = `Bearer ${token}`;
+  } catch {
+    /* ignore */
+  }
+  return h;
+}
+
 /** 静的 Web / PWA は同一オリジンの /api を叩く */
 export function liveApiBase(): string {
   return "";
@@ -17,7 +35,7 @@ export async function apiCreateLiveStream(
   }
   const createRes = await fetch(`${API_BASE}/api/stream/create`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: await liveAuthHeaders({ "Content-Type": "application/json" }),
     credentials: "include",
     body: JSON.stringify(body),
   });
@@ -39,6 +57,7 @@ export async function apiStartLiveStream(streamId: number): Promise<void> {
   const API_BASE = liveApiBase();
   const res = await fetch(`${API_BASE}/api/stream/${streamId}/start`, {
     method: "POST",
+    headers: await liveAuthHeaders(),
     credentials: "include",
   });
   if (!res.ok) {
@@ -51,6 +70,7 @@ export async function apiEndLiveStream(streamId: number): Promise<void> {
   const API_BASE = liveApiBase();
   const res = await fetch(`${API_BASE}/api/stream/${streamId}/end`, {
     method: "POST",
+    headers: await liveAuthHeaders(),
     credentials: "include",
   });
   if (!res.ok) {
