@@ -19,6 +19,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { C } from "@/constants/colors";
+import { formatEditorRevenueShareLabel, formatEditorTicketsPerMinute, PRICE_PER_TICKET_USD } from "@/constants/tickets";
 import { AppLogo } from "@/components/AppLogo";
 import { COMMUNITIES, VIDEOS } from "@/constants/data";
 import { apiRequest } from "@/lib/query-client";
@@ -828,7 +829,7 @@ export default function CommunityDetailScreen() {
     setSendingRequest(true);
     try {
       await apiRequest("POST", `/api/editors/${requestEditor.id}/request`, {
-        requesterName: "Guest",
+        requesterName: user?.displayName ?? undefined,
         title,
         description,
         priceType: requestPriceType,
@@ -1202,10 +1203,10 @@ export default function CommunityDetailScreen() {
                                 <Text style={styles.editorMetaText}>Delivery: {editor.deliveryDays}d</Text>
                                 <Text style={styles.editorMetaText}>
                                   {editor.priceType === "per_minute" && editor.pricePerMinute
-                                    ? `🎟${editor.pricePerMinute.toLocaleString()}/min`
+                                    ? formatEditorTicketsPerMinute(editor.pricePerMinute)
                                     : editor.priceType === "revenue_share" && editor.revenueSharePercent
-                                    ? `${editor.revenueSharePercent}% rev share`
-                                    : "TBD"}
+                                      ? formatEditorRevenueShareLabel(editor.revenueSharePercent)
+                                      : "TBD"}
                                 </Text>
                               </View>
                             </View>
@@ -1545,11 +1546,16 @@ export default function CommunityDetailScreen() {
                   </View>
 
                   <Text style={styles.requestLabel}>
-                    {requestPriceType === "per_minute" ? "Target rate (🎟/min)" : "Target rev share (%)"}
+                    {requestPriceType === "per_minute" ? "Target budget (🎟 / min)" : "Target rev share (%)"}
                   </Text>
+                  {requestPriceType === "per_minute" ? (
+                    <Text style={styles.requestTicketHint}>
+                      1 Ticket = ${PRICE_PER_TICKET_USD.toFixed(2)} USD (same as Ticket Shop)
+                    </Text>
+                  ) : null}
                   <TextInput
                     style={styles.requestInput}
-                    placeholder={requestPriceType === "per_minute" ? "e.g. 1500" : "e.g. 40"}
+                    placeholder={requestPriceType === "per_minute" ? "e.g. 150" : "e.g. 40"}
                     placeholderTextColor={C.textMuted}
                     value={requestBudget}
                     onChangeText={setRequestBudget}
@@ -2574,6 +2580,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: 10,
     marginBottom: 4,
+  },
+  requestTicketHint: {
+    color: C.textMuted,
+    fontSize: 10,
+    marginBottom: 6,
+    lineHeight: 14,
   },
   requestInput: {
     backgroundColor: C.surface2,

@@ -294,12 +294,6 @@ export default function HomeScreen() {
       <View style={[styles.header, { paddingTop: topInset + 8 }]}>
         <AppLogo height={32} />
         <View style={styles.headerRight}>
-          {user && (
-            <Pressable style={styles.broadcastBtn} onPress={() => router.push("/broadcast" as any)}>
-              <LiveOnAirDot />
-              <Text style={styles.broadcastBtnText}>LIVE</Text>
-            </Pressable>
-          )}
           <Pressable style={styles.iconBtn} onPress={() => router.push("/notifications?filter=purchase")}>
             <Ionicons name="notifications-outline" size={22} color={C.text} />
             {unreadCount > 0 && (
@@ -426,20 +420,6 @@ const styles = StyleSheet.create({
     backgroundColor: C.bg,
   },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 10 },
-  broadcastBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: C.live,
-    borderRadius: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  broadcastBtnText: {
-    color: "#fff",
-    fontSize: 11,
-    fontWeight: "800",
-  },
   iconBtn: { position: "relative" },
   notifBadge: {
     position: "absolute",

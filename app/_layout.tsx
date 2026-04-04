@@ -169,6 +169,26 @@ function GlobalAuthGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/** Web: jukebox uses full width (up to cap); other routes stay phone-width column. */
+function WebRootWidth({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname() ?? "";
+  const isJukeboxRoute = Platform.OS === "web" && pathname.startsWith("/jukebox");
+  if (Platform.OS !== "web") {
+    return <View style={{ flex: 1 }}>{children}</View>;
+  }
+  return (
+    <View
+      style={
+        isJukeboxRoute
+          ? { flex: 1, width: "100%", maxWidth: 1400, alignSelf: "center" }
+          : { flex: 1, maxWidth: 500, alignSelf: "center", width: "100%" }
+      }
+    >
+      {children}
+    </View>
+  );
+}
+
 function RootLayoutNav() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
@@ -234,7 +254,7 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#050505" }}>
-            <View style={{ flex: 1, ...(Platform.OS === "web" ? { maxWidth: 500, alignSelf: "center", width: "100%" } : {}) }}>
+            <WebRootWidth>
             <KeyboardProvider>
               <TokenHandler>
                 <GlobalAuthGate>
@@ -252,7 +272,7 @@ export default function RootLayout() {
                 </GlobalAuthGate>
               </TokenHandler>
             </KeyboardProvider>
-            </View>
+            </WebRootWidth>
           </GestureHandlerRootView>
         </AuthProvider>
       </QueryClientProvider>
