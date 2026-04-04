@@ -377,6 +377,112 @@ export default function ProfileScreen() {
     }
   }
 
+  const profileFloatingActions = (
+    <>
+      <Pressable style={[styles.startFab, { bottom: bottomInset + 80, zIndex: 100 }]} onPress={() => router.push("/live" as any)}>
+        <View style={styles.startFabPearlOuter}>
+          <LinearGradient
+            colors={["#ff8ec8", "#e9a8ff", "#9dd5ff", "#7af0c8", "#fde68a", "#fda4af"]}
+            locations={[0, 0.22, 0.45, 0.62, 0.82, 1]}
+            start={{ x: 0.05, y: 0 }}
+            end={{ x: 0.95, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+          <LinearGradient
+            colors={["rgba(255,255,255,0.78)", "rgba(255,255,255,0.22)", "rgba(255,255,255,0)"]}
+            start={{ x: 0.2, y: 0.05 }}
+            end={{ x: 0.75, y: 0.55 }}
+            style={styles.startFabPearlHighlight}
+          />
+          <LinearGradient
+            colors={["rgba(255,255,255,0)", "rgba(255,255,255,0.12)"]}
+            start={{ x: 0.5, y: 0.55 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.startFabPearlRim}
+          />
+          <View style={styles.startFabGradient}>
+            <Ionicons name="radio" size={14} color="#0a1220" style={styles.startFabIconShadow} />
+            <Text style={styles.startFabText}>START</Text>
+          </View>
+        </View>
+      </Pressable>
+      {Platform.OS === "web" && pwaBanner.showBanner && (
+        <>
+          <Pressable
+            style={[styles.pwaFab, { bottom: bottomInset + 140, zIndex: 100 }]}
+            onPress={pwaBanner.onFabPress}
+          >
+            <View style={styles.pwaFabPearlOuter}>
+              <LinearGradient
+                colors={[
+                  "rgba(251, 113, 133, 0.88)",
+                  "rgba(192, 132, 252, 0.82)",
+                  "rgba(56, 189, 248, 0.78)",
+                  "rgba(52, 211, 153, 0.72)",
+                ]}
+                locations={[0, 0.35, 0.65, 1]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFillObject}
+              />
+              <LinearGradient
+                colors={["rgba(255,255,255,0.5)", "rgba(255,255,255,0.08)", "rgba(255,255,255,0)"]}
+                start={{ x: 0.25, y: 0 }}
+                end={{ x: 0.7, y: 0.45 }}
+                style={styles.pwaFabPearlHighlight}
+              />
+              <LinearGradient
+                colors={["rgba(255,255,255,0)", "rgba(255,255,255,0.18)"]}
+                start={{ x: 0.4, y: 0.5 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.pwaFabPearlInnerGlow}
+              />
+              <View style={styles.pwaFabGradient}>
+                <Ionicons name="phone-portrait-outline" size={22} color="#f8fafc" style={styles.pwaFabIconPearl} />
+              </View>
+            </View>
+          </Pressable>
+          <Modal visible={pwaBanner.showPopup} transparent animationType="fade">
+            <Pressable style={styles.pwaPopupOverlay} onPress={pwaBanner.onDismiss}>
+              <Pressable style={styles.pwaPopupBox} onPress={(e) => e.stopPropagation()}>
+                <View style={styles.pwaPopupHeader}>
+                  <Text style={styles.pwaPopupTitle}>Add to Home Screen</Text>
+                  <Pressable style={styles.pwaPopupClose} onPress={pwaBanner.onDismiss} hitSlop={8}>
+                    <Ionicons name="close" size={22} color={C.textMuted} />
+                  </Pressable>
+                </View>
+                {pwaBanner.isIosChrome ? (
+                  <Text style={styles.pwaPopupBody}>
+                    Please open in Safari to add this app to your home screen.
+                  </Text>
+                ) : pwaBanner.isIosSafari ? (
+                  <>
+                    <Text style={styles.pwaPopupBody}>
+                      Tap the Share button (□↑) at the bottom of Safari, then select "Add to Home Screen".
+                    </Text>
+                    <Pressable style={styles.pwaPopupBtn} onPress={pwaBanner.onAddPress}>
+                      <Text style={styles.pwaPopupBtnText}>OK</Text>
+                    </Pressable>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.pwaPopupBody}>Add to your home screen and use it as an app</Text>
+                    <Pressable
+                      style={[styles.pwaPopupBtn, !pwaBanner.hasDeferredPrompt && styles.pwaPopupBtnDisabled]}
+                      disabled={!pwaBanner.hasDeferredPrompt}
+                      onPress={pwaBanner.onAddPress}
+                    >
+                      <Text style={styles.pwaPopupBtnText}>Add</Text>
+                    </Pressable>
+                  </>
+                )}
+              </Pressable>
+            </Pressable>
+          </Modal>
+        </>
+      )}
+    </>
+  );
 
   if (!authLoading && !user) {
     function handleGoogleLogin() {
@@ -411,39 +517,42 @@ export default function ProfileScreen() {
     }
 
     return (
-      <View style={[styles.container, styles.guestContainer, { paddingTop: topInset + 40 }]}>
-        <Ionicons name="person-circle-outline" size={80} color={C.textMuted} />
-        <View style={styles.guestLogoWrap}>
-          <AppLogo height={36} />
+      <View style={{ flex: 1 }}>
+        <View style={[styles.container, styles.guestContainer, { paddingTop: topInset + 40 }]}>
+          <Ionicons name="person-circle-outline" size={80} color={C.textMuted} />
+          <View style={styles.guestLogoWrap}>
+            <AppLogo height={36} />
+          </View>
+          <Text style={styles.guestSub}>Sign in to view your profile</Text>
+          <Pressable style={styles.googleLoginBtn} onPress={handleGoogleLogin}>
+            <Image source={{ uri: "https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" }} style={styles.googleIcon} contentFit="contain" />
+            <Text style={styles.googleLoginText}>Sign in with Google</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.demoBtnProfile, demoLoading && { opacity: 0.5 }]}
+            onPress={handleDemoLogin}
+            disabled={demoLoading}
+          >
+            {demoLoading
+              ? <ActivityIndicator size="small" color={C.accent} />
+              : <Text style={styles.demoBtnProfileText}>Try Demo</Text>
+            }
+          </Pressable>
+          <View style={styles.guestLegalLinks}>
+            <Pressable onPress={() => router.push("/terms")}>
+              <Text style={styles.guestLegalLinkText}>Terms</Text>
+            </Pressable>
+            <Text style={styles.guestLegalSeparator}>|</Text>
+            <Pressable onPress={() => router.push("/privacy")}>
+              <Text style={styles.guestLegalLinkText}>Privacy Policy</Text>
+            </Pressable>
+            <Text style={styles.guestLegalSeparator}>|</Text>
+            <Pressable onPress={() => router.push("/tokusho")}>
+              <Text style={styles.guestLegalLinkText}>Legal Notice</Text>
+            </Pressable>
+          </View>
         </View>
-        <Text style={styles.guestSub}>Sign in to view your profile</Text>
-        <Pressable style={styles.googleLoginBtn} onPress={handleGoogleLogin}>
-          <Image source={{ uri: "https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" }} style={styles.googleIcon} contentFit="contain" />
-          <Text style={styles.googleLoginText}>Sign in with Google</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.demoBtnProfile, demoLoading && { opacity: 0.5 }]}
-          onPress={handleDemoLogin}
-          disabled={demoLoading}
-        >
-          {demoLoading
-            ? <ActivityIndicator size="small" color={C.accent} />
-            : <Text style={styles.demoBtnProfileText}>Try Demo</Text>
-          }
-        </Pressable>
-        <View style={styles.guestLegalLinks}>
-          <Pressable onPress={() => router.push("/terms")}>
-            <Text style={styles.guestLegalLinkText}>Terms</Text>
-          </Pressable>
-          <Text style={styles.guestLegalSeparator}>|</Text>
-          <Pressable onPress={() => router.push("/privacy")}>
-            <Text style={styles.guestLegalLinkText}>Privacy Policy</Text>
-          </Pressable>
-          <Text style={styles.guestLegalSeparator}>|</Text>
-          <Pressable onPress={() => router.push("/tokusho")}>
-            <Text style={styles.guestLegalLinkText}>Legal Notice</Text>
-          </Pressable>
-        </View>
+        {profileFloatingActions}
       </View>
     );
   }
@@ -931,111 +1040,7 @@ export default function ProfileScreen() {
 
 
 
-      {/* START FAB — パール球体（虹色ベース＋ハイライト） */}
-      <Pressable style={[styles.startFab, { bottom: bottomInset + 80 }]} onPress={() => router.push("/live" as any)}>
-        <View style={styles.startFabPearlOuter}>
-          <LinearGradient
-            colors={["#ff8ec8", "#e9a8ff", "#9dd5ff", "#7af0c8", "#fde68a", "#fda4af"]}
-            locations={[0, 0.22, 0.45, 0.62, 0.82, 1]}
-            start={{ x: 0.05, y: 0 }}
-            end={{ x: 0.95, y: 1 }}
-            style={StyleSheet.absoluteFillObject}
-          />
-          <LinearGradient
-            colors={["rgba(255,255,255,0.78)", "rgba(255,255,255,0.22)", "rgba(255,255,255,0)"]}
-            start={{ x: 0.2, y: 0.05 }}
-            end={{ x: 0.75, y: 0.55 }}
-            style={styles.startFabPearlHighlight}
-          />
-          <LinearGradient
-            colors={["rgba(255,255,255,0)", "rgba(255,255,255,0.12)"]}
-            start={{ x: 0.5, y: 0.55 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.startFabPearlRim}
-          />
-          <View style={styles.startFabGradient}>
-            <Ionicons name="radio" size={14} color="#0a1220" style={styles.startFabIconShadow} />
-            <Text style={styles.startFabText}>START</Text>
-          </View>
-        </View>
-      </Pressable>
-
-      {/* PWA ホーム画面に追加 FAB（右下固定）＋ポップアップ */}
-      {Platform.OS === "web" && pwaBanner.showBanner && (
-        <>
-          <Pressable
-            style={[styles.pwaFab, { bottom: bottomInset + 140 }]}
-            onPress={pwaBanner.onFabPress}
-          >
-            <View style={styles.pwaFabPearlOuter}>
-              <LinearGradient
-                colors={[
-                  "rgba(251, 113, 133, 0.88)",
-                  "rgba(192, 132, 252, 0.82)",
-                  "rgba(56, 189, 248, 0.78)",
-                  "rgba(52, 211, 153, 0.72)",
-                ]}
-                locations={[0, 0.35, 0.65, 1]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={StyleSheet.absoluteFillObject}
-              />
-              <LinearGradient
-                colors={["rgba(255,255,255,0.5)", "rgba(255,255,255,0.08)", "rgba(255,255,255,0)"]}
-                start={{ x: 0.25, y: 0 }}
-                end={{ x: 0.7, y: 0.45 }}
-                style={styles.pwaFabPearlHighlight}
-              />
-              <LinearGradient
-                colors={["rgba(255,255,255,0)", "rgba(255,255,255,0.18)"]}
-                start={{ x: 0.4, y: 0.5 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.pwaFabPearlInnerGlow}
-              />
-              <View style={styles.pwaFabGradient}>
-                <Ionicons name="phone-portrait-outline" size={22} color="#f8fafc" style={styles.pwaFabIconPearl} />
-              </View>
-            </View>
-          </Pressable>
-          <Modal visible={pwaBanner.showPopup} transparent animationType="fade">
-            <Pressable style={styles.pwaPopupOverlay} onPress={pwaBanner.onDismiss}>
-              <Pressable style={styles.pwaPopupBox} onPress={(e) => e.stopPropagation()}>
-                <View style={styles.pwaPopupHeader}>
-                  <Text style={styles.pwaPopupTitle}>Add to Home Screen</Text>
-                  <Pressable style={styles.pwaPopupClose} onPress={pwaBanner.onDismiss} hitSlop={8}>
-                    <Ionicons name="close" size={22} color={C.textMuted} />
-                  </Pressable>
-                </View>
-                {pwaBanner.isIosChrome ? (
-                  <Text style={styles.pwaPopupBody}>
-                    Please open in Safari to add this app to your home screen.
-                  </Text>
-                ) : pwaBanner.isIosSafari ? (
-                  <>
-                    <Text style={styles.pwaPopupBody}>
-                      Tap the Share button (□↑) at the bottom of Safari, then select "Add to Home Screen".
-                    </Text>
-                    <Pressable style={styles.pwaPopupBtn} onPress={pwaBanner.onAddPress}>
-                      <Text style={styles.pwaPopupBtnText}>OK</Text>
-                    </Pressable>
-                  </>
-                ) : (
-                  <>
-                    <Text style={styles.pwaPopupBody}>Add to your home screen and use it as an app</Text>
-                    <Pressable
-                      style={[styles.pwaPopupBtn, !pwaBanner.hasDeferredPrompt && styles.pwaPopupBtnDisabled]}
-                      disabled={!pwaBanner.hasDeferredPrompt}
-                      onPress={pwaBanner.onAddPress}
-                    >
-                      <Text style={styles.pwaPopupBtnText}>Add</Text>
-                    </Pressable>
-                  </>
-                )}
-              </Pressable>
-            </Pressable>
-          </Modal>
-        </>
-      )}
+      {profileFloatingActions}
 
       {/* プレビュー（公開プロフィール）モーダル */}
       <Modal visible={showPreviewModal} transparent animationType="slide">
