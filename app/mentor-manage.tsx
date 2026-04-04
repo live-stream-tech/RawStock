@@ -26,6 +26,7 @@ import { getApiUrl } from "@/lib/query-client";
 import { F } from "@/constants/fonts";
 import { useAuth } from "@/lib/auth";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
+import { webScrollStyle } from "@/constants/layout";
 
 
 const CATEGORIES = [
@@ -241,7 +242,7 @@ export default function MentorManageScreen() {
       </View>
 
       <ScrollView
-        style={styles.scroll}
+        style={webScrollStyle(styles.scroll)}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={C.accent} />}
       >
         {tab === "sessions" ? (
@@ -329,7 +330,7 @@ export default function MentorManageScreen() {
                 <Ionicons name="close" size={24} color={C.text} />
               </TouchableOpacity>
             </View>
-            <ScrollView>
+            <ScrollView style={webScrollStyle(undefined)}>
               <Text style={styles.label}>Title *</Text>
               <TextInput
                 style={styles.input}
