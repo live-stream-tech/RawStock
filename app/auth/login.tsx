@@ -119,6 +119,7 @@ export default function LoginScreen() {
         returnTo.startsWith("/auth/") ||
         returnTo.startsWith("/jukebox") ||
         returnTo.startsWith("/lp") ||
+        returnTo.startsWith("/teamz") ||
         returnTo.startsWith("/rawstock-lp") ||
         returnTo.startsWith("/terms") ||
         returnTo.startsWith("/privacy") ||

@@ -94,6 +94,16 @@ function configureExpoAndLanding(app: express.Application) {
     res.status(200).send(html);
   });
 
+  const teamzPath = path.resolve(process.cwd(), "public/teamz.html");
+  app.get("/teamz", (_req: Request, res: Response) => {
+    if (!fs.existsSync(teamzPath)) {
+      return res.status(404).send("teamz.html not found");
+    }
+    const html = fs.readFileSync(teamzPath, "utf-8");
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.status(200).send(html);
+  });
+
   // Serve logo asset for the landing page
   app.get("/assets/logo-200x70-v2.png", (_req: Request, res: Response) => {
     const logoPath = path.resolve(process.cwd(), "assets/logo-200x70-v2.png");
@@ -105,8 +115,8 @@ function configureExpoAndLanding(app: express.Application) {
       return next();
     }
 
-    // Skip Expo manifest for /lp
-    if (req.path === "/lp") {
+    // Skip Expo manifest for /lp and /teamz
+    if (req.path === "/lp" || req.path === "/teamz") {
       return next();
     }
 

@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="RawStock — TEAMZ / 投資家・パートナー向け概要。アンダーグラウンド音楽マーケットプレイスとWeb3ロードマップ。">
+<title>RawStock — Investors &amp; Partners (TEAMZ)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+<style>
+html, body { margin: 0; padding: 0; min-height: 100%; overflow-x: hidden; }
+:root {
+  --bg-darkest: #050505;
+  --bg-dark: #0a0a0a;
+  --bg-mid: #0f0f0f;
+  --neon: #00ffcc;
+  --orange: #ff4d00;
+  --text: #e8e4dc;
+  --text-sec: rgba(232,228,220,0.72);
+  --text-muted: rgba(232,228,220,0.5);
+  --border: rgba(0,255,204,0.22);
+  --border-dim: rgba(255,255,255,0.08);
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg-darkest);
+  color: var(--text);
+  font-family: 'Courier Prime', monospace;
+  font-size: 15px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3, .headline { font-family: 'Barlow Condensed', sans-serif; font-weight: 800; letter-spacing: -0.02em; }
+.wrap { max-width: 560px; margin: 0 auto; padding: 0 22px 48px; }
+.masthead {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 14px 22px;
+  background: rgba(5,5,5,0.92); backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border-dim);
+}
+.masthead img { height: 28px; width: auto; display: block; }
+.badge {
+  font-size: 9px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--orange); font-weight: 700;
+}
+.hero { padding: 28px 0 8px; }
+.hero h1 { font-size: clamp(26px, 6vw, 34px); line-height: 1.15; margin-bottom: 12px; }
+.hero h1 em { font-style: normal; color: var(--neon); }
+.lead { color: var(--text-sec); font-size: 14px; margin-bottom: 20px; }
+.section { padding: 22px 0; border-top: 1px solid var(--border-dim); }
+.section h2 {
+  font-size: 11px; letter-spacing: .28em; text-transform: uppercase;
+  color: var(--neon); margin-bottom: 14px; font-family: 'Courier Prime', monospace; font-weight: 700;
+}
+.section h3 { font-size: 18px; color: #fff; margin: 18px 0 8px; }
+ul { margin: 0; padding-left: 1.15em; color: var(--text-sec); font-size: 14px; }
+ul li { margin-bottom: 8px; }
+p { margin: 0 0 12px; color: var(--text-sec); font-size: 14px; }
+.en { font-size: 13px; color: var(--text-muted); border-left: 2px solid var(--border); padding-left: 14px; margin-top: 14px; }
+.cta-row { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: 'Barlow Condensed', sans-serif; font-size: 15px; font-weight: 700;
+  padding: 14px 20px; text-decoration: none; letter-spacing: 0.04em;
+  border: none; cursor: pointer; transition: background .2s, color .2s;
+}
+.btn-primary { background: var(--neon); color: #000; }
+.btn-primary:hover { background: #fff; }
+.btn-secondary {
+  background: transparent; color: var(--neon);
+  border: 1px solid var(--border);
+}
+.btn-secondary:hover { background: rgba(0,255,204,0.08); }
+.footnote { font-size: 11px; color: var(--text-muted); margin-top: 24px; line-height: 1.5; }
+.lang-toggle { margin: 8px 0 0; }
+.lang-toggle button {
+  background: transparent; border: 1px solid var(--border-dim); color: var(--text-muted);
+  font-family: 'Courier Prime', monospace; font-size: 10px; padding: 6px 12px; cursor: pointer; margin-right: 8px;
+}
+.lang-toggle button.active { border-color: var(--neon); color: var(--neon); }
+[data-lang="en"] .ja-only { display: none; }
+[data-lang="ja"] .en-only { display: none; }
+footer { padding: 32px 22px 40px; text-align: center; font-size: 10px; color: var(--text-muted); border-top: 1px solid var(--border-dim); }
+footer a { color: var(--neon); text-decoration: none; }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <a href="/lp" style="display:flex;align-items:center;"><img src="/logo-200x70-v2.png" alt="RawStock"></a>
+  <span class="badge">TEAMZ 2026 · Tokyo</span>
+</header>
+
+<div class="wrap" id="root" data-lang="ja">
+  <div class="lang-toggle" role="tablist" aria-label="Language">
+    <button type="button" class="active" data-set-lang="ja">日本語</button>
+    <button type="button" data-set-lang="en">English</button>
+  </div>
+
+  <section class="hero">
+    <h1 class="ja-only">会場でお会いした方へ — <em>RawStock</em> 概要</h1>
+    <h1 class="en-only">If we met at the venue — <em>RawStock</em></h1>
+    <p class="lead ja-only">ライブの熱量を、クリエイターに還元するアンダーグラウンド音楽マーケットプレイス。現在は JPY・Stripe で直接決済。Web3 は透明な分配とグローバルなコミュニティ価値に向けたロードマップとして位置づけています。</p>
+    <p class="lead en-only">An underground music marketplace that returns revenue to creators. Today: direct JPY card checkout via Stripe. Web3: on our roadmap for transparent splits and global community ownership — details below.</p>
+  </section>
+
+  <section class="section">
+    <h2 class="ja-only">プロダクト（今）</h2>
+    <h2 class="en-only">Product (today)</h2>
+    <ul class="ja-only">
+      <li>ライブ映像・有料コンテンツの販売（クリエイターへのフラットな高還元モデル）</li>
+      <li>編集者マッチングと <strong>AI 編集アシスト</strong>（プロンプトから下書き編集を高速化）</li>
+      <li>ジャンルコミュニティと人的キュレーション（アルゴリズム任せにしない発見）</li>
+    </ul>
+    <ul class="en-only">
+      <li>Paid live footage &amp; content with a flat, creator-friendly revenue model</li>
+      <li>Editor marketplace + <strong>AI edit assistant</strong> (draft edits from natural language)</li>
+      <li>Genre communities and human-led discovery</li>
+    </ul>
+  </section>
+
+  <section class="section">
+    <h2 class="ja-only">Web3 を目指す理由</h2>
+    <h2 class="en-only">Why Web3 (direction)</h2>
+    <p class="ja-only">トークンの有無やチェーン選定はフェーズに応じて設計します。検討している価値は次のとおりです。</p>
+    <p class="en-only">Token design and chain choice are phase-dependent. Value we are exploring:</p>
+    <ul class="ja-only">
+      <li>分配・ロイヤリティの透明性とクロスボーダーでの支払いしやすさ</li>
+      <li>ファン・コミュニティの持分やガバナンス（シーンへの長期コミットメント）</li>
+      <li>デジタルコンテンツの希少性と二次流通（アーティストに還流する設計）</li>
+    </ul>
+    <ul class="en-only">
+      <li>Transparent royalties and easier global settlement</li>
+      <li>Community stake &amp; governance aligned with long-term scenes</li>
+      <li>Scarcity &amp; secondary markets with value flowing back to artists</li>
+    </ul>
+    <p class="footnote ja-only">まずは Fiat でユニットエコノミクスと需要を積み上げ、オンチェーンで乗せる価値を絞り込む方針です。</p>
+    <p class="footnote en-only">We prove unit economics and demand in fiat first, then add on-chain layers where they clearly win.</p>
+  </section>
+
+  <section class="section">
+    <h2 class="ja-only">投資家・VC・パートナー向け</h2>
+    <h2 class="en-only">For investors &amp; partners</h2>
+    <p class="ja-only">ピッチデックの送付、デモ、協業のご相談はメールでお願いします。件名に <strong>TEAMZ</strong> とご社名を記載いただけるとスムーズです。</p>
+    <p class="en-only">For deck, demo, or partnership: email us. Please put <strong>TEAMZ</strong> and your company name in the subject line.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="mailto:rawstock.infomation@gmail.com?subject=TEAMZ%20%E2%80%94%20RawStock%20intro">rawstock.infomation@gmail.com</a>
+      <a class="btn btn-secondary" href="/lp">メイントップ / LP を見る</a>
+    </div>
+    <p class="en ja-only">Quick EN: one-pager for people we meet at TEAMZ WEB3/AI Summit — product summary, Web3 roadmap intent, and contact.</p>
+    <p class="en en-only">This page is a lightweight handout for QR scans at TEAMZ — links to our main LP and our contact email.</p>
+  </section>
+
+  <p class="footnote ja-only" style="margin-top:32px;">本ページは <a href="https://www.teamz.co.jp/" rel="noopener noreferrer" target="_blank">TEAMZ WEB3/AI SUMMIT 2026</a> 向けに用意しています。</p>
+  <p class="footnote en-only" style="margin-top:32px;">Prepared for <a href="https://www.teamz.co.jp/" rel="noopener noreferrer" target="_blank">TEAMZ WEB3/AI SUMMIT 2026</a>.</p>
+</div>
+
+<footer>
+  <a href="/lp">RawStock LP</a>
+  ·
+  <a href="mailto:rawstock.infomation@gmail.com">Email</a>
+</footer>
+
+<script>
+(function () {
+  var root = document.getElementById('root');
+  var buttons = document.querySelectorAll('[data-set-lang]');
+  function setLang(lang) {
+    root.setAttribute('data-lang', lang);
+    buttons.forEach(function (b) {
+      b.classList.toggle('active', b.getAttribute('data-set-lang') === lang);
+    });
+    try { localStorage.setItem('rawstock-teamz-lang', lang); } catch (e) {}
+  }
+  buttons.forEach(function (b) {
+    b.addEventListener('click', function () { setLang(b.getAttribute('data-set-lang')); });
+  });
+  try {
+    var saved = localStorage.getItem('rawstock-teamz-lang');
+    if (saved === 'en' || saved === 'ja') setLang(saved);
+  } catch (e) {}
+})();
+</script>
+</body>
+</html>
