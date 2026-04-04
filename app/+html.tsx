@@ -35,6 +35,23 @@ export default function Root({ children }: PropsWithChildren) {
             overflow-x: hidden;
             background-color: #070F18;
           }
+          /* iOS PWA: 100% だけだとアドレスバー周りで高さがずれることがある */
+          @supports (height: 100dvh) {
+            html, body, #root {
+              min-height: 100dvh;
+            }
+          }
+          @supports (-webkit-touch-callout: none) {
+            html, body, #root {
+              min-height: -webkit-fill-available;
+            }
+          }
+          /* アプリ本体をスキャンラインより手前に（タブバーが消えるのを防ぐ） */
+          #root {
+            position: relative;
+            z-index: 1;
+            isolation: isolate;
+          }
           /* PC Web: 細身シアン系スクロールバー。
              #root 配下で詳細度を上げ、RN Web が付ける .class::-webkit-scrollbar{display:none} を潰す */
           @media (min-width: 768px) and (pointer: fine) {
@@ -75,14 +92,16 @@ export default function Root({ children }: PropsWithChildren) {
               rgba(0, 255, 204, 0.015) 4px
             );
             pointer-events: none;
-            z-index: 9999;
+            /* #root(z-index:1) の下に回し、タブバー等が隠れないようにする */
+            z-index: 0;
           }
-          /* PWA スタンドアロン時: ノッチ・ステータスバー分の余白 */
+          /*
+           * body に safe-area パディングを付けると、PWA スタンドアロンで
+           * #root の flex 高さと position:absolute タブバーの位置がずれ、
+           * フッターが画面外に見えることがある。余白は RN（タブバー・各画面）側で付ける。
+           */
           body {
-            padding-top: env(safe-area-inset-top, 0px);
-            padding-left: env(safe-area-inset-left, 0px);
-            padding-right: env(safe-area-inset-right, 0px);
-            padding-bottom: env(safe-area-inset-bottom, 0px);
+            margin: 0;
             box-sizing: border-box;
           }
         `}</style>

@@ -19,6 +19,7 @@ import { connectWHIP } from "@/lib/live/whip";
 import { apiCreateLiveStream, apiStartLiveStream, apiEndLiveStream, liveApiBase } from "@/lib/live/streamApi";
 import { acquireBroadcastMediaStream } from "@/lib/live/nativeBroadcastStream";
 import type { LiveStreamVisibility } from "@/lib/live/streamApi";
+import { webBroadcastNeedsUserGestureForCamera } from "@/lib/pwa-standalone";
 
 function parseRouteVisibility(v: string | undefined): LiveStreamVisibility {
   if (v === "followers" || v === "community") return v;
@@ -47,21 +48,24 @@ export default function BroadcastScreen() {
   const [viewers, setViewers] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [cameraError, setCameraError] = useState(false);
+  const [webPreviewLoading, setWebPreviewLoading] = useState(false);
   const blinkAnim = useRef(new Animated.Value(1)).current;
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const viewersPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const nativeWhipBlocked = Platform.OS !== "web";
+  const webNeedsCameraTap = Platform.OS === "web" && webBroadcastNeedsUserGestureForCamera();
 
   useEffect(() => {
     if (Platform.OS === "web") {
-      startWebCamera();
+      if (!webNeedsCameraTap) void startWebCamera();
     } else {
       void startNativePreview();
     }
     return () => {
       cleanup();
     };
+    // webNeedsCameraTap: 初回マウント時の環境判定のみでよい
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -102,17 +106,30 @@ export default function BroadcastScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- blinkAnim is stable ref-backed Animated.Value
   }, [phase, streamId]);
 
+  const bindWebPreview = async (stream: MediaStream) => {
+    localStreamRef.current = stream;
+    const el = videoRef.current as HTMLVideoElement | null;
+    if (el) {
+      el.srcObject = stream;
+      try {
+        await el.play();
+      } catch {
+        /* PWA / iOS で無音プレビューは play が弾かれることがある */
+      }
+    }
+    setCameraError(false);
+    setPhase("ready");
+  };
+
   const startWebCamera = async () => {
+    setWebPreviewLoading(true);
     try {
       const stream = await acquireBroadcastMediaStream();
-      localStreamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-      }
-      setPhase("ready");
+      await bindWebPreview(stream);
     } catch {
       setCameraError(true);
+    } finally {
+      setWebPreviewLoading(false);
     }
   };
 
@@ -147,7 +164,7 @@ export default function BroadcastScreen() {
     if (nativeWhipBlocked) {
       Alert.alert(
         "ライブ配信",
-        "この画面からの配信はブラウザ（PC の Chrome など）または PWA で開いてください。アプリの iOS/Android ビルドからの WHIP は今後の WebRTC 対応予定です。",
+        "配信の開始は PWA（ホーム画面に追加した RawStock）またはスマホ・PC のブラウザ版から行ってください。",
       );
       return;
     }
@@ -155,8 +172,20 @@ export default function BroadcastScreen() {
       Alert.alert("ライブ配信", "配信タイトルを入力してください。");
       return;
     }
+    if (Platform.OS === "web" && !localStreamRef.current) {
+      try {
+        const stream = await acquireBroadcastMediaStream();
+        await bindWebPreview(stream);
+      } catch {
+        Alert.alert(
+          "ライブ配信",
+          "カメラとマイクの許可が必要です。PWA の場合は設定アプリから RawStock（Safari）のカメラ・マイクをオンにしてください。",
+        );
+        return;
+      }
+    }
     if (!localStreamRef.current) {
-      Alert.alert("ライブ配信", "カメラとマイクの許可が必要です。ブラウザの設定を確認してください。");
+      Alert.alert("ライブ配信", "カメラとマイクの許可が必要です。");
       return;
     }
     try {
@@ -213,7 +242,14 @@ export default function BroadcastScreen() {
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const goLiveDisabled = !title.trim() || isLoading || cameraError || nativeWhipBlocked;
+  // ネイティブ: タイトル無しでもタップで案内アラートを出せるよう nativeWhipBlocked は disabled に含めない。
+  // Web: プレビュー用 MediaStream があるまで配信開始不可（PWA/iOS はタップで取得）。
+  const goLiveDisabled =
+    isLoading ||
+    webPreviewLoading ||
+    cameraError ||
+    (!title.trim() && !nativeWhipBlocked) ||
+    (Platform.OS === "web" && !nativeWhipBlocked && !localStreamRef.current);
 
   return (
     <View style={styles.container}>
@@ -239,19 +275,41 @@ export default function BroadcastScreen() {
         {cameraError && (
           <View style={styles.cameraErrorOverlay}>
             <Ionicons name="videocam-off-outline" size={48} color="#ffffff88" />
-            <Text style={styles.cameraErrorText}>Camera access required</Text>
+            <Text style={styles.cameraErrorText}>カメラ・マイクが使えません</Text>
             <Text style={styles.cameraErrorSub}>
               {Platform.OS === "web"
-                ? "Please allow camera access in your browser settings"
-                : "Please allow camera and microphone in system settings"}
+                ? "設定でカメラとマイクを許可するか、下のボタンでもう一度お試しください。"
+                : "システム設定でカメラとマイクを許可してください。"}
             </Text>
+            {Platform.OS === "web" && (
+              <Pressable style={styles.pwaCameraRetryBtn} onPress={() => void startWebCamera()}>
+                <Text style={styles.pwaCameraRetryText}>もう一度許可する</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+
+        {Platform.OS === "web" && webNeedsCameraTap && !localStreamRef.current && !cameraError && (
+          <View style={styles.pwaCameraGate}>
+            {webPreviewLoading ? (
+              <ActivityIndicator color="#fff" size="large" />
+            ) : (
+              <>
+                <Text style={styles.pwaCameraGateTitle}>PWA / モバイルでは先に許可が必要です</Text>
+                <Text style={styles.pwaCameraGateSub}>下のボタンをタップしてカメラとマイクをオンにしてください</Text>
+                <Pressable style={styles.pwaCameraPrimaryBtn} onPress={() => void startWebCamera()}>
+                  <Ionicons name="videocam" size={20} color="#000" />
+                  <Text style={styles.pwaCameraPrimaryText}>カメラ・マイクを許可</Text>
+                </Pressable>
+              </>
+            )}
           </View>
         )}
 
         {nativeWhipBlocked && !cameraError && phase === "ready" && (
           <View style={styles.nativeHint}>
             <Text style={styles.nativeHintText}>
-              プレビューのみです。配信開始はブラウザまたは PWA（Web）でこの画面を開いてください。
+              プレビューのみです。配信は PWA またはブラウザの Web 版から行ってください。
             </Text>
           </View>
         )}
@@ -351,7 +409,9 @@ export default function BroadcastScreen() {
             ) : (
               <>
                 <View style={styles.goLiveDot} />
-                <Text style={styles.goLiveBtnText}>{nativeWhipBlocked ? "配信は Web / PWA で" : "配信開始"}</Text>
+                <Text style={styles.goLiveBtnText}>
+                  {nativeWhipBlocked ? "配信は PWA / ブラウザで" : webNeedsCameraTap && !localStreamRef.current ? "先にカメラを許可" : "配信開始"}
+                </Text>
               </>
             )}
           </Pressable>
@@ -375,6 +435,35 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   nativeHintText: { color: "#ffffffcc", fontSize: 12, textAlign: "center", lineHeight: 17 },
+  pwaCameraGate: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.72)",
+    paddingHorizontal: 28,
+    gap: 14,
+  },
+  pwaCameraGateTitle: { color: "#fff", fontSize: 16, fontWeight: "800", textAlign: "center" },
+  pwaCameraGateSub: { color: "#ffffffaa", fontSize: 13, textAlign: "center", lineHeight: 19 },
+  pwaCameraPrimaryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: C.accent,
+    paddingVertical: 14,
+    paddingHorizontal: 22,
+    borderRadius: 14,
+    marginTop: 6,
+  },
+  pwaCameraPrimaryText: { color: "#000", fontSize: 16, fontWeight: "800" },
+  pwaCameraRetryBtn: {
+    marginTop: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.15)",
+  },
+  pwaCameraRetryText: { color: "#fff", fontSize: 15, fontWeight: "700" },
   cameraErrorOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
