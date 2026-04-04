@@ -352,9 +352,6 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
               <View style={styles.previewCamera}>
                 <Ionicons name="videocam" size={40} color={C.accent} />
                 <View style={styles.previewRedDot} />
-              <View style={styles.previewComingSoonRibbon}>
-                <Text style={styles.previewComingSoonText}>COMING SOON</Text>
-              </View>
               </View>
               <View style={styles.previewStats}>
                 <View style={styles.previewStat}>
@@ -374,11 +371,6 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
               style={styles.startBtn}
               onPress={async () => {
                 if (creating) return;
-                const BROADCAST_ENABLED = false;
-                if (!BROADCAST_ENABLED) {
-                  Alert.alert("Coming Soon", "Live streaming will be available soon. Stay tuned!");
-                  return;
-                }
                 try {
                   setCreating(true);
                   const res = await apiRequest("POST", "/api/stream/create", {
@@ -453,7 +445,7 @@ export default function LiveScreen() {
       </View>
       <MetallicLine thickness={1} style={{ marginHorizontal: 16 }} />
 
-      {/* 検索バー（両タブ共通） */}
+      {/* Search bar (both tabs) */}
       <View style={styles.liveSearchWrap}>
         <Ionicons name="search-outline" size={18} color={C.textMuted} />
         <TextInput
@@ -888,6 +880,9 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     padding: 20,
     maxHeight: "90%",
+    width: "100%",
+    maxWidth: 500,
+    alignSelf: "center",
   },
   modalHandle: {
     width: 40,
@@ -1061,21 +1056,6 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 5,
     backgroundColor: C.live,
-  },
-  previewComingSoonRibbon: {
-    position: "absolute",
-    top: 12,
-    left: -40,
-    paddingHorizontal: 40,
-    paddingVertical: 4,
-    backgroundColor: "rgba(0,0,0,0.7)",
-    transform: [{ rotate: "-25deg" }],
-  },
-  previewComingSoonText: {
-    color: "#fff",
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1,
   },
   previewStats: {
     gap: 4,

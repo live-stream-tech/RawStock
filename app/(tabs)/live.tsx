@@ -302,7 +302,7 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
                   <Text style={[styles.scopeTitle, scope === "followers" && styles.scopeTitleActive]}>
                     Followers only
                   </Text>
-                  <Text style={styles.scopeDesc}>あなたのフォロワーのみ視聴可</Text>
+                  <Text style={styles.scopeDesc}>Only your followers can watch</Text>
                 </View>
               </Pressable>
               <Pressable
@@ -314,7 +314,7 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
                   <Text style={[styles.scopeTitle, scope === "community" && styles.scopeTitleActive]}>
                     Community only
                   </Text>
-                  <Text style={styles.scopeDesc}>参加中のコミュニティのメンバーのみ</Text>
+                  <Text style={styles.scopeDesc}>Only members of communities you&apos;ve joined</Text>
                 </View>
               </Pressable>
               <Pressable
@@ -331,10 +331,14 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
 
             {scope === "community" && (
               <>
-                <Text style={[styles.settingLabel, { marginTop: 16 }]}>コミュニティ</Text>
-                <Text style={[styles.scopeDesc, { marginBottom: 8 }]}>視聴を許可するコミュニティを選んでください</Text>
+                <Text style={[styles.settingLabel, { marginTop: 16 }]}>Community</Text>
+                <Text style={[styles.scopeDesc, { marginBottom: 8 }]}>
+                  Choose which community can watch
+                </Text>
                 {myCommunities.length === 0 ? (
-                  <Text style={styles.scopeDesc}>参加中のコミュニティがありません。コミュニティに参加してから再度お試しください。</Text>
+                  <Text style={styles.scopeDesc}>
+                    You&apos;re not in any communities yet. Join one and try again.
+                  </Text>
                 ) : (
                   <View style={{ gap: 8 }}>
                     {myCommunities.map((c) => (
@@ -419,9 +423,6 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
               <View style={styles.previewCamera}>
                 <Ionicons name="videocam" size={40} color={C.accent} />
                 <View style={styles.previewRedDot} />
-              <View style={styles.previewComingSoonRibbon}>
-                <Text style={styles.previewComingSoonText}>COMING SOON</Text>
-              </View>
               </View>
               <View style={styles.previewStats}>
                 <View style={styles.previewStat}>
@@ -443,11 +444,11 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
                 if (creating) return;
                 if (scope === "community") {
                   if (myCommunities.length === 0) {
-                    Alert.alert("コミュニティ", "参加中のコミュニティを選べません。");
+                    Alert.alert("Community", "No communities available to select.");
                     return;
                   }
                   if (selectedCommunityId == null) {
-                    Alert.alert("コミュニティ", "視聴を許可するコミュニティを選択してください。");
+                    Alert.alert("Community", "Please select a community that may watch.");
                     return;
                   }
                 }
@@ -468,7 +469,7 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
                         : { visibility, communityId: "" },
                   });
                 } catch (e: any) {
-                  Alert.alert("Error", e?.message ?? "配信画面を開けませんでした");
+                  Alert.alert("Error", e?.message ?? "Could not open broadcast.");
                 } finally {
                   setCreating(false);
                 }
@@ -523,7 +524,7 @@ export default function LiveScreen() {
       </View>
       <MetallicLine thickness={1} style={{ marginHorizontal: 16 }} />
 
-      {/* 検索バー（両タブ共通） */}
+      {/* Search bar (both tabs) */}
       <View style={styles.liveSearchWrap}>
         <Ionicons name="search-outline" size={18} color={C.textMuted} />
         <TextInput
@@ -958,6 +959,9 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     padding: 20,
     maxHeight: "90%",
+    width: "100%",
+    maxWidth: 500,
+    alignSelf: "center",
   },
   modalHandle: {
     width: 40,
@@ -1131,21 +1135,6 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 5,
     backgroundColor: C.live,
-  },
-  previewComingSoonRibbon: {
-    position: "absolute",
-    top: 12,
-    left: -40,
-    paddingHorizontal: 40,
-    paddingVertical: 4,
-    backgroundColor: "rgba(0,0,0,0.7)",
-    transform: [{ rotate: "-25deg" }],
-  },
-  previewComingSoonText: {
-    color: "#fff",
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1,
   },
   previewStats: {
     gap: 4,
