@@ -26,11 +26,37 @@ export default function Root({ children }: PropsWithChildren) {
         />
         <ScrollViewStyleReset />
         <style>{`
+          html, body {
+            scrollbar-gutter: stable;
+          }
           html, body, #root {
             height: 100%;
             overflow-y: auto;
             overflow-x: hidden;
             background-color: #070F18;
+          }
+          /* PC Web: 細身シアン系スクロールバー。react-native-web の scrollbar-width: none を上書き */
+          @media (min-width: 768px) and (pointer: fine) {
+            * {
+              scrollbar-width: thin !important;
+              scrollbar-color: rgba(0, 255, 204, 0.45) rgba(5, 5, 5, 0.8) !important;
+            }
+            *::-webkit-scrollbar {
+              width: 10px !important;
+              height: 10px !important;
+            }
+            *::-webkit-scrollbar-track {
+              background: rgba(5, 5, 5, 0.75) !important;
+              border-radius: 8px;
+            }
+            *::-webkit-scrollbar-thumb {
+              background: rgba(0, 255, 204, 0.32) !important;
+              border-radius: 8px;
+              border: 2px solid rgba(5, 5, 5, 0.85);
+            }
+            *::-webkit-scrollbar-thumb:hover {
+              background: rgba(0, 255, 204, 0.55) !important;
+            }
           }
           * { font-family: 'Courier Prime', monospace; }
           h1, h2, h3, h4, h5, h6, .display { font-family: 'Barlow Condensed', sans-serif !important; }
