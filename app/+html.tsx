@@ -35,26 +35,28 @@ export default function Root({ children }: PropsWithChildren) {
             overflow-x: hidden;
             background-color: #070F18;
           }
-          /* PC Web: 細身シアン系スクロールバー。react-native-web の scrollbar-width: none を上書き */
+          /* PC Web: 細身シアン系スクロールバー。
+             #root 配下で詳細度を上げ、RN Web が付ける .class::-webkit-scrollbar{display:none} を潰す */
           @media (min-width: 768px) and (pointer: fine) {
-            * {
+            #root * {
               scrollbar-width: thin !important;
               scrollbar-color: rgba(0, 255, 204, 0.45) rgba(5, 5, 5, 0.8) !important;
             }
-            *::-webkit-scrollbar {
+            #root *::-webkit-scrollbar {
+              display: block !important;
               width: 10px !important;
               height: 10px !important;
             }
-            *::-webkit-scrollbar-track {
+            #root *::-webkit-scrollbar-track {
               background: rgba(5, 5, 5, 0.75) !important;
               border-radius: 8px;
             }
-            *::-webkit-scrollbar-thumb {
+            #root *::-webkit-scrollbar-thumb {
               background: rgba(0, 255, 204, 0.32) !important;
               border-radius: 8px;
               border: 2px solid rgba(5, 5, 5, 0.85);
             }
-            *::-webkit-scrollbar-thumb:hover {
+            #root *::-webkit-scrollbar-thumb:hover {
               background: rgba(0, 255, 204, 0.55) !important;
             }
           }
