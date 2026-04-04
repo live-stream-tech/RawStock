@@ -92,6 +92,7 @@
     "@types/react": "~19.2.10",
     "babel-plugin-react-compiler": "^19.0.0-beta-e993439-20250117",
     "drizzle-kit": "^0.31.9",
+    "esbuild": "^0.28.0",
     "eslint": "^9.39.3",
     "eslint-config-expo": "~55.0.0",
     "patch-package": "^8.0.1",
