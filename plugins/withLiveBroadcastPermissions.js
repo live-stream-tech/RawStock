@@ -1,5 +1,5 @@
 /**
- * Expo config plugin: camera + microphone usage strings for live broadcast / future SNOW SDK.
+ * Expo config plugin: camera + microphone usage strings for live broadcast (native WebRTC / WHIP).
  * Apply after `npx expo prebuild` for native projects.
  */
 const { withInfoPlist, withAndroidManifest } = require("@expo/config-plugins");

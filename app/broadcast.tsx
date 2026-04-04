@@ -157,7 +157,7 @@ export default function BroadcastScreen() {
     if (nativeWhipBlocked) {
       Alert.alert(
         "ライブ配信",
-        "モバイルからの WHIP 配信は SNOW SDK と WebRTC ブリッジ接続後に有効になります。手順は docs/SNOW_SDK_INTEGRATION.md を参照してください。当面はブラウザ（Web）から Go Live してください。",
+        "モバイルからの WHIP 配信は、ネイティブ向け WebRTC（MediaStream）パイプライン整備後に有効になります。詳細は docs/LIVE_NATIVE_AND_FILTERS.md を参照してください。当面はブラウザ（Web）から Go Live してください。",
       );
       return;
     }
@@ -269,7 +269,7 @@ export default function BroadcastScreen() {
         {nativeWhipBlocked && !cameraError && phase === "ready" && (
           <View style={styles.nativeHint}>
             <Text style={styles.nativeHintText}>
-              プレビューのみ（モバイル WHIP は SNOW 連携後）。配信は Web から実行してください。
+              プレビューのみ（モバイル WHIP はネイティブ WebRTC 整備後）。配信は Web から実行してください。
             </Text>
           </View>
         )}

@@ -7,7 +7,7 @@ function getRTCPeerConnection(): typeof RTCPeerConnection {
   const Ctor = (globalThis as unknown as { RTCPeerConnection?: typeof RTCPeerConnection }).RTCPeerConnection;
   if (!Ctor) {
     throw new Error(
-      "RTCPeerConnection is not available. On native, add react-native-webrtc and polyfill globals, or use web. See docs/SNOW_SDK_INTEGRATION.md",
+      "RTCPeerConnection is not available. On native, add react-native-webrtc and polyfill globals, or use web. See docs/LIVE_NATIVE_AND_FILTERS.md",
     );
   }
   return Ctor;

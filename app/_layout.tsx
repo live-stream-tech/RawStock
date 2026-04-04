@@ -172,6 +172,7 @@ function RootLayoutNav() {
       <Stack.Screen name="video/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="upload" options={{ headerShown: false }} />
       <Stack.Screen name="notifications" options={{ headerShown: false }} />
+      <Stack.Screen name="announcements" options={{ headerShown: false }} />
       <Stack.Screen name="jukebox/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="live/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="dm/[id]" options={{ headerShown: false }} />

@@ -329,6 +329,12 @@ export default function HomeScreen() {
   const { data: apiVideos = [] } = useQuery<any[]>({ queryKey: ["/api/videos"] });
   const { data: apiLive = [] } = useQuery<any[]>({ queryKey: ["/api/live-streams"] });
   const { data: communities = [] } = useQuery<any[]>({ queryKey: ["/api/communities"] });
+  const { data: announcementRows = [] } = useQuery<
+    { id: number; title: string; isPinned: boolean; createdAt: string | null }[]
+  >({
+    queryKey: ["/api/announcements"],
+    throwOnError: false,
+  });
   const firstCommunityId: number | null = (communities[0]?.id as number) ?? null;
   type BookingSession = {
     id: number; creator: string; category: string; categoryLabel: string; title: string;
@@ -348,6 +354,13 @@ export default function HomeScreen() {
 
   const allLiveStreams = apiLive.length > 0 ? apiLive : DUMMY_LIVE;
   const sessions = mentorSessions.length > 0 ? mentorSessions : DUMMY_SESSIONS;
+
+  const announcementTeaserTitle = (() => {
+    if (!announcementRows.length) return null;
+    const pinned = announcementRows.filter((a) => a.isPinned);
+    const pick = pinned.length > 0 ? pinned[0] : announcementRows[0];
+    return pick?.title?.trim() || null;
+  })();
 
   const topInset = getTabTopInset(insets);
   const bottomInset = getTabBottomInset();
@@ -371,6 +384,21 @@ export default function HomeScreen() {
           </Pressable>
         </View>
       </View>
+
+      {announcementTeaserTitle ? (
+        <Pressable
+          style={styles.announcementBar}
+          onPress={() => router.push("/announcements" as any)}
+          accessibilityRole="button"
+          accessibilityLabel="お知らせ一覧へ"
+        >
+          <Ionicons name="megaphone-outline" size={16} color={C.accent} style={{ marginRight: 8 }} />
+          <Text style={styles.announcementBarText} numberOfLines={1}>
+            {announcementTeaserTitle}
+          </Text>
+          <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
+        </Pressable>
+      ) : null}
 
       <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
 
@@ -502,6 +530,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   notifBadgeText: { color: "#fff", fontSize: 8, fontWeight: "700" },
+
+  announcementBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 16,
+    marginTop: 4,
+    marginBottom: 2,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: C.surface,
+    borderRadius: 2,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  announcementBarText: {
+    flex: 1,
+    color: C.text,
+    fontSize: 12,
+    fontWeight: "600",
+    minWidth: 0,
+  },
 
   scroll: { flex: 1 },
 
