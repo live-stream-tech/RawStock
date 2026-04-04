@@ -20,6 +20,7 @@
     },
     "android": {
       "package": "com.rawstock",
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./public/icon-512.png",
         "backgroundColor": "#050505"

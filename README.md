@@ -120,9 +120,9 @@ Paid lessons and breakdowns are sold as content with the same 90/10 split. Tutor
 
 ---
 
-## Native live & SNOW SDK
+## Native live (WHIP)
 
-Mobile **WHIP live broadcast** and **mentor-room WebRTC** are not enabled in-app until the **SNOW SDK** (or equivalent) and **react-native-webrtc** bridge supply a `MediaStream`. Shared WHIP logic lives in [`lib/live/whip.ts`](lib/live/whip.ts). See [`docs/SNOW_SDK_INTEGRATION.md`](docs/SNOW_SDK_INTEGRATION.md) for the checklist, Expo prebuild permissions plugin, and store privacy notes.
+Mobile **WHIP live broadcast** and **mentor-room WebRTC** are not enabled in-app until a native **`MediaStream`** is available (typically **`react-native-webrtc`** + camera, then the same [`lib/live/whip.ts`](lib/live/whip.ts) path as web). Optional lighter filters may use **Vision Camera** frame processors; **RTMPS** is a higher-latency fallback (keys are already stored on stream rows). See [`docs/LIVE_NATIVE_AND_FILTERS.md`](docs/LIVE_NATIVE_AND_FILTERS.md) for priorities, Expo prebuild notes, and contributor callout for remote session sync (out of scope for now).
 
 ## Architecture
 

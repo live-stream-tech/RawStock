@@ -5654,6 +5654,18 @@ export async function registerRoutes(app: Express): Promise<void> {
       ] as unknown as typeof dmMessages.$inferInsert[]);
     }
 
+    // Seed announcements（お知らせ・募集）-------------------------------------
+    const existingAnnouncements = await db.select().from(announcements);
+    if (existingAnnouncements.length === 0) {
+      await db.insert(announcements).values({
+        title: "ライブ配信・技術コントリビュータ募集",
+        body:
+          "ネイティブ WebRTC（WHIP）や遠隔セッション同期など、実装・研究に協力いただける方を募集しています。方針の詳細はリポジトリの docs/LIVE_NATIVE_AND_FILTERS.md をご参照ください。",
+        type: "recruiting",
+        isPinned: true,
+      } as typeof announcements.$inferInsert);
+    }
+
     // Seed communities（creators の community 名と一致）------------------------
     const communityData = [
       { name: "地下アイドル界隈", category: "idol" },

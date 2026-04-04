@@ -43,12 +43,12 @@ export default function MentorRoomScreen() {
     Authorization: `Bearer ${token}`,
   });
 
-  // Web のみ WebRTC（Native は SNOW + react-native-webrtc 後に connectWHIP を共有利用予定）
+  // Web のみ WebRTC（Native は MediaStream 供給後に connectWHIP を共有利用予定）
   useEffect(() => {
     if (Platform.OS !== "web") {
       setStatus("error");
       setErrorMsg(
-        "メンターセッションの映像は現在ブラウザ（Web）のみ対応です。モバイルは SNOW SDK 連携後に有効化予定です（docs/SNOW_SDK_INTEGRATION.md）。",
+        "メンターセッションの映像は現在ブラウザ（Web）のみ対応です。モバイルはネイティブ WebRTC パイプライン整備後に有効化予定です（docs/LIVE_NATIVE_AND_FILTERS.md）。",
       );
       return;
     }
@@ -74,7 +74,7 @@ export default function MentorRoomScreen() {
     return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
   };
 
-  /** メンター側: WHIP で配信（SNOW 連携後は同 connectWHIP に加工済み MediaStream を渡す） */
+  /** メンター側: WHIP で配信（ネイティブでは同 connectWHIP に MediaStream を渡す） */
   const startMentor = async () => {
     if (!whipParam) { setStatus("error"); setErrorMsg("WHIP URL not found"); return; }
     try {

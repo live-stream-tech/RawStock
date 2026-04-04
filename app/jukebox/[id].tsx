@@ -658,9 +658,13 @@ export default function JukeboxScreen() {
 
   /** Add モーダル内のみ: レイアウト跳びで iframe が止まりやすいので KAV オフ */
   const kavDisabledOnIosWeb = Platform.OS === "web" && isIosLikeWebClient();
-  /** 本体（チャット含む）: iOS Web は padding が効き、height だとキーボードで入力できないことがある */
-  const jukeboxKeyboardBehavior =
-    Platform.OS === "ios" || kavDisabledOnIosWeb ? "padding" : "height";
+  /**
+   * 本体（チャット含む）: react-native-keyboard-controller の behavior="height" は
+   * キーボード表示時に flex:0 + 固定 height になり、Android で入力欄が潰れる・タップ不能になることがある。
+   * iOS / Android ネイティブと iOS Web は padding。デスクトップ Web のみ height。
+   */
+  const jukeboxKeyboardBehavior: "padding" | "height" =
+    Platform.OS === "web" && !kavDisabledOnIosWeb ? "height" : "padding";
 
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
@@ -795,6 +799,22 @@ export default function JukeboxScreen() {
       // SSE 経由でチャットが更新されるので invalidate 不要
       // フォールバック： SSE 接続がない場合は refetch
       if (Platform.OS !== "web") qc.invalidateQueries({ queryKey: jukeboxKey });
+    },
+    onError: (e: Error & { body?: string }) => {
+      let detail = e.message ?? "送信に失敗しました";
+      try {
+        if (e.body) {
+          const j = JSON.parse(e.body) as { error?: string };
+          if (j.error) detail = j.error;
+        }
+      } catch {
+        /* keep detail */
+      }
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        window.alert(detail);
+      } else {
+        Alert.alert("コメント", detail);
+      }
     },
   });
 
@@ -940,9 +960,12 @@ export default function JukeboxScreen() {
       router.push("/auth/login");
       return;
     }
+    if (chatMutation.isPending) return;
     setChatInput("");
-    chatMutation.mutate(msg);
-  }, [chatInput, user]);
+    chatMutation.mutate(msg, {
+      onError: () => setChatInput(msg),
+    });
+  }, [chatInput, user, chatMutation]);
 
   const handleNext = useCallback(() => {
     nextMutation.mutate();
@@ -1312,6 +1335,8 @@ export default function JukeboxScreen() {
               style={styles.desktopChatList}
               contentContainerStyle={styles.chatListContent}
               showsVerticalScrollIndicator={scrollShowsVertical}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
               renderItem={({ item }) => (
                 <View style={[styles.chatMsg, item.username === (user?.name ?? "Guest") && styles.chatMsgMine]}>
                   {item.username !== (user?.name ?? "Guest") &&
@@ -1338,8 +1363,13 @@ export default function JukeboxScreen() {
                 onChangeText={setChatInput}
                 onSubmitEditing={sendChat}
                 returnKeyType="send"
+                editable={!chatMutation.isPending}
               />
-              <Pressable style={[styles.sendBtn, !chatInput.trim() && styles.sendBtnDisabled]} onPress={sendChat}>
+              <Pressable
+                style={[styles.sendBtn, (!chatInput.trim() || chatMutation.isPending) && styles.sendBtnDisabled]}
+                onPress={sendChat}
+                disabled={!chatInput.trim() || chatMutation.isPending}
+              >
                 <Ionicons name="send" size={16} color="#fff" />
               </Pressable>
             </View>
@@ -1424,6 +1454,8 @@ export default function JukeboxScreen() {
                 style={styles.chatList}
                 contentContainerStyle={styles.chatListContent}
                 showsVerticalScrollIndicator={scrollShowsVertical}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
                 renderItem={({ item }) => (
                   <View style={[styles.chatMsg, item.username === (user?.name ?? "Guest") && styles.chatMsgMine]}>
                     {item.username !== (user?.name ?? "Guest") && (
@@ -1457,8 +1489,13 @@ export default function JukeboxScreen() {
                 onChangeText={setChatInput}
                 onSubmitEditing={sendChat}
                 returnKeyType="send"
+                editable={!chatMutation.isPending}
               />
-              <Pressable style={[styles.sendBtn, !chatInput.trim() && styles.sendBtnDisabled]} onPress={sendChat}>
+              <Pressable
+                style={[styles.sendBtn, (!chatInput.trim() || chatMutation.isPending) && styles.sendBtnDisabled]}
+                onPress={sendChat}
+                disabled={!chatInput.trim() || chatMutation.isPending}
+              >
                 <Ionicons name="send" size={16} color="#fff" />
               </Pressable>
             </View>
@@ -1524,6 +1561,8 @@ export default function JukeboxScreen() {
                   style={{ flex: 1 }}
                   contentContainerStyle={styles.chatListContent}
                   showsVerticalScrollIndicator={scrollShowsVertical}
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="on-drag"
                   renderItem={({ item }) => (
                     <View style={[styles.chatMsg, item.username === (user?.name ?? "Guest") && styles.chatMsgMine]}>
                       {item.username !== (user?.name ?? "Guest") && (
@@ -1555,8 +1594,13 @@ export default function JukeboxScreen() {
                     onChangeText={setChatInput}
                     onSubmitEditing={sendChat}
                     returnKeyType="send"
+                    editable={!chatMutation.isPending}
                   />
-                  <Pressable style={[styles.sendBtn, !chatInput.trim() && styles.sendBtnDisabled]} onPress={sendChat}>
+                  <Pressable
+                    style={[styles.sendBtn, (!chatInput.trim() || chatMutation.isPending) && styles.sendBtnDisabled]}
+                    onPress={sendChat}
+                    disabled={!chatInput.trim() || chatMutation.isPending}
+                  >
                     <Ionicons name="send" size={16} color="#fff" />
                   </Pressable>
                 </View>
@@ -1962,6 +2006,8 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: C.border,
     backgroundColor: C.bg,
+    zIndex: 6,
+    ...(Platform.OS === "android" ? { elevation: 8 } : {}),
   },
   input: {
     flex: 1,
