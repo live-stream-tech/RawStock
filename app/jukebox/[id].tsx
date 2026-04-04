@@ -1336,7 +1336,8 @@ export default function JukeboxScreen() {
               contentContainerStyle={styles.chatListContent}
               showsVerticalScrollIndicator={scrollShowsVertical}
               keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="on-drag"
+              keyboardDismissMode="none"
+              removeClippedSubviews={false}
               renderItem={({ item }) => (
                 <View style={[styles.chatMsg, item.username === (user?.name ?? "Guest") && styles.chatMsgMine]}>
                   {item.username !== (user?.name ?? "Guest") &&
@@ -1398,7 +1399,8 @@ export default function JukeboxScreen() {
       style={{ flex: 1, backgroundColor: C.bg }}
       behavior={jukeboxKeyboardBehavior as "padding" | "height"}
       keyboardVerticalOffset={0}
-      enabled={!showAddModal}
+      /** ネイティブでは KAV の padding アニメが TextInput フォーカスと競合しキーボードが即閉じることがある。Web のみ有効。 */
+      enabled={Platform.OS === "web" && !showAddModal}
     >
       <View style={[styles.container]}>
         {/* Header: portrait only */}
@@ -1455,7 +1457,8 @@ export default function JukeboxScreen() {
                 contentContainerStyle={styles.chatListContent}
                 showsVerticalScrollIndicator={scrollShowsVertical}
                 keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="on-drag"
+                keyboardDismissMode="none"
+                removeClippedSubviews={false}
                 renderItem={({ item }) => (
                   <View style={[styles.chatMsg, item.username === (user?.name ?? "Guest") && styles.chatMsgMine]}>
                     {item.username !== (user?.name ?? "Guest") && (
@@ -1490,6 +1493,7 @@ export default function JukeboxScreen() {
                 onSubmitEditing={sendChat}
                 returnKeyType="send"
                 editable={!chatMutation.isPending}
+                showSoftInputOnFocus
               />
               <Pressable
                 style={[styles.sendBtn, (!chatInput.trim() || chatMutation.isPending) && styles.sendBtnDisabled]}
@@ -1562,7 +1566,8 @@ export default function JukeboxScreen() {
                   contentContainerStyle={styles.chatListContent}
                   showsVerticalScrollIndicator={scrollShowsVertical}
                   keyboardShouldPersistTaps="handled"
-                  keyboardDismissMode="on-drag"
+                  keyboardDismissMode="none"
+                  removeClippedSubviews={false}
                   renderItem={({ item }) => (
                     <View style={[styles.chatMsg, item.username === (user?.name ?? "Guest") && styles.chatMsgMine]}>
                       {item.username !== (user?.name ?? "Guest") && (
@@ -1595,6 +1600,7 @@ export default function JukeboxScreen() {
                     onSubmitEditing={sendChat}
                     returnKeyType="send"
                     editable={!chatMutation.isPending}
+                    showSoftInputOnFocus
                   />
                   <Pressable
                     style={[styles.sendBtn, (!chatInput.trim() || chatMutation.isPending) && styles.sendBtnDisabled]}

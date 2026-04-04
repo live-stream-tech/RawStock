@@ -24,6 +24,8 @@ export function GlobalMyListPlayer() {
   const match = pathname?.match(/\/video\/(\d+)/);
   const currentVideoId = match ? parseInt(match[1], 10) : null;
   const isCurrentVideo = isOnVideoPage && playing && currentVideoId === playing.videoId;
+  /** ジュークボックスは下部チャット入力があり、ミニプレイヤー（zIndex 高）が重なるとキーボード／フォーカスが奪われる */
+  const isOnJukebox = pathname != null && pathname.includes("/jukebox");
 
   // ビデオページから離脱したらミニプレイヤーを自動表示（Spotify 風）
   const prevIsOnVideoPageRef = useRef(isOnVideoPage);
@@ -172,7 +174,7 @@ export function GlobalMyListPlayer() {
       )}
 
       {/* 動画ページ外: Spotify 風ミニプレイヤーバー */}
-      {!isCurrentVideo && !dismissed && (
+      {!isCurrentVideo && !dismissed && !isOnJukebox && (
         <View style={[styles.bar, jukeboxIsActive && styles.barWithJukebox]}>
           {/* プログレスバー（バー上部） */}
           <View style={styles.barProgress} />
