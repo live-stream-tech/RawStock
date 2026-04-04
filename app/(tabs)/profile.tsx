@@ -379,37 +379,10 @@ export default function ProfileScreen() {
 
   const profileFloatingActions = (
     <>
-      <Pressable style={[styles.startFab, { bottom: bottomInset + 80, zIndex: 100 }]} onPress={() => router.push("/live" as any)}>
-        <View style={styles.startFabPearlOuter}>
-          <LinearGradient
-            colors={["#ff8ec8", "#e9a8ff", "#9dd5ff", "#7af0c8", "#fde68a", "#fda4af"]}
-            locations={[0, 0.22, 0.45, 0.62, 0.82, 1]}
-            start={{ x: 0.05, y: 0 }}
-            end={{ x: 0.95, y: 1 }}
-            style={StyleSheet.absoluteFillObject}
-          />
-          <LinearGradient
-            colors={["rgba(255,255,255,0.78)", "rgba(255,255,255,0.22)", "rgba(255,255,255,0)"]}
-            start={{ x: 0.2, y: 0.05 }}
-            end={{ x: 0.75, y: 0.55 }}
-            style={styles.startFabPearlHighlight}
-          />
-          <LinearGradient
-            colors={["rgba(255,255,255,0)", "rgba(255,255,255,0.12)"]}
-            start={{ x: 0.5, y: 0.55 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.startFabPearlRim}
-          />
-          <View style={styles.startFabGradient}>
-            <Ionicons name="radio" size={14} color="#0a1220" style={styles.startFabIconShadow} />
-            <Text style={styles.startFabText}>START</Text>
-          </View>
-        </View>
-      </Pressable>
       {Platform.OS === "web" && pwaBanner.showBanner && (
         <>
           <Pressable
-            style={[styles.pwaFab, { bottom: bottomInset + 140, zIndex: 100 }]}
+            style={[styles.pwaFab, { bottom: bottomInset + 16, zIndex: 100 }]}
             onPress={pwaBanner.onFabPress}
           >
             <View style={styles.pwaFabPearlOuter}>
@@ -648,6 +621,17 @@ export default function ProfileScreen() {
               onPress={() => router.push("/dm")}
             >
               <Ionicons name="paper-plane-outline" size={18} color={C.accent} />
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.editBtn,
+                pressed && styles.headerBtnPressed,
+              ]}
+              onPress={() => router.push("/live" as any)}
+              accessibilityLabel="Go live"
+              accessibilityRole="button"
+            >
+              <Ionicons name="radio-outline" size={18} color={C.accent} />
             </Pressable>
             <Pressable
               style={({ pressed }) => [
@@ -1631,73 +1615,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "700",
   },
-  startFab: {
-    position: "absolute",
-    right: 16,
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    // 虹色グロー（パール球の外光）
-    shadowColor: "#c084fc",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.55,
-    shadowRadius: 20,
-    elevation: 18,
-  },
-  startFabPearlOuter: {
-    flex: 1,
-    borderRadius: 36,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.5)",
-  },
-  startFabPearlHighlight: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 36,
-  },
-  startFabPearlRim: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 36,
-  },
-  startFabGradient: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    paddingHorizontal: 8,
-  },
-  startFabIconShadow: {
-    shadowColor: "#ffffff",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.9,
-    shadowRadius: 4,
-  },
-  startFabText: {
-    color: "#0a1220",
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 0.4,
-    textShadowColor: "rgba(255,255,255,0.85)",
-    textShadowOffset: { width: 0, height: 0.5 },
-    textShadowRadius: 3,
-  },
-  startInlineBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    backgroundColor: C.accent,
-    borderRadius: 3,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    shadowColor: C.accent,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
-    elevation: 6,
-  },
-  startInlineBtnText: { color: "#050505", fontSize: 12, fontWeight: "800", letterSpacing: 0.5 },
-
   modalBg: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.6)",
@@ -1871,7 +1788,6 @@ const styles = StyleSheet.create({
 
   pwaFab: {
     position: "absolute",
-    // START（72px）と長球体（48px）を右辺で揃えた中心合わせ
     right: 28,
     width: 48,
     height: 62,
