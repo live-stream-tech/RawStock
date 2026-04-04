@@ -6,7 +6,6 @@ import {
   Pressable,
   Platform,
   TextInput,
-  Alert,
   Animated,
   ActivityIndicator,
 } from "react-native";
@@ -20,6 +19,7 @@ import { apiCreateLiveStream, apiStartLiveStream, apiEndLiveStream, liveApiBase 
 import { acquireBroadcastMediaStream } from "@/lib/live/nativeBroadcastStream";
 import type { LiveStreamVisibility } from "@/lib/live/streamApi";
 import { webBroadcastNeedsUserGestureForCamera } from "@/lib/pwa-standalone";
+import { alertDestructiveConfirm, alertMessage } from "@/lib/alertCompat";
 
 function parseRouteVisibility(v: string | undefined): LiveStreamVisibility {
   if (v === "followers" || v === "community") return v;
@@ -49,6 +49,7 @@ export default function BroadcastScreen() {
   const [elapsed, setElapsed] = useState(0);
   const [cameraError, setCameraError] = useState(false);
   const [webPreviewLoading, setWebPreviewLoading] = useState(false);
+  const [lastLiveError, setLastLiveError] = useState<string | null>(null);
   const blinkAnim = useRef(new Animated.Value(1)).current;
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const viewersPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -161,15 +162,18 @@ export default function BroadcastScreen() {
   };
 
   const handleGoLive = async () => {
+    setLastLiveError(null);
     if (nativeWhipBlocked) {
-      Alert.alert(
-        "ライブ配信",
-        "配信の開始は PWA（ホーム画面に追加した RawStock）またはスマホ・PC のブラウザ版から行ってください。",
-      );
+      const msg =
+        "配信の開始は PWA（ホーム画面に追加した RawStock）またはスマホ・PC のブラウザ版から行ってください。";
+      alertMessage("ライブ配信", msg);
+      if (Platform.OS === "web") setLastLiveError(msg);
       return;
     }
     if (!title.trim()) {
-      Alert.alert("ライブ配信", "配信タイトルを入力してください。");
+      const msg = "配信タイトルを入力してください。";
+      alertMessage("ライブ配信", msg);
+      if (Platform.OS === "web") setLastLiveError(msg);
       return;
     }
     if (Platform.OS === "web" && !localStreamRef.current) {
@@ -177,17 +181,20 @@ export default function BroadcastScreen() {
         const stream = await acquireBroadcastMediaStream();
         await bindWebPreview(stream);
       } catch {
-        Alert.alert(
-          "ライブ配信",
-          "カメラとマイクの許可が必要です。PWA の場合は設定アプリから RawStock（Safari）のカメラ・マイクをオンにしてください。",
-        );
+        const msg =
+          "カメラとマイクの許可が必要です。PWA の場合は設定アプリから RawStock（Safari）のカメラ・マイクをオンにしてください。";
+        alertMessage("ライブ配信", msg);
+        setLastLiveError(msg);
         return;
       }
     }
     if (!localStreamRef.current) {
-      Alert.alert("ライブ配信", "カメラとマイクの許可が必要です。");
+      const msg = "カメラとマイクの許可が必要です。";
+      alertMessage("ライブ配信", msg);
+      if (Platform.OS === "web") setLastLiveError(msg);
       return;
     }
+    let createdStreamId: number | null = null;
     try {
       setPhase("creating");
       const { id, whipUrl: wUrl } = await apiCreateLiveStream(title, {
@@ -197,36 +204,53 @@ export default function BroadcastScreen() {
             ? routeCommunityId
             : undefined,
       });
+      createdStreamId = id;
       setStreamId(id);
       setPhase("starting");
       const pc = await connectWHIP(wUrl, localStreamRef.current);
       pcRef.current = pc;
       await apiStartLiveStream(id);
       setPhase("live");
+      setLastLiveError(null);
     } catch (e: any) {
       console.error("GoLive error:", e);
-      Alert.alert("ライブ配信", e.message ?? "配信を開始できませんでした。ネットワークとマイク・カメラを確認してください。");
+      if (pcRef.current) {
+        pcRef.current.close();
+        pcRef.current = null;
+      }
+      if (createdStreamId != null) {
+        try {
+          await apiEndLiveStream(createdStreamId);
+        } catch {
+          /* 作成直後の失敗時は end が効かない場合もある */
+        }
+      }
+      setStreamId(null);
+      const errText =
+        e?.message ?? "配信を開始できませんでした。ネットワークとマイク・カメラを確認してください。";
+      alertMessage("ライブ配信", errText);
+      if (Platform.OS === "web") setLastLiveError(errText);
       setPhase("ready");
     }
   };
 
   const handleStop = () => {
-    Alert.alert("配信を終了", "ライブ配信を終了しますか？", [
-      { text: "キャンセル", style: "cancel" },
-      {
-        text: "終了",
-        style: "destructive",
-        onPress: async () => {
-          setPhase("stopping");
-          try {
-            if (streamId) await apiEndLiveStream(streamId);
-          } catch {}
-          cleanup();
-          setPhase("idle");
-          router.back();
-        },
+    alertDestructiveConfirm(
+      "配信を終了",
+      "ライブ配信を終了しますか？",
+      async () => {
+        setPhase("stopping");
+        try {
+          if (streamId) await apiEndLiveStream(streamId);
+        } catch {
+          /* ignore */
+        }
+        cleanup();
+        setPhase("idle");
+        router.back();
       },
-    ]);
+      { confirmLabel: "終了", cancelLabel: "キャンセル" },
+    );
   };
 
   const formatTime = (s: number) => {
@@ -399,22 +423,29 @@ export default function BroadcastScreen() {
             </Pressable>
           </View>
         ) : (
-          <Pressable
-            style={[styles.goLiveBtn, goLiveDisabled && styles.goLiveBtnDisabled]}
-            onPress={handleGoLive}
-            disabled={goLiveDisabled}
-          >
-            {isLoading ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <>
-                <View style={styles.goLiveDot} />
-                <Text style={styles.goLiveBtnText}>
-                  {nativeWhipBlocked ? "配信は PWA / ブラウザで" : webNeedsCameraTap && !localStreamRef.current ? "先にカメラを許可" : "配信開始"}
-                </Text>
-              </>
-            )}
-          </Pressable>
+          <>
+            <Pressable
+              style={[styles.goLiveBtn, goLiveDisabled && styles.goLiveBtnDisabled]}
+              onPress={handleGoLive}
+              disabled={goLiveDisabled}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <>
+                  <View style={styles.goLiveDot} />
+                  <Text style={styles.goLiveBtnText}>
+                    {nativeWhipBlocked ? "配信は PWA / ブラウザで" : webNeedsCameraTap && !localStreamRef.current ? "先にカメラを許可" : "配信開始"}
+                  </Text>
+                </>
+              )}
+            </Pressable>
+            {Platform.OS === "web" && lastLiveError ? (
+              <Text style={styles.liveErrorBanner} accessibilityLiveRegion="polite">
+                {lastLiveError}
+              </Text>
+            ) : null}
+          </>
         )}
       </View>
     </View>
@@ -548,6 +579,13 @@ const styles = StyleSheet.create({
   goLiveBtnDisabled: { opacity: 0.5 },
   goLiveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#fff" },
   goLiveBtnText: { color: "#fff", fontSize: 16, fontWeight: "800", letterSpacing: 0.5 },
+  liveErrorBanner: {
+    marginTop: 10,
+    color: "#ff8a80",
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: "center",
+  },
   liveControls: { gap: 12 },
   statsRow: {
     flexDirection: "row",

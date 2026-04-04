@@ -28,7 +28,12 @@ export async function acquireBroadcastMediaStream(): Promise<MediaStream> {
     try {
       return await nav.mediaDevices.getUserMedia(primary);
     } catch {
-      return await nav.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: true });
+      try {
+        return await nav.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: true });
+      } catch {
+        /* マイクのみ拒否の端末向け（映像のみ配信） */
+        return await nav.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+      }
     }
   }
   throw new NativeBroadcastStreamError();
