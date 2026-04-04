@@ -69,3 +69,16 @@ export function parseTagsQueryParam(q: unknown): string[] {
   }
   return normalizeEditorStyleTagSlugs(parts);
 }
+
+/** Comma-separated genre labels from search UI; lowercased for substring match against `videoEditors.genres`. */
+export function parseGenresQueryParam(q: unknown): string[] {
+  if (q == null) return [];
+  const parts: string[] = [];
+  if (Array.isArray(q)) {
+    for (const x of q) parts.push(...String(x).split(","));
+  } else {
+    parts.push(...String(q).split(","));
+  }
+  const out = parts.map((p) => p.trim().toLowerCase()).filter(Boolean);
+  return [...new Set(out)];
+}

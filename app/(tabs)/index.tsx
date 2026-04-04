@@ -382,7 +382,7 @@ export default function HomeScreen() {
             <Text style={styles.creatorBannerSub}>Earn 90% of every sale. Your raw content, professionally packaged.</Text>
           </View>
           <View style={styles.creatorBannerBtns}>
-            <Pressable style={styles.creatorBtnPrimary} onPress={() => router.push("/editing-request" as any)}>
+            <Pressable style={styles.creatorBtnPrimary} onPress={() => router.push("/find-editor" as any)}>
               <Text style={styles.creatorBtnPrimaryText}>Hire a Creator</Text>
             </Pressable>
             <Pressable style={styles.creatorBtnSecondary} onPress={() => router.push("/ai-edit" as any)}>

@@ -602,6 +602,8 @@ var transactions = pgTable("transactions", {
 });
 var videoEditors = pgTable("video_editors", {
   id: serial("id").primaryKey(),
+  /** 登録ユーザー（NULL = シード等の匿名行） */
+  userId: integer("user_id").unique(),
   name: text("name").notNull(),
   avatar: text("avatar"),
   bio: text("bio").notNull().default(""),
@@ -918,6 +920,17 @@ function parseTagsQueryParam(q) {
     parts.push(...String(q).split(","));
   }
   return normalizeEditorStyleTagSlugs(parts);
+}
+function parseGenresQueryParam(q) {
+  if (q == null) return [];
+  const parts = [];
+  if (Array.isArray(q)) {
+    for (const x of q) parts.push(...String(x).split(","));
+  } else {
+    parts.push(...String(q).split(","));
+  }
+  const out = parts.map((p) => p.trim().toLowerCase()).filter(Boolean);
+  return [...new Set(out)];
 }
 
 // server/stripeClient.local.ts
@@ -3491,12 +3504,27 @@ async function registerRoutes(app2) {
         );
       }
     }
+    const maxDelRaw = req.query.maxDeliveryDays;
+    const maxDelStr = Array.isArray(maxDelRaw) ? maxDelRaw[0] : maxDelRaw;
+    if (maxDelStr !== void 0 && String(maxDelStr).trim() !== "") {
+      const maxD = parseInt(String(maxDelStr), 10);
+      if (!Number.isNaN(maxD) && maxD > 0) {
+        filters.push(lte2(videoEditors.deliveryDays, maxD));
+      }
+    }
     const tagList = parseTagsQueryParam(req.query.tags);
     if (tagList.length > 0) {
       const arrayLit = "ARRAY[" + tagList.map((t) => "'" + t.replace(/'/g, "''") + "'").join(",") + "]::text[]";
       filters.push(sql3`${videoEditors.styleTags} && ${sql3.raw(arrayLit)}`);
     }
     let rows = filters.length > 0 ? await db.select().from(videoEditors).where(and2(...filters)) : await db.select().from(videoEditors);
+    const genreTerms = parseGenresQueryParam(req.query.genres);
+    if (genreTerms.length > 0) {
+      rows = rows.filter((e) => {
+        const hay = (e.genres ?? "").toLowerCase();
+        return genreTerms.some((t) => hay.includes(t));
+      });
+    }
     if (sort === "delivery") {
       rows = rows.sort((a, b) => a.deliveryDays - b.deliveryDays);
     } else if (sort === "price") {
@@ -3509,6 +3537,12 @@ async function registerRoutes(app2) {
       rows = rows.sort((a, b) => b.rating - a.rating);
     }
     res.json(rows);
+  });
+  app2.get("/api/editors/me", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const [row] = await db.select().from(videoEditors).where(eq2(videoEditors.userId, user.id)).limit(1);
+    return res.json(row ?? null);
   });
   app2.get("/api/editors/:id", async (req, res) => {
     const id = paramNum(req, "id");
@@ -3555,6 +3589,86 @@ async function registerRoutes(app2) {
       timeAgo: "\u305F\u3063\u305F\u4ECA"
     });
     res.status(201).json(requestRow);
+  });
+  app2.post("/api/editors", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const taken = await db.select().from(videoEditors).where(eq2(videoEditors.userId, user.id)).limit(1);
+    if (taken.length > 0) {
+      return res.status(409).json({ error: "\u65E2\u306B\u52D5\u753B\u7DE8\u96C6\u8005\u3068\u3057\u3066\u767B\u9332\u6E08\u307F\u3067\u3059" });
+    }
+    const body = req.body;
+    const communityId = body.communityId;
+    if (communityId == null || !Number.isFinite(communityId)) {
+      return res.status(400).json({ error: "communityId \u304C\u5FC5\u8981\u3067\u3059" });
+    }
+    const [comm] = await db.select({ id: communities.id }).from(communities).where(eq2(communities.id, communityId));
+    if (!comm) return res.status(400).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    const pricingRow = {
+      priceType: String(body.priceType ?? ""),
+      pricePerMinute: body.pricePerMinute ?? null,
+      revenueSharePercent: body.revenueSharePercent ?? null
+    };
+    const pv = validateEditorPricing(pricingRow);
+    if (!pv.ok) return res.status(400).json({ error: pv.error });
+    const styleTags = normalizeEditorStyleTagSlugs(
+      Array.isArray(body.styleTags) ? body.styleTags.map((x) => String(x)) : []
+    );
+    const [u] = await db.select().from(users).where(eq2(users.id, user.id));
+    if (!u) return res.status(404).json({ error: "User not found" });
+    const deliveryDays = typeof body.deliveryDays === "number" && body.deliveryDays > 0 ? Math.min(90, Math.floor(body.deliveryDays)) : 3;
+    const [created] = await db.insert(videoEditors).values({
+      userId: user.id,
+      name: u.displayName,
+      avatar: u.profileImageUrl ?? null,
+      bio: (body.bio ?? "").trim(),
+      communityId,
+      genres: (body.genres ?? "").trim(),
+      deliveryDays,
+      priceType: pricingRow.priceType,
+      pricePerMinute: pricingRow.pricePerMinute,
+      revenueSharePercent: pricingRow.revenueSharePercent,
+      styleTags
+    }).returning();
+    return res.status(201).json(created);
+  });
+  app2.put("/api/editors/:id", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const id = paramNum(req, "id");
+    const [editor] = await db.select().from(videoEditors).where(eq2(videoEditors.id, id));
+    if (!editor) return res.status(404).json({ error: "Not found" });
+    if (editor.userId !== user.id) return res.status(403).json({ error: "\u7DE8\u96C6\u3067\u304D\u307E\u305B\u3093" });
+    const body = req.body;
+    const communityId = body.communityId ?? editor.communityId;
+    const [comm] = await db.select({ id: communities.id }).from(communities).where(eq2(communities.id, communityId));
+    if (!comm) return res.status(400).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    const pricingRow = {
+      priceType: String(body.priceType ?? editor.priceType),
+      pricePerMinute: body.pricePerMinute !== void 0 ? body.pricePerMinute : editor.pricePerMinute,
+      revenueSharePercent: body.revenueSharePercent !== void 0 ? body.revenueSharePercent : editor.revenueSharePercent
+    };
+    const pv = validateEditorPricing(pricingRow);
+    if (!pv.ok) return res.status(400).json({ error: pv.error });
+    let styleTags = Array.isArray(editor.styleTags) ? [...editor.styleTags] : [];
+    if (body.styleTags !== void 0) {
+      styleTags = normalizeEditorStyleTagSlugs(
+        Array.isArray(body.styleTags) ? body.styleTags.map((x) => String(x)) : []
+      );
+    }
+    const deliveryDays = typeof body.deliveryDays === "number" && body.deliveryDays > 0 ? Math.min(90, Math.floor(body.deliveryDays)) : editor.deliveryDays;
+    await db.update(videoEditors).set({
+      bio: body.bio !== void 0 ? String(body.bio).trim() : editor.bio,
+      genres: body.genres !== void 0 ? String(body.genres).trim() : editor.genres,
+      deliveryDays,
+      communityId,
+      priceType: pricingRow.priceType,
+      pricePerMinute: pricingRow.pricePerMinute,
+      revenueSharePercent: pricingRow.revenueSharePercent,
+      styleTags
+    }).where(eq2(videoEditors.id, id));
+    const [updated] = await db.select().from(videoEditors).where(eq2(videoEditors.id, id));
+    return res.json(updated);
   });
   app2.post("/api/communities", async (req, res) => {
     const user = await getAuthUser(req);
@@ -6157,7 +6271,7 @@ data: ${data}
           avatar: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150&h=150&fit=crop",
           bio: "\u30C6\u30ED\u30C3\u30D7\u30FB\u30AB\u30C3\u30C8\u30FB\u30B5\u30E0\u30CD\u307E\u3067\u30EF\u30F3\u30B9\u30C8\u30C3\u30D7\u3067\u5BFE\u5FDC\u3059\u308B\u52D5\u753B\u7DE8\u96C6\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC\u3002",
           communityId: defaultCommunityId,
-          genres: "YouTube,\u30D0\u30E9\u30A8\u30C6\u30A3,\u30B2\u30FC\u30E0",
+          genres: "YouTube,Variety,Gaming",
           deliveryDays: 3,
           priceType: "per_minute",
           pricePerMinute: 150,
@@ -6172,7 +6286,7 @@ data: ${data}
           avatar: "https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=150&h=150&fit=crop",
           bio: "\u6620\u753B\u98A8\u306E\u30B7\u30CD\u30DE\u30C6\u30A3\u30C3\u30AF\u306AMV\u5236\u4F5C\u304C\u5F97\u610F\u3067\u3059\u3002",
           communityId: defaultCommunityId,
-          genres: "MV,\u30A2\u30FC\u30C6\u30A3\u30B9\u30C8,\u30B7\u30CD\u30DE\u30C6\u30A3\u30C3\u30AF",
+          genres: "MV,Artist,Cinematic",
           deliveryDays: 7,
           priceType: "revenue_share",
           pricePerMinute: null,
@@ -6187,7 +6301,7 @@ data: ${data}
           avatar: "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=150&h=150&fit=crop",
           bio: "TikTok\u30FBYouTube\u30B7\u30E7\u30FC\u30C8\u306E\u4F38\u3073\u308B\u69CB\u6210\u3092\u63D0\u6848\u3057\u307E\u3059\u3002",
           communityId: defaultCommunityId,
-          genres: "\u30B7\u30E7\u30FC\u30C8\u52D5\u753B,\u7E26\u578B,SNS\u904B\u7528",
+          genres: "Short Video,Vertical,Social Media",
           deliveryDays: 2,
           priceType: "per_minute",
           pricePerMinute: 200,
@@ -6202,7 +6316,7 @@ data: ${data}
           avatar: "https://images.unsplash.com/photo-1533236897111-3e94666b2dde?w=150&h=150&fit=crop",
           bio: "APEX/VALORANT\u306A\u3069FPS\u7CFB\u5B9F\u6CC1\u306E\u7DE8\u96C6\u304C\u4E2D\u5FC3\u3067\u3059\u3002",
           communityId: defaultCommunityId,
-          genres: "\u30B2\u30FC\u30E0\u5B9F\u6CC1,FPS,\u5207\u308A\u629C\u304D",
+          genres: "Gaming,Highlights",
           deliveryDays: 4,
           priceType: "per_minute",
           pricePerMinute: 120,
@@ -6217,7 +6331,7 @@ data: ${data}
           avatar: "https://images.unsplash.com/photo-1525134479668-1bee5c7c6845?w=150&h=150&fit=crop",
           bio: "\u30D3\u30B8\u30CD\u30B9\u30FB\u6559\u80B2\u7CFB\u306E\u5206\u304B\u308A\u3084\u3059\u3044\u56F3\u89E3\u52D5\u753B\u3092\u5236\u4F5C\u3057\u307E\u3059\u3002",
           communityId: defaultCommunityId,
-          genres: "\u30D3\u30B8\u30CD\u30B9,\u6559\u80B2,\u30BB\u30DF\u30CA\u30FC",
+          genres: "Business,Education,Seminar",
           deliveryDays: 5,
           priceType: "revenue_share",
           pricePerMinute: null,
@@ -6244,7 +6358,7 @@ data: ${data}
           avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop",
           bio: "\u5206\u5358\u4FA1\u3067\u3082\u30EC\u30D9\u30CB\u30E5\u30FC\u30B7\u30A7\u30A2\u3067\u3082\u3054\u76F8\u8AC7\u306B\u5FDC\u3058\u307E\u3059\u3002MV\u30FB\u30E9\u30A4\u30D6\u5207\u308A\u629C\u304D\u4E21\u65B9\u5BFE\u5FDC\u3002",
           communityId: defaultCommunityId,
-          genres: "MV,\u30E9\u30A4\u30D6,\u30B7\u30E7\u30FC\u30C8",
+          genres: "MV,Highlights,Short Video",
           deliveryDays: 4,
           priceType: "both",
           pricePerMinute: 180,
@@ -6259,7 +6373,7 @@ data: ${data}
           avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop",
           bio: "\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC\u53D6\u308A\u5206\u91CD\u8996\u306E\u6848\u4EF6\u3082\u3001\u56FA\u5B9A\u30EC\u30FC\u30C8\u3082\u67D4\u8EDF\u306B\u3002\u30B2\u30FC\u30E0\u30FB\u97F3\u697D\u5E45\u5E83\u304F\u3002",
           communityId: defaultCommunityId,
-          genres: "\u30B2\u30FC\u30E0,\u97F3\u697D,\u30D0\u30E9\u30A8\u30C6\u30A3",
+          genres: "Gaming,Artist,Variety",
           deliveryDays: 3,
           priceType: "both",
           pricePerMinute: 140,

@@ -10,7 +10,7 @@ import {
   Alert,
   ActivityIndicator,
 } from "react-native";
-import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
+import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -68,8 +68,8 @@ export default function EditingRequestScreen() {
       });
       Alert.alert(
         "Request Submitted! 🎉",
-        `${EDITING_FEE} 🎟 have been deducted.\n\nOur editors will begin work on your footage. You'll receive 90% of all revenue generated from the edited content.`,
-        [{ text: "View My Requests", onPress: () => router.back() }]
+        `${EDITING_FEE} 🎟 have been deducted.\n\nOur team will review your submission.`,
+        [{ text: "OK", onPress: () => router.back() }]
       );
     } catch (e: any) {
       const err = e?.body ?? e ?? {};
@@ -89,7 +89,7 @@ export default function EditingRequestScreen() {
         <Pressable style={styles.backBtn} onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={22} color={C.text} />
         </Pressable>
-        <Text style={styles.headerTitle}>Editing Request</Text>
+        <Text style={styles.headerTitle}>Platform queue</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -100,27 +100,9 @@ export default function EditingRequestScreen() {
         keyboardShouldPersistTaps="handled"
       >
 
-        {/* Hero */}
-        <View style={styles.hero}>
-          <Text style={styles.heroTitle}>Turn Your Raw Passion{"\n"}into Global Assets.</Text>
-          <Text style={styles.heroSub}>Professional editing for your live footage. You keep 90% of the revenue.</Text>
-        </View>
-
-        {/* Revenue breakdown */}
-        <View style={styles.revenueCard}>
-          {[
-            { label: "You (Creator)", pct: "90%", color: C.green },
-            { label: "RawStock Platform", pct: "10%", color: C.accent },
-          ].map((r) => (
-            <View key={r.label} style={styles.revenueRow}>
-              <View style={[styles.revenueDot, { backgroundColor: r.color }]} />
-              <Text style={styles.revenueLabel}>{r.label}</Text>
-              <Text style={[styles.revenuePct, { color: r.color }]}>{r.pct}</Text>
-            </View>
-          ))}
-          <View style={styles.revenueDivider} />
-          <Text style={styles.revenueNote}>Revenue is distributed automatically when your edited content earns.</Text>
-        </View>
+        <Text style={styles.intro}>
+          Submit footage details for the platform editing queue. To pick a specific editor, use Find an editor from the home banner.
+        </Text>
 
         {/* Fee banner */}
         <View style={styles.feeRow}>
@@ -217,28 +199,14 @@ const styles = StyleSheet.create({
   backBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
   headerTitle: { flex: 1, textAlign: "center", color: C.text, fontSize: 16, fontWeight: "700" },
   scroll: { flex: 1 },
-  hero: {
-    margin: 16,
-    marginBottom: 12,
-  },
-  heroTitle: { color: C.text, fontSize: 22, fontWeight: "800", lineHeight: 30, marginBottom: 6 },
-  heroSub: { color: C.textSec, fontSize: 14, lineHeight: 20 },
-  revenueCard: {
+  intro: {
     marginHorizontal: 16,
-    marginBottom: 12,
-    backgroundColor: C.surface,
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: C.border,
-    gap: 10,
+    marginTop: 16,
+    marginBottom: 4,
+    color: C.textSec,
+    fontSize: 13,
+    lineHeight: 19,
   },
-  revenueRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  revenueDot: { width: 10, height: 10, borderRadius: 5 },
-  revenueLabel: { flex: 1, color: C.text, fontSize: 13, fontWeight: "600" },
-  revenuePct: { fontSize: 18, fontWeight: "800" },
-  revenueDivider: { height: 1, backgroundColor: C.border },
-  revenueNote: { color: C.textMuted, fontSize: 11, lineHeight: 16 },
   feeRow: {
     flexDirection: "row",
     alignItems: "center",

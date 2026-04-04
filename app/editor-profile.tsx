@@ -18,8 +18,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
 import { PRICE_PER_TICKET_USD } from "@/constants/tickets";
-import { apiRequest } from "@/lib/query-client";
+import { apiRequest, getQueryFn } from "@/lib/query-client";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
+import {
+  EDITOR_DELIVERY_PRESETS,
+  EDITOR_GENRE_OPTIONS,
+  EDITOR_STYLE_TAG_OPTIONS,
+} from "@/constants/video-editor-profile";
 
 type Community = {
   id: number;
@@ -40,17 +45,12 @@ type EditorProfile = {
   revenueSharePercent: number | null;
   communityId: number;
   isAvailable: boolean;
+  styleTags?: string[] | null;
 };
-
-const GENRE_OPTIONS = [
-  "YouTube", "Short Video", "MV", "Gaming", "Variety",
-  "Business", "Education", "Artist", "Cinematic", "Anime",
-  "Vlog", "Vertical", "Social Media", "Highlights", "Seminar",
-];
 
 export default function EditorProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { user, token } = useAuth();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
 
   const [bio, setBio] = useState("");
@@ -60,11 +60,13 @@ export default function EditorProfileScreen() {
   const [pricePerMinute, setPricePerMinute] = useState("");
   const [revenueSharePercent, setRevenueSharePercent] = useState("");
   const [communityId, setCommunityId] = useState<number | null>(null);
+  const [selectedStyleSlugs, setSelectedStyleSlugs] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
   const { data: myEditor, isLoading: editorLoading } = useQuery<EditorProfile | null>({
     queryKey: ["/api/editors/me"],
     enabled: !!user,
+    queryFn: getQueryFn({ on401: "returnNull" }),
   });
 
   const { data: communities = [] } = useQuery<Community[]>({
@@ -82,12 +84,21 @@ export default function EditorProfileScreen() {
       setPricePerMinute(myEditor.pricePerMinute != null ? String(myEditor.pricePerMinute) : "");
       setRevenueSharePercent(myEditor.revenueSharePercent != null ? String(myEditor.revenueSharePercent) : "");
       setCommunityId(myEditor.communityId ?? null);
+      setSelectedStyleSlugs(
+        Array.isArray(myEditor.styleTags) ? [...myEditor.styleTags] : []
+      );
     }
   }, [myEditor]);
 
   function toggleGenre(genre: string) {
     setSelectedGenres((prev) =>
       prev.includes(genre) ? prev.filter((g) => g !== genre) : [...prev, genre]
+    );
+  }
+
+  function toggleStyleSlug(slug: string) {
+    setSelectedStyleSlugs((prev) =>
+      prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug]
     );
   }
 
@@ -117,6 +128,7 @@ export default function EditorProfileScreen() {
       pricePerMinute: priceType === "per_minute" ? (parseInt(pricePerMinute, 10) || null) : null,
       revenueSharePercent: priceType === "revenue_share" ? (parseInt(revenueSharePercent, 10) || null) : null,
       communityId,
+      styleTags: selectedStyleSlugs,
     };
 
     setSaving(true);
@@ -186,7 +198,7 @@ export default function EditorProfileScreen() {
           <Text style={styles.label}>Genres</Text>
           <Text style={styles.sublabel}>Select all that apply</Text>
           <View style={styles.genreGrid}>
-            {GENRE_OPTIONS.map((genre) => {
+            {EDITOR_GENRE_OPTIONS.map((genre) => {
               const active = selectedGenres.includes(genre);
               return (
                 <Pressable
@@ -203,11 +215,33 @@ export default function EditorProfileScreen() {
           </View>
         </View>
 
+        {/* Style tags */}
+        <View style={styles.section}>
+          <Text style={styles.label}>Style tags</Text>
+          <Text style={styles.sublabel}>Optional — helps creators find your look</Text>
+          <View style={styles.genreGrid}>
+            {EDITOR_STYLE_TAG_OPTIONS.map(({ label, slug }) => {
+              const active = selectedStyleSlugs.includes(slug);
+              return (
+                <Pressable
+                  key={slug}
+                  style={[styles.genreChip, active && styles.genreChipActive]}
+                  onPress={() => toggleStyleSlug(slug)}
+                >
+                  <Text style={[styles.genreChipText, active && styles.genreChipTextActive]}>
+                    {label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
         {/* Delivery Days */}
         <View style={styles.section}>
           <Text style={styles.label}>Standard Delivery (days)</Text>
           <View style={styles.row}>
-            {["1", "2", "3", "5", "7", "14"].map((d) => (
+            {EDITOR_DELIVERY_PRESETS.map((d) => (
               <Pressable
                 key={d}
                 style={[styles.dayChip, deliveryDays === d && styles.dayChipActive]}
