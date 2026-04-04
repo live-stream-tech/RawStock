@@ -487,12 +487,8 @@ export default function HomeScreen() {
         </HorizontalScroll>
 
         <View style={styles.footerLinks}>
-          <Pressable onPress={() => router.push("/terms" as any)}>
-            <Text style={styles.footerLinkText}>Terms</Text>
-          </Pressable>
-          <Text style={styles.footerLinkSeparator}>•</Text>
-          <Pressable onPress={() => router.push("/privacy" as any)}>
-            <Text style={styles.footerLinkText}>Privacy Policy</Text>
+          <Pressable onPress={() => router.push("/legal" as any)}>
+            <Text style={styles.footerLinkText}>Legal & Policies</Text>
           </Pressable>
         </View>
 
@@ -738,7 +734,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
     marginTop: 22,
     opacity: 0.75,
   },

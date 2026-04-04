@@ -59,7 +59,10 @@ export default function SettingsScreen() {
   const { user, logout } = useAuth();
 
   async function handleDeleteAccount() {
-    const msg = "Deleting your account will permanently erase all your data. Please delete any communities you manage first.";
+    const msg =
+      "Deleting your account starts erasure of your personal data in line with our Privacy Policy.\n\n" +
+      "You cannot delete while you own a community—transfer ownership or delete those communities first.\n\n" +
+      "Some data may be retained longer where required by law (for example tax or fraud prevention), for disputes, or in rolling backups, as described in the Privacy Policy.";
     const doDelete = async () => {
       try {
         await apiRequest("DELETE", "/api/auth/account");
@@ -190,21 +193,10 @@ export default function SettingsScreen() {
           />
           <View style={styles.rowDivider} />
           <SettingRow
-            icon="document-text-outline"
-            label="Terms of Use"
-            onPress={() => router.push("/terms")}
-          />
-          <View style={styles.rowDivider} />
-          <SettingRow
-            icon="shield-outline"
-            label="Privacy Policy"
-            onPress={() => router.push("/privacy")}
-          />
-          <View style={styles.rowDivider} />
-          <SettingRow
-            icon="document-text-outline"
-            label="Legal Notice"
-            onPress={() => router.push("/legal-notice")}
+            icon="library-outline"
+            label="Legal & Policies"
+            sublabel="Terms, Privacy, DMCA, Guidelines, notices"
+            onPress={() => router.push("/legal")}
           />
           {user?.role === "ADMIN" && (
             <>

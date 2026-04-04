@@ -69,6 +69,11 @@ export default function AuthCallbackScreen() {
           returnTo.startsWith("/rawstock-lp") ||
           returnTo.startsWith("/terms") ||
           returnTo.startsWith("/privacy") ||
+          returnTo.startsWith("/dmca") ||
+          returnTo.startsWith("/community-guidelines") ||
+          returnTo === "/legal" ||
+          returnTo.startsWith("/legal?") ||
+          returnTo.startsWith("/legal-notice") ||
           returnTo.startsWith("/tokusho");
         if (isInvalidReturn) returnTo = "/(tabs)/profile";
         router.replace(returnTo as any);

@@ -512,16 +512,8 @@ export default function ProfileScreen() {
             }
           </Pressable>
           <View style={styles.guestLegalLinks}>
-            <Pressable onPress={() => router.push("/terms")}>
-              <Text style={styles.guestLegalLinkText}>Terms</Text>
-            </Pressable>
-            <Text style={styles.guestLegalSeparator}>|</Text>
-            <Pressable onPress={() => router.push("/privacy")}>
-              <Text style={styles.guestLegalLinkText}>Privacy Policy</Text>
-            </Pressable>
-            <Text style={styles.guestLegalSeparator}>|</Text>
-            <Pressable onPress={() => router.push("/tokusho")}>
-              <Text style={styles.guestLegalLinkText}>Legal Notice</Text>
+            <Pressable onPress={() => router.push("/legal")}>
+              <Text style={styles.guestLegalLinkText}>Legal & Policies</Text>
             </Pressable>
           </View>
         </View>

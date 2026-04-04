@@ -566,6 +566,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         } catch {}
       }
     }
+    const payoutTermsAt = (user as { payoutTermsAgreedAt?: Date | null }).payoutTermsAgreedAt;
     res.json({
       id: user.id,
       name: user.displayName,
@@ -575,6 +576,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       role: user.role,
       bio: user.bio,
       stripeConnectId: user.stripeConnectId ?? null,
+      payoutTermsAgreedAt: payoutTermsAt ? new Date(payoutTermsAt).toISOString() : null,
       spotifyUrl: (user as any).spotifyUrl ?? null,
       appleMusicUrl: (user as any).appleMusicUrl ?? null,
       bandcampUrl: (user as any).bandcampUrl ?? null,
@@ -588,9 +590,31 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   // ── Stripe Connect（出金先連携）────────────────────────────────────────
+  app.post("/api/connect/payout-terms-agree", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "未認証です" });
+    const now = new Date();
+    await db
+      .update(users)
+      .set({ payoutTermsAgreedAt: now, updatedAt: now } as Partial<typeof users.$inferInsert>)
+      .where(eq(users.id, user.id));
+    res.json({ ok: true, payoutTermsAgreedAt: now.toISOString() });
+  });
+
   app.post("/api/connect/onboard", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "未認証です" });
+
+    const [ptRow] = await db
+      .select({ payoutTermsAgreedAt: users.payoutTermsAgreedAt })
+      .from(users)
+      .where(eq(users.id, user.id));
+    if (!ptRow?.payoutTermsAgreedAt) {
+      return res.status(400).json({
+        error:
+          "クリエイター向け払い出し条項に同意してください。Payout Settings で内容を確認し、同意のうえ Stripe を連携してください。",
+      });
+    }
 
     try {
       const baseUrl = "https://rawstock.live";
@@ -840,6 +864,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         if (Array.isArray(p)) outPinned = p;
       } catch {}
     }
+    const payoutTermsOut = (updated as { payoutTermsAgreedAt?: Date | null }).payoutTermsAgreedAt;
     res.json({
       id: updated.id,
       name: updated.displayName,
@@ -848,6 +873,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       avatar: updated.profileImageUrl,
       role: updated.role,
       bio: updated.bio,
+      payoutTermsAgreedAt: payoutTermsOut ? new Date(payoutTermsOut).toISOString() : null,
       spotifyUrl: updated.spotifyUrl ?? null,
       appleMusicUrl: updated.appleMusicUrl ?? null,
       bandcampUrl: updated.bandcampUrl ?? null,

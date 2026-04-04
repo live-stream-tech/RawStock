@@ -43,6 +43,23 @@ export default function PayoutSettingsScreen() {
   } | null>(null);
   const [connectLoading, setConnectLoading] = useState(false);
   const [connectLinking, setConnectLinking] = useState(false);
+  const [payoutTermsAgreed, setPayoutTermsAgreed] = useState(false);
+  const [ackCreatorPayoutTerms, setAckCreatorPayoutTerms] = useState(false);
+
+  const fetchPayoutTermsStatus = useCallback(async () => {
+    if (!token) return;
+    try {
+      const base = getApiUrl();
+      const res = await fetch(new URL("/api/auth/me", base).toString(), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setPayoutTermsAgreed(!!data.payoutTermsAgreedAt);
+    } catch {
+      /* ignore */
+    }
+  }, [token]);
 
   const fetchConnectStatus = useCallback(async () => {
     if (!token) return;
@@ -64,16 +81,42 @@ export default function PayoutSettingsScreen() {
 
   useEffect(() => {
     fetchConnectStatus();
-  }, [fetchConnectStatus]);
+    fetchPayoutTermsStatus();
+  }, [fetchConnectStatus, fetchPayoutTermsStatus]);
 
   useEffect(() => {
     if (params.connect === "return" || params.connect === "refresh") {
       fetchConnectStatus();
+      fetchPayoutTermsStatus();
     }
-  }, [params.connect, fetchConnectStatus]);
+  }, [params.connect, fetchConnectStatus, fetchPayoutTermsStatus]);
 
   async function handleStripeConnect() {
     if (!token) return;
+    if (!payoutTermsAgreed) {
+      if (!ackCreatorPayoutTerms) {
+        Alert.alert(
+          "Agreement required",
+          "Please read the creator payout summary and check the box before linking Stripe.",
+        );
+        return;
+      }
+      try {
+        const base = getApiUrl();
+        const agreeRes = await fetch(new URL("/api/connect/payout-terms-agree", base).toString(), {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const agreeData = await agreeRes.json().catch(() => ({}));
+        if (!agreeRes.ok) {
+          throw new Error(agreeData.error ?? "Failed to record agreement");
+        }
+        setPayoutTermsAgreed(true);
+      } catch (e: any) {
+        Alert.alert("Error", e.message ?? "Could not save agreement");
+        return;
+      }
+    }
     setConnectLinking(true);
     try {
       const base = getApiUrl();
@@ -147,13 +190,49 @@ export default function PayoutSettingsScreen() {
             </View>
           ) : (
             <>
+              {!payoutTermsAgreed ? (
+                <View style={styles.payoutTermsBox}>
+                  <Text style={styles.payoutTermsTitle}>Creator payout & taxes</Text>
+                  <Text style={styles.securityText}>
+                    By receiving payouts you agree to the revenue share and rules in our Terms of Service (Section 8).
+                    You are responsible for your own taxes, invoices, and filings (e.g., in Japan: withholding,
+                    qualified invoice registration, and final tax return as applicable). Stripe will also ask you to accept
+                    the Stripe Connected Account Agreement and related terms.
+                  </Text>
+                  <Pressable
+                    style={styles.checkboxRow}
+                    onPress={() => setAckCreatorPayoutTerms((v) => !v)}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: ackCreatorPayoutTerms }}
+                  >
+                    <Ionicons
+                      name={ackCreatorPayoutTerms ? "checkbox" : "square-outline"}
+                      size={22}
+                      color={ackCreatorPayoutTerms ? C.accent : C.textMuted}
+                    />
+                    <Text style={styles.checkboxLabel}>
+                      I have read the above and the{" "}
+                      <Text style={styles.inlineLink} onPress={() => router.push("/terms")}>
+                        Terms of Service
+                      </Text>{" "}
+                      (including creator payouts).
+                    </Text>
+                  </Pressable>
+                  <Pressable onPress={() => Linking.openURL("https://stripe.com/legal")}>
+                    <Text style={styles.stripeLegalLink}>Stripe legal &amp; connected accounts</Text>
+                  </Pressable>
+                </View>
+              ) : null}
               <Text style={styles.securityText}>
                 Stripe bank linking is required to accept paid sessions. Payments go directly to your account via Stripe; RawStock only takes a fee (compliant with payment regulations).
               </Text>
               <Pressable
-                style={[styles.stripeConnectBtn, connectLinking && { opacity: 0.6 }]}
+                style={[
+                  styles.stripeConnectBtn,
+                  (connectLinking || (!payoutTermsAgreed && !ackCreatorPayoutTerms)) && { opacity: 0.6 },
+                ]}
                 onPress={handleStripeConnect}
-                disabled={connectLinking}
+                disabled={connectLinking || (!payoutTermsAgreed && !ackCreatorPayoutTerms)}
               >
                 {connectLinking ? (
                   <ActivityIndicator color="#fff" size="small" />
@@ -369,4 +448,17 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   revenueLinkText: { fontSize: 13, color: C.accent },
+  payoutTermsBox: {
+    marginBottom: 14,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  payoutTermsTitle: { fontSize: 13, fontWeight: "700", color: C.text, marginBottom: 8 },
+  checkboxRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginTop: 10 },
+  checkboxLabel: { flex: 1, fontSize: 13, color: C.textSec, lineHeight: 20 },
+  inlineLink: { color: C.accent, textDecorationLine: "underline" },
+  stripeLegalLink: { fontSize: 12, color: C.accent, marginTop: 8, textDecorationLine: "underline" },
 });

@@ -493,6 +493,9 @@ export const users = pgTable("users", {
   phoneVerifiedAt: timestamp("phone_verified_at"),
   /** Stripe Connect 連結アカウントID（Express/Custom）。連携済みなら設定される */
   stripeConnectId: text("stripe_connect_id"),
+  // migrations/0012_users_payout_terms_agreed_at.sql
+  /** クリエイター払い出し条項への同意日時（初回 Stripe Connect 前に記録） */
+  payoutTermsAgreedAt: timestamp("payout_terms_agreed_at"),
   /** Google OAuth（YouTube プレイリスト用）。Googleログインユーザーのみ */
   googleRefreshToken: text("google_refresh_token"),
   googleAccessToken: text("google_access_token"),

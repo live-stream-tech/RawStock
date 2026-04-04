@@ -7,6 +7,8 @@ import { router } from "expo-router";
 import { C } from "@/constants/colors";
 import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 
+const CONTACT_EMAIL = "rawstock.infomation@gmail.com";
+
 export default function LegalNoticeScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
@@ -21,57 +23,76 @@ export default function LegalNoticeScreen() {
         <View style={{ width: 36 }} />
       </View>
 
-      <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical} contentContainerStyle={styles.content}>
-        <Text style={styles.sectionTitle}>Business Operator</Text>
-        <Text style={styles.body}>RawStock</Text>
+      <ScrollView
+        style={webScrollStyle(styles.scroll)}
+        showsVerticalScrollIndicator={scrollShowsVertical}
+        showsHorizontalScrollIndicator={scrollShowsHorizontal}
+        contentContainerStyle={styles.content}
+      >
+        <Text style={styles.sectionTitle}>Business operator (sole proprietor)</Text>
+        <Text style={styles.body}>Trade name: RawStock</Text>
+        <Text style={styles.body}>Name: Hiromi Kanokifu</Text>
 
-        <Text style={styles.sectionTitle}>Representative</Text>
-        <Text style={styles.body}>RawStock Operations</Text>
+        <Text style={styles.sectionTitle}>Address</Text>
+        <Text style={styles.body}>
+          Shibuya Dogenzaka Tokyu Bldg 2F-C, 1-10-8 Dogenzaka, Shibuya, Tokyo 150-0043, Japan
+        </Text>
 
         <Text style={styles.sectionTitle}>Contact</Text>
-        <Text style={styles.body}>support@rawstock.app</Text>
+        <Text style={styles.body}>{CONTACT_EMAIL}</Text>
+        <Text style={styles.bodyMuted}>
+          Phone number is not published. Please contact us by email. We aim to respond within three business days.
+        </Text>
 
-        <Text style={styles.sectionTitle}>Service Name</Text>
+        <Text style={styles.sectionTitle}>Service name</Text>
         <Text style={styles.body}>RawStock — Underground Music Marketplace</Text>
 
-        <Text style={styles.sectionTitle}>Service Description</Text>
+        <Text style={styles.sectionTitle}>Service description</Text>
         <Text style={styles.body}>
-          RawStock is a global platform connecting underground music creators and their fans. Users can purchase digital content, book live sessions, and join communities using Tickets (virtual currency).
+          RawStock connects underground music creators and fans. Users can purchase digital content, book live sessions,
+          and join communities using Tickets (virtual currency).
         </Text>
 
         <Text style={styles.sectionTitle}>Pricing</Text>
         <Text style={styles.body}>
-          Ticket prices are listed on each content or session page. Tickets are purchased with real money at the rates displayed at checkout. All prices include applicable taxes.
+          Ticket and content prices are shown on each page. Purchases are charged in the currency and amount displayed at
+          checkout, including applicable taxes where stated.
         </Text>
 
-        <Text style={styles.sectionTitle}>Payment Methods</Text>
+        <Text style={styles.sectionTitle}>Payment methods</Text>
         <Text style={styles.body}>
-          Payments are processed securely via Stripe. Accepted methods include major credit and debit cards.
+          Payments are processed securely via Stripe. Major credit and debit cards are accepted where available.
         </Text>
 
         <Text style={styles.sectionTitle}>Delivery</Text>
         <Text style={styles.body}>
-          Digital content and Tickets are delivered immediately upon successful payment. No physical delivery is required.
+          Digital content and Tickets are delivered immediately after successful payment. No physical shipment.
         </Text>
 
-        <Text style={styles.sectionTitle}>Refund Policy</Text>
+        <Text style={styles.sectionTitle}>Refund policy</Text>
         <Text style={styles.body}>
-          Due to the nature of digital content, all sales are final. Refunds are not available after purchase unless required by applicable law. If a session is cancelled by the creator, a full refund will be issued.
+          Because content is digital, sales are generally final. Refunds are not offered after purchase except where
+          required by applicable law or where a paid session is cancelled by the creator, in which case a refund will be
+          issued according to the Service rules.
         </Text>
 
-        <Text style={styles.sectionTitle}>Creator Payouts</Text>
+        <Text style={styles.sectionTitle}>Creator payouts</Text>
         <Text style={styles.body}>
-          Creators receive 90% of revenue from their content and sessions. Payouts are processed according to the schedule and terms set out in the Creator Agreement.
+          Creators ordinarily receive 90% of applicable revenue from their content and sessions, subject to Stripe fees,
+          chargebacks, and the Terms of Service. Payouts require completion of Stripe Connect onboarding and compliance
+          checks.
         </Text>
 
-        <Text style={styles.sectionTitle}>Prohibited Uses</Text>
+        <Text style={styles.sectionTitle}>Prohibited uses</Text>
         <Text style={styles.body}>
-          Users may not use RawStock for any unlawful purpose, including but not limited to distributing illegal content, fraud, or harassment.
+          Unlawful use, distribution of illegal content, fraud, harassment, or other violations described in the Terms of
+          Service are prohibited.
         </Text>
 
-        <Text style={styles.sectionTitle}>Governing Law</Text>
+        <Text style={styles.sectionTitle}>Governing law</Text>
         <Text style={styles.body}>
-          These terms are governed by and construed in accordance with applicable law. Disputes shall be resolved through binding arbitration where permitted.
+          Notices and commercial terms for the Service are governed by the laws of Japan, without prejudice to mandatory
+          consumer protections in your country of residence.
         </Text>
 
         <View style={{ height: 40 }} />
@@ -125,5 +146,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: C.text,
     lineHeight: 22,
+    marginBottom: 6,
+  },
+  bodyMuted: {
+    fontSize: 13,
+    color: C.textSec,
+    lineHeight: 20,
+    marginTop: 4,
   },
 });
