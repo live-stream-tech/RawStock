@@ -193,33 +193,10 @@ export default function SettingsScreen() {
           />
           <View style={styles.rowDivider} />
           <SettingRow
-            icon="document-text-outline"
-            label="Terms of Use"
-            onPress={() => router.push("/terms")}
-          />
-          <View style={styles.rowDivider} />
-          <SettingRow
-            icon="shield-outline"
-            label="Privacy Policy"
-            onPress={() => router.push("/privacy")}
-          />
-          <View style={styles.rowDivider} />
-          <SettingRow
-            icon="ribbon-outline"
-            label="DMCA / Copyright"
-            onPress={() => router.push("/dmca")}
-          />
-          <View style={styles.rowDivider} />
-          <SettingRow
-            icon="people-outline"
-            label="Community Guidelines"
-            onPress={() => router.push("/community-guidelines")}
-          />
-          <View style={styles.rowDivider} />
-          <SettingRow
-            icon="document-text-outline"
-            label="Legal Notice"
-            onPress={() => router.push("/legal-notice")}
+            icon="library-outline"
+            label="Legal & Policies"
+            sublabel="Terms, Privacy, DMCA, Guidelines, notices"
+            onPress={() => router.push("/legal")}
           />
           {user?.role === "ADMIN" && (
             <>

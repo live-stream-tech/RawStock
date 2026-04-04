@@ -487,20 +487,8 @@ export default function HomeScreen() {
         </HorizontalScroll>
 
         <View style={styles.footerLinks}>
-          <Pressable onPress={() => router.push("/terms" as any)}>
-            <Text style={styles.footerLinkText}>Terms</Text>
-          </Pressable>
-          <Text style={styles.footerLinkSeparator}>•</Text>
-          <Pressable onPress={() => router.push("/privacy" as any)}>
-            <Text style={styles.footerLinkText}>Privacy</Text>
-          </Pressable>
-          <Text style={styles.footerLinkSeparator}>•</Text>
-          <Pressable onPress={() => router.push("/dmca" as any)}>
-            <Text style={styles.footerLinkText}>DMCA</Text>
-          </Pressable>
-          <Text style={styles.footerLinkSeparator}>•</Text>
-          <Pressable onPress={() => router.push("/community-guidelines" as any)}>
-            <Text style={styles.footerLinkText}>Guidelines</Text>
+          <Pressable onPress={() => router.push("/legal" as any)}>
+            <Text style={styles.footerLinkText}>Legal & Policies</Text>
           </Pressable>
         </View>
 
@@ -744,12 +732,9 @@ const styles = StyleSheet.create({
   // Footer links
   footerLinks: {
     flexDirection: "row",
-    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
     marginTop: 22,
-    paddingHorizontal: 12,
     opacity: 0.75,
   },
   footerLinkText: {
