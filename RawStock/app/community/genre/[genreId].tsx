@@ -7,6 +7,7 @@ import {
   Pressable,
   Platform,
 } from "react-native";
+import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
 import { useLocalSearchParams, router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -140,7 +141,7 @@ export default function GenreScreen() {
         <View style={{ width: 32 }} />
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
         <Pressable style={[styles.bannerAd, { backgroundColor: ad.bg }]}>
           <View style={styles.adPrBadge}>
             <Text style={styles.adPrText}>PR</Text>

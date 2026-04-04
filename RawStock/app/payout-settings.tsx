@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Linking,
 } from "react-native";
+import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
@@ -119,7 +120,7 @@ export default function PayoutSettingsScreen() {
         <View style={{ width: 36 }} />
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
         <View style={[styles.infoBanner, { borderLeftColor: C.orange }]}>
           <Ionicons name="alert-circle-outline" size={18} color={C.orange} />
           <Text style={[styles.infoText, { color: C.orange }]}>

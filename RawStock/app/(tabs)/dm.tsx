@@ -7,6 +7,7 @@ import {
   Pressable,
   Platform,
 } from "react-native";
+import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
@@ -122,7 +123,7 @@ export default function DMScreen() {
 
       <ScrollView
         style={styles.scroll}
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator={scrollShowsVertical}
       >
         {dmList.map((item, index) => (
           <Pressable

@@ -12,6 +12,7 @@ import {
   Modal,
   ActionSheetIOS,
 } from "react-native";
+import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -370,7 +371,7 @@ export default function WorkUploadScreen() {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator={scrollShowsVertical}
       >
         {mediaItems.length > 0 && (
           <View style={styles.previewRow}>
@@ -511,7 +512,7 @@ export default function WorkUploadScreen() {
         <Pressable style={styles.menuOverlay} onPress={() => !uploading && setShowPublishFromModal(false)}>
           <Pressable style={styles.publishFromModal} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.publishFromModalTitle}>Select a work to publish</Text>
-            <ScrollView style={styles.publishFromList} showsVerticalScrollIndicator={false}>
+            <ScrollView style={styles.publishFromList} showsVerticalScrollIndicator={scrollShowsVertical}>
               {myPageOnlyWorks.map((v) => (
                 <Pressable
                   key={v.id}

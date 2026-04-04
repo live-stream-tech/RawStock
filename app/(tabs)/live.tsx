@@ -10,6 +10,7 @@ import {
   Platform,
   Alert,
 } from "react-native";
+import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -279,7 +280,7 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
             </Pressable>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false}>
+          <ScrollView showsVerticalScrollIndicator={scrollShowsVertical}>
             <Text style={styles.settingLabel}>Visibility</Text>
             <View style={styles.scopeOptions}>
               <Pressable
@@ -559,7 +560,7 @@ export default function LiveScreen() {
 
       <ScrollView
         style={styles.scroll}
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator={scrollShowsVertical}
       >
         {activeTab === "now" ? (
           <View>

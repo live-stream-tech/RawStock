@@ -10,6 +10,7 @@ import {
   ViewStyle,
   StyleProp,
 } from "react-native";
+import { scrollShowsHorizontal } from "@/lib/web-scroll-indicators";
 import { Ionicons } from "@expo/vector-icons";
 import { C } from "@/constants/colors";
 
@@ -67,7 +68,7 @@ export const HorizontalScroll = React.forwardRef<ScrollView, HorizontalScrollPro
         <ScrollView
           ref={scrollViewRef}
           horizontal
-          showsHorizontalScrollIndicator={false}
+          showsHorizontalScrollIndicator={scrollShowsHorizontal}
           contentContainerStyle={contentContainerStyle}
           scrollEventThrottle={16}
           onScroll={handleScroll}

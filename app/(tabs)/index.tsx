@@ -9,6 +9,7 @@ import {
   Dimensions,
   Animated,
 } from "react-native";
+import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -323,7 +324,7 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
 
         {/* ── Paid Hero ── */}
         <PaidHeroSection videos={paidVideos} isDemo={usingDemoPaid} />

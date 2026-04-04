@@ -9,6 +9,7 @@ import {
   Platform,
   ActivityIndicator,
 } from "react-native";
+import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -228,7 +229,7 @@ export default function LiversScreen() {
 
       <ScrollView
         horizontal
-        showsHorizontalScrollIndicator={false}
+        showsHorizontalScrollIndicator={scrollShowsHorizontal}
         style={styles.catScroll}
         contentContainerStyle={styles.catScrollContent}
       >
@@ -258,7 +259,7 @@ export default function LiversScreen() {
       {isLoading ? (
         <ActivityIndicator color={C.accent} style={{ marginTop: 48 }} />
       ) : (
-        <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+        <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
           {livers.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="person-outline" size={40} color={C.textMuted} />

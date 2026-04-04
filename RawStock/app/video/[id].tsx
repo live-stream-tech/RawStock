@@ -11,6 +11,7 @@ import {
   Modal,
   ActivityIndicator,
 } from "react-native";
+import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -263,7 +264,7 @@ export default function VideoDetailScreen() {
     <View style={[styles.container]}>
       <ScrollView
         style={styles.scroll}
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator={scrollShowsVertical}
       >
         {/* メディア領域（テキスト / 写真展 / 動画など共通レイアウト） */}
         <View style={styles.playerContainer}>

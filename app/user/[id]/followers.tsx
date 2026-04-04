@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { C } from "@/constants/colors";
 import { getApiUrl } from "@/lib/query-client";
 import { useAuth } from "@/lib/auth";
+import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 
 type FollowUser = {
   id: number;
@@ -54,7 +55,7 @@ export default function FollowersScreen() {
           <Text style={styles.muted}>No followers yet</Text>
         </View>
       ) : (
-        <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+        <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
           {followers.map((u) => (
             <Pressable
               key={u.id}

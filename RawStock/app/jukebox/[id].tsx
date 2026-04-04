@@ -14,6 +14,7 @@ import {
   Dimensions,
   useWindowDimensions,
 } from "react-native";
+import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -405,7 +406,7 @@ function QueueRow({
       </View>
       <ScrollView
         horizontal
-        showsHorizontalScrollIndicator={false}
+        showsHorizontalScrollIndicator={scrollShowsHorizontal}
         contentContainerStyle={styles.queueScroll}
       >
         {upcoming.map((item) => (
@@ -899,7 +900,7 @@ export default function JukeboxScreen() {
                 keyExtractor={(item) => item.id.toString()}
                 style={styles.chatList}
                 contentContainerStyle={styles.chatListContent}
-                showsVerticalScrollIndicator={false}
+                showsVerticalScrollIndicator={scrollShowsVertical}
                 renderItem={({ item }) => (
                   <View style={[styles.chatMsg, item.username === (user?.name ?? "Guest") && styles.chatMsgMine]}>
                     {item.username !== (user?.name ?? "Guest") && (
@@ -1007,7 +1008,7 @@ export default function JukeboxScreen() {
                   keyExtractor={(item) => item.id.toString()}
                   style={{ flex: 1 }}
                   contentContainerStyle={styles.chatListContent}
-                  showsVerticalScrollIndicator={false}
+                  showsVerticalScrollIndicator={scrollShowsVertical}
                   renderItem={({ item }) => (
                     <View style={[styles.chatMsg, item.username === (user?.name ?? "Guest") && styles.chatMsgMine]}>
                       {item.username !== (user?.name ?? "Guest") && (
@@ -1146,7 +1147,7 @@ export default function JukeboxScreen() {
                       <Ionicons name="chevron-back" size={16} color={C.accent} />
                       <Text style={styles.ytPlaylistBackText}>Back to playlists</Text>
                     </Pressable>
-                    <ScrollView style={styles.ytPlaylistItemsScroll} showsVerticalScrollIndicator={false}>
+                    <ScrollView style={styles.ytPlaylistItemsScroll} showsVerticalScrollIndicator={scrollShowsVertical}>
                     {ytPlaylistItems.map((item) => {
                       const video: Video & { youtubeId: string; durationSecs: number } = {
                         id: Math.floor(Math.random() * 2000000),
@@ -1203,7 +1204,7 @@ export default function JukeboxScreen() {
             )}
 
             {/* List */}
-            <ScrollView style={styles.modalList} showsVerticalScrollIndicator={false}>
+            <ScrollView style={styles.modalList} showsVerticalScrollIndicator={scrollShowsVertical}>
               {/* YouTube 検索結果 */}
               {ytResults.length > 0 && (
                 <>

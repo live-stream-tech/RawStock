@@ -12,6 +12,7 @@ import {
   Alert,
   ActivityIndicator,
 } from "react-native";
+import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -586,7 +587,7 @@ function ThreadDetailContent({
         </View>
         {thread.body ? <Text style={styles.threadDetailBody}>{thread.body}</Text> : null}
       </View>
-      <ScrollView style={styles.threadDetailPosts} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.threadDetailPosts} showsVerticalScrollIndicator={scrollShowsVertical}>
         {thread.posts.map((p) => (
           <View key={p.id} style={styles.threadPostRow}>
             {p.author.profileImageUrl ? (
@@ -846,7 +847,7 @@ export default function CommunityDetailScreen() {
 
   return (
     <View style={[styles.container, { paddingBottom: bottomInset }]}>
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
         <View style={styles.coverContainer}>
           <Image source={{ uri: community.thumbnail }} style={styles.coverImage} contentFit="cover" />
           <View style={styles.coverOverlay} />
@@ -1485,7 +1486,7 @@ export default function CommunityDetailScreen() {
 
                 <ScrollView
                   style={styles.requestModalScroll}
-                  showsVerticalScrollIndicator={false}
+                  showsVerticalScrollIndicator={scrollShowsVertical}
                 >
                   <Text style={styles.requestLabel}>Request Title</Text>
                   <TextInput
@@ -1597,7 +1598,7 @@ export default function CommunityDetailScreen() {
                 <Text style={styles.staffEmptySub}>Members who follow the community will appear here</Text>
               </View>
             ) : (
-              <ScrollView style={styles.staffPickerScroll} showsVerticalScrollIndicator={false}>
+              <ScrollView style={styles.staffPickerScroll} showsVerticalScrollIndicator={scrollShowsVertical}>
                 <Text style={styles.staffPickerSectionTitle}>Admin (1 person)</Text>
                 {members.map((m) => (
                   <Pressable
