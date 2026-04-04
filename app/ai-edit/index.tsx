@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -10,13 +10,13 @@ import {
   Alert,
   ActivityIndicator,
 } from "react-native";
-import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
+import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/query-client";
-import { buildOrderVideoSpec } from "@/lib/ai-edit/buildOrderVideoSpec";
+import { buildOrderVideoSpec, formatFromTone, styleFromTone } from "@/lib/ai-edit/buildOrderVideoSpec";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
 
@@ -48,6 +48,21 @@ const TONE_OPTIONS = [
   "Casual",
   "Professional",
 ];
+
+/** Same mapping as `server/lib/dslToTemplated.ts` TEMPLATE_BY_CUT_SPEED. */
+function motionTemplateFromTone(tone: string): { family: string; internalId: string } {
+  const { cut_speed } = styleFromTone(tone);
+  if (cut_speed === "fast") return { family: "Fast cut", internalId: "rawstock-fast-cut" };
+  if (cut_speed === "slow") return { family: "Cinematic", internalId: "rawstock-cinematic" };
+  return { family: "Standard", internalId: "rawstock-standard" };
+}
+
+function formatLabelForUi(tone: string): string {
+  const f = formatFromTone(tone);
+  if (f === "vertical_9_16") return "9:16 vertical";
+  if (f === "square_1_1") return "1:1 square";
+  return "16:9 horizontal";
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -142,6 +157,11 @@ export default function AIEditIndexScreen() {
   const [uploadProgress, setUploadProgress] = useState("");
 
   const plan = PLANS.find((p) => p.id === selectedPlan)!;
+  const motionPreview = useMemo(() => {
+    if (!tone) return null;
+    const mt = motionTemplateFromTone(tone);
+    return { ...mt, frame: formatLabelForUi(tone) };
+  }, [tone]);
   const totalDurationSec = videos.reduce((sum, v) => sum + v.durationSec, 0);
   const totalDurationMin = totalDurationSec / 60;
   const durationExceeded = totalDurationMin > plan.maxTotalMin;
@@ -308,13 +328,20 @@ export default function AIEditIndexScreen() {
       >
         {/* Hero */}
         <View style={styles.hero}>
-          <View style={styles.heroBadge}>
-            <Ionicons name="sparkles" size={13} color={C.accent} />
-            <Text style={styles.heroBadgeText}>Powered by Claude AI</Text>
+          <View style={styles.heroBadgeRow}>
+            <View style={styles.heroBadge}>
+              <Ionicons name="sparkles" size={13} color={C.accent} />
+              <Text style={styles.heroBadgeText}>Claude — edit plan</Text>
+            </View>
+            <View style={[styles.heroBadge, styles.heroBadgeMuted]}>
+              <Ionicons name="film-outline" size={13} color={C.textSec} />
+              <Text style={styles.heroBadgeTextMuted}>Templated — 3 motion styles</Text>
+            </View>
           </View>
-          <Text style={styles.heroTitle}>AI generates your{"\n"}edit plan automatically</Text>
+          <Text style={styles.heroTitle}>Plan, then render</Text>
           <Text style={styles.heroSub}>
-            Select a plan, upload your raw footage, and Claude will create a structured Edit Decision List tailored to your vision.
+            (1) Your plan tier sets ticket cost, upload limits, and the target length for Claude's Edit Decision List (text — URLs only, no full video watch).{"\n\n"}
+            (2) After you approve, optional MP4 render uses Templated: Tone picks one of three motion templates plus frame shape (9:16 or 16:9). Four plan tiers are not four templates.
           </Text>
         </View>
 
@@ -331,6 +358,9 @@ export default function AIEditIndexScreen() {
 
         {/* ── Plan selector ── */}
         <Text style={styles.sectionLabel}>SELECT PLAN</Text>
+        <Text style={styles.sectionHint}>
+          Billing and how much footage you can attach — not the Templated motion template. Template family comes from Tone below.
+        </Text>
         <View style={styles.planGrid}>
           {PLANS.map((p) => {
             const selected = selectedPlan === p.id;
@@ -345,7 +375,7 @@ export default function AIEditIndexScreen() {
                   {p.label}
                 </Text>
                 <Text style={[styles.planOutput, selected && { color: C.accent }]}>
-                  {p.output} output
+                  Claude target: {p.output}
                 </Text>
                 <View style={styles.planSpecs}>
                   <Text style={styles.planSpec}>Up to {p.maxVideos} videos</Text>
@@ -503,8 +533,29 @@ export default function AIEditIndexScreen() {
           })}
         </View>
 
+        {motionPreview ? (
+          <View style={styles.mechanismBox}>
+            <Text style={styles.mechanismBoxTitle}>Motion render (Templated)</Text>
+            <Text style={styles.mechanismBoxLine}>
+              Template: <Text style={styles.mechanismBoxEm}>{motionPreview.family}</Text>
+              {" · "}
+              Frame: <Text style={styles.mechanismBoxEm}>{motionPreview.frame}</Text>
+            </Text>
+            <Text style={styles.mechanismBoxFine}>
+              Maps to <Text style={styles.mechanismBoxMono}>{motionPreview.internalId}</Text> + format suffix (same rules as server).
+            </Text>
+          </View>
+        ) : (
+          <Text style={styles.sectionHint}>
+            Select a Tone to see which of the three motion templates and frame shape apply when you render.
+          </Text>
+        )}
+
         {/* ── Editing instructions ── */}
         <Text style={styles.sectionLabel}>EDITING INSTRUCTIONS *</Text>
+        <Text style={styles.sectionHint}>
+          Sent to Claude with audience, tone, and video URLs as the main editing brief.
+        </Text>
         <TextInput
           style={[styles.input, styles.inputTall]}
           value={prompt}
@@ -578,6 +629,7 @@ const styles = StyleSheet.create({
 
   // Hero
   hero: { margin: 16, marginBottom: 4, gap: 8 },
+  heroBadgeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   heroBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -588,9 +640,38 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignSelf: "flex-start",
   },
+  heroBadgeMuted: {
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.borderDim,
+  },
   heroBadgeText: { color: C.accent, fontSize: 11, fontWeight: "700" },
+  heroBadgeTextMuted: { color: C.textSec, fontSize: 11, fontWeight: "600" },
   heroTitle: { color: C.text, fontSize: 22, fontWeight: "800", lineHeight: 30 },
   heroSub: { color: C.textSec, fontSize: 13, lineHeight: 20 },
+  sectionHint: {
+    color: C.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    marginHorizontal: 16,
+    marginTop: -4,
+    marginBottom: 10,
+  },
+  mechanismBox: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.borderDim,
+    gap: 6,
+  },
+  mechanismBoxTitle: { color: C.text, fontSize: 12, fontWeight: "800" },
+  mechanismBoxLine: { color: C.textSec, fontSize: 12, lineHeight: 18 },
+  mechanismBoxEm: { color: C.accent, fontWeight: "700" },
+  mechanismBoxFine: { color: C.textMuted, fontSize: 11, lineHeight: 16 },
+  mechanismBoxMono: { fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", fontSize: 10 },
 
   // Balance
   balanceRow: {
