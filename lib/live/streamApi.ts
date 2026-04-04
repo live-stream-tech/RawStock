@@ -1,7 +1,6 @@
-import { Platform } from "react-native";
-
+/** 静的 Web / PWA は同一オリジンの /api を叩く */
 export function liveApiBase(): string {
-  return Platform.OS === "web" ? "" : process.env.EXPO_PUBLIC_API_URL ?? "";
+  return "";
 }
 
 export type LiveStreamVisibility = "public" | "followers" | "community";
@@ -26,7 +25,14 @@ export async function apiCreateLiveStream(
     const err = await createRes.json().catch(() => ({}));
     throw new Error((err as { error?: string }).error ?? "Failed to create stream");
   }
-  return createRes.json();
+  const data = (await createRes.json()) as { id?: number; whipUrl?: string };
+  if (typeof data.id !== "number" || !Number.isFinite(data.id)) {
+    throw new Error("配信の作成に失敗しました（ID が取得できません）");
+  }
+  if (typeof data.whipUrl !== "string" || !data.whipUrl.trim()) {
+    throw new Error("配信用 URL が取得できませんでした。Cloudflare Stream の設定を確認してください。");
+  }
+  return { id: data.id, whipUrl: data.whipUrl.trim() };
 }
 
 export async function apiStartLiveStream(streamId: number): Promise<void> {

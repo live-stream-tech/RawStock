@@ -24,13 +24,13 @@ RawStock のライブ送信は Cloudflare Stream の **WHIP**（WebRTC ingest）
 ## Expo / EAS
 
 - **Expo Go では不可。** `npx expo prebuild` 後の **開発ビルド**（EAS Build 等）が前提。
-- [`plugins/withLiveBroadcastPermissions.js`](../plugins/withLiveBroadcastPermissions.js) がカメラ・マイクの用途文案を注入する。
+- 本番は **Web / PWA のみ**（`expo prebuild` 用のカメラプラグインは撤去済み）。
 
 ## アプリ内の接続点
 
 | 画面 | ファイル | 備考 |
 |------|-----------|------|
-| ライブ配信（ホスト） | [`app/broadcast.tsx`](../app/broadcast.tsx) | Web は `getUserMedia` + WHIP。ネイティブはプレビューのみ。`acquireBroadcastMediaStream`（[`lib/live/nativeBroadcastStream.ts`](../lib/live/nativeBroadcastStream.ts)）で `MediaStream` を供給できれば WHIP 共有可能。 |
+| ライブ配信（ホスト） | [`app/broadcast.tsx`](../app/broadcast.tsx) | Web / PWA のみ。`getUserMedia` + WHIP。[`lib/live/webBroadcastMedia.ts`](../lib/live/webBroadcastMedia.ts) の `acquireBroadcastMediaStream`。 |
 | メンター WHIP | [`app/mentor-room/[id].tsx`](../app/mentor-room/[id].tsx) | Web のみ `connectWHIP`。ネイティブは上記パイプライン整備後に同ユーティリティを共有。 |
 
 ## プライバシー・ストア審査

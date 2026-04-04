@@ -13,20 +13,6 @@
       "resizeMode": "contain",
       "backgroundColor": "#050505"
     },
-    "ios": {
-      "supportsTablet": false,
-      "bundleIdentifier": "com.rawstock",
-      "icon": "./public/icon-512.png"
-    },
-    "android": {
-      "package": "com.rawstock",
-      "softwareKeyboardLayoutMode": "resize",
-      "adaptiveIcon": {
-        "foregroundImage": "./public/icon-512.png",
-        "backgroundColor": "#050505"
-      },
-      "icon": "./public/icon-512.png"
-    },
     "web": {
       "bundler": "metro",
       "output": "static",
@@ -51,9 +37,7 @@
       ],
       "expo-font",
       "expo-web-browser",
-      "expo-image",
-      "expo-camera",
-      "./plugins/withLiveBroadcastPermissions.js"
+      "expo-image"
     ],
     "experiments": {
       "typedRoutes": true,
