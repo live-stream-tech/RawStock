@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { View, Text, ScrollView, StyleSheet, Pressable, TextInput, Platform, Alert } from "react-native";
+import { webScrollStyle } from "@/constants/layout";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -92,7 +93,7 @@ export default function ConcertCreateScreen() {
           </View>
         </View>
 
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        <ScrollView style={webScrollStyle(styles.scroll)} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           <Text style={styles.label}>
             Concert Title <Text style={styles.required}>*</Text>
           </Text>

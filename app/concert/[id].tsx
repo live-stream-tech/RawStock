@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Text, ScrollView, StyleSheet, Pressable, Platform, ActivityIndicator, Alert, Linking } from "react-native";
+import { webScrollStyle } from "@/constants/layout";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -128,7 +129,7 @@ export default function ConcertDetailScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+      <ScrollView style={webScrollStyle(styles.scroll)} contentContainerStyle={styles.scrollContent}>
         <Text style={styles.title}>{concert.title}</Text>
 
         <View style={styles.infoRow}>

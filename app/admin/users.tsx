@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Text, Pressable, StyleSheet, ScrollView, Alert } from "react-native";
+import { webScrollStyle } from "@/constants/layout";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -63,7 +64,7 @@ export default function AdminUsersScreen() {
           <View style={{ width: 36 }} />
         </View>
 
-        <ScrollView style={styles.scroll} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}>
+        <ScrollView style={webScrollStyle(styles.scroll)} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}>
           {isLoading ? (
             <Text style={styles.messageText}>Loading...</Text>
           ) : users.length === 0 ? (
