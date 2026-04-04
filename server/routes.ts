@@ -51,7 +51,6 @@ import {
   ticketBalances,
   ticketTransactions,
   TICKET_PACKS,
-  editingRequests,
   bannerAds,
   dailyLogins,
   aiEditJobs,
@@ -6608,66 +6607,6 @@ export async function registerRoutes(app: Express): Promise<void> {
   /** GET /api/tickets/packs — list available ticket packs */
   app.get("/api/tickets/packs", (_req: Request, res: Response) => {
     return res.json(TICKET_PACKS);
-  });
-
-  // ── Editing Requests ──────────────────────────────────────────────────────
-  // Creator submits raw footage; editors deliver; creator earns 90% revenue.
-
-  const EDITING_FEE_TICKETS = 200; // 🎟 deducted per editing request
-
-  /** POST /api/editing-requests — submit a request, deduct service fee in tickets */
-  app.post("/api/editing-requests", async (req: Request, res: Response) => {
-    const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { videoUrl, performanceDate, instructions } = req.body as {
-      videoUrl?: string; performanceDate?: string; instructions?: string;
-    };
-    if (!videoUrl) return res.status(400).json({ error: "videoUrl is required" });
-    const userId = String(user.id);
-
-    const balRows = await db.select().from(ticketBalances).where(eq(ticketBalances.userId, userId)).limit(1);
-    const currentBalance = balRows[0]?.balance ?? 0;
-    if (currentBalance < EDITING_FEE_TICKETS) {
-      return res.status(402).json({ error: "Insufficient tickets", balance: currentBalance, required: EDITING_FEE_TICKETS });
-    }
-
-    if (balRows.length === 0) {
-      await db.insert(ticketBalances).values({ userId, balance: -EDITING_FEE_TICKETS });
-    } else {
-      await db.update(ticketBalances)
-        .set({ balance: currentBalance - EDITING_FEE_TICKETS, updatedAt: new Date() })
-        .where(eq(ticketBalances.userId, userId));
-    }
-
-    const [txn] = await db.insert(ticketTransactions).values({
-      userId,
-      amount: -EDITING_FEE_TICKETS,
-      type: "spend_editing",
-      description: `Editing request service fee`,
-    }).returning();
-
-    const [request] = await db.insert(editingRequests).values({
-      userId,
-      videoUrl,
-      performanceDate: performanceDate ?? null,
-      instructions: instructions ?? null,
-      ticketFee: EDITING_FEE_TICKETS,
-      ticketTransactionId: String(txn.id),
-      status: "pending",
-    }).returning();
-
-    return res.json({ success: true, request, newBalance: currentBalance - EDITING_FEE_TICKETS });
-  });
-
-  /** GET /api/editing-requests — list current user's editing requests */
-  app.get("/api/editing-requests", async (req: Request, res: Response) => {
-    const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const userId = String(user.id);
-    const rows = await db.select().from(editingRequests)
-      .where(eq(editingRequests.userId, userId))
-      .orderBy(desc(editingRequests.createdAt));
-    return res.json(rows);
   });
 
   // ── Platform Banner Ads (operator-managed) ────────────────────────────────

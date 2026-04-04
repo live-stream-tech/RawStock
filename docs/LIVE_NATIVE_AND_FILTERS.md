@@ -12,7 +12,7 @@ RawStock のライブ送信は Cloudflare Stream の **WHIP**（WebRTC ingest）
 | A | **`react-native-webrtc` + カメラで素の `MediaStream` → 既存 `connectWHIP`** | 低遅延寄り。まず「モバイルからも配信できる」を達成する主経路。Expo では prebuild / 開発ビルドが前提。 |
 | B | **軽い映像加工** | [`react-native-vision-camera`](https://react-native-vision-camera.com/) の Frame Processor やコミュニティプラグインを候補とする。品質・メンテは自己責任。 |
 | C | **RTMPS インジェスト** | DB の `streams` に `rtmpsUrl` / `rtmpsStreamKey` がある。`MediaStream` 不要だが遅延は WebRTC より大きくなりがち。 |
-| Web | **CSS フィルター**（[`app/broadcast.tsx`](../app/broadcast.tsx)） | プレビューのみ。エンコードストリームへの焼き込みは別途（Insertable Streams 等は高コスト）。 |
+| Web | **素プレビュー**（[`app/broadcast.tsx`](../app/broadcast.tsx)） | ライブ前の CSS フィルター UI は撤去済み。加工が要る場合は B（Vision Camera 等）や Insertable Streams を別途検討。 |
 
 旧ファイル名での参照用: [`SNOW_SDK_INTEGRATION.md`](./SNOW_SDK_INTEGRATION.md)（リダイレクトのみ）。
 

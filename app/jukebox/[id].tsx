@@ -133,6 +133,8 @@ function NowPlaying({
   addModalOpen,
   embedInSidebarColumn,
   interactionResumeNonce = 0,
+  communityLabel,
+  onCommunityPress,
 }: {
   state: JukeboxState | null;
   onNext: () => void;
@@ -142,6 +144,9 @@ function NowPlaying({
   embedInSidebarColumn?: boolean;
   /** 親がインクリメント（検索完了など）— バックグラウンドになった iframe の再生を再度試す */
   interactionResumeNonce?: number;
+  /** どのコミュニティのジュークボックスか（再生オーバーレイに表示） */
+  communityLabel?: string | null;
+  onCommunityPress?: () => void;
 }) {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const [elapsedDisplay, setElapsedDisplay] = useState(0);
@@ -427,6 +432,11 @@ function NowPlaying({
     return (
       <View style={[styles.nowPlayingEmpty, videoStyle]}>
         <Ionicons name="musical-notes-outline" size={40} color={C.textMuted} />
+        {communityLabel ? (
+          <Text style={styles.nowPlayingEmptyCommunity} numberOfLines={2}>
+            {communityLabel}
+          </Text>
+        ) : null}
         <Text style={styles.emptyText}>No video playing</Text>
       </View>
     );
@@ -496,6 +506,19 @@ function NowPlaying({
       </View>
 
       <View style={styles.nowPlayingBottom}>
+        {communityLabel ? (
+          <Pressable
+            onPress={onCommunityPress}
+            disabled={!onCommunityPress}
+            hitSlop={{ top: 4, bottom: 4 }}
+            style={styles.nowPlayingCommunityPressable}
+          >
+            <Ionicons name="people-outline" size={11} color="rgba(255,255,255,0.75)" />
+            <Text style={styles.nowPlayingCommunityLine} numberOfLines={1}>
+              {communityLabel}
+            </Text>
+          </Pressable>
+        ) : null}
         <Text style={styles.nowPlayingTitle} numberOfLines={2}>
           {state.currentVideoTitle ?? ""}
         </Text>
@@ -680,6 +703,15 @@ export default function JukeboxScreen() {
   }, [chatPanelOpen]);
 
   const jukeboxKey = [`/api/jukebox/${communityId}`] as const;
+
+  const { data: communityRow } = useQuery<{ id: number; name: string }>({
+    queryKey: [`/api/communities/${communityId}`],
+    enabled: Number.isFinite(communityId) && communityId > 0,
+    throwOnError: false,
+  });
+
+  const communityDisplayName =
+    (communityRow?.name && String(communityRow.name).trim()) || `Community #${communityId}`;
 
   // ページ訪問時に常に最新データを取得（staleTime:0でキャッシュが古いままになる問題を防止）
   const { data } = useQuery<JukeboxData>({
@@ -1298,7 +1330,16 @@ export default function JukeboxScreen() {
                 <Ionicons name="musical-notes" size={11} color="#fff" />
                 <Text style={styles.jukeboxBadgeText}>JUKEBOX</Text>
               </View>
-              <Text style={styles.headerTitle}>Community Watch Party</Text>
+              <Pressable
+                onPress={() => router.push(`/community/${communityId}`)}
+                style={styles.headerCommunityNamePressable}
+                hitSlop={6}
+              >
+                <Text style={styles.headerCommunityName} numberOfLines={2}>
+                  {communityDisplayName}
+                </Text>
+              </Pressable>
+              <Text style={styles.headerTitle}>Watch Party</Text>
             </View>
             <View style={{ width: 36 }} />
           </View>
@@ -1309,6 +1350,8 @@ export default function JukeboxScreen() {
               addModalOpen={false}
               embedInSidebarColumn
               interactionResumeNonce={interactionResumeNonce}
+              communityLabel={communityDisplayName}
+              onCommunityPress={() => router.push(`/community/${communityId}`)}
             />
           </View>
         </View>
@@ -1414,7 +1457,16 @@ export default function JukeboxScreen() {
                 <Ionicons name="musical-notes" size={11} color="#fff" />
                 <Text style={styles.jukeboxBadgeText}>JUKEBOX</Text>
               </View>
-              <Text style={styles.headerTitle}>Community Watch Party</Text>
+              <Pressable
+                onPress={() => router.push(`/community/${communityId}`)}
+                style={styles.headerCommunityNamePressable}
+                hitSlop={6}
+              >
+                <Text style={styles.headerCommunityName} numberOfLines={2}>
+                  {communityDisplayName}
+                </Text>
+              </Pressable>
+              <Text style={styles.headerTitle}>Watch Party</Text>
             </View>
             <View style={{ width: 36 }} />
           </View>
@@ -1433,6 +1485,8 @@ export default function JukeboxScreen() {
             onNext={handleNext}
             addModalOpen={showAddModal}
             interactionResumeNonce={interactionResumeNonce}
+            communityLabel={communityDisplayName}
+            onCommunityPress={() => router.push(`/community/${communityId}`)}
           />
         </View>
 
@@ -1524,6 +1578,19 @@ export default function JukeboxScreen() {
               }}
             >
               <Ionicons name="add" size={20} color="#fff" />
+            </Pressable>
+
+            <Pressable
+              style={[
+                styles.landscapeCommunityPill,
+                { top: insets.top + 8, left: insets.left + 52, right: insets.right + 52 },
+              ]}
+              onPress={() => router.push(`/community/${communityId}`)}
+            >
+              <Ionicons name="people-outline" size={13} color={C.accent} />
+              <Text style={styles.landscapeCommunityPillText} numberOfLines={1}>
+                {communityDisplayName}
+              </Text>
             </Pressable>
 
             {!chatPanelOpen && (
@@ -1673,7 +1740,15 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   backBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
-  headerCenter: { alignItems: "center", gap: 2 },
+  headerCenter: { alignItems: "center", gap: 2, flex: 1, minWidth: 0, paddingHorizontal: 4 },
+  headerCommunityNamePressable: { maxWidth: "100%" },
+  headerCommunityName: {
+    color: C.text,
+    fontSize: 14,
+    fontWeight: "800",
+    textAlign: "center",
+    lineHeight: 18,
+  },
   jukeboxBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -1684,7 +1759,31 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   jukeboxBadgeText: { color: "#fff", fontSize: 10, fontWeight: "800" },
-  headerTitle: { color: C.textSec, fontSize: 12 },
+  headerTitle: { color: C.textSec, fontSize: 11, marginTop: 1 },
+
+  landscapeCommunityPill: {
+    position: "absolute",
+    zIndex: 45,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: "rgba(8,12,20,0.78)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+  },
+  landscapeCommunityPillText: {
+    flex: 1,
+    flexShrink: 1,
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
+    textAlign: "center",
+    minWidth: 0,
+  },
 
   nowPlaying: {
     position: "relative",
@@ -1770,6 +1869,13 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface,
     gap: 8,
   },
+  nowPlayingEmptyCommunity: {
+    color: C.text,
+    fontSize: 13,
+    fontWeight: "800",
+    textAlign: "center",
+    paddingHorizontal: 16,
+  },
   emptyText: { color: C.textMuted, fontSize: 13 },
   nowPlayingOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -1829,6 +1935,19 @@ const styles = StyleSheet.create({
   nowPlayingBottom: {
     padding: 12,
     gap: 6,
+  },
+  nowPlayingCommunityPressable: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    alignSelf: "flex-start",
+    maxWidth: "100%",
+  },
+  nowPlayingCommunityLine: {
+    flexShrink: 1,
+    color: "rgba(255,255,255,0.88)",
+    fontSize: 11,
+    fontWeight: "700",
   },
   nowPlayingTitle: { color: "#fff", fontSize: 14, fontWeight: "700", lineHeight: 19 },
   progressRow: {

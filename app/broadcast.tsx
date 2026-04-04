@@ -25,15 +25,6 @@ function parseRouteVisibility(v: string | undefined): LiveStreamVisibility {
   return "public";
 }
 
-const FILTERS = [
-  { id: "none", label: "None", icon: "ban-outline", css: "" },
-  { id: "beauty", label: "Beauty", icon: "sparkles-outline", css: "brightness(1.05) saturate(1.1)" },
-  { id: "smooth", label: "Smooth", icon: "water-outline", css: "contrast(0.9) brightness(1.1) saturate(0.95)" },
-  { id: "warm", label: "Warm", icon: "sunny-outline", css: "sepia(0.3) saturate(1.2) brightness(1.05)" },
-  { id: "cool", label: "Cool", icon: "snow-outline", css: "hue-rotate(15deg) saturate(1.1) brightness(0.98)" },
-  { id: "vivid", label: "Vivid", icon: "color-palette-outline", css: "saturate(1.5) contrast(1.05)" },
-];
-
 export default function BroadcastScreen() {
   const params = useLocalSearchParams<{ visibility?: string; communityId?: string }>();
   const routeVisibility = parseRouteVisibility(
@@ -52,7 +43,6 @@ export default function BroadcastScreen() {
 
   const [phase, setPhase] = useState<"idle" | "creating" | "ready" | "starting" | "live" | "stopping">("idle");
   const [streamId, setStreamId] = useState<number | null>(null);
-  const [selectedFilter, setSelectedFilter] = useState("none");
   const [title, setTitle] = useState("");
   const [viewers, setViewers] = useState(0);
   const [elapsed, setElapsed] = useState(0);
@@ -157,16 +147,16 @@ export default function BroadcastScreen() {
     if (nativeWhipBlocked) {
       Alert.alert(
         "ライブ配信",
-        "モバイルからの WHIP 配信は、ネイティブ向け WebRTC（MediaStream）パイプライン整備後に有効になります。詳細は docs/LIVE_NATIVE_AND_FILTERS.md を参照してください。当面はブラウザ（Web）から Go Live してください。",
+        "この画面からの配信はブラウザ（PC の Chrome など）または PWA で開いてください。アプリの iOS/Android ビルドからの WHIP は今後の WebRTC 対応予定です。",
       );
       return;
     }
     if (!title.trim()) {
-      Alert.alert("Enter a title", "Please enter a stream title before going live.");
+      Alert.alert("ライブ配信", "配信タイトルを入力してください。");
       return;
     }
     if (!localStreamRef.current) {
-      Alert.alert("Camera required", "Please allow camera access.");
+      Alert.alert("ライブ配信", "カメラとマイクの許可が必要です。ブラウザの設定を確認してください。");
       return;
     }
     try {
@@ -186,16 +176,16 @@ export default function BroadcastScreen() {
       setPhase("live");
     } catch (e: any) {
       console.error("GoLive error:", e);
-      Alert.alert("Stream error", e.message ?? "Could not start the stream.");
+      Alert.alert("ライブ配信", e.message ?? "配信を開始できませんでした。ネットワークとマイク・カメラを確認してください。");
       setPhase("ready");
     }
   };
 
   const handleStop = () => {
-    Alert.alert("End Stream", "Are you sure you want to end the live stream?", [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert("配信を終了", "ライブ配信を終了しますか？", [
+      { text: "キャンセル", style: "cancel" },
       {
-        text: "End",
+        text: "終了",
         style: "destructive",
         onPress: async () => {
           setPhase("stopping");
@@ -220,7 +210,6 @@ export default function BroadcastScreen() {
 
   const isLive = phase === "live";
   const isLoading = phase === "creating" || phase === "starting" || phase === "stopping";
-  const currentFilter = FILTERS.find((f) => f.id === selectedFilter);
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
@@ -239,19 +228,12 @@ export default function BroadcastScreen() {
               width: "100%",
               height: "100%",
               objectFit: "cover",
-              filter: currentFilter?.css || "",
               transform: "scaleX(-1)",
               display: "block",
             }}
           />
         ) : (
           <CameraView style={styles.cameraFill} facing="front" mode="video" />
-        )}
-
-        {Platform.OS === "web" && !isLive && (
-          <View style={styles.filterHint}>
-            <Text style={styles.filterHintText}>CSS filters are preview-only; the encoded stream may look different.</Text>
-          </View>
         )}
 
         {cameraError && (
@@ -269,7 +251,7 @@ export default function BroadcastScreen() {
         {nativeWhipBlocked && !cameraError && phase === "ready" && (
           <View style={styles.nativeHint}>
             <Text style={styles.nativeHintText}>
-              プレビューのみ（モバイル WHIP はネイティブ WebRTC 整備後）。配信は Web から実行してください。
+              プレビューのみです。配信開始はブラウザまたは PWA（Web）でこの画面を開いてください。
             </Text>
           </View>
         )}
@@ -300,7 +282,7 @@ export default function BroadcastScreen() {
             ) : isLoading ? (
               <ActivityIndicator color="#fff" size="small" />
             ) : (
-              <Text style={styles.readyText}>Ready to Stream</Text>
+              <Text style={styles.readyText}>配信準備</Text>
             )}
           </View>
 
@@ -314,23 +296,6 @@ export default function BroadcastScreen() {
           )}
         </View>
 
-        {!isLive && Platform.OS === "web" && (
-          <View style={styles.filterRow}>
-            {FILTERS.map((f) => {
-              const isActive = selectedFilter === f.id;
-              return (
-                <Pressable
-                  key={f.id}
-                  style={[styles.filterBtn, isActive && styles.filterBtnActive]}
-                  onPress={() => setSelectedFilter(f.id)}
-                >
-                  <Ionicons name={f.icon as any} size={16} color={isActive ? "#fff" : "#ffffff99"} />
-                  <Text style={[styles.filterLabel, isActive && styles.filterLabelActive]}>{f.label}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        )}
       </View>
 
       <View style={[styles.controls, { paddingBottom: bottomInset + 12 }]}>
@@ -339,7 +304,7 @@ export default function BroadcastScreen() {
             <Ionicons name="create-outline" size={16} color={C.textMuted} style={{ marginRight: 8 }} />
             <TextInput
               style={styles.titleInput}
-              placeholder="Stream title"
+              placeholder="配信タイトル（必須）"
               placeholderTextColor={C.textMuted}
               value={title}
               onChangeText={setTitle}
@@ -372,7 +337,7 @@ export default function BroadcastScreen() {
             </View>
             <Pressable style={styles.stopBtn} onPress={handleStop}>
               <View style={styles.stopDot} />
-              <Text style={styles.stopBtnText}>End Stream</Text>
+              <Text style={styles.stopBtnText}>配信を終了</Text>
             </Pressable>
           </View>
         ) : (
@@ -386,7 +351,7 @@ export default function BroadcastScreen() {
             ) : (
               <>
                 <View style={styles.goLiveDot} />
-                <Text style={styles.goLiveBtnText}>{nativeWhipBlocked ? "Go Live (Web only)" : "Go Live"}</Text>
+                <Text style={styles.goLiveBtnText}>{nativeWhipBlocked ? "配信は Web / PWA で" : "配信開始"}</Text>
               </>
             )}
           </Pressable>
@@ -400,17 +365,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
   cameraArea: { flex: 1, backgroundColor: "#000", overflow: "hidden" },
   cameraFill: { flex: 1, width: "100%" },
-  filterHint: {
-    position: "absolute",
-    bottom: 88,
-    left: 12,
-    right: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    borderRadius: 8,
-  },
-  filterHintText: { color: "#ffffffaa", fontSize: 10, textAlign: "center" },
   nativeHint: {
     position: "absolute",
     bottom: 24,
@@ -474,29 +428,6 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   viewersText: { color: "#fff", fontSize: 13, fontWeight: "700" },
-  filterRow: {
-    position: "absolute",
-    bottom: 12,
-    left: 0,
-    right: 0,
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 8,
-    paddingHorizontal: 12,
-  },
-  filterBtn: {
-    alignItems: "center",
-    gap: 3,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 12,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    borderWidth: 1,
-    borderColor: "transparent",
-  },
-  filterBtnActive: { backgroundColor: "rgba(41,182,207,0.35)", borderColor: C.accent },
-  filterLabel: { color: "#ffffff88", fontSize: 10, fontWeight: "600" },
-  filterLabelActive: { color: "#fff" },
   controls: {
     backgroundColor: C.bg,
     paddingHorizontal: 16,
