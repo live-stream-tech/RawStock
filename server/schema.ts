@@ -571,6 +571,8 @@ export const transactions = pgTable("transactions", {
 /** 動画編集者（編集者一覧・依頼用） */
 export const videoEditors = pgTable("video_editors", {
   id: serial("id").primaryKey(),
+  /** 登録ユーザー（NULL = シード等の匿名行） */
+  userId: integer("user_id").unique(),
   name: text("name").notNull(),
   avatar: text("avatar"),
   bio: text("bio").notNull().default(""),

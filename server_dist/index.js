@@ -77,6 +77,7 @@ __export(schema_exports, {
   wallets: () => wallets,
   withdrawals: () => withdrawals
 });
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   serial,
@@ -601,15 +602,21 @@ var transactions = pgTable("transactions", {
 });
 var videoEditors = pgTable("video_editors", {
   id: serial("id").primaryKey(),
+  /** 登録ユーザー（NULL = シード等の匿名行） */
+  userId: integer("user_id").unique(),
   name: text("name").notNull(),
   avatar: text("avatar"),
   bio: text("bio").notNull().default(""),
   communityId: integer("community_id").notNull(),
   genres: text("genres").notNull().default(""),
   deliveryDays: integer("delivery_days").notNull().default(3),
+  /** per_minute | revenue_share | both (both requires pricePerMinute and revenueSharePercent) */
   priceType: text("price_type").notNull(),
+  /** RawStock Tickets per minute when priceType is per_minute (1 ticket = $0.01 USD); not JPY */
   pricePerMinute: integer("price_per_minute"),
   revenueSharePercent: integer("revenue_share_percent"),
+  /** Style tag slugs for OR search (overlap with query tags) */
+  styleTags: text("style_tags").array().notNull().default(sql`'{}'::text[]`),
   rating: real("rating").notNull().default(0),
   reviewCount: integer("review_count").notNull().default(0),
   isAvailable: boolean("is_available").notNull().default(true)
@@ -858,7 +865,73 @@ var pool = new Pool({
 var db = drizzle(pool, { schema: schema_exports });
 
 // server/routes.ts
-import { eq as eq2, asc as asc2, desc, count, sql as sql2, and as and2, or, gte as gte2, lte as lte2, isNull, inArray } from "drizzle-orm";
+import { eq as eq2, asc as asc2, desc, count, sql as sql3, and as and2, or, gte as gte2, lte as lte2, isNull, inArray, isNotNull } from "drizzle-orm";
+
+// server/editorPricing.ts
+function validateEditorPricing(row) {
+  const pt = row.priceType;
+  if (pt !== "per_minute" && pt !== "revenue_share" && pt !== "both") {
+    return { ok: false, error: "\u4E0D\u6B63\u306A\u6599\u91D1\u5F62\u5F0F\u3067\u3059" };
+  }
+  const pm = row.pricePerMinute ?? null;
+  const rs = row.revenueSharePercent ?? null;
+  if (pt === "per_minute") {
+    if (pm == null || !Number.isInteger(pm) || pm <= 0) {
+      return { ok: false, error: "\u5206\u5358\u4FA1\uFF08\u{1F3AB}/\u5206\uFF09\u3092\u6B63\u306E\u6574\u6570\u3067\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" };
+    }
+    if (rs != null) {
+      return { ok: false, error: "\u5206\u5358\u4FA1\u30E2\u30FC\u30C9\u3067\u306F\u30EC\u30D9\u30CB\u30E5\u30FC\u30B7\u30A7\u30A2\uFF05\u306F\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093" };
+    }
+  } else if (pt === "revenue_share") {
+    if (rs == null || !Number.isInteger(rs) || rs < 1 || rs > 100) {
+      return { ok: false, error: "\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC\u53D6\u308A\u5206\u306F1\u301C100\u306E\u6574\u6570\u3067\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" };
+    }
+    if (pm != null) {
+      return { ok: false, error: "\u30EC\u30D9\u30CB\u30E5\u30FC\u30B7\u30A7\u30A2\u30E2\u30FC\u30C9\u3067\u306F\u5206\u5358\u4FA1\u306F\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093" };
+    }
+  } else {
+    if (pm == null || !Number.isInteger(pm) || pm <= 0) {
+      return { ok: false, error: "both \u3067\u306F\u5206\u5358\u4FA1\uFF08\u{1F3AB}/\u5206\uFF09\u304C\u5FC5\u9808\u3067\u3059" };
+    }
+    if (rs == null || !Number.isInteger(rs) || rs < 1 || rs > 100) {
+      return { ok: false, error: "both \u3067\u306F\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC\u53D6\u308A\u5206\uFF081\u301C100\uFF09\u304C\u5FC5\u9808\u3067\u3059" };
+    }
+  }
+  return { ok: true };
+}
+function normalizeEditorStyleTagSlugs(input) {
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const raw of input) {
+    const s = raw.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9_-]/g, "");
+    if (s.length > 0 && !seen.has(s)) {
+      seen.add(s);
+      out.push(s);
+    }
+  }
+  return out;
+}
+function parseTagsQueryParam(q) {
+  if (q == null) return [];
+  const parts = [];
+  if (Array.isArray(q)) {
+    for (const x of q) parts.push(...String(x).split(","));
+  } else {
+    parts.push(...String(q).split(","));
+  }
+  return normalizeEditorStyleTagSlugs(parts);
+}
+function parseGenresQueryParam(q) {
+  if (q == null) return [];
+  const parts = [];
+  if (Array.isArray(q)) {
+    for (const x of q) parts.push(...String(x).split(","));
+  } else {
+    parts.push(...String(q).split(","));
+  }
+  const out = parts.map((p) => p.trim().toLowerCase()).filter(Boolean);
+  return [...new Set(out)];
+}
 
 // server/stripeClient.local.ts
 import Stripe from "stripe";
@@ -936,7 +1009,7 @@ async function createTransferToConnectedAccount(params) {
 }
 
 // server/aggregateRevenue.ts
-import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, lte, sql as sql2 } from "drizzle-orm";
 function parseMonthRange(yearMonth) {
   const [year, month] = yearMonth.split("-").map(Number);
   if (!year || !month) return null;
@@ -963,7 +1036,7 @@ async function getMonthlyRevenueRank(yearMonth) {
   if (!range) return [];
   const rows = await db.select({
     userId: wallets.userId,
-    totalRevenue: sql`COALESCE(SUM(${transactions.amount}), 0)::int`
+    totalRevenue: sql2`COALESCE(SUM(${transactions.amount}), 0)::int`
   }).from(transactions).innerJoin(wallets, eq(transactions.walletId, wallets.id)).where(
     and(
       eq(transactions.type, "REVENUE"),
@@ -3402,7 +3475,56 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/editors", async (req, res) => {
     const sort = req.query.sort || "rating";
-    let rows = await db.select().from(videoEditors);
+    const mode = typeof req.query.mode === "string" ? req.query.mode.trim() : "";
+    const filters = [];
+    if (mode === "per_minute") {
+      filters.push(inArray(videoEditors.priceType, ["per_minute", "both"]));
+    } else if (mode === "revenue_share") {
+      filters.push(inArray(videoEditors.priceType, ["revenue_share", "both"]));
+    } else if (mode.length > 0) {
+      return res.status(400).json({ error: "Invalid mode (use per_minute or revenue_share)" });
+    }
+    const maxTicketsRaw = req.query.maxTicketsPerMin;
+    const maxTicketsStr = Array.isArray(maxTicketsRaw) ? maxTicketsRaw[0] : maxTicketsRaw;
+    if (maxTicketsStr !== void 0 && String(maxTicketsStr).trim() !== "") {
+      const maxT = parseInt(String(maxTicketsStr), 10);
+      if (!Number.isNaN(maxT) && maxT > 0) {
+        filters.push(
+          and2(isNotNull(videoEditors.pricePerMinute), lte2(videoEditors.pricePerMinute, maxT))
+        );
+      }
+    }
+    const minShareRaw = req.query.minRevenueSharePercent;
+    const minShareStr = Array.isArray(minShareRaw) ? minShareRaw[0] : minShareRaw;
+    if (minShareStr !== void 0 && String(minShareStr).trim() !== "") {
+      const minS = parseInt(String(minShareStr), 10);
+      if (!Number.isNaN(minS) && minS >= 1 && minS <= 100) {
+        filters.push(
+          and2(isNotNull(videoEditors.revenueSharePercent), gte2(videoEditors.revenueSharePercent, minS))
+        );
+      }
+    }
+    const maxDelRaw = req.query.maxDeliveryDays;
+    const maxDelStr = Array.isArray(maxDelRaw) ? maxDelRaw[0] : maxDelRaw;
+    if (maxDelStr !== void 0 && String(maxDelStr).trim() !== "") {
+      const maxD = parseInt(String(maxDelStr), 10);
+      if (!Number.isNaN(maxD) && maxD > 0) {
+        filters.push(lte2(videoEditors.deliveryDays, maxD));
+      }
+    }
+    const tagList = parseTagsQueryParam(req.query.tags);
+    if (tagList.length > 0) {
+      const arrayLit = "ARRAY[" + tagList.map((t) => "'" + t.replace(/'/g, "''") + "'").join(",") + "]::text[]";
+      filters.push(sql3`${videoEditors.styleTags} && ${sql3.raw(arrayLit)}`);
+    }
+    let rows = filters.length > 0 ? await db.select().from(videoEditors).where(and2(...filters)) : await db.select().from(videoEditors);
+    const genreTerms = parseGenresQueryParam(req.query.genres);
+    if (genreTerms.length > 0) {
+      rows = rows.filter((e) => {
+        const hay = (e.genres ?? "").toLowerCase();
+        return genreTerms.some((t) => hay.includes(t));
+      });
+    }
     if (sort === "delivery") {
       rows = rows.sort((a, b) => a.deliveryDays - b.deliveryDays);
     } else if (sort === "price") {
@@ -3415,6 +3537,12 @@ async function registerRoutes(app2) {
       rows = rows.sort((a, b) => b.rating - a.rating);
     }
     res.json(rows);
+  });
+  app2.get("/api/editors/me", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const [row] = await db.select().from(videoEditors).where(eq2(videoEditors.userId, user.id)).limit(1);
+    return res.json(row ?? null);
   });
   app2.get("/api/editors/:id", async (req, res) => {
     const id = paramNum(req, "id");
@@ -3434,6 +3562,9 @@ async function registerRoutes(app2) {
     const [editor] = await db.select().from(videoEditors).where(eq2(videoEditors.id, editorId));
     if (!editor) {
       return res.status(404).json({ error: "Editor not found" });
+    }
+    if (editor.priceType !== "both" && editor.priceType !== priceType) {
+      return res.status(400).json({ error: "\u3053\u306E\u7DE8\u96C6\u8005\u306F\u9078\u629E\u3057\u305F\u6599\u91D1\u5F62\u5F0F\u306B\u5BFE\u5FDC\u3057\u3066\u3044\u307E\u305B\u3093" });
     }
     const user = await getAuthUser(req);
     const requestUserId = user ? `user-${user.id}` : "guest";
@@ -3458,6 +3589,86 @@ async function registerRoutes(app2) {
       timeAgo: "\u305F\u3063\u305F\u4ECA"
     });
     res.status(201).json(requestRow);
+  });
+  app2.post("/api/editors", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const taken = await db.select().from(videoEditors).where(eq2(videoEditors.userId, user.id)).limit(1);
+    if (taken.length > 0) {
+      return res.status(409).json({ error: "\u65E2\u306B\u52D5\u753B\u7DE8\u96C6\u8005\u3068\u3057\u3066\u767B\u9332\u6E08\u307F\u3067\u3059" });
+    }
+    const body = req.body;
+    const communityId = body.communityId;
+    if (communityId == null || !Number.isFinite(communityId)) {
+      return res.status(400).json({ error: "communityId \u304C\u5FC5\u8981\u3067\u3059" });
+    }
+    const [comm] = await db.select({ id: communities.id }).from(communities).where(eq2(communities.id, communityId));
+    if (!comm) return res.status(400).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    const pricingRow = {
+      priceType: String(body.priceType ?? ""),
+      pricePerMinute: body.pricePerMinute ?? null,
+      revenueSharePercent: body.revenueSharePercent ?? null
+    };
+    const pv = validateEditorPricing(pricingRow);
+    if (!pv.ok) return res.status(400).json({ error: pv.error });
+    const styleTags = normalizeEditorStyleTagSlugs(
+      Array.isArray(body.styleTags) ? body.styleTags.map((x) => String(x)) : []
+    );
+    const [u] = await db.select().from(users).where(eq2(users.id, user.id));
+    if (!u) return res.status(404).json({ error: "User not found" });
+    const deliveryDays = typeof body.deliveryDays === "number" && body.deliveryDays > 0 ? Math.min(90, Math.floor(body.deliveryDays)) : 3;
+    const [created] = await db.insert(videoEditors).values({
+      userId: user.id,
+      name: u.displayName,
+      avatar: u.profileImageUrl ?? null,
+      bio: (body.bio ?? "").trim(),
+      communityId,
+      genres: (body.genres ?? "").trim(),
+      deliveryDays,
+      priceType: pricingRow.priceType,
+      pricePerMinute: pricingRow.pricePerMinute,
+      revenueSharePercent: pricingRow.revenueSharePercent,
+      styleTags
+    }).returning();
+    return res.status(201).json(created);
+  });
+  app2.put("/api/editors/:id", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const id = paramNum(req, "id");
+    const [editor] = await db.select().from(videoEditors).where(eq2(videoEditors.id, id));
+    if (!editor) return res.status(404).json({ error: "Not found" });
+    if (editor.userId !== user.id) return res.status(403).json({ error: "\u7DE8\u96C6\u3067\u304D\u307E\u305B\u3093" });
+    const body = req.body;
+    const communityId = body.communityId ?? editor.communityId;
+    const [comm] = await db.select({ id: communities.id }).from(communities).where(eq2(communities.id, communityId));
+    if (!comm) return res.status(400).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    const pricingRow = {
+      priceType: String(body.priceType ?? editor.priceType),
+      pricePerMinute: body.pricePerMinute !== void 0 ? body.pricePerMinute : editor.pricePerMinute,
+      revenueSharePercent: body.revenueSharePercent !== void 0 ? body.revenueSharePercent : editor.revenueSharePercent
+    };
+    const pv = validateEditorPricing(pricingRow);
+    if (!pv.ok) return res.status(400).json({ error: pv.error });
+    let styleTags = Array.isArray(editor.styleTags) ? [...editor.styleTags] : [];
+    if (body.styleTags !== void 0) {
+      styleTags = normalizeEditorStyleTagSlugs(
+        Array.isArray(body.styleTags) ? body.styleTags.map((x) => String(x)) : []
+      );
+    }
+    const deliveryDays = typeof body.deliveryDays === "number" && body.deliveryDays > 0 ? Math.min(90, Math.floor(body.deliveryDays)) : editor.deliveryDays;
+    await db.update(videoEditors).set({
+      bio: body.bio !== void 0 ? String(body.bio).trim() : editor.bio,
+      genres: body.genres !== void 0 ? String(body.genres).trim() : editor.genres,
+      deliveryDays,
+      communityId,
+      priceType: pricingRow.priceType,
+      pricePerMinute: pricingRow.pricePerMinute,
+      revenueSharePercent: pricingRow.revenueSharePercent,
+      styleTags
+    }).where(eq2(videoEditors.id, id));
+    const [updated] = await db.select().from(videoEditors).where(eq2(videoEditors.id, id));
+    return res.json(updated);
   });
   app2.post("/api/communities", async (req, res) => {
     const user = await getAuthUser(req);
@@ -3690,7 +3901,7 @@ async function registerRoutes(app2) {
   app2.post("/api/genre-owners/assign", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user || user.role !== "ADMIN") return res.status(403).json({ error: "\u7BA1\u7406\u8005\u306E\u307F\u5B9F\u884C\u3067\u304D\u307E\u3059" });
-    const allCommunities = await db.select({ id: communities.id, category: communities.category, members: communities.members, adminId: communities.adminId }).from(communities).where(sql2`${communities.adminId} IS NOT NULL`);
+    const allCommunities = await db.select({ id: communities.id, category: communities.category, members: communities.members, adminId: communities.adminId }).from(communities).where(sql3`${communities.adminId} IS NOT NULL`);
     const byGenre = /* @__PURE__ */ new Map();
     for (const c of allCommunities) {
       const existing = byGenre.get(c.category);
@@ -3974,7 +4185,7 @@ async function registerRoutes(app2) {
     const communityRows = await db.select({ members: communities.members }).from(communities).where(
       or(
         ...cats.map(
-          (c) => sql2`${communities.category} ILIKE ${"%" + c + "%"}`
+          (c) => sql3`${communities.category} ILIKE ${"%" + c + "%"}`
         )
       )
     );
@@ -4034,7 +4245,7 @@ async function registerRoutes(app2) {
       const rows = await db.select({ id: communities.id, members: communities.members, adminId: communities.adminId }).from(communities).where(
         or(
           ...cats.map(
-            (c) => sql2`${communities.category} ILIKE ${"%" + c + "%"}`
+            (c) => sql3`${communities.category} ILIKE ${"%" + c + "%"}`
           )
         )
       ).orderBy(desc(communities.members)).limit(1);
@@ -4042,7 +4253,7 @@ async function registerRoutes(app2) {
       if (!top || !top.adminId) continue;
       const existing = await db.select().from(genreOwners).where(eq2(genreOwners.genreId, gid)).limit(1);
       if (existing.length > 0) {
-        await db.update(genreOwners).set({ ownerUserId: top.adminId, updatedAt: sql2`now()` }).where(eq2(genreOwners.genreId, gid));
+        await db.update(genreOwners).set({ ownerUserId: top.adminId, updatedAt: sql3`now()` }).where(eq2(genreOwners.genreId, gid));
       } else {
         await db.insert(genreOwners).values({ genreId: gid, ownerUserId: top.adminId });
       }
@@ -4082,11 +4293,11 @@ async function registerRoutes(app2) {
   app2.get("/api/admin/stats", async (req, res) => {
     const admin = await getAdminUserOrReject(req, res);
     if (!admin) return;
-    const [{ userCount }] = await db.select({ userCount: sql2`count(*)::int` }).from(users);
-    const [{ videoCount }] = await db.select({ videoCount: sql2`count(*)::int` }).from(videos);
+    const [{ userCount }] = await db.select({ userCount: sql3`count(*)::int` }).from(users);
+    const [{ videoCount }] = await db.select({ videoCount: sql3`count(*)::int` }).from(videos);
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1e3);
     const [{ salesLast30Days }] = await db.select({
-      salesLast30Days: sql2`coalesce(sum(${earnings.amount}), 0)::int`
+      salesLast30Days: sql3`coalesce(sum(${earnings.amount}), 0)::int`
     }).from(earnings).where(gte2(earnings.createdAt, since));
     res.json({
       userCount: Number(userCount ?? 0),
@@ -4486,7 +4697,7 @@ async function registerRoutes(app2) {
     res.json(updated ?? { ok: true });
   });
   app2.get("/api/notifications/unread-count", async (_req, res) => {
-    const [{ count: count2 }] = await db.select({ count: sql2`count(*)::int` }).from(notifications).where(eq2(notifications.isRead, false));
+    const [{ count: count2 }] = await db.select({ count: sql3`count(*)::int` }).from(notifications).where(eq2(notifications.isRead, false));
     res.json({ count: count2 ?? 0 });
   });
   app2.get("/api/notifications", async (req, res) => {
@@ -4958,7 +5169,7 @@ data: ${data}
           code: "STREAM_ACCESS_DENIED"
         });
       }
-      const [updated] = await db.update(streams).set({ currentViewers: sql2`${streams.currentViewers} + 1` }).where(eq2(streams.id, id)).returning();
+      const [updated] = await db.update(streams).set({ currentViewers: sql3`${streams.currentViewers} + 1` }).where(eq2(streams.id, id)).returning();
       return res.json({ viewerCount: updated.currentViewers, currentViewers: updated.currentViewers });
     }
     const [live] = await db.select().from(liveStreams).where(eq2(liveStreams.id, id));
@@ -5173,7 +5384,7 @@ data: ${data}
   });
   app2.get("/api/mentor/:streamId/queue-count", async (req, res) => {
     const streamId = paramNum(req, "streamId");
-    const [{ total }] = await db.select({ total: count() }).from(mentorBookings).where(sql2`stream_id = ${streamId} AND status IN ('paid','waiting','notified')`);
+    const [{ total }] = await db.select({ total: count() }).from(mentorBookings).where(sql3`stream_id = ${streamId} AND status IN ('paid','waiting','notified')`);
     res.json({ count: Number(total) });
   });
   app2.post("/api/mentor/:streamId/checkout", async (req, res) => {
@@ -5182,7 +5393,7 @@ data: ${data}
     if (!userName) return res.status(400).json({ error: "userName required" });
     try {
       const stripe = await getUncachableStripeClient();
-      const [{ total }] = await db.select({ total: count() }).from(mentorBookings).where(sql2`stream_id = ${streamId} AND status IN ('paid','waiting','notified')`);
+      const [{ total }] = await db.select({ total: count() }).from(mentorBookings).where(sql3`stream_id = ${streamId} AND status IN ('paid','waiting','notified')`);
       const queuePos = Number(total) + 1;
       const [stream] = await db.select().from(liveStreams).where(eq2(liveStreams.id, streamId));
       const streamTitle = stream?.title ?? "\u30C4\u30FC\u30B7\u30E7\u30C3\u30C8\u64AE\u5F71";
@@ -5340,7 +5551,7 @@ data: ${data}
     const sessionIds = mySessions.map((s) => s.id);
     const bookingRows = await db.select().from(mentorBookings).where(and2(
       inArray(mentorBookings.sessionId, sessionIds),
-      sql2`${mentorBookings.status} NOT IN ('cancelled')`
+      sql3`${mentorBookings.status} NOT IN ('cancelled')`
     )).orderBy(desc(mentorBookings.createdAt));
     const sessionMap = new Map(
       (await db.select().from(mentorSessions).where(inArray(mentorSessions.id, sessionIds))).map((s) => [s.id, s])
@@ -5533,7 +5744,7 @@ data: ${data}
   });
   app2.get("/api/announcements", async (_req, res) => {
     const rows = await db.select().from(announcements).where(
-      sql2`(start_at IS NULL OR start_at <= now()) AND (end_at IS NULL OR end_at >= now())`
+      sql3`(start_at IS NULL OR start_at <= now()) AND (end_at IS NULL OR end_at >= now())`
     ).orderBy(desc(announcements.isPinned), desc(announcements.createdAt));
     res.json(rows);
   });
@@ -6048,86 +6259,144 @@ data: ${data}
     res.json({ ok: true, created: insertedCreators.length });
   });
   app2.post("/api/seed-editors", async (_req, res) => {
-    const existing = await db.select().from(videoEditors);
-    if (existing.length >= 5) {
-      return res.json({ ok: true, message: "Already seeded" });
-    }
     const [idolCommunity] = await db.select({ id: communities.id }).from(communities).where(eq2(communities.name, "\u5730\u4E0B\u30A2\u30A4\u30C9\u30EB\u754C\u9688"));
     const defaultCommunityId = idolCommunity?.id ?? 1;
-    const demoEditors = [
-      {
-        name: "\u6620\u50CF\u7DE8\u96C6\u30DE\u30F3",
-        avatar: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150&h=150&fit=crop",
-        bio: "\u30C6\u30ED\u30C3\u30D7\u30FB\u30AB\u30C3\u30C8\u30FB\u30B5\u30E0\u30CD\u307E\u3067\u30EF\u30F3\u30B9\u30C8\u30C3\u30D7\u3067\u5BFE\u5FDC\u3059\u308B\u52D5\u753B\u7DE8\u96C6\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC\u3002",
-        communityId: defaultCommunityId,
-        genres: "YouTube,\u30D0\u30E9\u30A8\u30C6\u30A3,\u30B2\u30FC\u30E0",
-        deliveryDays: 3,
-        priceType: "per_minute",
-        pricePerMinute: 1500,
-        revenueSharePercent: null,
-        rating: 4.9,
-        reviewCount: 128,
-        isAvailable: true
-      },
-      {
-        name: "\u30B7\u30CD\u30DE\u7DE8\u96C6\u30B9\u30BF\u30B8\u30AA",
-        avatar: "https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=150&h=150&fit=crop",
-        bio: "\u6620\u753B\u98A8\u306E\u30B7\u30CD\u30DE\u30C6\u30A3\u30C3\u30AF\u306AMV\u5236\u4F5C\u304C\u5F97\u610F\u3067\u3059\u3002",
-        communityId: defaultCommunityId,
-        genres: "MV,\u30A2\u30FC\u30C6\u30A3\u30B9\u30C8,\u30B7\u30CD\u30DE\u30C6\u30A3\u30C3\u30AF",
-        deliveryDays: 7,
-        priceType: "revenue_share",
-        pricePerMinute: null,
-        revenueSharePercent: 40,
-        rating: 4.8,
-        reviewCount: 76,
-        isAvailable: false
-      },
-      {
-        name: "\u30B7\u30E7\u30FC\u30C8\u52D5\u753B\u8077\u4EBA",
-        avatar: "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=150&h=150&fit=crop",
-        bio: "TikTok\u30FBYouTube\u30B7\u30E7\u30FC\u30C8\u306E\u4F38\u3073\u308B\u69CB\u6210\u3092\u63D0\u6848\u3057\u307E\u3059\u3002",
-        communityId: defaultCommunityId,
-        genres: "\u30B7\u30E7\u30FC\u30C8\u52D5\u753B,\u7E26\u578B,SNS\u904B\u7528",
-        deliveryDays: 2,
-        priceType: "per_minute",
-        pricePerMinute: 2e3,
-        revenueSharePercent: null,
-        rating: 5,
-        reviewCount: 54,
-        isAvailable: true
-      },
-      {
-        name: "\u30B2\u30FC\u30E0\u5B9F\u6CC1\u30A8\u30C7\u30A3\u30BF\u30FC",
-        avatar: "https://images.unsplash.com/photo-1533236897111-3e94666b2dde?w=150&h=150&fit=crop",
-        bio: "APEX/VALORANT\u306A\u3069FPS\u7CFB\u5B9F\u6CC1\u306E\u7DE8\u96C6\u304C\u4E2D\u5FC3\u3067\u3059\u3002",
-        communityId: defaultCommunityId,
-        genres: "\u30B2\u30FC\u30E0\u5B9F\u6CC1,FPS,\u5207\u308A\u629C\u304D",
-        deliveryDays: 4,
-        priceType: "per_minute",
-        pricePerMinute: 1200,
-        revenueSharePercent: null,
-        rating: 4.6,
-        reviewCount: 90,
-        isAvailable: false
-      },
-      {
-        name: "\u6559\u80B2\u30C1\u30E3\u30F3\u30CD\u30EB\u7DE8\u96C6\u5BA4",
-        avatar: "https://images.unsplash.com/photo-1525134479668-1bee5c7c6845?w=150&h=150&fit=crop",
-        bio: "\u30D3\u30B8\u30CD\u30B9\u30FB\u6559\u80B2\u7CFB\u306E\u5206\u304B\u308A\u3084\u3059\u3044\u56F3\u89E3\u52D5\u753B\u3092\u5236\u4F5C\u3057\u307E\u3059\u3002",
-        communityId: defaultCommunityId,
-        genres: "\u30D3\u30B8\u30CD\u30B9,\u6559\u80B2,\u30BB\u30DF\u30CA\u30FC",
-        deliveryDays: 5,
-        priceType: "revenue_share",
-        pricePerMinute: null,
-        revenueSharePercent: 30,
-        rating: 4.7,
-        reviewCount: 33,
-        isAvailable: true
+    let insertedBase = 0;
+    let insertedBoth = 0;
+    const existingStart = await db.select().from(videoEditors);
+    if (existingStart.length < 5) {
+      const demoEditors = [
+        {
+          name: "\u6620\u50CF\u7DE8\u96C6\u30DE\u30F3",
+          avatar: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150&h=150&fit=crop",
+          bio: "\u30C6\u30ED\u30C3\u30D7\u30FB\u30AB\u30C3\u30C8\u30FB\u30B5\u30E0\u30CD\u307E\u3067\u30EF\u30F3\u30B9\u30C8\u30C3\u30D7\u3067\u5BFE\u5FDC\u3059\u308B\u52D5\u753B\u7DE8\u96C6\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC\u3002",
+          communityId: defaultCommunityId,
+          genres: "YouTube,Variety,Gaming",
+          deliveryDays: 3,
+          priceType: "per_minute",
+          pricePerMinute: 150,
+          revenueSharePercent: null,
+          styleTags: ["00s-cyber", "speedy-cut"],
+          rating: 4.9,
+          reviewCount: 128,
+          isAvailable: true
+        },
+        {
+          name: "\u30B7\u30CD\u30DE\u7DE8\u96C6\u30B9\u30BF\u30B8\u30AA",
+          avatar: "https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=150&h=150&fit=crop",
+          bio: "\u6620\u753B\u98A8\u306E\u30B7\u30CD\u30DE\u30C6\u30A3\u30C3\u30AF\u306AMV\u5236\u4F5C\u304C\u5F97\u610F\u3067\u3059\u3002",
+          communityId: defaultCommunityId,
+          genres: "MV,Artist,Cinematic",
+          deliveryDays: 7,
+          priceType: "revenue_share",
+          pricePerMinute: null,
+          revenueSharePercent: 40,
+          styleTags: [],
+          rating: 4.8,
+          reviewCount: 76,
+          isAvailable: false
+        },
+        {
+          name: "\u30B7\u30E7\u30FC\u30C8\u52D5\u753B\u8077\u4EBA",
+          avatar: "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=150&h=150&fit=crop",
+          bio: "TikTok\u30FBYouTube\u30B7\u30E7\u30FC\u30C8\u306E\u4F38\u3073\u308B\u69CB\u6210\u3092\u63D0\u6848\u3057\u307E\u3059\u3002",
+          communityId: defaultCommunityId,
+          genres: "Short Video,Vertical,Social Media",
+          deliveryDays: 2,
+          priceType: "per_minute",
+          pricePerMinute: 200,
+          revenueSharePercent: null,
+          styleTags: ["vhs-filter", "raw-texture"],
+          rating: 5,
+          reviewCount: 54,
+          isAvailable: true
+        },
+        {
+          name: "\u30B2\u30FC\u30E0\u5B9F\u6CC1\u30A8\u30C7\u30A3\u30BF\u30FC",
+          avatar: "https://images.unsplash.com/photo-1533236897111-3e94666b2dde?w=150&h=150&fit=crop",
+          bio: "APEX/VALORANT\u306A\u3069FPS\u7CFB\u5B9F\u6CC1\u306E\u7DE8\u96C6\u304C\u4E2D\u5FC3\u3067\u3059\u3002",
+          communityId: defaultCommunityId,
+          genres: "Gaming,Highlights",
+          deliveryDays: 4,
+          priceType: "per_minute",
+          pricePerMinute: 120,
+          revenueSharePercent: null,
+          styleTags: [],
+          rating: 4.6,
+          reviewCount: 90,
+          isAvailable: false
+        },
+        {
+          name: "\u6559\u80B2\u30C1\u30E3\u30F3\u30CD\u30EB\u7DE8\u96C6\u5BA4",
+          avatar: "https://images.unsplash.com/photo-1525134479668-1bee5c7c6845?w=150&h=150&fit=crop",
+          bio: "\u30D3\u30B8\u30CD\u30B9\u30FB\u6559\u80B2\u7CFB\u306E\u5206\u304B\u308A\u3084\u3059\u3044\u56F3\u89E3\u52D5\u753B\u3092\u5236\u4F5C\u3057\u307E\u3059\u3002",
+          communityId: defaultCommunityId,
+          genres: "Business,Education,Seminar",
+          deliveryDays: 5,
+          priceType: "revenue_share",
+          pricePerMinute: null,
+          revenueSharePercent: 30,
+          styleTags: [],
+          rating: 4.7,
+          reviewCount: 33,
+          isAvailable: true
+        }
+      ];
+      for (const row of demoEditors) {
+        const v = validateEditorPricing(row);
+        if (!v.ok) return res.status(500).json({ error: v.error });
       }
-    ];
-    await db.insert(videoEditors).values(demoEditors);
-    res.json({ ok: true, count: demoEditors.length });
+      await db.insert(videoEditors).values(demoEditors);
+      insertedBase = demoEditors.length;
+    }
+    const afterBase = await db.select().from(videoEditors);
+    const hasBoth = afterBase.some((e) => e.priceType === "both");
+    if (!hasBoth) {
+      const bothDemo = [
+        {
+          name: "\u30D5\u30EB\u30D5\u30EC\u30C3\u30AF\u30B9\u7DE8\u96C6\u6240",
+          avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop",
+          bio: "\u5206\u5358\u4FA1\u3067\u3082\u30EC\u30D9\u30CB\u30E5\u30FC\u30B7\u30A7\u30A2\u3067\u3082\u3054\u76F8\u8AC7\u306B\u5FDC\u3058\u307E\u3059\u3002MV\u30FB\u30E9\u30A4\u30D6\u5207\u308A\u629C\u304D\u4E21\u65B9\u5BFE\u5FDC\u3002",
+          communityId: defaultCommunityId,
+          genres: "MV,Highlights,Short Video",
+          deliveryDays: 4,
+          priceType: "both",
+          pricePerMinute: 180,
+          revenueSharePercent: 85,
+          styleTags: ["00s-cyber", "raw-texture"],
+          rating: 4.85,
+          reviewCount: 42,
+          isAvailable: true
+        },
+        {
+          name: "\u30CF\u30A4\u30D6\u30EA\u30C3\u30C9\u30FB\u30AF\u30EA\u30C3\u30D7\u30B9",
+          avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop",
+          bio: "\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC\u53D6\u308A\u5206\u91CD\u8996\u306E\u6848\u4EF6\u3082\u3001\u56FA\u5B9A\u30EC\u30FC\u30C8\u3082\u67D4\u8EDF\u306B\u3002\u30B2\u30FC\u30E0\u30FB\u97F3\u697D\u5E45\u5E83\u304F\u3002",
+          communityId: defaultCommunityId,
+          genres: "Gaming,Artist,Variety",
+          deliveryDays: 3,
+          priceType: "both",
+          pricePerMinute: 140,
+          revenueSharePercent: 72,
+          styleTags: ["vhs-filter", "speedy-cut"],
+          rating: 4.75,
+          reviewCount: 61,
+          isAvailable: true
+        }
+      ];
+      for (const row of bothDemo) {
+        const v = validateEditorPricing(row);
+        if (!v.ok) return res.status(500).json({ error: v.error });
+      }
+      await db.insert(videoEditors).values(bothDemo);
+      insertedBoth = bothDemo.length;
+    }
+    return res.json({
+      ok: true,
+      insertedBase,
+      insertedBoth,
+      message: insertedBase === 0 && insertedBoth === 0 ? "Already seeded (base + both)" : void 0
+    });
   });
   const FREE_REQUESTS_PER_DAY = 3;
   app2.get("/api/coins/balance", async (req, res) => {

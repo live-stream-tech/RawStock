@@ -60,7 +60,12 @@ import {
   dmThreadMessages,
 } from "./schema";
 import { eq, asc, desc, count, sql, and, or, gte, lte, isNull, inArray, isNotNull, type SQL } from "drizzle-orm";
-import { validateEditorPricing, parseTagsQueryParam } from "./editorPricing";
+import {
+  validateEditorPricing,
+  parseTagsQueryParam,
+  parseGenresQueryParam,
+  normalizeEditorStyleTagSlugs,
+} from "./editorPricing";
 import { getUncachableStripeClient, getStripePublishableKey, createConnectExpressAccount, createConnectAccountLink, getConnectAccount, createBannerPaymentIntent, getPaymentIntentStatus, createTransferToConnectedAccount } from "./stripeClient";
 import { getCreatorMonthlyRankings, getMonthlyRevenueRank, runMonthlyCreatorAggregation } from "./aggregateRevenue";
 import { judgeReportContent } from "./claudeReport";
@@ -2113,6 +2118,15 @@ export async function registerRoutes(app: Express): Promise<void> {
       }
     }
 
+    const maxDelRaw = req.query.maxDeliveryDays;
+    const maxDelStr = Array.isArray(maxDelRaw) ? maxDelRaw[0] : maxDelRaw;
+    if (maxDelStr !== undefined && String(maxDelStr).trim() !== "") {
+      const maxD = parseInt(String(maxDelStr), 10);
+      if (!Number.isNaN(maxD) && maxD > 0) {
+        filters.push(lte(videoEditors.deliveryDays, maxD));
+      }
+    }
+
     const tagList = parseTagsQueryParam(req.query.tags);
     if (tagList.length > 0) {
       const arrayLit =
@@ -2128,6 +2142,14 @@ export async function registerRoutes(app: Express): Promise<void> {
             .where(and(...filters))
         : await db.select().from(videoEditors);
 
+    const genreTerms = parseGenresQueryParam(req.query.genres);
+    if (genreTerms.length > 0) {
+      rows = rows.filter((e) => {
+        const hay = (e.genres ?? "").toLowerCase();
+        return genreTerms.some((t) => hay.includes(t));
+      });
+    }
+
     if (sort === "delivery") {
       rows = rows.sort((a, b) => a.deliveryDays - b.deliveryDays);
     } else if (sort === "price") {
@@ -2140,6 +2162,13 @@ export async function registerRoutes(app: Express): Promise<void> {
       rows = rows.sort((a, b) => b.rating - a.rating);
     }
     res.json(rows);
+  });
+
+  app.get("/api/editors/me", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const [row] = await db.select().from(videoEditors).where(eq(videoEditors.userId, user.id)).limit(1);
+    return res.json(row ?? null);
   });
 
   app.get("/api/editors/:id", async (req: Request, res: Response) => {
@@ -2206,6 +2235,135 @@ export async function registerRoutes(app: Express): Promise<void> {
     } as typeof notifications.$inferInsert);
 
     res.status(201).json(requestRow);
+  });
+
+  app.post("/api/editors", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+    const taken = await db.select().from(videoEditors).where(eq(videoEditors.userId, user.id)).limit(1);
+    if (taken.length > 0) {
+      return res.status(409).json({ error: "既に動画編集者として登録済みです" });
+    }
+
+    const body = req.body as {
+      bio?: string;
+      genres?: string;
+      deliveryDays?: number;
+      priceType?: string;
+      pricePerMinute?: number | null;
+      revenueSharePercent?: number | null;
+      communityId?: number;
+      styleTags?: unknown;
+    };
+
+    const communityId = body.communityId;
+    if (communityId == null || !Number.isFinite(communityId)) {
+      return res.status(400).json({ error: "communityId が必要です" });
+    }
+    const [comm] = await db.select({ id: communities.id }).from(communities).where(eq(communities.id, communityId));
+    if (!comm) return res.status(400).json({ error: "コミュニティが見つかりません" });
+
+    const pricingRow = {
+      priceType: String(body.priceType ?? ""),
+      pricePerMinute: body.pricePerMinute ?? null,
+      revenueSharePercent: body.revenueSharePercent ?? null,
+    };
+    const pv = validateEditorPricing(pricingRow);
+    if (!pv.ok) return res.status(400).json({ error: pv.error });
+
+    const styleTags = normalizeEditorStyleTagSlugs(
+      Array.isArray(body.styleTags) ? body.styleTags.map((x) => String(x)) : [],
+    );
+
+    const [u] = await db.select().from(users).where(eq(users.id, user.id));
+    if (!u) return res.status(404).json({ error: "User not found" });
+
+    const deliveryDays =
+      typeof body.deliveryDays === "number" && body.deliveryDays > 0
+        ? Math.min(90, Math.floor(body.deliveryDays))
+        : 3;
+
+    const [created] = await db
+      .insert(videoEditors)
+      .values({
+        userId: user.id,
+        name: u.displayName,
+        avatar: u.profileImageUrl ?? null,
+        bio: (body.bio ?? "").trim(),
+        communityId,
+        genres: (body.genres ?? "").trim(),
+        deliveryDays,
+        priceType: pricingRow.priceType,
+        pricePerMinute: pricingRow.pricePerMinute,
+        revenueSharePercent: pricingRow.revenueSharePercent,
+        styleTags,
+      } as typeof videoEditors.$inferInsert)
+      .returning();
+
+    return res.status(201).json(created);
+  });
+
+  app.put("/api/editors/:id", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const id = paramNum(req, "id");
+    const [editor] = await db.select().from(videoEditors).where(eq(videoEditors.id, id));
+    if (!editor) return res.status(404).json({ error: "Not found" });
+    if (editor.userId !== user.id) return res.status(403).json({ error: "編集できません" });
+
+    const body = req.body as {
+      bio?: string;
+      genres?: string;
+      deliveryDays?: number;
+      priceType?: string;
+      pricePerMinute?: number | null;
+      revenueSharePercent?: number | null;
+      communityId?: number;
+      styleTags?: unknown;
+    };
+
+    const communityId = body.communityId ?? editor.communityId;
+    const [comm] = await db.select({ id: communities.id }).from(communities).where(eq(communities.id, communityId));
+    if (!comm) return res.status(400).json({ error: "コミュニティが見つかりません" });
+
+    const pricingRow = {
+      priceType: String(body.priceType ?? editor.priceType),
+      pricePerMinute: body.pricePerMinute !== undefined ? body.pricePerMinute : editor.pricePerMinute,
+      revenueSharePercent:
+        body.revenueSharePercent !== undefined ? body.revenueSharePercent : editor.revenueSharePercent,
+    };
+    const pv = validateEditorPricing(pricingRow);
+    if (!pv.ok) return res.status(400).json({ error: pv.error });
+
+    let styleTags: string[] = Array.isArray(editor.styleTags) ? [...editor.styleTags] : [];
+    if (body.styleTags !== undefined) {
+      styleTags = normalizeEditorStyleTagSlugs(
+        Array.isArray(body.styleTags) ? body.styleTags.map((x) => String(x)) : [],
+      );
+    }
+
+    const deliveryDays =
+      typeof body.deliveryDays === "number" && body.deliveryDays > 0
+        ? Math.min(90, Math.floor(body.deliveryDays))
+        : editor.deliveryDays;
+
+    await db
+      .update(videoEditors)
+      .set({
+        bio: body.bio !== undefined ? String(body.bio).trim() : editor.bio,
+        genres: body.genres !== undefined ? String(body.genres).trim() : editor.genres,
+        deliveryDays,
+        communityId,
+        priceType: pricingRow.priceType,
+        pricePerMinute: pricingRow.pricePerMinute,
+        revenueSharePercent: pricingRow.revenueSharePercent,
+        styleTags,
+      })
+      .where(eq(videoEditors.id, id));
+
+    const [updated] = await db.select().from(videoEditors).where(eq(videoEditors.id, id));
+    return res.json(updated);
   });
 
   app.post("/api/communities", async (req: Request, res: Response) => {
@@ -5774,7 +5932,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           avatar: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150&h=150&fit=crop",
           bio: "テロップ・カット・サムネまでワンストップで対応する動画編集クリエイター。",
           communityId: defaultCommunityId,
-          genres: "YouTube,バラエティ,ゲーム",
+          genres: "YouTube,Variety,Gaming",
           deliveryDays: 3,
           priceType: "per_minute",
           pricePerMinute: 150,
@@ -5789,7 +5947,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           avatar: "https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=150&h=150&fit=crop",
           bio: "映画風のシネマティックなMV制作が得意です。",
           communityId: defaultCommunityId,
-          genres: "MV,アーティスト,シネマティック",
+          genres: "MV,Artist,Cinematic",
           deliveryDays: 7,
           priceType: "revenue_share",
           pricePerMinute: null,
@@ -5804,7 +5962,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           avatar: "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=150&h=150&fit=crop",
           bio: "TikTok・YouTubeショートの伸びる構成を提案します。",
           communityId: defaultCommunityId,
-          genres: "ショート動画,縦型,SNS運用",
+          genres: "Short Video,Vertical,Social Media",
           deliveryDays: 2,
           priceType: "per_minute",
           pricePerMinute: 200,
@@ -5819,7 +5977,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           avatar: "https://images.unsplash.com/photo-1533236897111-3e94666b2dde?w=150&h=150&fit=crop",
           bio: "APEX/VALORANTなどFPS系実況の編集が中心です。",
           communityId: defaultCommunityId,
-          genres: "ゲーム実況,FPS,切り抜き",
+          genres: "Gaming,Highlights",
           deliveryDays: 4,
           priceType: "per_minute",
           pricePerMinute: 120,
@@ -5834,7 +5992,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           avatar: "https://images.unsplash.com/photo-1525134479668-1bee5c7c6845?w=150&h=150&fit=crop",
           bio: "ビジネス・教育系の分かりやすい図解動画を制作します。",
           communityId: defaultCommunityId,
-          genres: "ビジネス,教育,セミナー",
+          genres: "Business,Education,Seminar",
           deliveryDays: 5,
           priceType: "revenue_share",
           pricePerMinute: null,
@@ -5862,7 +6020,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop",
           bio: "分単価でもレベニューシェアでもご相談に応じます。MV・ライブ切り抜き両方対応。",
           communityId: defaultCommunityId,
-          genres: "MV,ライブ,ショート",
+          genres: "MV,Highlights,Short Video",
           deliveryDays: 4,
           priceType: "both",
           pricePerMinute: 180,
@@ -5877,7 +6035,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop",
           bio: "クリエイター取り分重視の案件も、固定レートも柔軟に。ゲーム・音楽幅広く。",
           communityId: defaultCommunityId,
-          genres: "ゲーム,音楽,バラエティ",
+          genres: "Gaming,Artist,Variety",
           deliveryDays: 3,
           priceType: "both",
           pricePerMinute: 140,
