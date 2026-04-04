@@ -83,6 +83,24 @@ const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID ?? "";
 const CLOUDFLARE_STREAM_TOKEN = process.env.CLOUDFLARE_STREAM_TOKEN ?? "";
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
 
+/** Cloudflare client/v4 の errors 配列を 1 行に（デバッグ・ユーザー向け detail 用） */
+function formatCloudflareApiErrors(errors: unknown): string {
+  if (errors == null) return "";
+  if (Array.isArray(errors)) {
+    const parts = errors
+      .map((e: unknown) => {
+        if (e && typeof e === "object" && "message" in e) {
+          const m = (e as { message?: unknown }).message;
+          return typeof m === "string" ? m : "";
+        }
+        return "";
+      })
+      .filter(Boolean);
+    return parts.join("; ");
+  }
+  return "";
+}
+
 function makeToken(userId: number) {
   return jwt.sign({ sub: userId }, JWT_SECRET, { expiresIn: "90d" });
 }
@@ -4379,8 +4397,12 @@ export async function registerRoutes(app: Express): Promise<void> {
       };
 
       if (!cfRes.ok || !json.success || !json.result) {
-        console.error("Cloudflare Stream create error:", json.errors);
-        return res.status(502).json({ error: "Cloudflare Stream live input 作成に失敗しました" });
+        const detail = formatCloudflareApiErrors(json.errors);
+        console.error("Cloudflare Stream create error:", cfRes.status, json.errors);
+        return res.status(502).json({
+          error: "Cloudflare Stream live input 作成に失敗しました",
+          ...(detail ? { detail } : {}),
+        });
       }
 
       const result = json.result;
@@ -4391,7 +4413,11 @@ export async function registerRoutes(app: Express): Promise<void> {
       const webRtcPlaybackUrl = (result.webRTCPlayback?.url ?? "").trim() || whipPublish;
 
       if (!cfId || !rtmpsUrl || !rtmpsStreamKey || !webRtcPlaybackUrl) {
-        return res.status(502).json({ error: "Cloudflare Stream レスポンスが不完全です" });
+        return res.status(502).json({
+          error: "Cloudflare Stream レスポンスが不完全です",
+          detail:
+            "Live Input に WHIP(WebRTC) または RTMPS の情報が含まれていません。ダッシュボードで Stream が有効か、課金・枠を確認してください。",
+        });
       }
 
       const whipUrlStored = whipPublish || webRtcPlaybackUrl;

@@ -1925,6 +1925,20 @@ var JWT_SECRET = process.env.SESSION_SECRET ?? "livestage-dev-secret";
 var CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID ?? "";
 var CLOUDFLARE_STREAM_TOKEN = process.env.CLOUDFLARE_STREAM_TOKEN ?? "";
 var ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
+function formatCloudflareApiErrors(errors) {
+  if (errors == null) return "";
+  if (Array.isArray(errors)) {
+    const parts = errors.map((e) => {
+      if (e && typeof e === "object" && "message" in e) {
+        const m = e.message;
+        return typeof m === "string" ? m : "";
+      }
+      return "";
+    }).filter(Boolean);
+    return parts.join("; ");
+  }
+  return "";
+}
 function makeToken(userId) {
   return jwt.sign({ sub: userId }, JWT_SECRET, { expiresIn: "90d" });
 }
@@ -5037,8 +5051,12 @@ data: ${data}
       );
       const json = await cfRes.json();
       if (!cfRes.ok || !json.success || !json.result) {
-        console.error("Cloudflare Stream create error:", json.errors);
-        return res.status(502).json({ error: "Cloudflare Stream live input \u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
+        const detail = formatCloudflareApiErrors(json.errors);
+        console.error("Cloudflare Stream create error:", cfRes.status, json.errors);
+        return res.status(502).json({
+          error: "Cloudflare Stream live input \u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F",
+          ...detail ? { detail } : {}
+        });
       }
       const result = json.result;
       const cfId = result.uid ?? "";
@@ -5047,7 +5065,10 @@ data: ${data}
       const whipPublish = (result.webRTC?.url ?? "").trim();
       const webRtcPlaybackUrl = (result.webRTCPlayback?.url ?? "").trim() || whipPublish;
       if (!cfId || !rtmpsUrl || !rtmpsStreamKey || !webRtcPlaybackUrl) {
-        return res.status(502).json({ error: "Cloudflare Stream \u30EC\u30B9\u30DD\u30F3\u30B9\u304C\u4E0D\u5B8C\u5168\u3067\u3059" });
+        return res.status(502).json({
+          error: "Cloudflare Stream \u30EC\u30B9\u30DD\u30F3\u30B9\u304C\u4E0D\u5B8C\u5168\u3067\u3059",
+          detail: "Live Input \u306B WHIP(WebRTC) \u307E\u305F\u306F RTMPS \u306E\u60C5\u5831\u304C\u542B\u307E\u308C\u3066\u3044\u307E\u305B\u3093\u3002\u30C0\u30C3\u30B7\u30E5\u30DC\u30FC\u30C9\u3067 Stream \u304C\u6709\u52B9\u304B\u3001\u8AB2\u91D1\u30FB\u67A0\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002"
+        });
       }
       const whipUrlStored = whipPublish || webRtcPlaybackUrl;
       const [row] = await db.insert(streams).values({
@@ -5990,6 +6011,15 @@ data: ${data}
         { name: "\u5730\u4E0B\u30A2\u30A4\u30C9\u30EB\u754C\u9688", avatar: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=100&h=100&fit=crop", lastMessage: "\u3010\u304A\u77E5\u3089\u305B\u3011\u672C\u65E521:00\u304B\u3089\u30E9\u30A4\u30D6\u914D\u4FE1\u304C\u3042\u308A\u307E\u3059", time: "2\u65E5\u524D", unread: 0, online: false, sortOrder: 8 }
       ]);
     }
+    const existingAnnouncements = await db.select().from(announcements);
+    if (existingAnnouncements.length === 0) {
+      await db.insert(announcements).values({
+        title: "\u30E9\u30A4\u30D6\u914D\u4FE1\u30FB\u6280\u8853\u30B3\u30F3\u30C8\u30EA\u30D3\u30E5\u30FC\u30BF\u52DF\u96C6",
+        body: "\u30CD\u30A4\u30C6\u30A3\u30D6 WebRTC\uFF08WHIP\uFF09\u3084\u9060\u9694\u30BB\u30C3\u30B7\u30E7\u30F3\u540C\u671F\u306A\u3069\u3001\u5B9F\u88C5\u30FB\u7814\u7A76\u306B\u5354\u529B\u3044\u305F\u3060\u3051\u308B\u65B9\u3092\u52DF\u96C6\u3057\u3066\u3044\u307E\u3059\u3002\u65B9\u91DD\u306E\u8A73\u7D30\u306F\u30EA\u30DD\u30B8\u30C8\u30EA\u306E docs/LIVE_NATIVE_AND_FILTERS.md \u3092\u3054\u53C2\u7167\u304F\u3060\u3055\u3044\u3002",
+        type: "recruiting",
+        isPinned: true
+      });
+    }
     const communityData = [
       { name: "\u5730\u4E0B\u30A2\u30A4\u30C9\u30EB\u754C\u9688", category: "idol" },
       { name: "\u304A\u7B11\u3044\u82B8\u4EBA\u754C\u9688", category: "idol" },
@@ -6811,47 +6841,6 @@ data: ${data}
   });
   app2.get("/api/tickets/packs", (_req, res) => {
     return res.json(TICKET_PACKS);
-  });
-  const EDITING_FEE_TICKETS = 200;
-  app2.post("/api/editing-requests", async (req, res) => {
-    const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { videoUrl, performanceDate, instructions } = req.body;
-    if (!videoUrl) return res.status(400).json({ error: "videoUrl is required" });
-    const userId = String(user.id);
-    const balRows = await db.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
-    const currentBalance = balRows[0]?.balance ?? 0;
-    if (currentBalance < EDITING_FEE_TICKETS) {
-      return res.status(402).json({ error: "Insufficient tickets", balance: currentBalance, required: EDITING_FEE_TICKETS });
-    }
-    if (balRows.length === 0) {
-      await db.insert(ticketBalances).values({ userId, balance: -EDITING_FEE_TICKETS });
-    } else {
-      await db.update(ticketBalances).set({ balance: currentBalance - EDITING_FEE_TICKETS, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
-    }
-    const [txn] = await db.insert(ticketTransactions).values({
-      userId,
-      amount: -EDITING_FEE_TICKETS,
-      type: "spend_editing",
-      description: `Editing request service fee`
-    }).returning();
-    const [request] = await db.insert(editingRequests).values({
-      userId,
-      videoUrl,
-      performanceDate: performanceDate ?? null,
-      instructions: instructions ?? null,
-      ticketFee: EDITING_FEE_TICKETS,
-      ticketTransactionId: String(txn.id),
-      status: "pending"
-    }).returning();
-    return res.json({ success: true, request, newBalance: currentBalance - EDITING_FEE_TICKETS });
-  });
-  app2.get("/api/editing-requests", async (req, res) => {
-    const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const userId = String(user.id);
-    const rows = await db.select().from(editingRequests).where(eq2(editingRequests.userId, userId)).orderBy(desc(editingRequests.createdAt));
-    return res.json(rows);
   });
   app2.get("/api/platform-banners", async (_req, res) => {
     try {
