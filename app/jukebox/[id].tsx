@@ -28,6 +28,7 @@ import { Linking } from "react-native";
 import { getApiUrl } from "@/lib/query-client";
 import { saveLoginReturn } from "@/lib/login-return";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
+import { webScrollStyle } from "@/constants/layout";
 
 type JukeboxState = {
   communityId: number;
@@ -110,6 +111,16 @@ function calcProgress(startedAt: string, durationSecs: number): number {
   return Math.min(elapsed / durationSecs, 1);
 }
 
+/** Web かつ iPhone / iPad Safari（PWA 含む）— キーボードでレイアウトを動かさない */
+function isIosLikeWebClient(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  if (/iP(hone|od|ad)/.test(ua)) return true;
+  const nav = navigator as Navigator & { maxTouchPoints?: number };
+  if (navigator.platform === "MacIntel" && (nav.maxTouchPoints ?? 0) > 1) return true;
+  return false;
+}
+
 /**
  * NowPlaying: YouTube IFrame API 統合プレイヤー（音声＋映像、mute=0）
  * 曲変更時は loadVideoById() で切り替え（音声途切れなし）
@@ -121,6 +132,7 @@ function NowPlaying({
   onNext,
   addModalOpen,
   embedInSidebarColumn,
+  interactionResumeNonce = 0,
 }: {
   state: JukeboxState | null;
   onNext: () => void;
@@ -128,6 +140,8 @@ function NowPlaying({
   addModalOpen?: boolean;
   /** Desktop 2-col: window may be "landscape" but player sits in a narrow column — use 16:9 box, not full-window fill. */
   embedInSidebarColumn?: boolean;
+  /** 親がインクリメント（検索完了など）— バックグラウンドになった iframe の再生を再度試す */
+  interactionResumeNonce?: number;
 }) {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const [elapsedDisplay, setElapsedDisplay] = useState(0);
@@ -137,9 +151,49 @@ function NowPlaying({
   onNextRef.current = onNext;
   // iOS Safari: 初回のみタップが必要（その後は曲変更でも音声継続）
   const [needsTap, setNeedsTap] = useState(true);
+  /** サーバーは再生中だが WebKit が PAUSED/CUED/UNSTARTED になったとき */
+  const [needsResumeTap, setNeedsResumeTap] = useState(false);
   // IFrame API プレイヤーの参照
   const ytPlayerRef = useRef<any>(null);
   const ytContainerIdRef = useRef<string>(`jb-yt-${Math.random().toString(36).slice(2)}`);
+  const stateRef = useRef<JukeboxState | null>(state);
+  stateRef.current = state;
+  /** 自動 tryResume はユーザーが一度でも再生に関わった後のみ（iOS 自動再生ポリシー） */
+  const hasUserInteractedRef = useRef(false);
+  const lastThrottleMsRef = useRef(0);
+
+  const runTryResumeCore = useCallback(() => {
+    if (Platform.OS !== "web") return;
+    if (!hasUserInteractedRef.current) return;
+    const s = stateRef.current;
+    if (!s?.isPlaying || !s?.currentVideoYoutubeId) return;
+    const player = ytPlayerRef.current;
+    if (!player) return;
+    try {
+      player.unMute?.();
+      player.setVolume?.(100);
+      const ps = typeof player.getPlayerState === "function" ? player.getPlayerState() : undefined;
+      const w = window as any;
+      const PLAYING = w.YT?.PlayerState?.PLAYING ?? 1;
+      if (ps !== PLAYING) {
+        player.playVideo?.();
+      }
+    } catch {
+      /* noop */
+    }
+  }, []);
+
+  const scheduleTryResume = useCallback(() => {
+    if (Platform.OS !== "web") return;
+    setTimeout(runTryResumeCore, 50);
+  }, [runTryResumeCore]);
+
+  const throttledScheduleTryResume = useCallback(() => {
+    const now = Date.now();
+    if (now - lastThrottleMsRef.current < 200) return;
+    lastThrottleMsRef.current = now;
+    scheduleTryResume();
+  }, [scheduleTryResume]);
 
   // 画面サイズ変化を追跡
   useEffect(() => {
@@ -254,12 +308,29 @@ function NowPlaying({
             onStateChange: (event: any) => {
               try {
                 const w = window as any;
-                if (event.data === w.YT?.PlayerState?.ENDED) {
+                const YT = w.YT;
+                if (!YT?.PlayerState) return;
+                const ps = event.data;
+                if (ps === YT.PlayerState.ENDED) {
                   onNextRef.current();
+                  setNeedsResumeTap(false);
+                  return;
                 }
-                // 再生開始でオーバーレイを消す
-                if (event.data === w.YT?.PlayerState?.PLAYING) {
+                if (ps === YT.PlayerState.PLAYING) {
+                  hasUserInteractedRef.current = true;
                   setNeedsTap(false);
+                  setNeedsResumeTap(false);
+                  return;
+                }
+                const srv = stateRef.current;
+                if (
+                  srv?.isPlaying &&
+                  srv?.currentVideoYoutubeId &&
+                  (ps === YT.PlayerState.PAUSED ||
+                    ps === YT.PlayerState.CUED ||
+                    ps === YT.PlayerState.UNSTARTED)
+                ) {
+                  setNeedsResumeTap(true);
                 }
               } catch {}
             },
@@ -287,28 +358,61 @@ function NowPlaying({
     prevAddModalOpen.current = !!addModalOpen;
     if (Platform.OS !== "web") return;
     if (wasOpen && !addModalOpen) {
-      const t = setTimeout(() => {
-        try {
-          ytPlayerRef.current?.playVideo?.();
-          ytPlayerRef.current?.unMute?.();
-          ytPlayerRef.current?.setVolume?.(100);
-        } catch {}
-      }, 250);
+      const t = setTimeout(() => scheduleTryResume(), 250);
       return () => clearTimeout(t);
     }
-  }, [addModalOpen]);
+  }, [addModalOpen, scheduleTryResume]);
 
-  // iOS Safari タップで音声有効化
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined") return;
+    const onResizeGroup = () => throttledScheduleTryResume();
+    window.addEventListener("resize", onResizeGroup);
+    window.addEventListener("orientationchange", onResizeGroup);
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", onResizeGroup);
+    const onVis = () => {
+      if (document.visibilityState !== "visible") return;
+      scheduleTryResume();
+      setTimeout(scheduleTryResume, 120);
+      setTimeout(scheduleTryResume, 300);
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("resize", onResizeGroup);
+      window.removeEventListener("orientationchange", onResizeGroup);
+      vv?.removeEventListener("resize", onResizeGroup);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [scheduleTryResume, throttledScheduleTryResume]);
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    if (interactionResumeNonce <= 0) return;
+    if (!stateRef.current?.isPlaying) return;
+    const t = setTimeout(() => scheduleTryResume(), 280);
+    return () => clearTimeout(t);
+  }, [interactionResumeNonce, scheduleTryResume]);
+
+  useEffect(() => {
+    if (!state?.isPlaying) setNeedsResumeTap(false);
+  }, [state?.isPlaying]);
+
+  useEffect(() => {
+    setNeedsResumeTap(false);
+  }, [state?.currentVideoYoutubeId]);
+
+  // iOS Safari: 初回音声（ユーザージェスチャー直結のため遅延なし）
   const handleTapToUnmute = useCallback(() => {
-    if (ytPlayerRef.current) {
-      try {
-        ytPlayerRef.current.unMute?.();
-        ytPlayerRef.current.setVolume?.(100);
-        ytPlayerRef.current.playVideo?.();
-      } catch {}
-    }
+    hasUserInteractedRef.current = true;
+    runTryResumeCore();
     setNeedsTap(false);
-  }, []);
+  }, [runTryResumeCore]);
+
+  const handleResumePlaybackTap = useCallback(() => {
+    hasUserInteractedRef.current = true;
+    runTryResumeCore();
+    setNeedsResumeTap(false);
+  }, [runTryResumeCore]);
 
   // 縦向き: 16:9 の高さ。横向き: 全画面。サイドバー埋め込み時は常に 16:9 ボックス。
   const isLandscape = !embedInSidebarColumn && screenW > screenH;
@@ -352,16 +456,30 @@ function NowPlaying({
       ) : state?.currentVideoThumbnail ? (
         <Image source={{ uri: state.currentVideoThumbnail }} style={StyleSheet.absoluteFillObject} contentFit="cover" />
       ) : null}
-      {/* iOS Safari 音声有効化オーバーレイ（初回1回のみ） */}
-      {Platform.OS === 'web' && needsTap && state?.currentVideoYoutubeId ? (
+      {/* iOS / WebKit: 初回音声 or 途中停止時の再開（サーバーは再生中） */}
+      {Platform.OS === "web" && state?.currentVideoYoutubeId && needsTap ? (
         <Pressable
           style={styles.audioOverlay}
           onPress={handleTapToUnmute}
           accessibilityLabel="Tap to enable audio"
         >
-          <View style={styles.audioOverlayInner}>
+          <View style={styles.audioOverlayInnerColumn}>
             <Ionicons name="volume-mute" size={22} color="#fff" />
             <Text style={styles.audioOverlayText}>Tap to enable audio</Text>
+            <Text style={styles.audioOverlayHint}>Required on iPhone and Safari</Text>
+          </View>
+        </Pressable>
+      ) : null}
+      {Platform.OS === "web" && state?.currentVideoYoutubeId && !needsTap && needsResumeTap ? (
+        <Pressable
+          style={styles.audioOverlay}
+          onPress={handleResumePlaybackTap}
+          accessibilityLabel="Tap to resume playback"
+        >
+          <View style={styles.audioOverlayInnerColumn}>
+            <Ionicons name="play-circle" size={28} color="#fff" />
+            <Text style={styles.audioOverlayText}>Playback stopped</Text>
+            <Text style={styles.audioOverlayHint}>Tap to resume</Text>
           </View>
         </Pressable>
       ) : null}
@@ -392,7 +510,13 @@ function NowPlaying({
         </View>
 
         <View style={styles.nextRow}>
-          <Pressable style={styles.nextBtn} onPress={onNext}>
+          <Pressable
+            style={styles.nextBtn}
+            onPress={() => {
+              hasUserInteractedRef.current = true;
+              onNext();
+            }}
+          >
             <Ionicons name="play-skip-forward" size={14} color={C.textMuted} />
             <Text style={styles.nextBtnText}>Skip</Text>
           </Pressable>
@@ -482,7 +606,7 @@ function QueueRow({
       </View>
       {isVertical ? (
         <ScrollView
-          style={styles.queueVerticalScroll}
+          style={webScrollStyle(styles.queueVerticalScroll)}
           showsVerticalScrollIndicator={scrollShowsVertical}
           contentContainerStyle={styles.queueVerticalContent}
         >
@@ -530,7 +654,13 @@ export default function JukeboxScreen() {
   const [ytPlaylistsLoading, setYtPlaylistsLoading] = useState(false);
   const [ytPlaylistsNeedGoogle, setYtPlaylistsNeedGoogle] = useState(false);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
+  const [interactionResumeNonce, setInteractionResumeNonce] = useState(0);
 
+  /** Add モーダル内のみ: レイアウト跳びで iframe が止まりやすいので KAV オフ */
+  const kavDisabledOnIosWeb = Platform.OS === "web" && isIosLikeWebClient();
+  /** 本体（チャット含む）: iOS Web は padding が効き、height だとキーボードで入力できないことがある */
+  const jukeboxKeyboardBehavior =
+    Platform.OS === "ios" || kavDisabledOnIosWeb ? "padding" : "height";
 
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
@@ -799,6 +929,7 @@ export default function JukeboxScreen() {
       alert("YouTube search failed. Please try again later.");
     } finally {
       setYtSearching(false);
+      setInteractionResumeNonce((n) => n + 1);
     }
   };
 
@@ -984,7 +1115,7 @@ export default function JukeboxScreen() {
                 <Ionicons name="chevron-back" size={16} color={C.accent} />
                 <Text style={styles.ytPlaylistBackText}>Back to playlists</Text>
               </Pressable>
-              <ScrollView style={styles.ytPlaylistItemsScroll} showsVerticalScrollIndicator={scrollShowsVertical}>
+              <ScrollView style={webScrollStyle(styles.ytPlaylistItemsScroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
                 {ytPlaylistItems.map((item) => {
                   const video: Video & { youtubeId: string; durationSecs: number } = {
                     id: Math.floor(Math.random() * 2000000),
@@ -1039,7 +1170,7 @@ export default function JukeboxScreen() {
           )}
         </View>
       )}
-      <ScrollView style={styles.modalList} showsVerticalScrollIndicator={scrollShowsVertical}>
+      <ScrollView style={webScrollStyle(styles.modalList)} showsVerticalScrollIndicator={scrollShowsVertical}>
         {ytResults.length > 0 && (
           <>
             <Text style={styles.modalSubtitle}>YouTube Results</Text>
@@ -1149,7 +1280,13 @@ export default function JukeboxScreen() {
             <View style={{ width: 36 }} />
           </View>
           <View style={styles.desktopPlayerWrap}>
-            <NowPlaying state={state} onNext={handleNext} addModalOpen={false} embedInSidebarColumn />
+            <NowPlaying
+              state={state}
+              onNext={handleNext}
+              addModalOpen={false}
+              embedInSidebarColumn
+              interactionResumeNonce={interactionResumeNonce}
+            />
           </View>
         </View>
         <View style={styles.desktopSidebar}>
@@ -1213,6 +1350,7 @@ export default function JukeboxScreen() {
             keyboardVerticalOffset={0}
           >
             <ScrollView
+              style={webScrollStyle(undefined)}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={scrollShowsVertical}
               contentContainerStyle={styles.desktopAddScrollContent}
@@ -1228,7 +1366,7 @@ export default function JukeboxScreen() {
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: C.bg }}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      behavior={jukeboxKeyboardBehavior as "padding" | "height"}
       keyboardVerticalOffset={0}
       enabled={!showAddModal}
     >
@@ -1251,13 +1389,24 @@ export default function JukeboxScreen() {
         )}
 
         {/* Single NowPlaying instance — avoids unmount on rotate (was destroying YT iframe / audio). */}
-        <View style={isLandscape ? StyleSheet.absoluteFillObject : {}}>
-          <NowPlaying state={state} onNext={handleNext} addModalOpen={showAddModal} />
+        <View
+          style={
+            isLandscape
+              ? StyleSheet.absoluteFillObject
+              : styles.portraitPlayerSlot
+          }
+        >
+          <NowPlaying
+            state={state}
+            onNext={handleNext}
+            addModalOpen={showAddModal}
+            interactionResumeNonce={interactionResumeNonce}
+          />
         </View>
 
-        {/* Portrait: queue + chat */}
+        {/* Portrait: queue + chat（WebKit で動画レイヤーより手前に固定し、タッチ・キーボードを奪われにくくする） */}
         {!isLandscape && (
-          <>
+          <View style={styles.portraitBelowPlayer}>
             <QueueRow items={queue} state={state} userName={user?.name} onDelete={(id) => deleteMutation.mutate(id)} onAdd={() => {
               if (!user) { router.push("/auth/login"); return; }
               setShowAddModal(true);
@@ -1313,7 +1462,7 @@ export default function JukeboxScreen() {
                 <Ionicons name="send" size={16} color="#fff" />
               </Pressable>
             </View>
-          </>
+          </View>
         )}
 
         {/* Landscape: chrome only (NowPlaying already mounted above). */}
@@ -1423,6 +1572,7 @@ export default function JukeboxScreen() {
           style={{ flex: 1 }}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
+          enabled={!kavDisabledOnIosWeb}
         >
         <Pressable style={styles.modalBg} onPress={() => setShowAddModal(false)}>
           <Pressable style={styles.modalSheet} onPress={() => {}}>
@@ -1440,6 +1590,16 @@ export default function JukeboxScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
+  portraitPlayerSlot: {
+    position: "relative",
+    zIndex: 0,
+  },
+  portraitBelowPlayer: {
+    flex: 1,
+    minHeight: 0,
+    zIndex: 2,
+    position: "relative",
+  },
   desktopMainCol: { flex: 1, minWidth: 0 },
   desktopPlayerWrap: { width: "100%" },
   desktopSidebar: {
@@ -1531,10 +1691,28 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.3)",
   },
+  audioOverlayInnerColumn: {
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(0,0,0,0.75)",
+    paddingHorizontal: 22,
+    paddingVertical: 14,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+    maxWidth: "88%",
+  },
   audioOverlayText: {
     color: "#fff",
     fontSize: 14,
     fontWeight: "600",
+    textAlign: "center",
+  },
+  audioOverlayHint: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 12,
+    fontWeight: "500",
+    textAlign: "center",
   },
   nowPlayingEmpty: {
     alignItems: "center",
