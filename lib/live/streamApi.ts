@@ -40,8 +40,9 @@ export async function apiCreateLiveStream(
     body: JSON.stringify(body),
   });
   if (!createRes.ok) {
-    const err = await createRes.json().catch(() => ({}));
-    throw new Error((err as { error?: string }).error ?? "Failed to create stream");
+    const err = (await createRes.json().catch(() => ({}))) as { error?: string; detail?: string };
+    const base = err.error ?? "Failed to create stream";
+    throw new Error(err.detail ? `${base}（${err.detail}）` : base);
   }
   const data = (await createRes.json()) as { id?: number; whipUrl?: string };
   if (typeof data.id !== "number" || !Number.isFinite(data.id)) {
