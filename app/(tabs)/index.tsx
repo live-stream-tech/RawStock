@@ -35,6 +35,21 @@ const PAID_HERO_H = Platform.OS === "web"
 // Hero card width: on web the app container is capped at 500px; on native use full screen width
 const HERO_CARD_W = Platform.OS === "web" ? Math.min(SCREEN_W, 500) : SCREEN_W;
 
+/** 本番で相対URL・空URLのサムネが真っ黒になるのを防ぐ */
+const FALLBACK_VIDEO_THUMB =
+  "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=800&h=520&fit=crop";
+
+function resolveVideoMediaUri(raw: unknown): string {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  if (!s) return FALLBACK_VIDEO_THUMB;
+  if (/^https?:\/\//i.test(s)) return s;
+  if (s.startsWith("//")) return `https:${s}`;
+  if (Platform.OS === "web" && typeof window !== "undefined" && s.startsWith("/")) {
+    return `${window.location.origin}${s}`;
+  }
+  return s || FALLBACK_VIDEO_THUMB;
+}
+
 function useUnreadCount() {
   const { data } = useQuery<{ count: number }>({
     queryKey: ["/api/notifications/unread-count"],
@@ -59,6 +74,8 @@ function PaidHeroSection({ videos, isDemo }: { videos: any[]; isDemo: boolean })
   return (
     <HorizontalScroll
       pagingEnabled={Platform.OS !== "web"}
+      style={paidHero.hScroll}
+      contentContainerStyle={paidHero.hScrollContent}
     >
       {videos.map((item) => (
         <Pressable
@@ -70,14 +87,18 @@ function PaidHeroSection({ videos, isDemo }: { videos: any[]; isDemo: boolean })
             )
           }
         >
-          {item.thumbnail ? (
-            <Image source={{ uri: item.thumbnail }} style={paidHero.thumb} contentFit="cover" />
-          ) : (
-            <View style={[paidHero.thumb, { backgroundColor: C.surface2 }]} />
-          )}
+          <View style={paidHero.thumbWrap}>
+            <Image
+              source={{ uri: resolveVideoMediaUri(item.thumbnail) }}
+              style={paidHero.thumbImage}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+            />
+          </View>
           <LinearGradient
             colors={["rgba(5,5,5,0)", "rgba(5,5,5,0.5)", "rgba(5,5,5,0.92)"]}
             style={paidHero.gradient}
+            pointerEvents="none"
           />
           <View style={paidHero.paidBadge}>
             <Text style={paidHero.paidBadgeText}>PAID</Text>
@@ -85,7 +106,12 @@ function PaidHeroSection({ videos, isDemo }: { videos: any[]; isDemo: boolean })
           <View style={paidHero.info}>
             <View style={paidHero.metaRow}>
               {item.avatar ? (
-                <Image source={{ uri: item.avatar }} style={paidHero.avatar} contentFit="cover" />
+                <Image
+                  source={{ uri: resolveVideoMediaUri(item.avatar) }}
+                  style={paidHero.avatar}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                />
               ) : null}
               <Text style={paidHero.community} numberOfLines={1}>{item.community}</Text>
               {item.price != null && item.price > 0 && (
@@ -107,9 +133,25 @@ function PaidHeroSection({ videos, isDemo }: { videos: any[]; isDemo: boolean })
 }
 
 const paidHero = StyleSheet.create({
-  card: { width: HERO_CARD_W, height: 300, position: "relative", backgroundColor: "#000" } as any,
-  thumb: { position: "absolute", top: 0, left: 0, width: HERO_CARD_W, height: 300 } as any,
-  gradient: { position: "absolute", left: 0, right: 0, bottom: 0, height: 300 },
+  hScroll: { minHeight: 300 } as any,
+  hScrollContent: { alignItems: "stretch" } as any,
+  card: {
+    width: HERO_CARD_W,
+    height: 300,
+    position: "relative",
+    backgroundColor: "#0a0a0a",
+    overflow: "hidden",
+  } as any,
+  thumbWrap: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: HERO_CARD_W,
+    height: 300,
+    overflow: "hidden",
+  } as any,
+  thumbImage: { width: "100%", height: "100%" } as any,
+  gradient: { position: "absolute", left: 0, right: 0, bottom: 0, top: 0, height: 300 },
   paidBadge: {
     position: "absolute",
     top: 14,
@@ -157,7 +199,12 @@ function LiveCard({ item }: { item: any }) {
   return (
     <Pressable style={styles.liveCard} onPress={() => router.push(`/live/${item.id}`)}>
       <View style={styles.liveThumbWrap}>
-        <Image source={{ uri: item.thumbnail }} style={styles.liveThumb} contentFit="cover" />
+        <Image
+          source={{ uri: resolveVideoMediaUri(item.thumbnail) }}
+          style={styles.liveThumb}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+        />
         <LinearGradient
           colors={["transparent", "rgba(0,0,0,0.75)"]}
           style={styles.liveThumbGradient}
@@ -179,7 +226,12 @@ function LiveCard({ item }: { item: any }) {
       </View>
       <View style={styles.liveInfo}>
         <View style={styles.creatorRow}>
-          <Image source={{ uri: item.avatar }} style={styles.smallAvatar} contentFit="cover" />
+          <Image
+            source={{ uri: resolveVideoMediaUri(item.avatar) }}
+            style={styles.smallAvatar}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+          />
           <Text style={styles.communityText} numberOfLines={1}>{item.community}</Text>
         </View>
         <Text style={styles.videoTitle} numberOfLines={2}>{item.title}</Text>
@@ -196,7 +248,12 @@ function SessionCard({ item }: { item: any }) {
       onPress={() => router.push(`/mentor-booking/${item.id}`)}
     >
       <View style={styles.sessionThumbWrap}>
-        <Image source={{ uri: item.thumbnail }} style={styles.sessionThumb} contentFit="cover" />
+        <Image
+          source={{ uri: resolveVideoMediaUri(item.thumbnail) }}
+          style={styles.sessionThumb}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+        />
         <LinearGradient
           colors={["transparent", "rgba(0,0,0,0.82)"]}
           style={styles.sessionThumbGradient}
@@ -210,7 +267,12 @@ function SessionCard({ item }: { item: any }) {
       </View>
       <View style={styles.sessionInfo}>
         <View style={styles.creatorRow}>
-          <Image source={{ uri: item.avatar }} style={styles.smallAvatar} contentFit="cover" />
+          <Image
+            source={{ uri: resolveVideoMediaUri(item.avatar) }}
+            style={styles.smallAvatar}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+          />
           <Text style={styles.communityText} numberOfLines={1}>{item.creator}</Text>
         </View>
         <Text style={styles.videoTitle} numberOfLines={2}>{item.title}</Text>

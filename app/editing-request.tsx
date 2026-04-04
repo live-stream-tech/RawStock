@@ -18,6 +18,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/query-client";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
+import { getTabBottomInset } from "@/constants/layout";
 
 const EDITING_FEE = 200; // 🎟 deducted from ticket balance
 
@@ -25,6 +26,7 @@ export default function EditingRequestScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
+  const scrollBottomPad = getTabBottomInset(insets) + 100;
 
   const { user, requireAuth } = useAuth();
   const [videoUrl, setVideoUrl] = useState("");
@@ -91,7 +93,12 @@ export default function EditingRequestScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical} contentContainerStyle={{ paddingBottom: 32 }}>
+      <ScrollView
+        style={styles.scroll}
+        showsVerticalScrollIndicator={scrollShowsVertical}
+        contentContainerStyle={{ paddingBottom: scrollBottomPad, flexGrow: 1 }}
+        keyboardShouldPersistTaps="handled"
+      >
 
         {/* Hero */}
         <View style={styles.hero}>
