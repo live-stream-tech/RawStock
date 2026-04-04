@@ -980,6 +980,22 @@ export default function ProfileScreen() {
           </Pressable>
         </View>
 
+        <View style={styles.creatorBanner}>
+          <View style={styles.creatorBannerText}>
+            <Text style={styles.creatorBannerTitle}>Get your live footage edited and published.</Text>
+            <Text style={styles.creatorBannerSub}>Earn 90% of every sale. Your raw content, professionally packaged.</Text>
+          </View>
+          <View style={styles.creatorBannerBtns}>
+            <Pressable style={styles.creatorBtnPrimary} onPress={() => router.push("/find-editor" as any)}>
+              <Text style={styles.creatorBtnPrimaryText}>Hire a Creator</Text>
+            </Pressable>
+            <Pressable style={styles.creatorBtnSecondary} onPress={() => router.push("/ai-edit" as any)}>
+              <Ionicons name="sparkles-outline" size={12} color={C.accent} />
+              <Text style={styles.creatorBtnSecondaryText}>AI Edit</Text>
+            </Pressable>
+          </View>
+        </View>
+
         <View style={styles.timelineList}>
           {myVideos
             .filter((v: any) => (v as any).postType === "work")
@@ -1463,6 +1479,42 @@ const styles = StyleSheet.create({
   uploadBtnText: { color: "#050505", fontSize: 12, fontWeight: "700" },
   postsTitle: { color: C.text, fontSize: 13, fontWeight: "800", letterSpacing: 1 },
   postsCount: { color: C.textMuted, fontSize: 12, fontWeight: "600" },
+  creatorBanner: {
+    marginHorizontal: 16,
+    marginTop: 4,
+    marginBottom: 12,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderWidth: 1.5,
+    borderColor: C.accent,
+    backgroundColor: "rgba(108,92,231,0.07)",
+    gap: 12,
+  },
+  creatorBannerText: { gap: 4 },
+  creatorBannerTitle: { color: C.text, fontSize: 13, fontWeight: "800", lineHeight: 18 },
+  creatorBannerSub: { color: C.textSec, fontSize: 11, lineHeight: 16 },
+  creatorBannerBtns: { flexDirection: "row", gap: 8 },
+  creatorBtnPrimary: {
+    flex: 1,
+    backgroundColor: C.accent,
+    borderRadius: 7,
+    paddingVertical: 9,
+    alignItems: "center",
+  },
+  creatorBtnPrimaryText: { color: "#fff", fontSize: 12, fontWeight: "800" },
+  creatorBtnSecondary: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: C.accent,
+    borderRadius: 7,
+    paddingVertical: 9,
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 5,
+  },
+  creatorBtnSecondaryText: { color: C.accent, fontSize: 12, fontWeight: "800" },
   timelineList: { paddingHorizontal: 16, gap: 6, marginBottom: 12 },
   timelineItem: {
     flexDirection: "row",
