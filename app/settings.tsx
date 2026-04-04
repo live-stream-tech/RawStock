@@ -202,6 +202,12 @@ export default function SettingsScreen() {
           />
           <View style={styles.rowDivider} />
           <SettingRow
+            icon="ribbon-outline"
+            label="DMCA / Copyright"
+            onPress={() => router.push("/dmca")}
+          />
+          <View style={styles.rowDivider} />
+          <SettingRow
             icon="document-text-outline"
             label="Legal Notice"
             onPress={() => router.push("/legal-notice")}

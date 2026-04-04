@@ -10,7 +10,7 @@ function Article({ title, children }: { title: string; children: React.ReactNode
   return (
     <View style={styles.article}>
       <Text style={styles.articleTitle}>{title}</Text>
-      <Text style={styles.articleBody}>{children}</Text>
+      {typeof children === "string" ? <Text style={styles.articleBody}>{children}</Text> : <View>{children}</View>}
     </View>
   );
 }
@@ -35,57 +35,81 @@ export default function PrivacyScreen() {
         showsVerticalScrollIndicator={true}
       >
         <Text style={styles.docTitle}>RawStock Privacy Policy</Text>
-        <Text style={styles.effectiveDate}>Effective: March 13, 2026</Text>
+        <Text style={styles.effectiveDate}>Effective: April 4, 2026</Text>
 
         <Article title="Article 1 — Information We Collect">
-          Google account information, email address, uploaded content, usage logs, and payment metadata (card numbers are never stored).
+          {
+            "Account: Google sign-in identifiers, email address, display name, profile image, and bio.\n\nContent: Videos, posts, comments, messages, community activity, and—if you use live or camera features—audio, video, and related metadata from your device.\n\nPayments: Payment and payout metadata processed by Stripe (we do not store full card numbers on our servers).\n\nTechnical: IP address, device type, cookies, usage logs, and diagnostics needed to operate and secure the Service.\n\nOptional: If you use beauty filters or AR effects powered by DeepAR, your camera feed may be processed on your device and by DeepAR’s services to apply effects; see Article 4."
+          }
         </Article>
 
         <Article title="Article 2 — Purpose of Use">
-          To provide and improve the service, respond to inquiries, detect fraudulent use, send notifications, and compile anonymized statistics.
+          To provide and improve the Service, authenticate users, process payments and creator payouts, detect fraud and
+          abuse, moderate content (including automated assistance where used), send service-related notices, and produce
+          aggregated statistics.
         </Article>
 
         <Article title="Article 3 — Third-Party Sharing">
-          We do not share your information with third parties except with your consent, as required by law, or to protect life or public health. We do not sell personal information to third parties. California residents have the right to opt out of the sale or sharing of personal information at any time by contacting us.
+          We do not sell your personal information. We share data with subprocessors listed in Article 4 as needed to
+          operate the Service, when you consent, when required by law, or to protect vital interests. California residents
+          may have rights to opt out of certain sharing under the CCPA/CPRA as described in applicable law and upon
+          request to us.
         </Article>
 
         <Article title="Article 4 — Sub-processors">
-          We may share data with: Neon Inc. (database), Cloudflare, Inc. (storage), and Google LLC (authentication) for the purpose of service operation.
+          {
+            "We may engage the following categories of providers (specific vendors may change; material updates will be reflected here):\n\n• Neon (database hosting)\n• Cloudflare (CDN, streaming, security, and related infrastructure)\n• Google (authentication; YouTube integrations where enabled)\n• Stripe (payments, payouts, Stripe Connect, tax and compliance tooling as applicable)\n• Upstash (caching / rate limiting where configured)\n• Anthropic or similar AI providers (content safety or moderation assistance where enabled)\n• DeepAR or similar (real-time camera / face tracking and AR effects for live or recorded video; processing may occur on device and through the provider’s services)\n\nWe do not control third-party sites linked from the Service; their policies apply when you leave RawStock."
+          }
         </Article>
 
         <Article title="Article 5 — Cookies & Analytics">
-          We use cookies and analytics tools to improve the service. You may disable cookies in your browser settings.
+          We use cookies and similar technologies for sign-in, preferences, security, and analytics. You may limit cookies in
+          your browser; some features may not work without them.
         </Article>
 
         <Article title="Article 6 — Security">
-          We implement appropriate technical and organizational security measures to protect your data.
+          We implement technical and organizational measures appropriate to the risk. No method of transmission over the
+          Internet is completely secure.
         </Article>
 
         <Article title="Article 7 — Access, Correction & Deletion">
-          You may request access to, correction of, or deletion of your personal data by contacting rawstock.infomation@gmail.com. We will verify your identity before responding.
+          You may request access, correction, or deletion of your personal data by contacting rawstock.infomation@gmail.com.
+          We will verify your identity before responding.
         </Article>
 
         <Article title="Article 8 — GDPR (EU Users)">
-          For users in the European Union, we process personal data based on the legal grounds of performance of a contract and legitimate interests, as applicable. EU users have the right to request access, rectification, erasure, and data portability of their personal data. Data Protection Officer (DPO) Contact: rawstock.infomation@gmail.com.
+          {
+            "If you are in the European Economic Area, we process personal data under lawful bases such as contract, legitimate interests, and consent where applicable. You may have the right to access, rectify, erase, restrict processing, object, and data portability, and to lodge a complaint with your supervisory authority. Contact: rawstock.infomation@gmail.com."
+          }
+        </Article>
+
+        <Article title="Article 8b — UK GDPR & Data Protection Act 2018">
+          {
+            "If you are in the United Kingdom, you have similar rights under the UK GDPR and the Data Protection Act 2018, including the right to lodge a complaint with the Information Commissioner’s Office (ICO): https://ico.org.uk/"
+          }
         </Article>
 
         <Article title="Article 9 — Data Retention">
-          We retain personal data only as long as necessary for service operation and legal compliance. After account deletion, personal data is deleted within 30 days unless a longer retention period is required by law.
+          {
+            "We retain personal data only as long as needed for the purposes above and to comply with law. After you delete your account, we delete or anonymize personal data within a reasonable period (typically within 30 days) except where retention is necessary for legal, tax, fraud-prevention, or dispute-resolution purposes, for backups that roll off on a defined cycle, or where you own or moderate communities that must be transferred or closed before deletion—consistent with our account deletion flow in the app."
+          }
         </Article>
 
         <Article title="Article 10 — Minors">
-          Users under 18 years of age must have parental or guardian consent to use this service.
+          The Service is not directed to children under 13. Users must be at least 13 (or the minimum age in their
+          country). Users between 13 and 17 should use the Service only with a parent or guardian’s consent, consistent
+          with our Terms of Service.
         </Article>
 
         <Article title="Article 11 — Policy Updates">
-          Material changes to this policy will be announced within the service.
+          We may update this Policy. Material changes will be communicated through the Service where appropriate.
         </Article>
 
         <Article title="Article 12 — Contact">
           Name: Hiromi Kanokifu{"\n"}
+          Trade name: RawStock{"\n"}
           Address: Shibuya Dogenzaka Tokyu Bldg 2F-C, 1-10-8 Dogenzaka, Shibuya, Tokyo 150-0043, Japan{"\n"}
-          Email: rawstock.infomation@gmail.com{"\n\n"}
-          Effective: March 13, 2026
+          Email: rawstock.infomation@gmail.com
         </Article>
 
         <View style={{ height: 80 }} />

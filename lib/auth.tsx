@@ -13,6 +13,8 @@ export type User = {
   avatar: string | null;
   profileImageUrl?: string | null;
   role?: string;
+  /** ISO 8601 — クリエイター払い出し条項に同意した日時 */
+  payoutTermsAgreedAt?: string | null;
   spotifyUrl?: string | null;
   appleMusicUrl?: string | null;
   bandcampUrl?: string | null;
@@ -97,6 +99,7 @@ function normalizeMe(me: Record<string, unknown>): User {
     phoneNumber: (me.phoneNumber ?? null) as string | null,
     enneagramScores: (me.enneagramScores ?? null) as number[] | null,
     pinnedCommunityIds: (me.pinnedCommunityIds ?? []) as number[],
+    payoutTermsAgreedAt: (me.payoutTermsAgreedAt ?? null) as string | null,
   };
 }
 

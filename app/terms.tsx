@@ -10,7 +10,11 @@ function Article({ title, children }: { title: string; children: React.ReactNode
   return (
     <View style={styles.article}>
       <Text style={styles.articleTitle}>{title}</Text>
-      <Text style={styles.articleBody}>{children}</Text>
+      {typeof children === "string" ? (
+        <Text style={styles.articleBody}>{children}</Text>
+      ) : (
+        <View>{children}</View>
+      )}
     </View>
   );
 }
@@ -35,62 +39,95 @@ export default function TermsScreen() {
         showsVerticalScrollIndicator={true}
       >
         <Text style={styles.docTitle}>RawStock Terms of Service</Text>
-        <Text style={styles.effectiveDate}>Effective Date: March 18, 2026</Text>
+        <Text style={styles.effectiveDate}>Effective Date: April 4, 2026</Text>
 
         <Text style={styles.intro}>
-          These Terms of Service ("Terms") govern your access to and use of the "RawStock" platform and services (the "Service") provided by RawStock ("Company," "we," "us," or "our"). By accessing or using the Service, you agree to be bound by these Terms.
+          These Terms of Service (&quot;Terms&quot;) govern your access to and use of the RawStock platform and services (the
+          &quot;Service&quot;). The Service is operated by Hiromi Kanokifu, doing business under the trade name RawStock
+          (&quot;we,&quot; &quot;us,&quot; or &quot;our&quot;), a sole proprietor based in Japan. By accessing or using the Service, you agree to
+          these Terms.
         </Text>
 
         <Article title="1. Acceptance of Terms & Eligibility">
-          By using the Service, you represent that you are at least 13 years of age (or the minimum age required in your country). If you are under 18, you must have the consent of a parent or legal guardian. If you are a resident of California, additional privacy rights may apply under our Privacy Policy.
+          You must be at least 13 years old (or the minimum age required in your country) to use the Service. If you are
+          between 13 and 17, you may use the Service only with the consent of a parent or legal guardian. California
+          residents may have additional rights described in our Privacy Policy.
         </Article>
 
-        <Article title="2. Governing Law & Jurisdiction">
-          {"Governing Law: These Terms and any dispute arising out of them shall be governed by the laws of the State of California, United States, without regard to conflict of law principles.\n\nArbitration Agreement: Any dispute shall be resolved through binding individual arbitration in California, rather than in court, except for small claims. You waive your right to a class action lawsuit."}
+        <Article title="2. Governing Law & Disputes (Japan)">
+          {
+            "These Terms are governed by the laws of Japan, without regard to conflict-of-law principles, except that mandatory protections of the law of the country where you reside as a consumer may still apply to you.\n\nFor disputes arising from or relating to these Terms, you and we agree to the exclusive jurisdiction of the courts of Japan having jurisdiction over our principal place of business in Tokyo, Japan, subject to any non-waivable rights you may have under applicable law."
+          }
         </Article>
 
         <Article title="3. User Accounts & Security">
-          You are responsible for maintaining the confidentiality of your account credentials. You agree to provide accurate, current, and complete information. Company is not liable for any loss or damage arising from unauthorized access to your account.
+          You are responsible for maintaining the confidentiality of your account credentials. You agree to provide
+          accurate, current, and complete information. We are not liable for loss or damage arising from unauthorized
+          access to your account.
         </Article>
 
         <Article title="4. Content Ownership & Licenses">
-          {"Your Content: You retain all ownership rights to the text, videos, and live streams you post (\"User Content\").\n\nLicense to Company: By posting, you grant Company a worldwide, non-exclusive, royalty-free, sublicensable, and transferable license to use, reproduce, distribute, prepare derivative works of, and display your content in connection with the Service and Company's business (including marketing).\n\nDMCA Compliance: We respect intellectual property rights. If you believe your work has been infringed, please follow our Digital Millennium Copyright Act (DMCA) Notice and Takedown procedure."}
+          <Text style={styles.articleBody}>
+            {
+              'Your Content: You retain ownership of text, videos, and live streams you post ("User Content").\n\nLicense to RawStock: By posting, you grant us a worldwide, non-exclusive, royalty-free license to host, reproduce, distribute, publicly display, and perform your User Content solely to operate, promote, and improve the Service—including reasonable promotional use of your content on or in connection with RawStock (for example, featuring your posts on the platform). A separate opt-in may apply for marketing beyond the Service where we introduce such a program.\n\nCopyright (U.S.): If you believe material on the Service infringes your copyright, see our '
+            }
+            <Text style={styles.inlineLink} onPress={() => router.push("/dmca")}>
+              DMCA Policy
+            </Text>
+            {" for how to submit a notice."}
+          </Text>
         </Article>
 
         <Article title="5. Prohibited Conduct">
-          {"You agree not to engage in:\n\n• Illegal activities or promotion of prohibited goods/services.\n• Hate speech, harassment, or violent/sexually explicit content.\n• Infringement of third-party intellectual property or privacy rights.\n• Technical abuse (scraping, DDoS attacks, or bypassing security)."}
+          {
+            "You agree not to:\n\n• Engage in illegal activity or promote prohibited goods or services.\n• Post hate speech, harass others, or share violent or sexually explicit content in violation of our policies.\n• Infringe intellectual property or privacy rights.\n• Abuse the Service technically (scraping, DDoS, circumventing security).\n• Use live streaming or chat to broadcast illegal content, non-consensual imagery, or content that endangers others."
+          }
         </Article>
 
-        <Article title="6. Payments, Subscriptions & Virtual Gifts">
-          {"Final Sales: All purchases of \"Paid Content\" or \"Gifts\" are final and non-refundable unless required by local law (e.g., EU right of withdrawal).\n\nCalifornia Residents: Under California Civil Code Section 1789.3, users are entitled to specific consumer rights information which can be found in our Help Center."}
+        <Article title="6. Live Streaming & UGC">
+          {
+            "Live streams and real-time features are user-generated content. We may moderate, interrupt, or terminate streams or accounts that violate these Terms or applicable law. Users can report concerns through in-app reporting. We aim to review serious reports promptly; timing depends on volume and severity."
+          }
         </Article>
 
-        <Article title="7. Revenue Sharing (Creator Terms)">
-          Payouts to Creators are subject to identity verification (KYC) and tax reporting requirements (e.g., IRS Form W-9/W-8BEN). Creators receive 90% of all direct sales revenue. Company reserves the right to withhold payments for suspected fraud or violation of these Terms.
+        <Article title="7. Payments, Subscriptions & Virtual Gifts">
+          {
+            'Purchases of paid content, tickets, or virtual gifts are final and non-refundable unless required by applicable law (for example, certain consumer rights in the EU or UK).\n\nCalifornia residents: Under California Civil Code § 1789.3, consumer rights information may be obtained by contacting rawstock.infomation@gmail.com.'
+          }
         </Article>
 
-        <Article title="8. Disclaimer of Warranties & Limitation of Liability">
-          {"\"As-Is\" Basis: THE SERVICE IS PROVIDED \"AS IS\" WITHOUT WARRANTIES OF ANY KIND.\n\nLimitation: TO THE MAXIMUM EXTENT PERMITTED BY LAW, COMPANY SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, OR CONSEQUENTIAL DAMAGES. OUR TOTAL LIABILITY SHALL NOT EXCEED $100 USD OR THE AMOUNT PAID BY YOU IN THE LAST MONTH."}
+        <Article title="8. Revenue Sharing (Creators)">
+          {
+            "Payouts are subject to identity verification (KYC) and tax reporting as required by Stripe and applicable law (e.g., IRS Forms W-9 / W-8BEN where relevant). Unless we notify you otherwise, creators receive 90% of applicable direct sales revenue, with platform fees retained by us. We may withhold or reverse payouts for suspected fraud, chargebacks, or violations of these Terms. Tax reporting and filing are your responsibility."
+          }
         </Article>
 
-        <Article title="9. Privacy & Data Protection">
-          Our data practices are governed by our Privacy Policy, which complies with the California Consumer Privacy Act (CCPA) and the General Data Protection Regulation (GDPR) for global users.
+        <Article title="9. Disclaimer of Warranties & Limitation of Liability">
+          {
+            'THE SERVICE IS PROVIDED "AS IS" WITHOUT WARRANTIES OF ANY KIND TO THE MAXIMUM EXTENT PERMITTED BY LAW. TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, WE SHALL NOT BE LIABLE FOR INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES. OUR TOTAL LIABILITY FOR CLAIMS ARISING OUT OF THE SERVICE SHALL NOT EXCEED THE GREATER OF (A) THE AMOUNTS YOU PAID TO US FOR THE SERVICE IN THE TWELVE (12) MONTHS BEFORE THE CLAIM OR (B) 10,000 JPY, EXCEPT WHERE LIABILITY CANNOT BE LIMITED UNDER MANDATORY LAW.'
+          }
         </Article>
 
-        <Article title="10. Termination">
-          We reserve the right to suspend or terminate your account at any time, with or without notice, for conduct that we believe violates these Terms or is harmful to other users or our business interests.
+        <Article title="10. Privacy & Data Protection">
+          Our data practices are described in our Privacy Policy, which addresses global requirements including, where
+          applicable, the CCPA/CPRA, GDPR, and UK GDPR.
         </Article>
 
-        <Article title="11. Modifications">
-          We may update these Terms from time to time. Your continued use of the Service after changes are posted constitutes your acceptance of the new Terms.
+        <Article title="11. Termination">
+          We may suspend or terminate your account if we reasonably believe you have violated these Terms or harmed other
+          users or the Service.
         </Article>
 
-        <View style={styles.article}>
-          <Text style={styles.articleTitle}>Addendum</Text>
-          <Text style={styles.articleBody}>
-            This version is intended for a global platform headquartered or legally centered in California, USA.
-          </Text>
-        </View>
+        <Article title="12. Modifications">
+          We may update these Terms. We will post the updated Terms in the Service. Continued use after changes constitutes
+          acceptance where permitted by law.
+        </Article>
+
+        <Article title="Addendum — United Kingdom users">
+          {
+            "If you are in the United Kingdom: (1) You may have rights under the UK GDPR and the Data Protection Act 2018—see our Privacy Policy. (2) Nothing in these Terms limits non-waivable consumer rights under the Consumer Rights Act 2015 or other UK law. (3) You may lodge a complaint with the Information Commissioner's Office (ICO) regarding data protection. (4) Whether the Online Safety Act 2023 or related rules apply to RawStock is fact-specific; we may update policies as our service and guidance evolve."
+          }
+        </Article>
 
         <View style={{ height: 80 }} />
       </ScrollView>
@@ -160,5 +197,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 22,
     color: C.textSec,
+  },
+  inlineLink: {
+    fontSize: 14,
+    lineHeight: 22,
+    color: C.accent,
+    textDecorationLine: "underline",
   },
 });
