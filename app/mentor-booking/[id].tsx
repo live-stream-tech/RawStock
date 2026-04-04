@@ -19,6 +19,7 @@ import { apiRequest } from "@/lib/query-client";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
 import { PRICE_PER_TICKET_USD } from "@/constants/tickets";
+import { webScrollStyle } from "@/constants/layout";
 
 type LiveStream = {
   id: number;
@@ -171,7 +172,7 @@ export default function MentorBookingScreen() {
         })}
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
+      <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
         {/* Stream info */}
         {stream && (
           <View style={styles.streamCard}>

@@ -17,6 +17,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { C } from "@/constants/colors";
 import { apiRequest } from "@/lib/query-client";
 import { useAuth } from "@/lib/auth";
+import { webScrollStyle } from "@/constants/layout";
 
 type ReportItem = {
   id: number;
@@ -179,7 +180,7 @@ export default function CommunityAdminScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
+      <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
         <Pressable
           style={styles.section}
           onPress={() => router.push(`/community/${communityId}`)}

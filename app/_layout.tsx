@@ -149,8 +149,8 @@ function WebRootWidth({ children }: { children: React.ReactNode }) {
     <View
       style={
         isJukeboxRoute
-          ? { flex: 1, width: "100%", maxWidth: 1400, alignSelf: "center" }
-          : { flex: 1, maxWidth: 500, alignSelf: "center", width: "100%" }
+          ? { flex: 1, width: "100%", maxWidth: 1400, alignSelf: "center", minHeight: 0 }
+          : { flex: 1, maxWidth: 500, alignSelf: "center", width: "100%", minHeight: 0 }
       }
     >
       {children}
@@ -218,7 +218,7 @@ export default function RootLayout() {
                   <ProfileSetupGuard>
                   <DemoModeProvider>
                     <PlayingVideoProvider>
-                      <View style={{ flex: 1 }}>
+                      <View style={{ flex: 1, ...(Platform.OS === "web" ? { minHeight: 0 } : {}) }}>
                         <EventPreviewBanner />
                         <RootLayoutNav />
                         <GlobalMyListPlayer />

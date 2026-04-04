@@ -23,6 +23,7 @@ import {
   EDITOR_STYLE_TAG_OPTIONS,
 } from "@/constants/video-editor-profile";
 import { formatEditorRevenueShareLabel, formatEditorTicketsPerMinute } from "@/constants/tickets";
+import { webScrollStyle } from "@/constants/layout";
 
 type SortKey = "rating" | "delivery" | "price";
 type PriceMode = "" | "per_minute" | "revenue_share";
@@ -257,7 +258,7 @@ export default function FindEditorScreen() {
       </View>
 
       <ScrollView
-        style={styles.scroll}
+        style={webScrollStyle(styles.scroll)}
         showsVerticalScrollIndicator={scrollShowsVertical}
         contentContainerStyle={{ paddingBottom: 32 }}
         keyboardShouldPersistTaps="handled"

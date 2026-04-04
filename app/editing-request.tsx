@@ -18,7 +18,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/query-client";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
-import { getTabBottomInset } from "@/constants/layout";
+import { getTabBottomInset, webScrollStyle } from "@/constants/layout";
 
 const EDITING_FEE = 200; // 🎟 deducted from ticket balance
 
@@ -94,7 +94,7 @@ export default function EditingRequestScreen() {
       </View>
 
       <ScrollView
-        style={styles.scroll}
+        style={webScrollStyle(styles.scroll)}
         showsVerticalScrollIndicator={scrollShowsVertical}
         contentContainerStyle={{ paddingBottom: scrollBottomPad, flexGrow: 1 }}
         keyboardShouldPersistTaps="handled"

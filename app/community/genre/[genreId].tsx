@@ -13,7 +13,7 @@ import { useLocalSearchParams, router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { C } from "@/constants/colors";
-import { getTabTopInset, getTabBottomInset } from "@/constants/layout";
+import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/layout";
 import { AppLogo } from "@/components/AppLogo";
 import { COMMUNITIES } from "@/constants/data";
 import { useQuery } from "@tanstack/react-query";
@@ -141,7 +141,7 @@ export default function GenreScreen() {
         <View style={{ width: 32 }} />
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
+      <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
         <Pressable style={[styles.bannerAd, { backgroundColor: ad.bg }]}>
           <View style={styles.adPrBadge}>
             <Text style={styles.adPrText}>PR</Text>

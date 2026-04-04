@@ -19,6 +19,7 @@ import { useAuth } from "@/lib/auth";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { C } from "@/constants/colors";
 import { F } from "@/constants/fonts";
+import { webScrollStyle } from "@/constants/layout";
 
 type PinnedCommunity = {
   id: number;
@@ -226,7 +227,7 @@ export default function UserProfileScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
+      <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
         {/* 写真・名前・公開情報 */}
         <View style={styles.profileCard}>
           <View style={styles.avatarWrap}>

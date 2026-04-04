@@ -20,6 +20,7 @@ import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
 import { MIN_PURCHASE_TICKETS, PRICE_PER_TICKET_USD } from "@/constants/tickets";
+import { webScrollStyle } from "@/constants/layout";
 
 export default function TicketsScreen() {
   const insets = useSafeAreaInsets();
@@ -122,7 +123,7 @@ export default function TicketsScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical} contentContainerStyle={{ paddingBottom: 32 }}>
+      <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical} contentContainerStyle={{ paddingBottom: 32 }}>
         {/* Balance card */}
         <View style={styles.balanceCard}>
           <View style={styles.balanceTop}>

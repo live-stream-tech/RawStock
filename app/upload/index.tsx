@@ -25,6 +25,7 @@ import { C } from "@/constants/colors";
 import { useAuth } from "@/lib/auth";
 import { DAILY_POST_LIMITS } from "@/constants/upload-limits";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
+import { webScrollStyle } from "@/constants/layout";
 
 type MediaItem = { id: string; uri: string; type: "image" | "video"; size?: number; durationSec?: number };
 type Community = { id: number; name: string; thumbnail: string };
@@ -385,7 +386,7 @@ export default function DailyUploadScreen() {
       </View>
 
       <ScrollView
-        style={styles.scroll}
+        style={webScrollStyle(styles.scroll)}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={scrollShowsVertical}
@@ -496,7 +497,7 @@ export default function DailyUploadScreen() {
         <Pressable style={styles.menuOverlay} onPress={() => !uploading && setShowPublishFromModal(false)}>
           <Pressable style={styles.publishFromModal} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.publishFromModalTitle}>Select a post to publish</Text>
-            <ScrollView style={styles.publishFromList} showsVerticalScrollIndicator={scrollShowsVertical}>
+            <ScrollView style={webScrollStyle(styles.publishFromList)} showsVerticalScrollIndicator={scrollShowsVertical}>
               {myPageOnlyVideos.map((v) => (
                 <Pressable
                   key={v.id}

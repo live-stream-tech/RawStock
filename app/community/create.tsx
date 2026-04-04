@@ -20,6 +20,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/query-client";
 import { C } from "@/constants/colors";
+import { webScrollStyle } from "@/constants/layout";
 import { AppLogo } from "@/components/AppLogo";
 
 const SUGGESTED_CATEGORIES = [
@@ -171,7 +172,7 @@ export default function CreateCommunityScreen() {
       </View>
 
       <ScrollView
-        style={styles.scroll}
+        style={webScrollStyle(styles.scroll)}
         showsVerticalScrollIndicator={scrollShowsVertical}
         keyboardShouldPersistTaps="handled"
       >

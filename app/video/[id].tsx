@@ -22,6 +22,7 @@ import { VIDEOS } from "@/constants/data";
 import { useAuth } from "@/lib/auth";
 import { apiRequest } from "@/lib/query-client";
 import { usePlayingVideo } from "@/lib/playing-video-context";
+import { webScrollStyle } from "@/constants/layout";
 
 type VideoComment = {
   id: number;
@@ -263,7 +264,7 @@ export default function VideoDetailScreen() {
   return (
     <View style={[styles.container]}>
       <ScrollView
-        style={styles.scroll}
+        style={webScrollStyle(styles.scroll)}
         showsVerticalScrollIndicator={scrollShowsVertical}
       >
         {/* メディア領域（テキスト / 写真展 / 動画など共通レイアウト） */}

@@ -14,7 +14,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { C } from "@/constants/colors";
-import { getTabTopInset, getTabBottomInset } from "@/constants/layout";
+import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/layout";
 import { MetallicLine } from "@/components/MetallicLine";
 
 type DMItem = {
@@ -122,7 +122,7 @@ export default function DMScreen() {
       <MetallicLine thickness={1} style={{ marginHorizontal: 16 }} />
 
       <ScrollView
-        style={styles.scroll}
+        style={webScrollStyle(styles.scroll)}
         showsVerticalScrollIndicator={scrollShowsVertical}
       >
         {dmList.map((item, index) => (

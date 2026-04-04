@@ -4823,6 +4823,28 @@ async function registerRoutes(app2) {
     await db.update(dmMessages).set({ lastMessage: text2.trim(), unread: 0 }).where(eq2(dmMessages.id, id));
     res.json(msg);
   });
+  app2.get("/api/jukebox/active-sessions", async (_req, res) => {
+    const playingRows = await db.select({
+      communityId: jukeboxState.communityId,
+      communityName: communities.name,
+      trackTitle: jukeboxState.currentVideoTitle
+    }).from(jukeboxState).innerJoin(communities, eq2(communities.id, jukeboxState.communityId)).where(eq2(jukeboxState.isPlaying, true));
+    const active = playingRows.filter((r) => (r.trackTitle ?? "").trim().length > 0).map((r) => ({
+      communityId: r.communityId,
+      communityName: r.communityName,
+      trackTitle: (r.trackTitle ?? "").trim()
+    }));
+    const idleRows = await db.select({
+      communityId: jukeboxState.communityId,
+      communityName: communities.name
+    }).from(jukeboxState).innerJoin(communities, eq2(communities.id, jukeboxState.communityId)).where(eq2(jukeboxState.isPlaying, false));
+    const activeIds = new Set(active.map((a) => a.communityId));
+    const recruiting = idleRows.filter((r) => !activeIds.has(r.communityId)).map((r) => ({
+      communityId: r.communityId,
+      communityName: r.communityName
+    }));
+    res.json({ active, recruiting });
+  });
   app2.get("/api/jukebox/:communityId", async (req, res) => {
     const communityId = paramNum(req, "communityId");
     const now = /* @__PURE__ */ new Date();

@@ -18,6 +18,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
+import { webScrollStyle } from "@/constants/layout";
 
 type ReviewAd = {
   id: number;
@@ -100,7 +101,7 @@ export default function CommunityAdReviewScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+      <ScrollView style={webScrollStyle(styles.scroll)} contentContainerStyle={styles.scrollContent}>
         <Text style={styles.intro}>Applications awaiting your review as admin or moderator.</Text>
         {isLoading ? (
           <ActivityIndicator size="large" color={C.accent} style={{ marginTop: 24 }} />

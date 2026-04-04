@@ -17,6 +17,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { C } from "@/constants/colors";
+import { webScrollStyle } from "@/constants/layout";
 
 const MIN_AMOUNT = 10000;
 const DAILY_RATE_PER_MEMBER = 10;
@@ -136,7 +137,7 @@ export default function CommunityAdApplyScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+      <ScrollView style={webScrollStyle(styles.scroll)} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         <Text style={styles.communityLabel}>{community.name}</Text>
         <Text style={styles.hint}>Ad cost = members × 🎟10/day (min 🎟{MIN_AMOUNT.toLocaleString()}) · Up to 3 months ahead</Text>
 

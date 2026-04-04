@@ -24,6 +24,7 @@ import { apiRequest, ApiError, getApiUrl } from "@/lib/query-client";
 import { C } from "@/constants/colors";
 import { useAuth } from "@/lib/auth";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
+import { webScrollStyle } from "@/constants/layout";
 
 type FeeType = "free" | "paid";
 type PriceOption = 300 | 500 | 1000 | 2000 | 3000 | 5000;
@@ -368,7 +369,7 @@ export default function WorkUploadScreen() {
       </View>
 
       <ScrollView
-        style={styles.scroll}
+        style={webScrollStyle(styles.scroll)}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={scrollShowsVertical}
@@ -512,7 +513,7 @@ export default function WorkUploadScreen() {
         <Pressable style={styles.menuOverlay} onPress={() => !uploading && setShowPublishFromModal(false)}>
           <Pressable style={styles.publishFromModal} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.publishFromModalTitle}>Select a work to publish</Text>
-            <ScrollView style={styles.publishFromList} showsVerticalScrollIndicator={scrollShowsVertical}>
+            <ScrollView style={webScrollStyle(styles.publishFromList)} showsVerticalScrollIndicator={scrollShowsVertical}>
               {myPageOnlyWorks.map((v) => (
                 <Pressable
                   key={v.id}

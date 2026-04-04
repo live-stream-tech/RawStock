@@ -11,6 +11,7 @@ import {
   ScrollView,
 } from "react-native";
 import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
+import { webScrollStyle } from "@/constants/layout";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -127,7 +128,7 @@ export default function AccountEditScreen() {
         </View>
 
         <ScrollView
-          style={styles.scroll}
+          style={webScrollStyle(styles.scroll)}
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: Platform.OS === "web" ? 40 : insets.bottom + 24 }}
           showsVerticalScrollIndicator={scrollShowsVertical}
         >

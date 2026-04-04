@@ -9,6 +9,7 @@ import { getApiUrl } from "@/lib/query-client";
 import { getLoginReturn, saveLoginReturn } from "@/lib/login-return";
 import { useAuth } from "@/lib/auth";
 import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
+import { webScrollStyle } from "@/constants/layout";
 
 const ERROR_LABELS: Record<string, string> = {
   invalid_state: "Authentication expired. Please try again.",
@@ -147,6 +148,7 @@ export default function LoginScreen() {
 
   return (
     <ScrollView
+      style={webScrollStyle({ flex: 1 })}
       contentContainerStyle={[
         styles.container,
         { paddingTop: topInset, paddingBottom: bottomInset + 40 },

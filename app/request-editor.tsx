@@ -24,6 +24,7 @@ import {
   formatUsdFromTickets,
   PRICE_PER_TICKET_USD,
 } from "@/constants/tickets";
+import { webScrollStyle } from "@/constants/layout";
 
 type VideoEditor = {
   id: number;
@@ -134,7 +135,7 @@ export default function RequestEditorScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical} contentContainerStyle={{ paddingBottom: 32 }}>
+      <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical} contentContainerStyle={{ paddingBottom: 32 }}>
         {editorLoading ? (
           <ActivityIndicator style={{ marginTop: 24 }} color={C.accent} />
         ) : (

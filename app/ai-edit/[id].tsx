@@ -17,6 +17,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/query-client";
 import { C } from "@/constants/colors";
 import type { RawStockVideoSpec } from "../../shared/rawstock-video-spec";
+import { webScrollStyle } from "@/constants/layout";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -257,7 +258,7 @@ export default function AIEditJobScreen() {
       </View>
 
       <ScrollView
-        style={styles.scroll}
+        style={webScrollStyle(styles.scroll)}
         showsVerticalScrollIndicator={scrollShowsVertical}
         contentContainerStyle={{ paddingBottom: 40 }}
       >

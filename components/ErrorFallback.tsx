@@ -11,6 +11,7 @@ import {
   Platform,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { webScrollStyle } from "@/constants/layout";
 import { Feather } from "@expo/vector-icons";
 
 export type ErrorFallbackProps = {
@@ -149,7 +150,7 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
               </View>
 
               <ScrollView
-                style={styles.modalScrollView}
+                style={webScrollStyle(styles.modalScrollView)}
                 contentContainerStyle={[
                   styles.modalScrollContent,
                   { paddingBottom: insets.bottom + 16 },
