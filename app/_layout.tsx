@@ -182,6 +182,7 @@ function RootLayoutNav() {
       <Stack.Screen name="legal" options={{ headerShown: false }} />
       <Stack.Screen name="tokusho" options={{ headerShown: false }} />
       <Stack.Screen name="lp" options={{ headerShown: false }} />
+      <Stack.Screen name="teamz" options={{ headerShown: false }} />
       <Stack.Screen name="rawstock-lp/index" options={{ headerShown: false }} />
       <Stack.Screen name="community/genre-ad-apply" options={{ headerShown: false }} />
       <Stack.Screen name="admin/index" options={{ headerShown: false }} />

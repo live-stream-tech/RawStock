@@ -1,6 +1,6 @@
 {
   "framework": null,
-  "buildCommand": "npx expo export --platform web && node scripts/inject-sw-version.js && cp public/favi.png dist/favi.png",
+  "buildCommand": "npx expo export --platform web && node scripts/inject-sw-version.js && cp public/favi.png dist/favi.png && cp public/teamz.html dist/teamz.html",
   "outputDirectory": "dist",
   "headers": [
     {
@@ -19,6 +19,7 @@
     }
   },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/[...path]" }
+    { "source": "/api/(.*)", "destination": "/api/[...path]" },
+    { "source": "/teamz", "destination": "/teamz.html" }
   ]
 }
