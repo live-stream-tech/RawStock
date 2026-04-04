@@ -931,17 +931,33 @@ export default function ProfileScreen() {
 
 
 
-      {/* START FAB */}
+      {/* START FAB — パール球体（虹色ベース＋ハイライト） */}
       <Pressable style={[styles.startFab, { bottom: bottomInset + 80 }]} onPress={() => router.push("/live" as any)}>
-        <LinearGradient
-          colors={["rgba(255,255,255,0.45)", "rgba(255,255,255,0)"]}
-          start={{ x: 0.2, y: 0 }}
-          end={{ x: 0.8, y: 1 }}
-          style={styles.startFabGradient}
-        >
-          <Ionicons name="radio" size={16} color="#050505" />
-          <Text style={styles.startFabText}>START</Text>
-        </LinearGradient>
+        <View style={styles.startFabPearlOuter}>
+          <LinearGradient
+            colors={["#ff8ec8", "#e9a8ff", "#9dd5ff", "#7af0c8", "#fde68a", "#fda4af"]}
+            locations={[0, 0.22, 0.45, 0.62, 0.82, 1]}
+            start={{ x: 0.05, y: 0 }}
+            end={{ x: 0.95, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+          <LinearGradient
+            colors={["rgba(255,255,255,0.78)", "rgba(255,255,255,0.22)", "rgba(255,255,255,0)"]}
+            start={{ x: 0.2, y: 0.05 }}
+            end={{ x: 0.75, y: 0.55 }}
+            style={styles.startFabPearlHighlight}
+          />
+          <LinearGradient
+            colors={["rgba(255,255,255,0)", "rgba(255,255,255,0.12)"]}
+            start={{ x: 0.5, y: 0.55 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.startFabPearlRim}
+          />
+          <View style={styles.startFabGradient}>
+            <Ionicons name="radio" size={14} color="#0a1220" style={styles.startFabIconShadow} />
+            <Text style={styles.startFabText}>START</Text>
+          </View>
+        </View>
       </Pressable>
 
       {/* PWA ホーム画面に追加 FAB（右下固定）＋ポップアップ */}
@@ -951,14 +967,35 @@ export default function ProfileScreen() {
             style={[styles.pwaFab, { bottom: bottomInset + 140 }]}
             onPress={pwaBanner.onFabPress}
           >
-            <LinearGradient
-              colors={["rgba(255,255,255,0.35)", "rgba(255,255,255,0)"]}
-              start={{ x: 0.2, y: 0 }}
-              end={{ x: 0.8, y: 1 }}
-              style={styles.pwaFabGradient}
-            >
-              <Ionicons name="phone-portrait-outline" size={22} color="#fff" />
-            </LinearGradient>
+            <View style={styles.pwaFabPearlOuter}>
+              <LinearGradient
+                colors={[
+                  "rgba(251, 113, 133, 0.88)",
+                  "rgba(192, 132, 252, 0.82)",
+                  "rgba(56, 189, 248, 0.78)",
+                  "rgba(52, 211, 153, 0.72)",
+                ]}
+                locations={[0, 0.35, 0.65, 1]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFillObject}
+              />
+              <LinearGradient
+                colors={["rgba(255,255,255,0.5)", "rgba(255,255,255,0.08)", "rgba(255,255,255,0)"]}
+                start={{ x: 0.25, y: 0 }}
+                end={{ x: 0.7, y: 0.45 }}
+                style={styles.pwaFabPearlHighlight}
+              />
+              <LinearGradient
+                colors={["rgba(255,255,255,0)", "rgba(255,255,255,0.18)"]}
+                start={{ x: 0.4, y: 0.5 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.pwaFabPearlInnerGlow}
+              />
+              <View style={styles.pwaFabGradient}>
+                <Ionicons name="phone-portrait-outline" size={22} color="#f8fafc" style={styles.pwaFabIconPearl} />
+              </View>
+            </View>
           </Pressable>
           <Modal visible={pwaBanner.showPopup} transparent animationType="fade">
             <Pressable style={styles.pwaPopupOverlay} onPress={pwaBanner.onDismiss}>
@@ -1592,24 +1629,54 @@ const styles = StyleSheet.create({
   startFab: {
     position: "absolute",
     right: 16,
-    borderRadius: 24,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    // 虹色グロー（パール球の外光）
+    shadowColor: "#c084fc",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.55,
+    shadowRadius: 20,
+    elevation: 18,
+  },
+  startFabPearlOuter: {
+    flex: 1,
+    borderRadius: 36,
     overflow: "hidden",
-    backgroundColor: C.accent,
-    // 外光（グロー）
-    shadowColor: C.accent,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.85,
-    shadowRadius: 18,
-    elevation: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.5)",
+  },
+  startFabPearlHighlight: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 36,
+  },
+  startFabPearlRim: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 36,
   },
   startFabGradient: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
+    justifyContent: "center",
+    gap: 4,
+    paddingHorizontal: 8,
   },
-  startFabText: { color: "#050505", fontSize: 13, fontWeight: "800", letterSpacing: 0.5 },
+  startFabIconShadow: {
+    shadowColor: "#ffffff",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 4,
+  },
+  startFabText: {
+    color: "#0a1220",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.4,
+    textShadowColor: "rgba(255,255,255,0.85)",
+    textShadowOffset: { width: 0, height: 0.5 },
+    textShadowRadius: 3,
+  },
   startInlineBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -1799,24 +1866,43 @@ const styles = StyleSheet.create({
 
   pwaFab: {
     position: "absolute",
-    right: 16,
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    overflow: "hidden",
-    // ジェルボディ：深いティールグリーン
-    backgroundColor: "#0d3d3a",
-    // 外光（グロー）
-    shadowColor: C.accent,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.9,
-    shadowRadius: 16,
+    // START（72px）と長球体（48px）を右辺で揃えた中心合わせ
+    right: 28,
+    width: 48,
+    height: 62,
+    borderRadius: 24,
+    overflow: "visible",
+    shadowColor: "#a78bfa",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
     elevation: 14,
+  },
+  pwaFabPearlOuter: {
+    flex: 1,
+    borderRadius: 24,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.42)",
+  },
+  pwaFabPearlHighlight: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 24,
+  },
+  pwaFabPearlInnerGlow: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 24,
   },
   pwaFabGradient: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
+  },
+  pwaFabIconPearl: {
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.55,
+    shadowRadius: 2,
   },
   pwaPopupOverlay: {
     flex: 1,
