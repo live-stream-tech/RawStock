@@ -453,6 +453,13 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
                   }
                 }
                 try {
+                  if (Platform.OS !== "web") {
+                    Alert.alert(
+                      "ライブ配信",
+                      "配信の開始は PWA（ホーム画面に追加した RawStock）またはブラウザでサイトを開いてください。",
+                    );
+                    return;
+                  }
                   setCreating(true);
                   const visibility =
                     scope === "followers"

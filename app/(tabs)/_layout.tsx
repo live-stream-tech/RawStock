@@ -4,7 +4,9 @@ import { NativeTabs, NativeTabTrigger } from "expo-router/unstable-native-tabs";
 import { BlurView } from "expo-blur";
 import { Platform, StyleSheet, View } from "react-native";
 import React from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { WEB_TAB_BAR_CONTENT_HEIGHT } from "@/constants/layout";
 import { C } from "@/constants/colors";
 import { MetallicLine } from "@/components/MetallicLine";
 
@@ -34,6 +36,8 @@ function NativeTabLayout() {
 function ClassicTabLayout() {
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
+  const insets = useSafeAreaInsets();
+  const webBottomInset = isWeb ? Math.max(insets.bottom, 0) : 0;
 
   return (
     <Tabs
@@ -46,7 +50,19 @@ function ClassicTabLayout() {
           backgroundColor: isIOS ? "transparent" : C.tabBg,
           borderTopWidth: 0,
           elevation: 0,
-          ...(isWeb ? { height: 60, maxWidth: 500, alignSelf: "center" as const } : {}),
+          ...(isWeb
+            ? {
+                height: WEB_TAB_BAR_CONTENT_HEIGHT + webBottomInset,
+                paddingBottom: webBottomInset,
+                maxWidth: 500,
+                alignSelf: "center" as const,
+                width: "100%",
+                left: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 10000,
+              }
+            : {}),
         },
         tabBarLabelStyle: {
           fontSize: 10,

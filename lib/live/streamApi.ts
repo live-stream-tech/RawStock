@@ -31,16 +31,24 @@ export async function apiCreateLiveStream(
 
 export async function apiStartLiveStream(streamId: number): Promise<void> {
   const API_BASE = liveApiBase();
-  await fetch(`${API_BASE}/api/stream/${streamId}/start`, {
+  const res = await fetch(`${API_BASE}/api/stream/${streamId}/start`, {
     method: "POST",
     credentials: "include",
   });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error ?? "Failed to start stream");
+  }
 }
 
 export async function apiEndLiveStream(streamId: number): Promise<void> {
   const API_BASE = liveApiBase();
-  await fetch(`${API_BASE}/api/stream/${streamId}/end`, {
+  const res = await fetch(`${API_BASE}/api/stream/${streamId}/end`, {
     method: "POST",
     credentials: "include",
   });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error ?? "Failed to end stream");
+  }
 }

@@ -58,16 +58,6 @@ function TokenHandler({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-/** PWA スタンドアロン（ホーム画面から起動）かどうかを判定 */
-function isPwaStandalone(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    if (window.matchMedia("(display-mode: standalone)").matches) return true;
-    if ((navigator as any).standalone === true) return true;
-  } catch {}
-  return false;
-}
-
 function isPublicPath(_pathname: string): boolean {
   // EVENT MODE: all pages are open for browsing during the event period
   return true;

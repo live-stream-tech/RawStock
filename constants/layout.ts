@@ -1,20 +1,24 @@
 import { Platform, type StyleProp, type ViewStyle } from "react-native";
 
-/** タブ画面共通: ヘッダー上部余白（マイページに合わせる） */
+/** タブ画面共通: ヘッダー上部余白（マイページに合わせる）。Web/PWA はノッチ分 insets.top を反映 */
 export function getTabTopInset(insets: { top: number }): number {
-  return Platform.OS === "web" ? 12 : insets.top;
+  if (Platform.OS === "web") {
+    return Math.max(12, insets.top);
+  }
+  return insets.top;
 }
 
-/** Web: タブバー実高さ（app/(tabs)/_layout の tabBarStyle.height と揃える） */
-export const WEB_TAB_BAR_HEIGHT = 60;
+/** Web: タブバーのアイコン列の高さ（ホームインジケータは insets.bottom で別途確保） */
+export const WEB_TAB_BAR_CONTENT_HEIGHT = 60;
 
 /**
  * タブ画面共通: フッター（タブバー）分の下部余白。
- * Web は position:absolute のタブと重ならないようバー高さ＋余白を確保する。
+ * Web は position:absolute のタブと重ならないようバー高さ＋セーフエリア＋余白を確保する。
  */
 export function getTabBottomInset(insets?: { bottom?: number }): number {
   if (Platform.OS === "web") {
-    return WEB_TAB_BAR_HEIGHT + 12;
+    const b = Math.max(insets?.bottom ?? 0, 0);
+    return WEB_TAB_BAR_CONTENT_HEIGHT + b + 12;
   }
   return insets?.bottom ?? 0;
 }
