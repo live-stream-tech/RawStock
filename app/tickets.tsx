@@ -19,9 +19,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
-
-const PRICE_PER_TICKET_USD = 0.01;
-const MIN_PURCHASE_TICKETS = 100;
+import { MIN_PURCHASE_TICKETS, PRICE_PER_TICKET_USD } from "@/constants/tickets";
 
 export default function TicketsScreen() {
   const insets = useSafeAreaInsets();

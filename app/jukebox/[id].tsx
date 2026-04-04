@@ -119,9 +119,15 @@ function calcProgress(startedAt: string, durationSecs: number): number {
 function NowPlaying({
   state,
   onNext,
+  addModalOpen,
+  embedInSidebarColumn,
 }: {
   state: JukeboxState | null;
   onNext: () => void;
+  /** Add-video modal open — used to resume iframe after close (iOS WebKit often pauses background media). */
+  addModalOpen?: boolean;
+  /** Desktop 2-col: window may be "landscape" but player sits in a narrow column — use 16:9 box, not full-window fill. */
+  embedInSidebarColumn?: boolean;
 }) {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const [elapsedDisplay, setElapsedDisplay] = useState(0);
@@ -275,6 +281,23 @@ function NowPlaying({
     };
   }, []);
 
+  const prevAddModalOpen = useRef(!!addModalOpen);
+  useEffect(() => {
+    const wasOpen = prevAddModalOpen.current;
+    prevAddModalOpen.current = !!addModalOpen;
+    if (Platform.OS !== "web") return;
+    if (wasOpen && !addModalOpen) {
+      const t = setTimeout(() => {
+        try {
+          ytPlayerRef.current?.playVideo?.();
+          ytPlayerRef.current?.unMute?.();
+          ytPlayerRef.current?.setVolume?.(100);
+        } catch {}
+      }, 250);
+      return () => clearTimeout(t);
+    }
+  }, [addModalOpen]);
+
   // iOS Safari タップで音声有効化
   const handleTapToUnmute = useCallback(() => {
     if (ytPlayerRef.current) {
@@ -287,12 +310,14 @@ function NowPlaying({
     setNeedsTap(false);
   }, []);
 
-  // 縦向き: 16:9 の高さ。横向き: 全画面
-  const isLandscape = screenW > screenH;
+  // 縦向き: 16:9 の高さ。横向き: 全画面。サイドバー埋め込み時は常に 16:9 ボックス。
+  const isLandscape = !embedInSidebarColumn && screenW > screenH;
   const videoAreaH = isLandscape ? screenH : Math.round(screenW * 9 / 16);
-  const videoStyle = isLandscape
-    ? StyleSheet.absoluteFillObject
-    : { height: videoAreaH };
+  const videoStyle = embedInSidebarColumn
+    ? ({ width: "100%", aspectRatio: 16 / 9 } as const)
+    : isLandscape
+      ? StyleSheet.absoluteFillObject
+      : { height: videoAreaH };
 
   if (!state) {
     return (
@@ -383,12 +408,14 @@ function QueueRow({
   onAdd,
   userName,
   onDelete,
+  variant = "horizontal",
 }: {
   items: QueueItem[];
   state: JukeboxState | null;
   onAdd: () => void;
   userName?: string | null;
   onDelete?: (id: number) => void;
+  variant?: "horizontal" | "vertical";
 }) {
   // 再生済みを除外し、再生中の曲もキュー表示から除外（Now Playing と重複しないように）
   const upcoming = items.filter(
@@ -397,55 +424,79 @@ function QueueRow({
       !(state?.currentVideoId != null && q.videoId === state.currentVideoId) &&
       !(state?.currentVideoYoutubeId && (q.youtubeId ?? null) === state.currentVideoYoutubeId)
   );
+  const isVertical = variant === "vertical";
+
+  const itemNodes = upcoming.map((item) =>
+    isVertical ? (
+      <View key={item.id} style={styles.queueItemVertical}>
+        <Image source={{ uri: item.videoThumbnail }} style={styles.queueThumbVertical} contentFit="cover" />
+        <View style={styles.queueItemVerticalBody}>
+          <Text style={styles.queueItemTitleVertical} numberOfLines={2}>
+            {item.videoTitle}
+          </Text>
+          <View style={styles.queueItemVerticalMeta}>
+            {item.addedByAvatar ? (
+              <Image source={{ uri: item.addedByAvatar }} style={styles.queueItemAvatar} contentFit="cover" />
+            ) : null}
+            <Text style={styles.queueItemByVertical}>{item.addedBy}</Text>
+          </View>
+        </View>
+        {userName && item.addedBy === userName && onDelete ? (
+          <Pressable onPress={() => onDelete(item.id)} style={styles.queueItemDeleteBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="close" size={16} color="#fff" />
+          </Pressable>
+        ) : null}
+      </View>
+    ) : (
+      <View key={item.id} style={styles.queueItem}>
+        {userName && item.addedBy === userName && onDelete ? (
+          <Pressable
+            onPress={() => onDelete(item.id)}
+            style={{ position: "absolute", top: 4, right: 4, zIndex: 20, backgroundColor: "rgba(0,0,0,0.55)", borderRadius: 10, padding: 2 }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="close" size={14} color="#fff" />
+          </Pressable>
+        ) : null}
+        <Image source={{ uri: item.videoThumbnail }} style={styles.queueThumb} contentFit="cover" />
+        <View style={styles.queueItemOverlay} />
+        <Text style={styles.queueItemTitle} numberOfLines={2}>
+          {item.videoTitle}
+        </Text>
+        <View style={styles.queueItemByRow}>
+          {item.addedByAvatar ? (
+            <Image source={{ uri: item.addedByAvatar }} style={styles.queueItemAvatar} contentFit="cover" />
+          ) : null}
+          <Text style={styles.queueItemBy}>{item.addedBy}</Text>
+        </View>
+      </View>
+    )
+  );
+
   return (
-    <View style={styles.queueSection}>
+    <View style={[styles.queueSection, isVertical && styles.queueSectionVertical]}>
       <View style={styles.queueHeader}>
         <Ionicons name="list" size={14} color={C.accent} />
         <Text style={styles.queueHeaderText}>UP NEXT</Text>
         <Text style={styles.queueCount}>{upcoming.length}</Text>
       </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={scrollShowsHorizontal}
-        contentContainerStyle={styles.queueScroll}
-      >
-        {upcoming.map((item) => (
-          <View key={item.id} style={styles.queueItem}>
-            {userName && item.addedBy === userName && onDelete ? (
-              <Pressable
-                onPress={() => onDelete(item.id)}
-                style={{ position: "absolute", top: 4, right: 4, zIndex: 20, backgroundColor: "rgba(0,0,0,0.55)", borderRadius: 10, padding: 2 }}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons name="close" size={14} color="#fff" />
-              </Pressable>
-            ) : null}
-            <Image
-              source={{ uri: item.videoThumbnail }}
-              style={styles.queueThumb}
-              contentFit="cover"
-            />
-            <View style={styles.queueItemOverlay} />
-            <Text style={styles.queueItemTitle} numberOfLines={2}>
-              {item.videoTitle}
-            </Text>
-            <View style={styles.queueItemByRow}>
-              {item.addedByAvatar ? (
-                <Image source={{ uri: item.addedByAvatar }} style={styles.queueItemAvatar} contentFit="cover" />
-              ) : null}
-              <Text style={styles.queueItemBy}>{item.addedBy}</Text>
-            </View>
-          </View>
-        ))}
-        <Pressable
-          style={styles.addQueueBtn}
-          onPress={onAdd}
-          hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
+      {isVertical ? (
+        <ScrollView
+          style={styles.queueVerticalScroll}
+          showsVerticalScrollIndicator={scrollShowsVertical}
+          contentContainerStyle={styles.queueVerticalContent}
         >
-          <Ionicons name="add" size={24} color={C.accent} />
-          <Text style={styles.addQueueText}>Add Video</Text>
-        </Pressable>
-      </ScrollView>
+          {itemNodes}
+        </ScrollView>
+      ) : (
+        <ScrollView horizontal showsHorizontalScrollIndicator={scrollShowsHorizontal} contentContainerStyle={styles.queueScroll}>
+          {itemNodes}
+          <Pressable style={styles.addQueueBtn} onPress={onAdd} hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}>
+            <Ionicons name="add" size={24} color={C.accent} />
+            <Text style={styles.addQueueText}>Add Video</Text>
+          </Pressable>
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -458,7 +509,8 @@ export default function JukeboxScreen() {
   const flatListRef = useRef<FlatList>(null);
   const { user } = useAuth();
   const { width: winW, height: winH } = useWindowDimensions();
-  const isLandscape = winW > winH;
+  const isDesktopWebJukebox = Platform.OS === "web" && winW >= 900;
+  const isLandscape = winW > winH && !isDesktopWebJukebox;
   const [chatPanelOpen, setChatPanelOpen] = useState(false);
   const chatPanelAnim = useRef(new Animated.Value(0)).current;
   const [chatInput, setChatInput] = useState("");
@@ -854,41 +906,363 @@ export default function JukeboxScreen() {
   // 最新チャット1件
   const latestChat = chat.length > 0 ? chat[chat.length - 1] : null;
 
+  const jukeboxAddPanelCore = (
+    <>
+      <Text style={styles.modalTitle}>Add to Jukebox</Text>
+      <Text style={{ fontSize: 11, color: C.textMuted, textAlign: "center", marginBottom: 8, lineHeight: 16 }}>
+        ⚠️ Videos longer than 10 minutes will be skipped at the 10-minute mark
+      </Text>
+      <View style={styles.ytInputSection}>
+        <Text style={styles.ytLabel}>Search YouTube</Text>
+        <View style={styles.ytRow}>
+          <TextInput
+            style={styles.ytInput}
+            placeholder="Search by song or channel name"
+            placeholderTextColor={C.textMuted}
+            value={ytQuery}
+            onChangeText={setYtQuery}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <Pressable
+            style={[styles.ytSearchButton, (ytSearching || !ytQuery.trim()) && styles.ytSearchButtonDisabled]}
+            onPress={handleSearchYouTube}
+            disabled={ytSearching || !ytQuery.trim()}
+          >
+            <Ionicons name="search" size={16} color="#fff" />
+            <Text style={styles.ytSearchButtonText}>{ytSearching ? "Searching..." : "Search"}</Text>
+          </Pressable>
+        </View>
+      </View>
+      <View style={styles.ytInputSection}>
+        <Text style={styles.ytLabel}>Add from YouTube URL</Text>
+        <View style={styles.ytRow}>
+          <TextInput
+            style={styles.ytInput}
+            placeholder="https://www.youtube.com/watch?v=..."
+            placeholderTextColor={C.textMuted}
+            value={ytUrl}
+            onChangeText={setYtUrl}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <Pressable
+            style={[styles.ytAddButton, !ytUrl.trim() && styles.ytAddButtonDisabled]}
+            onPress={handleAddYouTube}
+            disabled={!ytUrl.trim()}
+          >
+            <Ionicons name="logo-youtube" size={16} color="#fff" />
+            <Text style={styles.ytAddButtonText}>Add this URL</Text>
+          </Pressable>
+        </View>
+      </View>
+      {user && (
+        <View style={styles.ytInputSection}>
+          <Text style={styles.ytLabel}>My Playlists (Google login)</Text>
+          {ytPlaylistsNeedGoogle ? (
+            <Pressable
+              style={styles.ytPlaylistLoginHint}
+              onPress={() => {
+                if (Platform.OS === "web" && typeof window !== "undefined") {
+                  const returnTo = window.location.pathname + window.location.search;
+                  saveLoginReturn(returnTo);
+                  const url = new URL("/api/auth/google", getApiUrl()).toString();
+                  (window.top || window).location.replace(url);
+                } else {
+                  router.push("/auth/login");
+                }
+              }}
+            >
+              <Ionicons name="logo-youtube" size={18} color="#FF0000" />
+              <Text style={styles.ytPlaylistLoginText}>Sign in with Google to view your playlists</Text>
+            </Pressable>
+          ) : ytPlaylistsLoading ? (
+            <Text style={styles.ytPlaylistLoading}>Loading...</Text>
+          ) : selectedPlaylistId ? (
+            <View>
+              <Pressable style={styles.ytPlaylistBack} onPress={() => setSelectedPlaylistId(null)}>
+                <Ionicons name="chevron-back" size={16} color={C.accent} />
+                <Text style={styles.ytPlaylistBackText}>Back to playlists</Text>
+              </Pressable>
+              <ScrollView style={styles.ytPlaylistItemsScroll} showsVerticalScrollIndicator={scrollShowsVertical}>
+                {ytPlaylistItems.map((item) => {
+                  const video: Video & { youtubeId: string; durationSecs: number } = {
+                    id: Math.floor(Math.random() * 2000000),
+                    title: item.title,
+                    thumbnail: item.thumbnail,
+                    duration: "0:00",
+                    category: "YouTube",
+                    price: null,
+                    youtubeId: item.videoId,
+                    durationSecs: (item as any).durationSecs ?? 0,
+                  };
+                  return (
+                    <Pressable
+                      key={item.videoId}
+                      style={styles.modalItem}
+                      onPress={() => addMutation.mutate(video)}
+                      disabled={addMutation.isPending}
+                    >
+                      <Image source={{ uri: item.thumbnail }} style={styles.modalThumb} contentFit="cover" />
+                      <View style={styles.modalItemInfo}>
+                        <Text style={styles.modalItemTitle} numberOfLines={2}>
+                          {item.title}
+                        </Text>
+                        <View style={styles.modalItemMeta}>
+                          <Ionicons name="list" size={12} color={C.accent} />
+                          <Text style={styles.modalItemMetaText}>From playlist</Text>
+                        </View>
+                      </View>
+                      <Ionicons name="add-circle" size={24} color={C.accent} />
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          ) : ytPlaylists.length > 0 ? (
+            <HorizontalScroll style={styles.ytPlaylistRow} showArrows={false}>
+              {ytPlaylists.map((pl) => (
+                <Pressable key={pl.id} style={styles.ytPlaylistChip} onPress={() => setSelectedPlaylistId(pl.id)}>
+                  {pl.thumbnail ? (
+                    <Image source={{ uri: pl.thumbnail }} style={styles.ytPlaylistChipThumb} contentFit="cover" />
+                  ) : (
+                    <View style={[styles.ytPlaylistChipThumb, { backgroundColor: C.surface3 }]} />
+                  )}
+                  <Text style={styles.ytPlaylistChipTitle} numberOfLines={2}>
+                    {pl.title}
+                  </Text>
+                </Pressable>
+              ))}
+            </HorizontalScroll>
+          ) : (
+            <Text style={styles.ytPlaylistEmpty}>No playlists found</Text>
+          )}
+        </View>
+      )}
+      <ScrollView style={styles.modalList} showsVerticalScrollIndicator={scrollShowsVertical}>
+        {ytResults.length > 0 && (
+          <>
+            <Text style={styles.modalSubtitle}>YouTube Results</Text>
+            {ytResults.map((r) => {
+              const video: Video & { youtubeId: string; durationSecs: number } = {
+                id: Math.floor(Math.random() * 2000000),
+                title: r.title,
+                thumbnail: r.thumbnail,
+                duration: "0:00",
+                category: "YouTube",
+                price: null,
+                youtubeId: r.videoId,
+                durationSecs: r.durationSecs ?? 0,
+              };
+              return (
+                <Pressable
+                  key={r.videoId}
+                  style={styles.modalItem}
+                  onPress={() => addMutation.mutate(video)}
+                  disabled={addMutation.isPending}
+                >
+                  <Image source={{ uri: r.thumbnail }} style={styles.modalThumb} contentFit="cover" />
+                  <View style={styles.modalItemInfo}>
+                    <Text style={styles.modalItemTitle} numberOfLines={2}>
+                      {r.title}
+                    </Text>
+                    <View style={styles.modalItemMeta}>
+                      <Ionicons name="logo-youtube" size={12} color="#FF0000" />
+                      <Text style={styles.modalItemMetaText}>Add from YouTube</Text>
+                    </View>
+                  </View>
+                  <Ionicons name="add-circle" size={24} color={C.accent} />
+                </Pressable>
+              );
+            })}
+          </>
+        )}
+        <Text style={styles.modalSubtitle}>My Purchased Videos</Text>
+        {purchasedVideos.length === 0 && <Text style={styles.emptyPurchasedText}>No purchased videos yet</Text>}
+        {purchasedVideos.map((video) => (
+          <Pressable
+            key={video.id}
+            style={styles.modalItem}
+            onPress={() => addMutation.mutate(video)}
+            disabled={addMutation.isPending}
+          >
+            <Image source={{ uri: video.thumbnail }} style={styles.modalThumb} contentFit="cover" />
+            <View style={styles.modalItemInfo}>
+              <Text style={styles.modalItemTitle} numberOfLines={2}>
+                {video.title}
+              </Text>
+              <View style={styles.modalItemMeta}>
+                <Ionicons name="checkmark-circle" size={12} color={C.green} />
+                <Text style={styles.modalItemMetaText}>Purchased · 🎟{video.price?.toLocaleString()}</Text>
+              </View>
+            </View>
+            <Ionicons name="add-circle" size={24} color={C.accent} />
+          </Pressable>
+        ))}
+        {uploadedVideos.length > 0 && (
+          <>
+            <Text style={styles.modalSubtitle}>My Uploads</Text>
+            {uploadedVideos.map((video) => (
+              <Pressable
+                key={`u-${video.id}`}
+                style={styles.modalItem}
+                onPress={() => addMutation.mutate(video)}
+                disabled={addMutation.isPending}
+              >
+                <Image source={{ uri: video.thumbnail }} style={styles.modalThumb} contentFit="cover" />
+                <View style={styles.modalItemInfo}>
+                  <Text style={styles.modalItemTitle} numberOfLines={2}>
+                    {video.title}
+                  </Text>
+                  <View style={styles.modalItemMeta}>
+                    <Ionicons name="person-circle" size={12} color={C.accent} />
+                    <Text style={styles.modalItemMetaText}>
+                      My post · {video.price ? `🎟${video.price.toLocaleString()}` : "Free"}
+                    </Text>
+                  </View>
+                </View>
+                <Ionicons name="add-circle" size={24} color={C.accent} />
+              </Pressable>
+            ))}
+          </>
+        )}
+        <View style={{ height: 40 }} />
+      </ScrollView>
+    </>
+  );
+
+  if (isDesktopWebJukebox) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg, flexDirection: "row" }}>
+        <View style={styles.desktopMainCol}>
+          <View style={[styles.header, { paddingTop: topInset + 8 }]}>
+            <Pressable style={styles.backBtn} onPress={() => router.back()}>
+              <Ionicons name="chevron-back" size={22} color="#fff" />
+            </Pressable>
+            <View style={styles.headerCenter}>
+              <View style={styles.jukeboxBadge}>
+                <Ionicons name="musical-notes" size={11} color="#fff" />
+                <Text style={styles.jukeboxBadgeText}>JUKEBOX</Text>
+              </View>
+              <Text style={styles.headerTitle}>Community Watch Party</Text>
+            </View>
+            <View style={{ width: 36 }} />
+          </View>
+          <View style={styles.desktopPlayerWrap}>
+            <NowPlaying state={state} onNext={handleNext} addModalOpen={false} embedInSidebarColumn />
+          </View>
+        </View>
+        <View style={styles.desktopSidebar}>
+          <View style={styles.desktopQueueBlock}>
+            <QueueRow
+              variant="vertical"
+              items={queue}
+              state={state}
+              userName={user?.name}
+              onDelete={(id) => deleteMutation.mutate(id)}
+              onAdd={() => {}}
+            />
+          </View>
+          <View style={styles.desktopChatBlock}>
+            <View style={styles.chatHeader}>
+              <Ionicons name="chatbubbles" size={14} color={C.accent} />
+              <Text style={styles.chatHeaderText}>Comments</Text>
+            </View>
+            <FlatList
+              ref={flatListRef}
+              data={chat}
+              keyExtractor={(item) => item.id.toString()}
+              style={styles.desktopChatList}
+              contentContainerStyle={styles.chatListContent}
+              showsVerticalScrollIndicator={scrollShowsVertical}
+              renderItem={({ item }) => (
+                <View style={[styles.chatMsg, item.username === (user?.name ?? "Guest") && styles.chatMsgMine]}>
+                  {item.username !== (user?.name ?? "Guest") &&
+                    (item.avatar ? (
+                      <Image source={{ uri: item.avatar }} style={styles.chatAvatar} contentFit="cover" />
+                    ) : (
+                      <View style={[styles.chatAvatar, { backgroundColor: C.surface3, alignItems: "center", justifyContent: "center" }]}>
+                        <Ionicons name="person" size={12} color={C.textMuted} />
+                      </View>
+                    ))}
+                  <View style={[styles.chatBubble, item.username === (user?.name ?? "Guest") && styles.chatBubbleMine]}>
+                    {item.username !== (user?.name ?? "Guest") && <Text style={styles.chatUsername}>{item.username}</Text>}
+                    <Text style={[styles.chatText, item.username === (user?.name ?? "Guest") && styles.chatTextMine]}>{item.message}</Text>
+                  </View>
+                </View>
+              )}
+            />
+            <View style={[styles.inputRow, { paddingBottom: bottomInset + 8 }]}>
+              <TextInput
+                style={styles.input}
+                placeholder="Add a comment..."
+                placeholderTextColor={C.textMuted}
+                value={chatInput}
+                onChangeText={setChatInput}
+                onSubmitEditing={sendChat}
+                returnKeyType="send"
+              />
+              <Pressable style={[styles.sendBtn, !chatInput.trim() && styles.sendBtnDisabled]} onPress={sendChat}>
+                <Ionicons name="send" size={16} color="#fff" />
+              </Pressable>
+            </View>
+          </View>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={styles.desktopAddBlock}
+            keyboardVerticalOffset={0}
+          >
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={scrollShowsVertical}
+              contentContainerStyle={styles.desktopAddScrollContent}
+            >
+              {jukeboxAddPanelCore}
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: C.bg }}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={0}
+      enabled={!showAddModal}
     >
       <View style={[styles.container]}>
-        {/* ===== 縦向きレイアウト ===== */}
+        {/* Header: portrait only */}
+        {!isLandscape && (
+          <View style={[styles.header, { paddingTop: topInset + 8 }]}>
+            <Pressable style={styles.backBtn} onPress={() => router.back()}>
+              <Ionicons name="chevron-back" size={22} color="#fff" />
+            </Pressable>
+            <View style={styles.headerCenter}>
+              <View style={styles.jukeboxBadge}>
+                <Ionicons name="musical-notes" size={11} color="#fff" />
+                <Text style={styles.jukeboxBadgeText}>JUKEBOX</Text>
+              </View>
+              <Text style={styles.headerTitle}>Community Watch Party</Text>
+            </View>
+            <View style={{ width: 36 }} />
+          </View>
+        )}
+
+        {/* Single NowPlaying instance — avoids unmount on rotate (was destroying YT iframe / audio). */}
+        <View style={isLandscape ? StyleSheet.absoluteFillObject : {}}>
+          <NowPlaying state={state} onNext={handleNext} addModalOpen={showAddModal} />
+        </View>
+
+        {/* Portrait: queue + chat */}
         {!isLandscape && (
           <>
-            {/* Header */}
-            <View style={[styles.header, { paddingTop: topInset + 8 }]}>
-              <Pressable style={styles.backBtn} onPress={() => router.back()}>
-                <Ionicons name="chevron-back" size={22} color="#fff" />
-              </Pressable>
-              <View style={styles.headerCenter}>
-                <View style={styles.jukeboxBadge}>
-                  <Ionicons name="musical-notes" size={11} color="#fff" />
-                  <Text style={styles.jukeboxBadgeText}>JUKEBOX</Text>
-                </View>
-                <Text style={styles.headerTitle}>Community Watch Party</Text>
-              </View>
-              <View style={{ width: 36 }} />
-            </View>
-
-            {/* Now Playing */}
-            <NowPlaying state={state} onNext={handleNext} />
-
-            {/* Queue */}
             <QueueRow items={queue} state={state} userName={user?.name} onDelete={(id) => deleteMutation.mutate(id)} onAdd={() => {
               if (!user) { router.push("/auth/login"); return; }
               setShowAddModal(true);
             }} />
 
-            {/* Chat */}
             <View style={styles.chatSection}>
               <View style={styles.chatHeader}>
                 <Ionicons name="chatbubbles" size={14} color={C.accent} />
@@ -925,7 +1299,6 @@ export default function JukeboxScreen() {
               />
             </View>
 
-            {/* Input */}
             <View style={[styles.inputRow, { paddingBottom: bottomInset + 8 }]}>
               <TextInput
                 style={styles.input}
@@ -943,13 +1316,9 @@ export default function JukeboxScreen() {
           </>
         )}
 
-        {/* ===== 横向きレイアウト ===== */}
+        {/* Landscape: chrome only (NowPlaying already mounted above). */}
         {isLandscape && (
-          <View style={StyleSheet.absoluteFillObject}>
-            {/* 映像全画面 */}
-            <NowPlaying state={state} onNext={handleNext} />
-
-            {/* 戻るボタン（左上） */}
+          <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
             <Pressable
               style={[styles.landscapeBackBtn, { top: insets.top + 8, left: insets.left + 8 }]}
               onPress={() => router.back()}
@@ -957,7 +1326,6 @@ export default function JukeboxScreen() {
               <Ionicons name="chevron-back" size={22} color="#fff" />
             </Pressable>
 
-            {/* 動画追加ボタン（右上） */}
             <Pressable
               style={[styles.landscapeAddBtn, { top: insets.top + 8, right: insets.right + 8 }]}
               onPress={() => {
@@ -968,7 +1336,6 @@ export default function JukeboxScreen() {
               <Ionicons name="add" size={20} color="#fff" />
             </Pressable>
 
-            {/* チャット1ライン（下部バー） */}
             {!chatPanelOpen && (
               <Pressable
                 style={[styles.landscapeChatBar, { bottom: insets.bottom + 8, left: insets.left + 12, right: insets.right + 12 }]}
@@ -987,7 +1354,6 @@ export default function JukeboxScreen() {
               </Pressable>
             )}
 
-            {/* チャットパネル（タップで展開） */}
             {chatPanelOpen && (
               <Animated.View
                 style={[
@@ -1053,259 +1419,18 @@ export default function JukeboxScreen() {
 
       {/* Add Video Modal */}
       <Modal visible={showAddModal} animationType="slide" transparent>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
+        >
         <Pressable style={styles.modalBg} onPress={() => setShowAddModal(false)}>
           <Pressable style={styles.modalSheet} onPress={() => {}}>
             <View style={styles.modalHandle} />
-             <Text style={styles.modalTitle}>Add to Jukebox</Text>
-            <Text style={{ fontSize: 11, color: C.textMuted, textAlign: "center", marginBottom: 8, lineHeight: 16 }}>
-              ⚠️ Videos longer than 10 minutes will be skipped at the 10-minute mark
-            </Text>
-            {/* YouTube Search */}
-            <View style={styles.ytInputSection}>
-              <Text style={styles.ytLabel}>Search YouTube</Text>
-              <View style={styles.ytRow}>
-                <TextInput
-                  style={styles.ytInput}
-                  placeholder="Search by song or channel name"
-                  placeholderTextColor={C.textMuted}
-                  value={ytQuery}
-                  onChangeText={setYtQuery}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-                <Pressable
-                  style={[
-                    styles.ytSearchButton,
-                    (ytSearching || !ytQuery.trim()) && styles.ytSearchButtonDisabled,
-                  ]}
-                  onPress={handleSearchYouTube}
-                  disabled={ytSearching || !ytQuery.trim()}
-                >
-                  <Ionicons name="search" size={16} color="#fff" />
-                  <Text style={styles.ytSearchButtonText}>
-                    {ytSearching ? "Searching..." : "Search"}
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-
-            {/* YouTube URL direct paste */}
-            <View style={styles.ytInputSection}>
-              <Text style={styles.ytLabel}>Add from YouTube URL</Text>
-              <View style={styles.ytRow}>
-                <TextInput
-                  style={styles.ytInput}
-                  placeholder="https://www.youtube.com/watch?v=..."
-                  placeholderTextColor={C.textMuted}
-                  value={ytUrl}
-                  onChangeText={setYtUrl}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-                <Pressable
-                  style={[styles.ytAddButton, !ytUrl.trim() && styles.ytAddButtonDisabled]}
-                  onPress={handleAddYouTube}
-                  disabled={!ytUrl.trim()}
-                >
-                  <Ionicons name="logo-youtube" size={16} color="#fff" />
-                  <Text style={styles.ytAddButtonText}>Add this URL</Text>
-                </Pressable>
-              </View>
-            </View>
-
-            {/* My playlists */}
-            {user && (
-              <View style={styles.ytInputSection}>
-                <Text style={styles.ytLabel}>My Playlists (Google login)</Text>
-                {ytPlaylistsNeedGoogle ? (
-                  <Pressable
-                    style={styles.ytPlaylistLoginHint}
-                    onPress={() => {
-                      if (Platform.OS === "web" && typeof window !== "undefined") {
-                        const returnTo = window.location.pathname + window.location.search;
-                        saveLoginReturn(returnTo);
-                        const url = new URL("/api/auth/google", getApiUrl()).toString();
-                        (window.top || window).location.replace(url);
-                      } else {
-                        router.push("/auth/login");
-                      }
-                    }}
-                  >
-                    <Ionicons name="logo-youtube" size={18} color="#FF0000" />
-                    <Text style={styles.ytPlaylistLoginText}>
-                      Sign in with Google to view your playlists
-                    </Text>
-                  </Pressable>
-                ) : ytPlaylistsLoading ? (
-                  <Text style={styles.ytPlaylistLoading}>Loading...</Text>
-                ) : selectedPlaylistId ? (
-                  <View>
-                    <Pressable
-                      style={styles.ytPlaylistBack}
-                      onPress={() => setSelectedPlaylistId(null)}
-                    >
-                      <Ionicons name="chevron-back" size={16} color={C.accent} />
-                      <Text style={styles.ytPlaylistBackText}>Back to playlists</Text>
-                    </Pressable>
-                    <ScrollView style={styles.ytPlaylistItemsScroll} showsVerticalScrollIndicator={scrollShowsVertical}>
-                    {ytPlaylistItems.map((item) => {
-                      const video: Video & { youtubeId: string; durationSecs: number } = {
-                        id: Math.floor(Math.random() * 2000000),
-                        title: item.title,
-                        thumbnail: item.thumbnail,
-                        duration: "0:00",
-                        category: "YouTube",
-                        price: null,
-                        youtubeId: item.videoId,
-                        durationSecs: (item as any).durationSecs ?? 0,
-                      };
-                      return (
-                          <Pressable
-                          key={item.videoId}
-                          style={styles.modalItem}
-                          onPress={() => addMutation.mutate(video)}
-                          disabled={addMutation.isPending}
-                        >
-                          <Image source={{ uri: item.thumbnail }} style={styles.modalThumb} contentFit="cover" />
-                          <View style={styles.modalItemInfo}>
-                            <Text style={styles.modalItemTitle} numberOfLines={2}>{item.title}</Text>
-                            <View style={styles.modalItemMeta}>
-                              <Ionicons name="list" size={12} color={C.accent} />
-                              <Text style={styles.modalItemMetaText}>From playlist</Text>
-                            </View>
-                          </View>
-                          <Ionicons name="add-circle" size={24} color={C.accent} />
-                        </Pressable>
-                      );
-                    })}
-                    </ScrollView>
-                  </View>
-                ) : ytPlaylists.length > 0 ? (
-                  <HorizontalScroll style={styles.ytPlaylistRow} showArrows={false}>
-                    {ytPlaylists.map((pl) => (
-                      <Pressable
-                        key={pl.id}
-                        style={styles.ytPlaylistChip}
-                        onPress={() => setSelectedPlaylistId(pl.id)}
-                      >
-                        {pl.thumbnail ? (
-                          <Image source={{ uri: pl.thumbnail }} style={styles.ytPlaylistChipThumb} contentFit="cover" />
-                        ) : (
-                          <View style={[styles.ytPlaylistChipThumb, { backgroundColor: C.surface3 }]} />
-                        )}
-                        <Text style={styles.ytPlaylistChipTitle} numberOfLines={2}>{pl.title}</Text>
-                      </Pressable>
-                    ))}
-                  </HorizontalScroll>
-                ) : (
-                  <Text style={styles.ytPlaylistEmpty}>No playlists found</Text>
-                )}
-              </View>
-            )}
-
-            {/* List */}
-            <ScrollView style={styles.modalList} showsVerticalScrollIndicator={scrollShowsVertical}>
-              {/* YouTube 検索結果 */}
-              {ytResults.length > 0 && (
-                <>
-                  <Text style={styles.modalSubtitle}>YouTube Results</Text>
-                  {ytResults.map((r) => {
-                    const video: Video & { youtubeId: string; durationSecs: number } = {
-                      id: Math.floor(Math.random() * 2000000),
-                      title: r.title,
-                      thumbnail: r.thumbnail,
-                      duration: "0:00",
-                      category: "YouTube",
-                      price: null,
-                      youtubeId: r.videoId,
-                      durationSecs: r.durationSecs ?? 0,
-                    };
-                    return (
-                      <Pressable
-                        key={r.videoId}
-                        style={styles.modalItem}
-                        onPress={() => addMutation.mutate(video)}
-                        disabled={addMutation.isPending}
-                      >
-                        <Image
-                          source={{ uri: r.thumbnail }}
-                          style={styles.modalThumb}
-                          contentFit="cover"
-                        />
-                        <View style={styles.modalItemInfo}>
-                          <Text style={styles.modalItemTitle} numberOfLines={2}>
-                            {r.title}
-                          </Text>
-                          <View style={styles.modalItemMeta}>
-                            <Ionicons name="logo-youtube" size={12} color="#FF0000" />
-                            <Text style={styles.modalItemMetaText}>
-                              Add from YouTube
-                            </Text>
-                          </View>
-                        </View>
-                        <Ionicons name="add-circle" size={24} color={C.accent} />
-                      </Pressable>
-                    );
-                  })}
-                </>
-              )}
-
-              {/* Purchased videos */}
-              <Text style={styles.modalSubtitle}>My Purchased Videos</Text>
-              {purchasedVideos.length === 0 && (
-                <Text style={styles.emptyPurchasedText}>No purchased videos yet</Text>
-              )}
-              {purchasedVideos.map((video) => (
-                <Pressable
-                  key={video.id}
-                  style={styles.modalItem}
-                  onPress={() => addMutation.mutate(video)}
-                  disabled={addMutation.isPending}
-                >
-                  <Image source={{ uri: video.thumbnail }} style={styles.modalThumb} contentFit="cover" />
-                  <View style={styles.modalItemInfo}>
-                    <Text style={styles.modalItemTitle} numberOfLines={2}>{video.title}</Text>
-                    <View style={styles.modalItemMeta}>
-                      <Ionicons name="checkmark-circle" size={12} color={C.green} />
-                      <Text style={styles.modalItemMetaText}>
-                        Purchased · 🎟{video.price?.toLocaleString()}
-                      </Text>
-                    </View>
-                  </View>
-                  <Ionicons name="add-circle" size={24} color={C.accent} />
-                </Pressable>
-              ))}
-
-              {/* Uploaded videos */}
-              {uploadedVideos.length > 0 && (
-                <>
-                  <Text style={styles.modalSubtitle}>My Uploads</Text>
-                  {uploadedVideos.map((video) => (
-                    <Pressable
-                      key={`u-${video.id}`}
-                      style={styles.modalItem}
-                      onPress={() => addMutation.mutate(video)}
-                      disabled={addMutation.isPending}
-                    >
-                      <Image source={{ uri: video.thumbnail }} style={styles.modalThumb} contentFit="cover" />
-                      <View style={styles.modalItemInfo}>
-                        <Text style={styles.modalItemTitle} numberOfLines={2}>{video.title}</Text>
-                        <View style={styles.modalItemMeta}>
-                          <Ionicons name="person-circle" size={12} color={C.accent} />
-                          <Text style={styles.modalItemMetaText}>
-                            My post · {video.price ? `🎟${video.price.toLocaleString()}` : "Free"}
-                          </Text>
-                        </View>
-                      </View>
-                      <Ionicons name="add-circle" size={24} color={C.accent} />
-                    </Pressable>
-                  ))}
-                </>
-              )}
-              <View style={{ height: 40 }} />
-            </ScrollView>
+            {jukeboxAddPanelCore}
           </Pressable>
         </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
 
 
@@ -1315,6 +1440,21 @@ export default function JukeboxScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
+  desktopMainCol: { flex: 1, minWidth: 0 },
+  desktopPlayerWrap: { width: "100%" },
+  desktopSidebar: {
+    width: 400,
+    maxWidth: "44%",
+    flexShrink: 0,
+    borderLeftWidth: 1,
+    borderLeftColor: C.border,
+    backgroundColor: C.surface,
+  },
+  desktopQueueBlock: { borderBottomWidth: 1, borderBottomColor: C.border },
+  desktopChatBlock: { flex: 1, minHeight: 140, borderBottomWidth: 1, borderBottomColor: C.border },
+  desktopChatList: { flex: 1 },
+  desktopAddBlock: { maxHeight: 400, flexGrow: 0 },
+  desktopAddScrollContent: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 24 },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -1508,6 +1648,34 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: C.border,
     paddingTop: 8,
+  },
+  queueSectionVertical: {
+    borderTopWidth: 0,
+    paddingTop: 0,
+    maxHeight: 200,
+    minHeight: 80,
+  },
+  queueVerticalScroll: { maxHeight: 160 },
+  queueVerticalContent: { paddingHorizontal: 12, gap: 8, paddingBottom: 8 },
+  queueItemVertical: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: C.surface2,
+    borderRadius: 10,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  queueThumbVertical: { width: 52, height: 52, borderRadius: 6 },
+  queueItemVerticalBody: { flex: 1, minWidth: 0 },
+  queueItemTitleVertical: { color: C.text, fontSize: 12, fontWeight: "600", lineHeight: 16 },
+  queueItemVerticalMeta: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
+  queueItemByVertical: { color: C.textMuted, fontSize: 10, flex: 1 },
+  queueItemDeleteBtn: {
+    padding: 6,
+    borderRadius: 8,
+    backgroundColor: "rgba(0,0,0,0.45)",
   },
   queueHeader: {
     flexDirection: "row",

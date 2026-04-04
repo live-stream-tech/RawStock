@@ -16,6 +16,7 @@ import type { Href } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { C } from "@/constants/colors";
 import { F } from "@/constants/fonts";
+import { formatEditorRevenueShareLabel, formatEditorTicketsPerMinute } from "@/constants/tickets";
 
 type SortKey = "rating" | "delivery" | "price";
 
@@ -65,13 +66,13 @@ function EditorCard({ editor }: { editor: VideoEditor }) {
   const priceLabel =
     editor.priceType === "per_minute"
       ? editor.pricePerMinute != null
-        ? `¥${editor.pricePerMinute}/min`
+        ? formatEditorTicketsPerMinute(editor.pricePerMinute)
         : "Per minute"
       : editor.revenueSharePercent != null
-      ? `${editor.revenueSharePercent}% rev share`
-      : "Revenue share";
+        ? formatEditorRevenueShareLabel(editor.revenueSharePercent)
+        : "Revenue share";
 
-  const requestHref: Href = `/editing-request?editorId=${editor.id}&editorName=${encodeURIComponent(editor.name)}&editorPrice=${encodeURIComponent(priceLabel)}`;
+  const requestHref: Href = `/request-editor?editorId=${editor.id}&editorName=${encodeURIComponent(editor.name)}&editorPrice=${encodeURIComponent(priceLabel)}`;
 
   return (
     <Pressable

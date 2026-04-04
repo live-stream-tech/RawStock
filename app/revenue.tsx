@@ -20,6 +20,7 @@ import Svg, { Rect, Text as SvgText } from "react-native-svg";
 import { apiRequest } from "@/lib/query-client";
 import { AuthGuard } from "@/lib/auth";
 import { C } from "@/constants/colors";
+import { formatUsdFromTickets } from "@/constants/tickets";
 
 type Summary = {
   totalEarned: number;
@@ -63,10 +64,6 @@ const STATUS_META: Record<string, { label: string; color: string; bg: string }> 
   completed: { label: "Completed", color: C.green, bg: C.green + "22" },
   failed: { label: "Failed", color: C.live, bg: C.live + "22" },
 };
-
-function formatUsdFromTickets(tickets: number): string {
-  return `$${(tickets / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
 
 function BarChart({ data }: { data: { month: string; amount: number }[] }) {
   const W = 280;

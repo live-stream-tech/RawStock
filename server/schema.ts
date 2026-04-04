@@ -577,6 +577,7 @@ export const videoEditors = pgTable("video_editors", {
   genres: text("genres").notNull().default(""),
   deliveryDays: integer("delivery_days").notNull().default(3),
   priceType: text("price_type").notNull(),
+  /** RawStock Tickets per minute when priceType is per_minute (1 ticket = $0.01 USD); not JPY */
   pricePerMinute: integer("price_per_minute"),
   revenueSharePercent: integer("revenue_share_percent"),
   rating: real("rating").notNull().default(0),

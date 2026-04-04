@@ -18,6 +18,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/query-client";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
+import { PRICE_PER_TICKET_USD } from "@/constants/tickets";
 
 type LiveStream = {
   id: number;
@@ -240,7 +241,7 @@ export default function MentorBookingScreen() {
               {[
                 ["Operator", "RawStock Operations"],
                 ["Service", "Mentor Session Booking"],
-                ["Price", `🎟 ${MENTOR_TICKET_PRICE.toLocaleString()} Tickets ($${(MENTOR_TICKET_PRICE * 0.01).toFixed(2)} USD)`],
+                ["Price", `🎟 ${MENTOR_TICKET_PRICE.toLocaleString()} Tickets ($${(MENTOR_TICKET_PRICE * PRICE_PER_TICKET_USD).toFixed(2)} USD)`],
                 ["Payment Timing", "At time of booking (Ticket deduction)"],
                 ["Service Timing", "During the live stream, when your queue position is reached"],
                 ["Cancellation", "No refunds for user-initiated cancellations. Full refund if cancelled by creator."],

@@ -17,6 +17,7 @@ import { router } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
+import { PRICE_PER_TICKET_USD } from "@/constants/tickets";
 import { apiRequest } from "@/lib/query-client";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 
@@ -246,10 +247,13 @@ export default function EditorProfileScreen() {
 
           {priceType === "per_minute" && (
             <View style={styles.priceInputRow}>
-              <Text style={styles.priceInputLabel}>Rate per minute (JPY)</Text>
+              <Text style={styles.priceInputLabel}>Rate per minute (Tickets)</Text>
+              <Text style={styles.priceSublabel}>
+                1 Ticket = ${PRICE_PER_TICKET_USD.toFixed(2)} USD (same as Ticket Shop)
+              </Text>
               <TextInput
                 style={styles.priceInput}
-                placeholder="e.g. 1500"
+                placeholder="e.g. 150"
                 placeholderTextColor={C.textMuted}
                 value={pricePerMinute}
                 onChangeText={setPricePerMinute}
@@ -457,6 +461,12 @@ const styles = StyleSheet.create({
     color: C.textSec,
     fontSize: 12,
     marginBottom: 6,
+  },
+  priceSublabel: {
+    color: C.textMuted,
+    fontSize: 11,
+    marginBottom: 8,
+    lineHeight: 15,
   },
   priceInput: {
     backgroundColor: C.surface2,
