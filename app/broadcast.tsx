@@ -14,7 +14,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { C } from "@/constants/colors";
 import { connectWHIP } from "@/lib/live/whip";
-import { apiCreateLiveStream, apiStartLiveStream, apiEndLiveStream, liveApiBase } from "@/lib/live/streamApi";
+import {
+  apiCreateLiveStream,
+  apiStartLiveStream,
+  apiEndLiveStream,
+  liveApiBase,
+  liveAuthHeaders,
+} from "@/lib/live/streamApi";
 import { acquireBroadcastMediaStream } from "@/lib/live/webBroadcastMedia";
 import type { LiveStreamVisibility } from "@/lib/live/streamApi";
 import { webBroadcastNeedsUserGestureForCamera } from "@/lib/pwa-standalone";
@@ -83,6 +89,7 @@ function BroadcastWeb() {
   const [webPreviewLoading, setWebPreviewLoading] = useState(false);
   const [deeparBusy, setDeeparBusy] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  /** キーがあっても既定はオフ。DeepAR 未同梱・初期化失敗時も生カメラで配信できるようにする */
   const [useDeepARBlur, setUseDeepARBlur] = useState(false);
   const [lastLiveError, setLastLiveError] = useState<string | null>(null);
   const blinkAnim = useRef(new Animated.Value(1)).current;
@@ -112,7 +119,10 @@ function BroadcastWeb() {
         if (!streamId) return;
         try {
           const API_BASE = liveApiBase();
-          const r = await fetch(`${API_BASE}/api/stream/${streamId}`);
+          const r = await fetch(`${API_BASE}/api/stream/${streamId}`, {
+            credentials: "include",
+            headers: await liveAuthHeaders(),
+          });
           if (r.ok) {
             const d = await r.json();
             setViewers(d.currentViewers ?? 0);
