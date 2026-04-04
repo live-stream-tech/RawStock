@@ -492,7 +492,15 @@ export default function HomeScreen() {
           </Pressable>
           <Text style={styles.footerLinkSeparator}>•</Text>
           <Pressable onPress={() => router.push("/privacy" as any)}>
-            <Text style={styles.footerLinkText}>Privacy Policy</Text>
+            <Text style={styles.footerLinkText}>Privacy</Text>
+          </Pressable>
+          <Text style={styles.footerLinkSeparator}>•</Text>
+          <Pressable onPress={() => router.push("/dmca" as any)}>
+            <Text style={styles.footerLinkText}>DMCA</Text>
+          </Pressable>
+          <Text style={styles.footerLinkSeparator}>•</Text>
+          <Pressable onPress={() => router.push("/community-guidelines" as any)}>
+            <Text style={styles.footerLinkText}>Guidelines</Text>
           </Pressable>
         </View>
 
@@ -736,10 +744,12 @@ const styles = StyleSheet.create({
   // Footer links
   footerLinks: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
     marginTop: 22,
+    paddingHorizontal: 12,
     opacity: 0.75,
   },
   footerLinkText: {

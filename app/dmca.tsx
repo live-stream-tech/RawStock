@@ -80,6 +80,12 @@ export default function DmcaScreen() {
           the email above with details of your claim.
         </Text>
 
+        <Text style={styles.sectionTitle}>United Kingdom</Text>
+        <Text style={styles.body}>
+          The UK has its own copyright regime. This page focuses on U.S. DMCA practice. UK-based claimants may use the
+          same contact email; we will assess notices under applicable UK law where relevant.
+        </Text>
+
         <View style={{ height: 80 }} />
       </ScrollView>
     </View>

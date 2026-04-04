@@ -523,6 +523,14 @@ export default function ProfileScreen() {
             <Pressable onPress={() => router.push("/tokusho")}>
               <Text style={styles.guestLegalLinkText}>Legal Notice</Text>
             </Pressable>
+            <Text style={styles.guestLegalSeparator}>|</Text>
+            <Pressable onPress={() => router.push("/dmca")}>
+              <Text style={styles.guestLegalLinkText}>DMCA</Text>
+            </Pressable>
+            <Text style={styles.guestLegalSeparator}>|</Text>
+            <Pressable onPress={() => router.push("/community-guidelines")}>
+              <Text style={styles.guestLegalLinkText}>Guidelines</Text>
+            </Pressable>
           </View>
         </View>
         {profileFloatingActions}

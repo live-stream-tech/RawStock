@@ -178,6 +178,7 @@ function RootLayoutNav() {
       <Stack.Screen name="terms" options={{ headerShown: false }} />
       <Stack.Screen name="privacy" options={{ headerShown: false }} />
       <Stack.Screen name="dmca" options={{ headerShown: false }} />
+      <Stack.Screen name="community-guidelines" options={{ headerShown: false }} />
       <Stack.Screen name="tokusho" options={{ headerShown: false }} />
       <Stack.Screen name="lp" options={{ headerShown: false }} />
       <Stack.Screen name="rawstock-lp/index" options={{ headerShown: false }} />

@@ -79,15 +79,29 @@ export default function TermsScreen() {
         </Article>
 
         <Article title="5. Prohibited Conduct">
-          {
-            "You agree not to:\n\n• Engage in illegal activity or promote prohibited goods or services.\n• Post hate speech, harass others, or share violent or sexually explicit content in violation of our policies.\n• Infringe intellectual property or privacy rights.\n• Abuse the Service technically (scraping, DDoS, circumventing security).\n• Use live streaming or chat to broadcast illegal content, non-consensual imagery, or content that endangers others."
-          }
+          <Text style={styles.articleBody}>
+            {
+              "You agree not to:\n\n• Engage in illegal activity or promote prohibited goods or services.\n• Post hate speech, harass others, or share violent or sexually explicit content in violation of our policies.\n• Infringe intellectual property or privacy rights.\n• Abuse the Service technically (scraping, DDoS, circumventing security).\n• Use live streaming or chat to broadcast illegal content, non-consensual imagery, or content that endangers others.\n\nFor more detail, see our "
+            }
+            <Text style={styles.inlineLink} onPress={() => router.push("/community-guidelines")}>
+              Community Guidelines
+            </Text>
+            {"."}
+          </Text>
         </Article>
 
         <Article title="6. Live Streaming & UGC">
-          {
-            "Live streams and real-time features are user-generated content. We may moderate, interrupt, or terminate streams or accounts that violate these Terms or applicable law. Users can report concerns through in-app reporting. We aim to review serious reports promptly; timing depends on volume and severity."
-          }
+          <Text style={styles.articleBody}>
+            {
+              "Live streams and real-time features are user-generated content. We may moderate, interrupt, or terminate streams or accounts that violate these Terms, our "
+            }
+            <Text style={styles.inlineLink} onPress={() => router.push("/community-guidelines")}>
+              Community Guidelines
+            </Text>
+            {
+              ", or applicable law. Users can report concerns through in-app reporting. We aim to review serious reports promptly; timing depends on volume and severity."
+            }
+          </Text>
         </Article>
 
         <Article title="7. Payments, Subscriptions & Virtual Gifts">

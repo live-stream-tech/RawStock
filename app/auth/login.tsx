@@ -123,6 +123,7 @@ export default function LoginScreen() {
         returnTo.startsWith("/terms") ||
         returnTo.startsWith("/privacy") ||
         returnTo.startsWith("/dmca") ||
+        returnTo.startsWith("/community-guidelines") ||
         returnTo.startsWith("/legal-notice") ||
         returnTo.startsWith("/tokusho");
 
