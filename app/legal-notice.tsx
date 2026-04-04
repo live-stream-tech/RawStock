@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { C } from "@/constants/colors";
+import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 
 export default function LegalNoticeScreen() {
   const insets = useSafeAreaInsets();
@@ -19,7 +20,7 @@ export default function LegalNoticeScreen() {
         <View style={{ width: 36 }} />
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical} contentContainerStyle={styles.content}>
         <Text style={styles.sectionTitle}>Business Operator</Text>
         <Text style={styles.body}>RawStock</Text>
 

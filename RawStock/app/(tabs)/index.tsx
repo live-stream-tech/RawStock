@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback } from "react";
+import React from "react";
 import {
   View,
   Text,
@@ -7,8 +7,8 @@ import {
   Pressable,
   Platform,
   Dimensions,
-  Animated,
 } from "react-native";
+import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -49,18 +49,9 @@ function formatNumber(n: number): string {
   return n.toLocaleString();
 }
 
-// ─── Live Dot ────────────────────────────────────────────────────────────────
-function LiveDot() {
-  const pulse = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 0.2, duration: 600, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 1, duration: 600, useNativeDriver: true }),
-      ])
-    ).start();
-  }, []);
-  return <Animated.View style={[styles.liveDotAnim, { opacity: pulse }]} />;
+/** Matches /live thumbnail LIVE badge (solid dot, no pulse) */
+function LiveOnAirDot() {
+  return <View style={styles.liveOnAirDot} />;
 }
 
 // ─── Paid Hero Section ────────────────────────────────────────────────────────
@@ -177,7 +168,7 @@ function LiveCard({ item }: { item: any }) {
           </View>
         ) : (
           <View style={styles.liveBadge}>
-            <LiveDot />
+            <LiveOnAirDot />
             <Text style={styles.liveBadgeText}>LIVE</Text>
           </View>
         )}
@@ -305,7 +296,7 @@ export default function HomeScreen() {
         <View style={styles.headerRight}>
           {user && (
             <Pressable style={styles.broadcastBtn} onPress={() => router.push("/broadcast" as any)}>
-              <LiveDot />
+              <LiveOnAirDot />
               <Text style={styles.broadcastBtnText}>LIVE</Text>
             </Pressable>
           )}
@@ -323,7 +314,7 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
 
         {/* ── Paid Hero ── */}
         <PaidHeroSection videos={paidVideos} isDemo={usingDemoPaid} />
@@ -438,19 +429,16 @@ const styles = StyleSheet.create({
   broadcastBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    borderWidth: 1,
-    borderColor: C.live,
-    borderRadius: 2,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    gap: 4,
+    backgroundColor: C.live,
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   broadcastBtnText: {
-    color: C.live,
-    fontSize: 10,
-    fontFamily: F.mono,
-    letterSpacing: 1.5,
-    fontWeight: "400",
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "800",
   },
   iconBtn: { position: "relative" },
   notifBadge: {
@@ -565,14 +553,14 @@ const styles = StyleSheet.create({
     top: 8,
     left: 8,
     backgroundColor: C.live,
-    borderRadius: 2,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: 4,
   },
-  liveBadgeText: { color: "#fff", fontSize: 10, fontFamily: F.mono, fontWeight: "700", letterSpacing: 1 },
+  liveBadgeText: { color: "#fff", fontSize: 11, fontWeight: "800" },
   comingSoonBadge: {
     position: "absolute",
     top: 8,
@@ -667,6 +655,5 @@ const styles = StyleSheet.create({
     fontSize: 9,
   },
 
-  // Live Dot
-  liveDotAnim: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.live },
+  liveOnAirDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#fff" },
 });

@@ -8,6 +8,7 @@ import {
   TextInput,
   Platform,
 } from "react-native";
+import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -143,7 +144,7 @@ export default function DMChatScreen() {
           keyExtractor={(item) => item.id.toString()}
           style={styles.list}
           contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
+          showsVerticalScrollIndicator={scrollShowsVertical}
           renderItem={({ item, index }) => {
             const prevMsg = index > 0 ? messages[index - 1] : null;
             const showAvatar = item.sender === "them" && (prevMsg?.sender !== "them");

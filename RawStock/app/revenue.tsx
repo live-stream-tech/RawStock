@@ -11,6 +11,7 @@ import {
   Platform,
   KeyboardAvoidingView,
 } from "react-native";
+import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -195,7 +196,7 @@ function RevenueScreenContent() {
         <View style={{ width: 36 }} />
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
         {/* Available balance */}
         <View style={styles.balanceCard}>
           <Text style={styles.balanceLabel}>Available Balance</Text>
@@ -353,7 +354,7 @@ function RevenueScreenContent() {
 
             <ScrollView
               style={styles.modalScroll}
-              showsVerticalScrollIndicator={false}
+              showsVerticalScrollIndicator={scrollShowsVertical}
               keyboardShouldPersistTaps="handled"
             >
               {/* Amount */}

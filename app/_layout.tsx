@@ -22,7 +22,7 @@ const DESKTOP_SCROLLBAR_CSS = `
   html {
     scrollbar-gutter: stable;
   }
-  /* RN Web ScrollView: showsVerticalScrollIndicator={false} → inline scrollbar-width:none を上書き */
+  /* 補助: インライン scrollbar-width:none への上書き（Web は scrollShows* で付与しないのが確実） */
   * {
     scrollbar-width: thin !important;
     scrollbar-color: rgba(0, 255, 204, 0.45) rgba(5, 5, 5, 0.8) !important;

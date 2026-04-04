@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Alert,
 } from "react-native";
+import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -496,7 +497,7 @@ export default function LiveStreamScreen() {
             keyExtractor={(item) => item.id.toString()}
             style={styles.chatList}
             contentContainerStyle={styles.chatContent}
-            showsVerticalScrollIndicator={false}
+            showsVerticalScrollIndicator={scrollShowsVertical}
             renderItem={({ item }) => (
               item.isGift ? (
                 <View style={styles.giftBubble}>

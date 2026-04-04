@@ -8,6 +8,7 @@ import { AppLogo } from "@/components/AppLogo";
 import { getApiUrl } from "@/lib/query-client";
 import { getLoginReturn, saveLoginReturn } from "@/lib/login-return";
 import { useAuth } from "@/lib/auth";
+import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 
 const ERROR_LABELS: Record<string, string> = {
   invalid_state: "Authentication expired. Please try again.",
@@ -151,7 +152,7 @@ export default function LoginScreen() {
         { paddingTop: topInset, paddingBottom: bottomInset + 40 },
       ]}
       keyboardShouldPersistTaps="handled"
-      showsVerticalScrollIndicator={false}
+      showsVerticalScrollIndicator={scrollShowsVertical}
     >
       <View style={styles.logoWrap}>
         <AppLogo height={36} />

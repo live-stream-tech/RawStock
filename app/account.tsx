@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   ScrollView,
 } from "react-native";
+import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -128,7 +129,7 @@ export default function AccountEditScreen() {
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: Platform.OS === "web" ? 40 : insets.bottom + 24 }}
-          showsVerticalScrollIndicator={false}
+          showsVerticalScrollIndicator={scrollShowsVertical}
         >
           {needsSetup && (
             <View style={styles.setupBanner}>

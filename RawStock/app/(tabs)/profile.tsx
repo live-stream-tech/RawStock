@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Linking,
 } from "react-native";
+import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -488,7 +489,7 @@ export default function ProfileScreen() {
         />
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
         <View style={styles.profileHeader}>
           <View style={styles.profileLeft}>
             <Pressable style={styles.avatarContainer} onPress={openProfileEdit}>
@@ -791,7 +792,7 @@ export default function ProfileScreen() {
             </View>
             <ScrollView
               horizontal
-              showsHorizontalScrollIndicator={false}
+              showsHorizontalScrollIndicator={scrollShowsHorizontal}
               contentContainerStyle={styles.myCommunitiesList}
             >
               {myCommunities.map((c) => (
@@ -1022,7 +1023,7 @@ export default function ProfileScreen() {
                 </Pressable>
               </View>
             </View>
-            <ScrollView style={styles.previewScroll} showsVerticalScrollIndicator={false}>
+            <ScrollView style={styles.previewScroll} showsVerticalScrollIndicator={scrollShowsVertical}>
               <View style={styles.previewProfileCard}>
                 <View style={styles.previewAvatarWrap}>
                   {(user?.avatar ?? user?.profileImageUrl) ? (

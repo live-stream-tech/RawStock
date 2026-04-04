@@ -7,6 +7,7 @@ import {
   Pressable,
   Platform,
 } from "react-native";
+import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -168,7 +169,7 @@ export default function NotificationsScreen() {
       {/* Filter tabs */}
       <ScrollView
         horizontal
-        showsHorizontalScrollIndicator={false}
+        showsHorizontalScrollIndicator={scrollShowsHorizontal}
         contentContainerStyle={styles.filterScroll}
         style={styles.filterScrollView}
       >
@@ -190,7 +191,7 @@ export default function NotificationsScreen() {
         ))}
       </ScrollView>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
         {filteredNotifs.length === 0 ? (
           <View style={styles.empty}>
             <Ionicons name="notifications-off-outline" size={40} color={C.textMuted} />

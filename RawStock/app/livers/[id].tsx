@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Modal,
 } from "react-native";
+import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -253,7 +254,7 @@ export default function LiverDetailScreen() {
         <View style={{ width: 36 }} />
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
         <View style={styles.profileCard}>
           <Image source={{ uri: displayLiver.avatar }} style={styles.avatar} contentFit="cover" />
           <View style={styles.profileInfo}>
@@ -367,7 +368,7 @@ export default function LiverDetailScreen() {
                   </View>
                   <ScrollView
                     horizontal
-                    showsHorizontalScrollIndicator={false}
+                    showsHorizontalScrollIndicator={scrollShowsHorizontal}
                     contentContainerStyle={styles.miniCommunitiesList}
                   >
                     {liverCommunities.map((c) => (

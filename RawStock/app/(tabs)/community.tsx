@@ -9,6 +9,7 @@ import {
   FlatList,
   Platform,
 } from "react-native";
+import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -192,7 +193,7 @@ export default function CommunityScreen() {
         </Pressable>
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
         <View style={styles.section}>
           <View style={[styles.sectionHeader, styles.sectionHeaderFirst]}>
             <View style={styles.sectionAccent} />
@@ -222,7 +223,7 @@ export default function CommunityScreen() {
             data={sortedCommunities}
             keyExtractor={(item) => item.id}
             horizontal
-            showsHorizontalScrollIndicator={false}
+            showsHorizontalScrollIndicator={scrollShowsHorizontal}
             contentContainerStyle={styles.hList}
             renderItem={({ item, index }) => (
               <CommunityRankCard item={item} index={index} />
@@ -254,7 +255,7 @@ export default function CommunityScreen() {
             data={purchaseData}
             keyExtractor={(item) => item.id + purchaseTab}
             horizontal
-            showsHorizontalScrollIndicator={false}
+            showsHorizontalScrollIndicator={scrollShowsHorizontal}
             contentContainerStyle={styles.hList}
             renderItem={({ item }) => <PurchaseRankCard item={item} isDemo={usingDemoRanked} />}
           />

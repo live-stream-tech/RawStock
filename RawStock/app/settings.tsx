@@ -8,6 +8,7 @@ import {
   Platform,
   Alert,
 } from "react-native";
+import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -100,7 +101,7 @@ export default function SettingsScreen() {
           <View style={{ width: 36 }} />
         </View>
 
-        <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+        <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
           {user && (
             <View style={styles.profileCard}>
               <View style={styles.profileAvatar}>
