@@ -153,9 +153,10 @@ type VideoEditor = {
   communityId: number;
   genres: string;
   deliveryDays: number;
-  priceType: "per_minute" | "revenue_share";
+  priceType: "per_minute" | "revenue_share" | "both";
   pricePerMinute: number | null;
   revenueSharePercent: number | null;
+  styleTags?: string[];
   rating: number;
   reviewCount: number;
   isAvailable: boolean;
@@ -1202,11 +1203,15 @@ export default function CommunityDetailScreen() {
                               <View style={styles.editorMetaRow}>
                                 <Text style={styles.editorMetaText}>Delivery: {editor.deliveryDays}d</Text>
                                 <Text style={styles.editorMetaText}>
-                                  {editor.priceType === "per_minute" && editor.pricePerMinute
-                                    ? formatEditorTicketsPerMinute(editor.pricePerMinute)
-                                    : editor.priceType === "revenue_share" && editor.revenueSharePercent
-                                      ? formatEditorRevenueShareLabel(editor.revenueSharePercent)
-                                      : "TBD"}
+                                  {editor.priceType === "both" &&
+                                  editor.pricePerMinute != null &&
+                                  editor.revenueSharePercent != null
+                                    ? `${formatEditorTicketsPerMinute(editor.pricePerMinute)} · ${formatEditorRevenueShareLabel(editor.revenueSharePercent)}`
+                                    : editor.priceType === "per_minute" && editor.pricePerMinute
+                                      ? formatEditorTicketsPerMinute(editor.pricePerMinute)
+                                      : editor.priceType === "revenue_share" && editor.revenueSharePercent
+                                        ? formatEditorRevenueShareLabel(editor.revenueSharePercent)
+                                        : "TBD"}
                                 </Text>
                               </View>
                             </View>

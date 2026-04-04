@@ -28,7 +28,7 @@ import {
 type VideoEditor = {
   id: number;
   name: string;
-  priceType: "per_minute" | "revenue_share";
+  priceType: "per_minute" | "revenue_share" | "both";
   pricePerMinute: number | null;
   revenueSharePercent: number | null;
 };
@@ -61,13 +61,17 @@ export default function RequestEditorScreen() {
 
   const displayName = editor?.name ?? (nameParam ? decodeURIComponent(String(nameParam)) : "");
   const rateHint =
-    editor?.priceType === "per_minute" && editor.pricePerMinute != null
-      ? `${formatEditorTicketsPerMinute(editor.pricePerMinute)} (${formatUsdFromTickets(editor.pricePerMinute)}/min)`
-      : editor?.priceType === "revenue_share" && editor.revenueSharePercent != null
-        ? formatEditorRevenueShareLabel(editor.revenueSharePercent)
-        : priceParam
-          ? decodeURIComponent(String(priceParam))
-          : null;
+    editor?.priceType === "both" &&
+    editor.pricePerMinute != null &&
+    editor.revenueSharePercent != null
+      ? `${formatEditorTicketsPerMinute(editor.pricePerMinute)} (${formatUsdFromTickets(editor.pricePerMinute)}/min) · ${formatEditorRevenueShareLabel(editor.revenueSharePercent)}`
+      : editor?.priceType === "per_minute" && editor.pricePerMinute != null
+        ? `${formatEditorTicketsPerMinute(editor.pricePerMinute)} (${formatUsdFromTickets(editor.pricePerMinute)}/min)`
+        : editor?.priceType === "revenue_share" && editor.revenueSharePercent != null
+          ? formatEditorRevenueShareLabel(editor.revenueSharePercent)
+          : priceParam
+            ? decodeURIComponent(String(priceParam))
+            : null;
 
   React.useEffect(() => {
     if (editor?.priceType === "per_minute" || editor?.priceType === "revenue_share") {

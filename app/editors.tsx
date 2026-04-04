@@ -27,9 +27,10 @@ type VideoEditor = {
   bio: string;
   genres: string;
   deliveryDays: number;
-  priceType: "per_minute" | "revenue_share";
+  priceType: "per_minute" | "revenue_share" | "both";
   pricePerMinute: number | null;
   revenueSharePercent: number | null;
+  styleTags?: string[];
   rating: number;
   reviewCount: number;
   isAvailable: boolean;
@@ -64,13 +65,17 @@ function EditorCard({ editor }: { editor: VideoEditor }) {
     : [];
 
   const priceLabel =
-    editor.priceType === "per_minute"
-      ? editor.pricePerMinute != null
-        ? formatEditorTicketsPerMinute(editor.pricePerMinute)
-        : "Per minute"
-      : editor.revenueSharePercent != null
-        ? formatEditorRevenueShareLabel(editor.revenueSharePercent)
-        : "Revenue share";
+    editor.priceType === "both" &&
+    editor.pricePerMinute != null &&
+    editor.revenueSharePercent != null
+      ? `${formatEditorTicketsPerMinute(editor.pricePerMinute)} · ${formatEditorRevenueShareLabel(editor.revenueSharePercent)}`
+      : editor.priceType === "per_minute"
+        ? editor.pricePerMinute != null
+          ? formatEditorTicketsPerMinute(editor.pricePerMinute)
+          : "Per minute"
+        : editor.revenueSharePercent != null
+          ? formatEditorRevenueShareLabel(editor.revenueSharePercent)
+          : "Revenue share";
 
   const requestHref: Href = `/request-editor?editorId=${editor.id}&editorName=${encodeURIComponent(editor.name)}&editorPrice=${encodeURIComponent(priceLabel)}`;
 

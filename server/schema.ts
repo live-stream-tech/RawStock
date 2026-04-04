@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   serial,
@@ -576,10 +577,13 @@ export const videoEditors = pgTable("video_editors", {
   communityId: integer("community_id").notNull(),
   genres: text("genres").notNull().default(""),
   deliveryDays: integer("delivery_days").notNull().default(3),
+  /** per_minute | revenue_share | both (both requires pricePerMinute and revenueSharePercent) */
   priceType: text("price_type").notNull(),
   /** RawStock Tickets per minute when priceType is per_minute (1 ticket = $0.01 USD); not JPY */
   pricePerMinute: integer("price_per_minute"),
   revenueSharePercent: integer("revenue_share_percent"),
+  /** Style tag slugs for OR search (overlap with query tags) */
+  styleTags: text("style_tags").array().notNull().default(sql`'{}'::text[]`),
   rating: real("rating").notNull().default(0),
   reviewCount: integer("review_count").notNull().default(0),
   isAvailable: boolean("is_available").notNull().default(true),

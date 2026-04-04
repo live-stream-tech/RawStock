@@ -59,7 +59,8 @@ import {
   dmThreads,
   dmThreadMessages,
 } from "./schema";
-import { eq, asc, desc, count, sql, and, or, gte, lte, isNull, inArray } from "drizzle-orm";
+import { eq, asc, desc, count, sql, and, or, gte, lte, isNull, inArray, isNotNull, type SQL } from "drizzle-orm";
+import { validateEditorPricing, parseTagsQueryParam } from "./editorPricing";
 import { getUncachableStripeClient, getStripePublishableKey, createConnectExpressAccount, createConnectAccountLink, getConnectAccount, createBannerPaymentIntent, getPaymentIntentStatus, createTransferToConnectedAccount } from "./stripeClient";
 import { getCreatorMonthlyRankings, getMonthlyRevenueRank, runMonthlyCreatorAggregation } from "./aggregateRevenue";
 import { judgeReportContent } from "./claudeReport";
@@ -2079,7 +2080,54 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.get("/api/editors", async (req: Request, res: Response) => {
     const sort = (req.query.sort as string) || "rating";
-    let rows = await db.select().from(videoEditors);
+    const mode = typeof req.query.mode === "string" ? req.query.mode.trim() : "";
+    const filters: SQL[] = [];
+
+    if (mode === "per_minute") {
+      filters.push(inArray(videoEditors.priceType, ["per_minute", "both"]));
+    } else if (mode === "revenue_share") {
+      filters.push(inArray(videoEditors.priceType, ["revenue_share", "both"]));
+    } else if (mode.length > 0) {
+      return res.status(400).json({ error: "Invalid mode (use per_minute or revenue_share)" });
+    }
+
+    const maxTicketsRaw = req.query.maxTicketsPerMin;
+    const maxTicketsStr = Array.isArray(maxTicketsRaw) ? maxTicketsRaw[0] : maxTicketsRaw;
+    if (maxTicketsStr !== undefined && String(maxTicketsStr).trim() !== "") {
+      const maxT = parseInt(String(maxTicketsStr), 10);
+      if (!Number.isNaN(maxT) && maxT > 0) {
+        filters.push(
+          and(isNotNull(videoEditors.pricePerMinute), lte(videoEditors.pricePerMinute, maxT)) as SQL,
+        );
+      }
+    }
+
+    const minShareRaw = req.query.minRevenueSharePercent;
+    const minShareStr = Array.isArray(minShareRaw) ? minShareRaw[0] : minShareRaw;
+    if (minShareStr !== undefined && String(minShareStr).trim() !== "") {
+      const minS = parseInt(String(minShareStr), 10);
+      if (!Number.isNaN(minS) && minS >= 1 && minS <= 100) {
+        filters.push(
+          and(isNotNull(videoEditors.revenueSharePercent), gte(videoEditors.revenueSharePercent, minS)) as SQL,
+        );
+      }
+    }
+
+    const tagList = parseTagsQueryParam(req.query.tags);
+    if (tagList.length > 0) {
+      const arrayLit =
+        "ARRAY[" + tagList.map((t) => "'" + t.replace(/'/g, "''") + "'").join(",") + "]::text[]";
+      filters.push(sql`${videoEditors.styleTags} && ${sql.raw(arrayLit)}`);
+    }
+
+    let rows =
+      filters.length > 0
+        ? await db
+            .select()
+            .from(videoEditors)
+            .where(and(...filters))
+        : await db.select().from(videoEditors);
+
     if (sort === "delivery") {
       rows = rows.sort((a, b) => a.deliveryDays - b.deliveryDays);
     } else if (sort === "price") {
@@ -2122,6 +2170,10 @@ export async function registerRoutes(app: Express): Promise<void> {
     const [editor] = await db.select().from(videoEditors).where(eq(videoEditors.id, editorId));
     if (!editor) {
       return res.status(404).json({ error: "Editor not found" });
+    }
+
+    if (editor.priceType !== "both" && editor.priceType !== priceType) {
+      return res.status(400).json({ error: "この編集者は選択した料金形式に対応していません" });
     }
 
     const user = await getAuthUser(req);
@@ -5708,89 +5760,151 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   app.post("/api/seed-editors", async (_req: Request, res: Response) => {
-    const existing = await db.select().from(videoEditors);
-    if (existing.length >= 5) {
-      return res.json({ ok: true, message: "Already seeded" });
-    }
-
     const [idolCommunity] = await db.select({ id: communities.id }).from(communities).where(eq(communities.name, "地下アイドル界隈"));
     const defaultCommunityId = idolCommunity?.id ?? 1;
 
-    const demoEditors = [
-      {
-        name: "映像編集マン",
-        avatar: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150&h=150&fit=crop",
-        bio: "テロップ・カット・サムネまでワンストップで対応する動画編集クリエイター。",
-        communityId: defaultCommunityId,
-        genres: "YouTube,バラエティ,ゲーム",
-        deliveryDays: 3,
-        priceType: "per_minute",
-        pricePerMinute: 150,
-        revenueSharePercent: null,
-        rating: 4.9,
-        reviewCount: 128,
-        isAvailable: true,
-      },
-      {
-        name: "シネマ編集スタジオ",
-        avatar: "https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=150&h=150&fit=crop",
-        bio: "映画風のシネマティックなMV制作が得意です。",
-        communityId: defaultCommunityId,
-        genres: "MV,アーティスト,シネマティック",
-        deliveryDays: 7,
-        priceType: "revenue_share",
-        pricePerMinute: null,
-        revenueSharePercent: 40,
-        rating: 4.8,
-        reviewCount: 76,
-        isAvailable: false,
-      },
-      {
-        name: "ショート動画職人",
-        avatar: "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=150&h=150&fit=crop",
-        bio: "TikTok・YouTubeショートの伸びる構成を提案します。",
-        communityId: defaultCommunityId,
-        genres: "ショート動画,縦型,SNS運用",
-        deliveryDays: 2,
-        priceType: "per_minute",
-        pricePerMinute: 200,
-        revenueSharePercent: null,
-        rating: 5.0,
-        reviewCount: 54,
-        isAvailable: true,
-      },
-      {
-        name: "ゲーム実況エディター",
-        avatar: "https://images.unsplash.com/photo-1533236897111-3e94666b2dde?w=150&h=150&fit=crop",
-        bio: "APEX/VALORANTなどFPS系実況の編集が中心です。",
-        communityId: defaultCommunityId,
-        genres: "ゲーム実況,FPS,切り抜き",
-        deliveryDays: 4,
-        priceType: "per_minute",
-        pricePerMinute: 120,
-        revenueSharePercent: null,
-        rating: 4.6,
-        reviewCount: 90,
-        isAvailable: false,
-      },
-      {
-        name: "教育チャンネル編集室",
-        avatar: "https://images.unsplash.com/photo-1525134479668-1bee5c7c6845?w=150&h=150&fit=crop",
-        bio: "ビジネス・教育系の分かりやすい図解動画を制作します。",
-        communityId: defaultCommunityId,
-        genres: "ビジネス,教育,セミナー",
-        deliveryDays: 5,
-        priceType: "revenue_share",
-        pricePerMinute: null,
-        revenueSharePercent: 30,
-        rating: 4.7,
-        reviewCount: 33,
-        isAvailable: true,
-      },
-    ];
+    let insertedBase = 0;
+    let insertedBoth = 0;
 
-    await db.insert(videoEditors).values(demoEditors);
-    res.json({ ok: true, count: demoEditors.length });
+    const existingStart = await db.select().from(videoEditors);
+    if (existingStart.length < 5) {
+      const demoEditors = [
+        {
+          name: "映像編集マン",
+          avatar: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150&h=150&fit=crop",
+          bio: "テロップ・カット・サムネまでワンストップで対応する動画編集クリエイター。",
+          communityId: defaultCommunityId,
+          genres: "YouTube,バラエティ,ゲーム",
+          deliveryDays: 3,
+          priceType: "per_minute",
+          pricePerMinute: 150,
+          revenueSharePercent: null,
+          styleTags: ["00s-cyber", "speedy-cut"] as string[],
+          rating: 4.9,
+          reviewCount: 128,
+          isAvailable: true,
+        },
+        {
+          name: "シネマ編集スタジオ",
+          avatar: "https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=150&h=150&fit=crop",
+          bio: "映画風のシネマティックなMV制作が得意です。",
+          communityId: defaultCommunityId,
+          genres: "MV,アーティスト,シネマティック",
+          deliveryDays: 7,
+          priceType: "revenue_share",
+          pricePerMinute: null,
+          revenueSharePercent: 40,
+          styleTags: [] as string[],
+          rating: 4.8,
+          reviewCount: 76,
+          isAvailable: false,
+        },
+        {
+          name: "ショート動画職人",
+          avatar: "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=150&h=150&fit=crop",
+          bio: "TikTok・YouTubeショートの伸びる構成を提案します。",
+          communityId: defaultCommunityId,
+          genres: "ショート動画,縦型,SNS運用",
+          deliveryDays: 2,
+          priceType: "per_minute",
+          pricePerMinute: 200,
+          revenueSharePercent: null,
+          styleTags: ["vhs-filter", "raw-texture"] as string[],
+          rating: 5.0,
+          reviewCount: 54,
+          isAvailable: true,
+        },
+        {
+          name: "ゲーム実況エディター",
+          avatar: "https://images.unsplash.com/photo-1533236897111-3e94666b2dde?w=150&h=150&fit=crop",
+          bio: "APEX/VALORANTなどFPS系実況の編集が中心です。",
+          communityId: defaultCommunityId,
+          genres: "ゲーム実況,FPS,切り抜き",
+          deliveryDays: 4,
+          priceType: "per_minute",
+          pricePerMinute: 120,
+          revenueSharePercent: null,
+          styleTags: [] as string[],
+          rating: 4.6,
+          reviewCount: 90,
+          isAvailable: false,
+        },
+        {
+          name: "教育チャンネル編集室",
+          avatar: "https://images.unsplash.com/photo-1525134479668-1bee5c7c6845?w=150&h=150&fit=crop",
+          bio: "ビジネス・教育系の分かりやすい図解動画を制作します。",
+          communityId: defaultCommunityId,
+          genres: "ビジネス,教育,セミナー",
+          deliveryDays: 5,
+          priceType: "revenue_share",
+          pricePerMinute: null,
+          revenueSharePercent: 30,
+          styleTags: [] as string[],
+          rating: 4.7,
+          reviewCount: 33,
+          isAvailable: true,
+        },
+      ];
+      for (const row of demoEditors) {
+        const v = validateEditorPricing(row);
+        if (!v.ok) return res.status(500).json({ error: v.error });
+      }
+      await db.insert(videoEditors).values(demoEditors);
+      insertedBase = demoEditors.length;
+    }
+
+    const afterBase = await db.select().from(videoEditors);
+    const hasBoth = afterBase.some((e) => e.priceType === "both");
+    if (!hasBoth) {
+      const bothDemo = [
+        {
+          name: "フルフレックス編集所",
+          avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop",
+          bio: "分単価でもレベニューシェアでもご相談に応じます。MV・ライブ切り抜き両方対応。",
+          communityId: defaultCommunityId,
+          genres: "MV,ライブ,ショート",
+          deliveryDays: 4,
+          priceType: "both",
+          pricePerMinute: 180,
+          revenueSharePercent: 85,
+          styleTags: ["00s-cyber", "raw-texture"] as string[],
+          rating: 4.85,
+          reviewCount: 42,
+          isAvailable: true,
+        },
+        {
+          name: "ハイブリッド・クリップス",
+          avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop",
+          bio: "クリエイター取り分重視の案件も、固定レートも柔軟に。ゲーム・音楽幅広く。",
+          communityId: defaultCommunityId,
+          genres: "ゲーム,音楽,バラエティ",
+          deliveryDays: 3,
+          priceType: "both",
+          pricePerMinute: 140,
+          revenueSharePercent: 72,
+          styleTags: ["vhs-filter", "speedy-cut"] as string[],
+          rating: 4.75,
+          reviewCount: 61,
+          isAvailable: true,
+        },
+      ];
+      for (const row of bothDemo) {
+        const v = validateEditorPricing(row);
+        if (!v.ok) return res.status(500).json({ error: v.error });
+      }
+      await db.insert(videoEditors).values(bothDemo);
+      insertedBoth = bothDemo.length;
+    }
+
+    return res.json({
+      ok: true,
+      insertedBase,
+      insertedBoth,
+      message:
+        insertedBase === 0 && insertedBoth === 0
+          ? "Already seeded (base + both)"
+          : undefined,
+    });
   });
 
   // ─── Coin System API ──────────────────────────────────────────────────────
