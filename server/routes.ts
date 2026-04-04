@@ -4048,6 +4048,46 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   // ── Jukebox ───────────────────────────────────────────────────────
+  /** トップバナー用: 再生中・待機中のコミュニティ一覧（:communityId より先に定義） */
+  app.get("/api/jukebox/active-sessions", async (_req: Request, res: Response) => {
+    const playingRows = await db
+      .select({
+        communityId: jukeboxState.communityId,
+        communityName: communities.name,
+        trackTitle: jukeboxState.currentVideoTitle,
+      })
+      .from(jukeboxState)
+      .innerJoin(communities, eq(communities.id, jukeboxState.communityId))
+      .where(eq(jukeboxState.isPlaying, true));
+
+    const active = playingRows
+      .filter((r) => (r.trackTitle ?? "").trim().length > 0)
+      .map((r) => ({
+        communityId: r.communityId,
+        communityName: r.communityName,
+        trackTitle: (r.trackTitle ?? "").trim(),
+      }));
+
+    const idleRows = await db
+      .select({
+        communityId: jukeboxState.communityId,
+        communityName: communities.name,
+      })
+      .from(jukeboxState)
+      .innerJoin(communities, eq(communities.id, jukeboxState.communityId))
+      .where(eq(jukeboxState.isPlaying, false));
+
+    const activeIds = new Set(active.map((a) => a.communityId));
+    const recruiting = idleRows
+      .filter((r) => !activeIds.has(r.communityId))
+      .map((r) => ({
+        communityId: r.communityId,
+        communityName: r.communityName,
+      }));
+
+    res.json({ active, recruiting });
+  });
+
   app.get("/api/jukebox/:communityId", async (req: Request, res: Response) => {
     const communityId = paramNum(req, "communityId");
     const now = new Date();

@@ -20,6 +20,7 @@ import { C } from "@/constants/colors";
 import { F } from "@/constants/fonts";
 import { useAuth } from "@/lib/auth";
 import { getApiUrl } from "@/lib/query-client";
+import { webScrollStyle } from "@/constants/layout";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -186,7 +187,7 @@ export default function MentorBookScreen() {
         <View style={{ width: 32 }} />
       </View>
 
-      <ScrollView style={styles.scroll}>
+      <ScrollView style={webScrollStyle(styles.scroll)}>
         <View style={styles.sessionCard}>
           <View style={styles.catBadge}>
             <Text style={styles.catText}>{CATEGORY_LABELS[session.category] ?? session.category}</Text>

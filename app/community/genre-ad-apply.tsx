@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { View, Text, ScrollView, StyleSheet, Pressable, TextInput, Platform, Alert, ActivityIndicator } from "react-native";
+import { webScrollStyle } from "@/constants/layout";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
@@ -126,7 +127,7 @@ export default function GenreAdApplyScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+      <ScrollView style={webScrollStyle(styles.scroll)} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         <Text style={styles.genreLabel}>Genre: {gid}</Text>
         <Text style={styles.hint}>
           Ad cost = total genre members × 🎟5/day (min 🎟{MIN_AMOUNT.toLocaleString()}) · Up to 3 months ahead

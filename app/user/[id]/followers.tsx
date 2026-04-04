@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Text, ScrollView, StyleSheet, Pressable, Platform } from "react-native";
+import { webScrollStyle } from "@/constants/layout";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -55,7 +56,7 @@ export default function FollowersScreen() {
           <Text style={styles.muted}>No followers yet</Text>
         </View>
       ) : (
-        <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
+        <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
           {followers.map((u) => (
             <Pressable
               key={u.id}

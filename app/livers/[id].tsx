@@ -21,6 +21,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/query-client";
 import { C } from "@/constants/colors";
 import { CREATORS } from "@/constants/data";
+import { webScrollStyle } from "@/constants/layout";
 
 type Liver = {
   id: number;
@@ -254,7 +255,7 @@ export default function LiverDetailScreen() {
         <View style={{ width: 36 }} />
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
+      <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
         <View style={styles.profileCard}>
           <Image source={{ uri: displayLiver.avatar }} style={styles.avatar} contentFit="cover" />
           <View style={styles.profileInfo}>

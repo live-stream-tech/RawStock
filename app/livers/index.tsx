@@ -18,6 +18,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/query-client";
 import { C } from "@/constants/colors";
 import { CREATORS } from "@/constants/data";
+import { webScrollStyle } from "@/constants/layout";
 
 type Liver = {
   id: number;
@@ -259,7 +260,7 @@ export default function LiversScreen() {
       {isLoading ? (
         <ActivityIndicator color={C.accent} style={{ marginTop: 48 }} />
       ) : (
-        <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
+        <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
           {livers.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="person-outline" size={40} color={C.textMuted} />

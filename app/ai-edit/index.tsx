@@ -19,6 +19,7 @@ import { apiRequest } from "@/lib/query-client";
 import { buildOrderVideoSpec, formatFromTone, styleFromTone } from "@/lib/ai-edit/buildOrderVideoSpec";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
+import { webScrollStyle } from "@/constants/layout";
 
 // ─── Plan definitions ────────────────────────────────────────────────────────
 
@@ -322,7 +323,7 @@ export default function AIEditIndexScreen() {
       </View>
 
       <ScrollView
-        style={styles.scroll}
+        style={webScrollStyle(styles.scroll)}
         showsVerticalScrollIndicator={scrollShowsVertical}
         contentContainerStyle={{ paddingBottom: 48 }}
       >

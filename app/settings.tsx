@@ -16,6 +16,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth, AuthGuard } from "@/lib/auth";
 import { apiRequest } from "@/lib/query-client";
 import { C } from "@/constants/colors";
+import { webScrollStyle } from "@/constants/layout";
 
 function SettingRow({
   icon,
@@ -101,7 +102,7 @@ export default function SettingsScreen() {
           <View style={{ width: 36 }} />
         </View>
 
-        <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
+        <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
           {user && (
             <View style={styles.profileCard}>
               <View style={styles.profileAvatar}>

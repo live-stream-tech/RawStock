@@ -21,6 +21,7 @@ import { apiRequest } from "@/lib/query-client";
 import { AuthGuard } from "@/lib/auth";
 import { C } from "@/constants/colors";
 import { formatUsdFromTickets } from "@/constants/tickets";
+import { webScrollStyle } from "@/constants/layout";
 
 type Summary = {
   totalEarned: number;
@@ -194,7 +195,7 @@ function RevenueScreenContent() {
         <View style={{ width: 36 }} />
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
+      <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
         {/* Available balance */}
         <View style={styles.balanceCard}>
           <Text style={styles.balanceLabel}>Available Balance</Text>
@@ -351,7 +352,7 @@ function RevenueScreenContent() {
             </Text>
 
             <ScrollView
-              style={styles.modalScroll}
+              style={webScrollStyle(styles.modalScroll)}
               showsVerticalScrollIndicator={scrollShowsVertical}
               keyboardShouldPersistTaps="handled"
             >

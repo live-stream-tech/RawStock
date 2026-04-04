@@ -24,6 +24,7 @@ import { AppLogo } from "@/components/AppLogo";
 import { COMMUNITIES, VIDEOS } from "@/constants/data";
 import { apiRequest } from "@/lib/query-client";
 import { useAuth } from "@/lib/auth";
+import { webScrollStyle } from "@/constants/layout";
 
 type AdData = { title: string; sub: string; cta: string; bg: string; accent: string; thumb: string };
 
@@ -589,7 +590,7 @@ function ThreadDetailContent({
         </View>
         {thread.body ? <Text style={styles.threadDetailBody}>{thread.body}</Text> : null}
       </View>
-      <ScrollView style={styles.threadDetailPosts} showsVerticalScrollIndicator={scrollShowsVertical}>
+      <ScrollView style={webScrollStyle(styles.threadDetailPosts)} showsVerticalScrollIndicator={scrollShowsVertical}>
         {thread.posts.map((p) => (
           <View key={p.id} style={styles.threadPostRow}>
             {p.author.profileImageUrl ? (
@@ -849,7 +850,7 @@ export default function CommunityDetailScreen() {
 
   return (
     <View style={[styles.container, { paddingBottom: bottomInset }]}>
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
+      <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
         <View style={styles.coverContainer}>
           <Image source={{ uri: community.thumbnail }} style={styles.coverImage} contentFit="cover" />
           <View style={styles.coverOverlay} />
@@ -1491,7 +1492,7 @@ export default function CommunityDetailScreen() {
                 </View>
 
                 <ScrollView
-                  style={styles.requestModalScroll}
+                  style={webScrollStyle(styles.requestModalScroll)}
                   showsVerticalScrollIndicator={scrollShowsVertical}
                 >
                   <Text style={styles.requestLabel}>Request Title</Text>
@@ -1609,7 +1610,7 @@ export default function CommunityDetailScreen() {
                 <Text style={styles.staffEmptySub}>Members who follow the community will appear here</Text>
               </View>
             ) : (
-              <ScrollView style={styles.staffPickerScroll} showsVerticalScrollIndicator={scrollShowsVertical}>
+              <ScrollView style={webScrollStyle(styles.staffPickerScroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
                 <Text style={styles.staffPickerSectionTitle}>Admin (1 person)</Text>
                 {members.map((m) => (
                   <Pressable

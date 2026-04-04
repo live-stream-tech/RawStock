@@ -18,7 +18,7 @@ import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { C } from "@/constants/colors";
 import { F } from "@/constants/fonts";
-import { getTabTopInset, getTabBottomInset } from "@/constants/layout";
+import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/layout";
 import { MetallicLine } from "@/components/MetallicLine";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import type { BookingSession } from "@/constants/data";
@@ -280,7 +280,7 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
             </Pressable>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={scrollShowsVertical}>
+          <ScrollView style={webScrollStyle(undefined)} showsVerticalScrollIndicator={scrollShowsVertical}>
             <Text style={styles.settingLabel}>Visibility</Text>
             <View style={styles.scopeOptions}>
               <Pressable
@@ -560,7 +560,7 @@ export default function LiveScreen() {
       </View>
 
       <ScrollView
-        style={styles.scroll}
+        style={webScrollStyle(styles.scroll)}
         showsVerticalScrollIndicator={scrollShowsVertical}
       >
         {activeTab === "now" ? (

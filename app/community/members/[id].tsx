@@ -16,6 +16,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { C } from "@/constants/colors";
 import { COMMUNITIES } from "@/constants/data";
+import { webScrollStyle } from "@/constants/layout";
 
 type MemberItem = { id: number; displayName: string; profileImageUrl: string | null };
 
@@ -49,7 +50,7 @@ export default function CommunityMembersScreen() {
         </Text>
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
+      <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
         <View style={styles.countRow}>
           <Ionicons name="people" size={18} color={C.accent} />
           <Text style={styles.countText}>

@@ -21,7 +21,7 @@ import { router } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
-import { getTabTopInset, getTabBottomInset } from "@/constants/layout";
+import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/layout";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { AppLogo } from "@/components/AppLogo";
 import { MetallicLine } from "@/components/MetallicLine";
@@ -571,7 +571,7 @@ export default function ProfileScreen() {
         />
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
+      <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
         <View style={styles.profileHeader}>
           <View style={styles.profileLeft}>
             <Pressable style={styles.avatarContainer} onPress={openProfileEdit}>
@@ -1049,7 +1049,7 @@ export default function ProfileScreen() {
                 </Pressable>
               </View>
             </View>
-            <ScrollView style={styles.previewScroll} showsVerticalScrollIndicator={scrollShowsVertical}>
+            <ScrollView style={webScrollStyle(styles.previewScroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
               <View style={styles.previewProfileCard}>
                 <View style={styles.previewAvatarWrap}>
                   {(user?.avatar ?? user?.profileImageUrl) ? (

@@ -19,6 +19,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/query-client";
 import { C } from "@/constants/colors";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
+import { webScrollStyle } from "@/constants/layout";
 
 const LIVER_ID = 1;
 
@@ -153,7 +154,7 @@ export default function LiverScheduleScreen() {
         })}
       </HorizontalScroll>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
+      <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
         <Text style={styles.dateLabel}>Slots for {formatDate(selectedDate)}</Text>
 
         {isLoading ? (

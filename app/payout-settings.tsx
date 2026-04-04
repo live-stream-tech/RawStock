@@ -18,6 +18,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { AuthGuard, useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
 import { getApiUrl } from "@/lib/query-client";
+import { webScrollStyle } from "@/constants/layout";
 
 const ACCOUNT_TYPES = ["Checking", "Current"];
 
@@ -120,7 +121,7 @@ export default function PayoutSettingsScreen() {
         <View style={{ width: 36 }} />
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
+      <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
         <View style={[styles.infoBanner, { borderLeftColor: C.orange }]}>
           <Ionicons name="alert-circle-outline" size={18} color={C.orange} />
           <Text style={[styles.infoText, { color: C.orange }]}>

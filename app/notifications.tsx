@@ -16,6 +16,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams } from "expo-router";
 import { apiRequest } from "@/lib/query-client";
 import { C } from "@/constants/colors";
+import { webScrollStyle } from "@/constants/layout";
 
 type Notif = {
   id: number;
@@ -191,7 +192,7 @@ export default function NotificationsScreen() {
         ))}
       </ScrollView>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
+      <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
         {filteredNotifs.length === 0 ? (
           <View style={styles.empty}>
             <Ionicons name="notifications-off-outline" size={40} color={C.textMuted} />

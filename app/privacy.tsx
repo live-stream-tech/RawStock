@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { C } from "@/constants/colors";
+import { webScrollStyle } from "@/constants/layout";
 
 function Article({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -29,7 +30,7 @@ export default function PrivacyScreen() {
       </View>
 
       <ScrollView
-        style={styles.scroll}
+        style={webScrollStyle(styles.scroll)}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={true}
       >

@@ -17,6 +17,7 @@ import { useQuery } from "@tanstack/react-query";
 import { C } from "@/constants/colors";
 import { F } from "@/constants/fonts";
 import { formatEditorRevenueShareLabel, formatEditorTicketsPerMinute } from "@/constants/tickets";
+import { webScrollStyle } from "@/constants/layout";
 
 type SortKey = "rating" | "delivery" | "price";
 
@@ -174,7 +175,7 @@ export default function EditorsScreen() {
         ))}
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical} contentContainerStyle={{ paddingBottom: 32 }}>
+      <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical} contentContainerStyle={{ paddingBottom: 32 }}>
         {isLoading ? (
           <Text style={styles.emptyText}>Loading editors...</Text>
         ) : editors.length === 0 ? (

@@ -25,6 +25,7 @@ import {
   EDITOR_GENRE_OPTIONS,
   EDITOR_STYLE_TAG_OPTIONS,
 } from "@/constants/video-editor-profile";
+import { webScrollStyle } from "@/constants/layout";
 
 type Community = {
   id: number;
@@ -176,7 +177,7 @@ export default function EditorProfileScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical} keyboardShouldPersistTaps="handled">
+      <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical} keyboardShouldPersistTaps="handled">
         {/* Bio */}
         <View style={styles.section}>
           <Text style={styles.label}>Bio</Text>

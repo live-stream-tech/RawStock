@@ -17,10 +17,11 @@ import { router } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { C } from "@/constants/colors";
 import { F } from "@/constants/fonts";
-import { getTabTopInset, getTabBottomInset } from "@/constants/layout";
+import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/layout";
 import { AppLogo } from "@/components/AppLogo";
 import { useAuth } from "@/lib/auth";
 import { usePlayingVideo } from "@/lib/playing-video-context";
+import { useJukeboxPulse } from "@/lib/useJukeboxPulse";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 
 const { width: SCREEN_W } = Dimensions.get("window");
@@ -323,6 +324,7 @@ export default function HomeScreen() {
   const { user } = useAuth();
   const unreadCount = useUnreadCount();
   const { jukeboxIsActive, jukeboxCommunityId } = usePlayingVideo();
+  const { pulse: jukePulse } = useJukeboxPulse();
 
   const { data: apiVideos = [] } = useQuery<any[]>({ queryKey: ["/api/videos"] });
   const { data: apiLive = [] } = useQuery<any[]>({ queryKey: ["/api/live-streams"] });
@@ -370,7 +372,7 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={scrollShowsVertical}>
+      <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
 
         {/* ── Paid Hero ── */}
         <PaidHeroSection videos={paidVideos} isDemo={usingDemoPaid} />
@@ -396,11 +398,11 @@ export default function HomeScreen() {
         <Pressable
           style={styles.jukeBanner}
           onPress={() => {
-            if (jukeboxIsActive && jukeboxCommunityId) {
-              // Active: go to the currently playing community's jukebox
+            if (jukePulse.targetCommunityId != null) {
+              router.push(`/jukebox/${jukePulse.targetCommunityId}` as any);
+            } else if (jukeboxIsActive && jukeboxCommunityId) {
               router.push(`/jukebox/${jukeboxCommunityId}` as any);
             } else if (firstCommunityId) {
-              // Inactive: go to the first community's jukebox page
               router.push(`/jukebox/${firstCommunityId}` as any);
             } else {
               router.push("/(tabs)/community" as any);
@@ -409,9 +411,13 @@ export default function HomeScreen() {
         >
           <View style={styles.jukeBannerLeft}>
             <Ionicons name="musical-notes" size={16} color={C.accent} />
-            <View>
-              <Text style={styles.jukeBannerLabel}>JUKE BOT</Text>
-              <Text style={styles.jukeBannerTrack} numberOfLines={1}>Underground Session Mix Vol.7</Text>
+            <View style={styles.jukeBannerTextCol}>
+              <Text style={styles.jukeBannerLabel} numberOfLines={1}>
+                {jukePulse.labelLine}
+              </Text>
+              <Text style={styles.jukeBannerTrack} numberOfLines={1}>
+                {jukePulse.trackLine}
+              </Text>
             </View>
           </View>
           <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
@@ -552,7 +558,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.accent,
   },
-  jukeBannerLeft: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
+  jukeBannerLeft: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1, minWidth: 0 },
+  jukeBannerTextCol: { flex: 1, minWidth: 0 },
   jukeBannerLabel: {
     color: C.accent,
     fontSize: 9,
