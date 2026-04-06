@@ -26,31 +26,41 @@ export default function Root({ children }: PropsWithChildren) {
         />
         <ScrollViewStyleReset />
         <style>{`
+          html {
+            height: 100%;
+          }
           html, body {
             scrollbar-gutter: stable;
           }
-          html, body, #root {
-            height: 100%;
+          body {
+            display: flex;
+            flex-direction: column;
+            min-height: 100%;
+            overflow-x: hidden;
+            background-color: #070F18;
+            margin: 0;
+            box-sizing: border-box;
+          }
+          #root {
+            flex: 1 1 auto;
+            min-height: 0;
             overflow-y: auto;
             overflow-x: hidden;
             background-color: #070F18;
+            position: relative;
+            z-index: 1;
+            isolation: isolate;
           }
           /* iOS PWA: 100% だけだとアドレスバー周りで高さがずれることがある */
           @supports (height: 100dvh) {
-            html, body, #root {
+            body {
               min-height: 100dvh;
             }
           }
           @supports (-webkit-touch-callout: none) {
-            html, body, #root {
+            body {
               min-height: -webkit-fill-available;
             }
-          }
-          /* アプリ本体をスキャンラインより手前に（タブバーが消えるのを防ぐ） */
-          #root {
-            position: relative;
-            z-index: 1;
-            isolation: isolate;
           }
           /* PC Web: 細身シアン系スクロールバー。
              #root 配下で詳細度を上げ、RN Web が付ける .class::-webkit-scrollbar{display:none} を潰す */
@@ -96,17 +106,39 @@ export default function Root({ children }: PropsWithChildren) {
             z-index: 0;
           }
           /*
-           * body に safe-area パディングを付けると、PWA スタンドアロンで
-           * #root の flex 高さと position:absolute タブバーの位置がずれ、
-           * フッターが画面外に見えることがある。余白は RN（タブバー・各画面）側で付ける。
+           * グローバル法律フッター: OAuth / クローラー向けに #root 外に実 <a> を残す。
+           * body flex 列の末尾に置き、タブバー余白は RN 側のまま。
            */
-          body {
-            margin: 0;
-            box-sizing: border-box;
+          #global-legal-footer {
+            flex-shrink: 0;
+            position: relative;
+            z-index: 2;
+            padding: 10px 12px;
+            text-align: center;
+            font-size: 11px;
+            letter-spacing: 0.04em;
+            color: rgba(255, 255, 255, 0.45);
+            border-top: 1px solid rgba(0, 255, 204, 0.12);
+            background: rgba(7, 15, 24, 0.96);
+            font-family: 'Courier Prime', monospace;
+          }
+          #global-legal-footer a {
+            color: #00ffcc;
+            text-decoration: none;
+          }
+          #global-legal-footer a:hover {
+            text-decoration: underline;
           }
         `}</style>
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        <footer id="global-legal-footer">
+          <a href="/privacy">Privacy Policy</a>
+          <span aria-hidden="true"> · </span>
+          <a href="/terms">Terms</a>
+        </footer>
+      </body>
     </html>
   );
 }

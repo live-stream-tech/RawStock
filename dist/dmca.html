@@ -1,29 +1,39 @@
 <!DOCTYPE html><html  lang="en"><head><title data-rh="true"></title><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/><meta http-equiv="X-UA-Compatible" content="IE=edge"/><meta name="theme-color" content="#050505"/><meta name="application-name" content="RawStock"/><meta name="description" content="Underground music live streaming &amp; paid video marketplace"/><meta name="mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/><meta name="apple-mobile-web-app-title" content="RawStock"/><link rel="manifest" href="/manifest.json"/><link rel="icon" type="image/x-icon" href="/favicon.ico"/><link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png"/><link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png"/><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"/><link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&amp;family=Courier+Prime:wght@400;700&amp;family=Noto+Sans+JP:wght@400;500;700&amp;display=swap" rel="stylesheet"/><style id="expo-reset">#root,body,html{height:100%}body{overflow:hidden}#root{display:flex}</style><style>
+          html {
+            height: 100%;
+          }
           html, body {
             scrollbar-gutter: stable;
           }
-          html, body, #root {
-            height: 100%;
+          body {
+            display: flex;
+            flex-direction: column;
+            min-height: 100%;
+            overflow-x: hidden;
+            background-color: #070F18;
+            margin: 0;
+            box-sizing: border-box;
+          }
+          #root {
+            flex: 1 1 auto;
+            min-height: 0;
             overflow-y: auto;
             overflow-x: hidden;
             background-color: #070F18;
+            position: relative;
+            z-index: 1;
+            isolation: isolate;
           }
           /* iOS PWA: 100% だけだとアドレスバー周りで高さがずれることがある */
           @supports (height: 100dvh) {
-            html, body, #root {
+            body {
               min-height: 100dvh;
             }
           }
           @supports (-webkit-touch-callout: none) {
-            html, body, #root {
+            body {
               min-height: -webkit-fill-available;
             }
-          }
-          /* アプリ本体をスキャンラインより手前に（タブバーが消えるのを防ぐ） */
-          #root {
-            position: relative;
-            z-index: 1;
-            isolation: isolate;
           }
           /* PC Web: 細身シアン系スクロールバー。
              #root 配下で詳細度を上げ、RN Web が付ける .class::-webkit-scrollbar{display:none} を潰す */
@@ -69,13 +79,28 @@
             z-index: 0;
           }
           /*
-           * body に safe-area パディングを付けると、PWA スタンドアロンで
-           * #root の flex 高さと position:absolute タブバーの位置がずれ、
-           * フッターが画面外に見えることがある。余白は RN（タブバー・各画面）側で付ける。
+           * グローバル法律フッター: OAuth / クローラー向けに #root 外に実 <a> を残す。
+           * body flex 列の末尾に置き、タブバー余白は RN 側のまま。
            */
-          body {
-            margin: 0;
-            box-sizing: border-box;
+          #global-legal-footer {
+            flex-shrink: 0;
+            position: relative;
+            z-index: 2;
+            padding: 10px 12px;
+            text-align: center;
+            font-size: 11px;
+            letter-spacing: 0.04em;
+            color: rgba(255, 255, 255, 0.45);
+            border-top: 1px solid rgba(0, 255, 204, 0.12);
+            background: rgba(7, 15, 24, 0.96);
+            font-family: 'Courier Prime', monospace;
+          }
+          #global-legal-footer a {
+            color: #00ffcc;
+            text-decoration: none;
+          }
+          #global-legal-footer a:hover {
+            text-decoration: underline;
           }
         </style><style id="react-native-stylesheet">[stylesheet-group="0"]{}
 body{margin:0;}
@@ -832,5 +857,5 @@ input::-webkit-search-cancel-button,input::-webkit-search-decoration,input::-web
 <!-- -->• Your contact information (name, address, telephone, email).<!-- -->
 <!-- -->• A statement that you have a good faith belief that use of the material is not authorized by the copyright owner, its agent, or the law.<!-- -->
 <!-- -->• A statement that the information in the notification is accurate, and under penalty of perjury, that you are authorized to act on behalf of the owner of an exclusive right that is allegedly infringed.<!-- -->
-<!-- -->• A physical or electronic signature of the person authorized to act on behalf of the copyright owner.</div><div dir="auto" class="css-146c3p1 r-nsw6w1 r-ubezar r-b88u0q r-15d164r r-1x0uki6">Counter-notification</div><div dir="auto" class="css-146c3p1 r-1b48ngs r-1b43r93 r-hbpseb r-6gpygo">If you believe material was removed in error, you may send us a counter-notification that includes the information required by 17 U.S.C. § 512(g)(3). We may restore material in accordance with applicable law.</div><div dir="auto" class="css-146c3p1 r-nsw6w1 r-ubezar r-b88u0q r-15d164r r-1x0uki6">Repeat infringers</div><div dir="auto" class="css-146c3p1 r-1b48ngs r-1b43r93 r-hbpseb r-6gpygo">We may terminate or restrict accounts of users who are repeat infringers in appropriate circumstances.</div><div dir="auto" class="css-146c3p1 r-nsw6w1 r-ubezar r-b88u0q r-15d164r r-1x0uki6">Non-U.S. rights</div><div dir="auto" class="css-146c3p1 r-1b48ngs r-1b43r93 r-hbpseb r-6gpygo">Copyright rules differ by country. If you are not relying on U.S. DMCA procedures, you may still contact us at the email above with details of your claim.</div><div dir="auto" class="css-146c3p1 r-nsw6w1 r-ubezar r-b88u0q r-15d164r r-1x0uki6">United Kingdom</div><div dir="auto" class="css-146c3p1 r-1b48ngs r-1b43r93 r-hbpseb r-6gpygo">The UK has its own copyright regime. This page focuses on U.S. DMCA practice. UK-based claimants may use the same contact email; we will assess notices under applicable UK law where relevant.</div><div class="css-g5y9jx" style="height:80px"></div></div></div></div><!--/$--></div></div></div></div></div></div><div class="css-g5y9jx r-hvic4v r-u8s1d" style="transform:translateX(0px) translateY(0px)"></div></div></div><!--/$--></div></div><script src="/_expo/static/js/web/entry-8a2579f9e13708086c257eb84bde275a.js" defer></script>
+<!-- -->• A physical or electronic signature of the person authorized to act on behalf of the copyright owner.</div><div dir="auto" class="css-146c3p1 r-nsw6w1 r-ubezar r-b88u0q r-15d164r r-1x0uki6">Counter-notification</div><div dir="auto" class="css-146c3p1 r-1b48ngs r-1b43r93 r-hbpseb r-6gpygo">If you believe material was removed in error, you may send us a counter-notification that includes the information required by 17 U.S.C. § 512(g)(3). We may restore material in accordance with applicable law.</div><div dir="auto" class="css-146c3p1 r-nsw6w1 r-ubezar r-b88u0q r-15d164r r-1x0uki6">Repeat infringers</div><div dir="auto" class="css-146c3p1 r-1b48ngs r-1b43r93 r-hbpseb r-6gpygo">We may terminate or restrict accounts of users who are repeat infringers in appropriate circumstances.</div><div dir="auto" class="css-146c3p1 r-nsw6w1 r-ubezar r-b88u0q r-15d164r r-1x0uki6">Non-U.S. rights</div><div dir="auto" class="css-146c3p1 r-1b48ngs r-1b43r93 r-hbpseb r-6gpygo">Copyright rules differ by country. If you are not relying on U.S. DMCA procedures, you may still contact us at the email above with details of your claim.</div><div dir="auto" class="css-146c3p1 r-nsw6w1 r-ubezar r-b88u0q r-15d164r r-1x0uki6">United Kingdom</div><div dir="auto" class="css-146c3p1 r-1b48ngs r-1b43r93 r-hbpseb r-6gpygo">The UK has its own copyright regime. This page focuses on U.S. DMCA practice. UK-based claimants may use the same contact email; we will assess notices under applicable UK law where relevant.</div><div class="css-g5y9jx" style="height:80px"></div></div></div></div><!--/$--></div></div></div></div></div></div><div class="css-g5y9jx r-hvic4v r-u8s1d" style="transform:translateX(0px) translateY(0px)"></div></div></div><!--/$--></div></div><footer id="global-legal-footer"><a href="/privacy">Privacy Policy</a><span aria-hidden="true"> · </span><a href="/terms">Terms</a></footer><script src="/_expo/static/js/web/entry-3d16593de91e5db29854f081822e5ba7.js" defer></script>
 </body></html>

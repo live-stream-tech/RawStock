@@ -13,7 +13,7 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { Link, router } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { C } from "@/constants/colors";
 import { F } from "@/constants/fonts";
@@ -487,9 +487,21 @@ export default function HomeScreen() {
         </HorizontalScroll>
 
         <View style={styles.footerLinks}>
-          <Pressable onPress={() => router.push("/legal" as any)}>
-            <Text style={styles.footerLinkText}>Legal & Policies</Text>
-          </Pressable>
+          {Platform.OS === "web" ? (
+            <>
+              <Link href="/privacy">
+                <Text style={styles.footerLinkText}>Privacy Policy</Text>
+              </Link>
+              <Text style={styles.footerLinkSeparator}> | </Text>
+              <Pressable onPress={() => router.push("/legal" as any)}>
+                <Text style={styles.footerLinkText}>Legal & Policies</Text>
+              </Pressable>
+            </>
+          ) : (
+            <Pressable onPress={() => router.push("/legal" as any)}>
+              <Text style={styles.footerLinkText}>Legal & Policies</Text>
+            </Pressable>
+          )}
         </View>
 
         <View style={{ height: 80 }} />
