@@ -76,8 +76,6 @@ externalPort = 3002
 [userenv.shared]
 FRONTEND_URL = "https://rawstock.live"
 GOOGLE_CALLBACK_URL = "https://rawstock.live/api/auth/google-callback"
-GOOGLE_CLIENT_ID = "1079515457146-vn8q1httfq6rbjhfm6qm0vvmskanckjg.apps.googleusercontent.com"
-GOOGLE_CLIENT_SECRET = "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"
 
 [deployment]
 deploymentTarget = "autoscale"
