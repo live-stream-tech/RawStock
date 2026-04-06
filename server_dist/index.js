@@ -532,6 +532,9 @@ var users = pgTable("users", {
   phoneVerifiedAt: timestamp("phone_verified_at"),
   /** Stripe Connect 連結アカウントID（Express/Custom）。連携済みなら設定される */
   stripeConnectId: text("stripe_connect_id"),
+  // migrations/0012_users_payout_terms_agreed_at.sql
+  /** クリエイター払い出し条項への同意日時（初回 Stripe Connect 前に記録） */
+  payoutTermsAgreedAt: timestamp("payout_terms_agreed_at"),
   /** Google OAuth（YouTube プレイリスト用）。Googleログインユーザーのみ */
   googleRefreshToken: text("google_refresh_token"),
   googleAccessToken: text("google_access_token"),
@@ -2303,6 +2306,7 @@ async function registerRoutes(app2) {
         }
       }
     }
+    const payoutTermsAt = user.payoutTermsAgreedAt;
     res.json({
       id: user.id,
       name: user.displayName,
@@ -2312,6 +2316,7 @@ async function registerRoutes(app2) {
       role: user.role,
       bio: user.bio,
       stripeConnectId: user.stripeConnectId ?? null,
+      payoutTermsAgreedAt: payoutTermsAt ? new Date(payoutTermsAt).toISOString() : null,
       spotifyUrl: user.spotifyUrl ?? null,
       appleMusicUrl: user.appleMusicUrl ?? null,
       bandcampUrl: user.bandcampUrl ?? null,
@@ -2323,9 +2328,22 @@ async function registerRoutes(app2) {
       pinnedCommunityIds
     });
   });
+  app2.post("/api/connect/payout-terms-agree", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    const now = /* @__PURE__ */ new Date();
+    await db.update(users).set({ payoutTermsAgreedAt: now, updatedAt: now }).where(eq2(users.id, user.id));
+    res.json({ ok: true, payoutTermsAgreedAt: now.toISOString() });
+  });
   app2.post("/api/connect/onboard", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    const [ptRow] = await db.select({ payoutTermsAgreedAt: users.payoutTermsAgreedAt }).from(users).where(eq2(users.id, user.id));
+    if (!ptRow?.payoutTermsAgreedAt) {
+      return res.status(400).json({
+        error: "\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC\u5411\u3051\u6255\u3044\u51FA\u3057\u6761\u9805\u306B\u540C\u610F\u3057\u3066\u304F\u3060\u3055\u3044\u3002Payout Settings \u3067\u5185\u5BB9\u3092\u78BA\u8A8D\u3057\u3001\u540C\u610F\u306E\u3046\u3048 Stripe \u3092\u9023\u643A\u3057\u3066\u304F\u3060\u3055\u3044\u3002"
+      });
+    }
     try {
       const baseUrl = "https://rawstock.live";
       const returnUrl = `${baseUrl}/payout-settings?connect=return`;
@@ -2516,6 +2534,7 @@ async function registerRoutes(app2) {
       } catch {
       }
     }
+    const payoutTermsOut = updated.payoutTermsAgreedAt;
     res.json({
       id: updated.id,
       name: updated.displayName,
@@ -2524,6 +2543,7 @@ async function registerRoutes(app2) {
       avatar: updated.profileImageUrl,
       role: updated.role,
       bio: updated.bio,
+      payoutTermsAgreedAt: payoutTermsOut ? new Date(payoutTermsOut).toISOString() : null,
       spotifyUrl: updated.spotifyUrl ?? null,
       appleMusicUrl: updated.appleMusicUrl ?? null,
       bandcampUrl: updated.bandcampUrl ?? null,
@@ -5053,9 +5073,13 @@ data: ${data}
       if (!cfRes.ok || !json.success || !json.result) {
         const detail = formatCloudflareApiErrors(json.errors);
         console.error("Cloudflare Stream create error:", cfRes.status, json.errors);
+        const low = (detail ?? "").toLowerCase();
+        const authHint = low.includes("authorization") || low.includes("not authorized") || low.includes("credentials") || low.includes("forbidden") || cfRes.status === 403;
+        const hint = authHint ? "Fix: In Cloudflare Dashboard \u2192 My Profile \u2192 API Tokens, create a token with Account \u2192 Stream \u2192 Edit (or Stream with write). Set CLOUDFLARE_STREAM_TOKEN to that token and CLOUDFLARE_ACCOUNT_ID to the same account. R2 tokens will not work." : void 0;
         return res.status(502).json({
-          error: "Cloudflare Stream live input \u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F",
-          ...detail ? { detail } : {}
+          error: "Failed to create Cloudflare Stream live input",
+          ...detail ? { detail } : {},
+          ...hint ? { hint } : {}
         });
       }
       const result = json.result;
@@ -5066,8 +5090,8 @@ data: ${data}
       const webRtcPlaybackUrl = (result.webRTCPlayback?.url ?? "").trim() || whipPublish;
       if (!cfId || !rtmpsUrl || !rtmpsStreamKey || !webRtcPlaybackUrl) {
         return res.status(502).json({
-          error: "Cloudflare Stream \u30EC\u30B9\u30DD\u30F3\u30B9\u304C\u4E0D\u5B8C\u5168\u3067\u3059",
-          detail: "Live Input \u306B WHIP(WebRTC) \u307E\u305F\u306F RTMPS \u306E\u60C5\u5831\u304C\u542B\u307E\u308C\u3066\u3044\u307E\u305B\u3093\u3002\u30C0\u30C3\u30B7\u30E5\u30DC\u30FC\u30C9\u3067 Stream \u304C\u6709\u52B9\u304B\u3001\u8AB2\u91D1\u30FB\u67A0\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002"
+          error: "Incomplete Cloudflare Stream live input response",
+          detail: "WHIP/WebRTC or RTMPS fields missing. Enable Cloudflare Stream on the account and check billing / minutes quota."
         });
       }
       const whipUrlStored = whipPublish || webRtcPlaybackUrl;
@@ -5093,7 +5117,7 @@ data: ${data}
       });
     } catch (e) {
       console.error("Cloudflare Stream create exception:", e);
-      res.status(500).json({ error: "Cloudflare Stream API \u901A\u4FE1\u3067\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F" });
+      res.status(500).json({ error: "Cloudflare Stream API request failed" });
     }
   });
   app2.get("/api/stream/:id", async (req, res) => {
@@ -7423,6 +7447,15 @@ function configureExpoAndLanding(app2) {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.status(200).send(html);
   });
+  const teamzPath = path.resolve(process.cwd(), "public/teamz.html");
+  app2.get("/teamz", (_req, res) => {
+    if (!fs.existsSync(teamzPath)) {
+      return res.status(404).send("teamz.html not found");
+    }
+    const html = fs.readFileSync(teamzPath, "utf-8");
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.status(200).send(html);
+  });
   app2.get("/assets/logo-200x70-v2.png", (_req, res) => {
     const logoPath = path.resolve(process.cwd(), "assets/logo-200x70-v2.png");
     res.sendFile(logoPath);
@@ -7431,7 +7464,7 @@ function configureExpoAndLanding(app2) {
     if (req.path.startsWith("/api")) {
       return next();
     }
-    if (req.path === "/lp") {
+    if (req.path === "/lp" || req.path === "/teamz") {
       return next();
     }
     const platform = req.header("expo-platform");

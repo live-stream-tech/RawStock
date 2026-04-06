@@ -25,6 +25,8 @@ import { acquireBroadcastMediaStream } from "@/lib/live/webBroadcastMedia";
 import type { LiveStreamVisibility } from "@/lib/live/streamApi";
 import { webBroadcastNeedsUserGestureForCamera } from "@/lib/pwa-standalone";
 import { alertDestructiveConfirm, alertMessage } from "@/lib/alertCompat";
+import { isBroadcastJapaneseUi } from "@/lib/broadcastLocale";
+import { getBroadcastStrings } from "@/lib/broadcastStrings";
 import {
   DeepARBroadcastProcessor,
   type DeepARBroadcastProcessorHandle,
@@ -43,15 +45,14 @@ function parseRouteVisibility(v: string | undefined): LiveStreamVisibility {
 /** 本番は Web / PWA のみ。Expo Go 等で開いた場合の案内 */
 function BroadcastNativePlaceholder() {
   const insets = useSafeAreaInsets();
+  const t = getBroadcastStrings(isBroadcastJapaneseUi());
   return (
     <View style={[styles.nonWebRoot, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>
       <Ionicons name="globe-outline" size={48} color={C.textMuted} />
-      <Text style={styles.nonWebTitle}>ブラウザまたは PWA で開いてください</Text>
-      <Text style={styles.nonWebSub}>
-        ライブ配信は Web 版（ホーム画面に追加した RawStock や Chrome / Safari）のみ対応しています。
-      </Text>
+      <Text style={styles.nonWebTitle}>{t.nonWebTitle}</Text>
+      <Text style={styles.nonWebSub}>{t.nonWebSub}</Text>
       <Pressable style={styles.nonWebBtn} onPress={() => router.back()}>
-        <Text style={styles.nonWebBtnText}>戻る</Text>
+        <Text style={styles.nonWebBtnText}>{t.nonWebBack}</Text>
       </Pressable>
     </View>
   );
@@ -65,6 +66,7 @@ export default function BroadcastScreen() {
 }
 
 function BroadcastWeb() {
+  const t = getBroadcastStrings(isBroadcastJapaneseUi());
   const params = useLocalSearchParams<{ visibility?: string; communityId?: string }>();
   const routeVisibility = parseRouteVisibility(
     typeof params.visibility === "string" ? params.visibility : undefined,
@@ -210,8 +212,8 @@ function BroadcastWeb() {
   const handleGoLive = async () => {
     setLastLiveError(null);
     if (!title.trim()) {
-      const msg = "配信タイトルを入力してください。";
-      alertMessage("ライブ配信", msg);
+      const msg = t.titleRequired;
+      alertMessage(t.alertTitleLive, msg);
       setLastLiveError(msg);
       return;
     }
@@ -226,16 +228,15 @@ function BroadcastWeb() {
           setDeeparBusy(true);
         }
       } catch {
-        const msg =
-          "カメラとマイクの許可が必要です。PWA の場合は設定アプリから RawStock（Safari）のカメラ・マイクをオンにしてください。";
-        alertMessage("ライブ配信", msg);
+        const msg = t.cameraPermissionPWA;
+        alertMessage(t.alertTitleLive, msg);
         setLastLiveError(msg);
         return;
       }
     }
     if (!localStreamRef.current) {
-      const msg = "カメラとマイクの許可が必要です。";
-      alertMessage("ライブ配信", msg);
+      const msg = t.cameraPermissionShort;
+      alertMessage(t.alertTitleLive, msg);
       setLastLiveError(msg);
       return;
     }
@@ -271,9 +272,8 @@ function BroadcastWeb() {
         }
       }
       setStreamId(null);
-      const errText =
-        e?.message ?? "配信を開始できませんでした。ネットワークとマイク・カメラを確認してください。";
-      alertMessage("ライブ配信", errText);
+      const errText = e?.message ?? t.goLiveFailed;
+      alertMessage(t.alertTitleLive, errText);
       setLastLiveError(errText);
       setPhase("ready");
     }
@@ -281,8 +281,8 @@ function BroadcastWeb() {
 
   const handleStop = () => {
     alertDestructiveConfirm(
-      "配信を終了",
-      "ライブ配信を終了しますか？",
+      t.endConfirmTitle,
+      t.endConfirmMessage,
       async () => {
         setPhase("stopping");
         try {
@@ -294,7 +294,7 @@ function BroadcastWeb() {
         setPhase("idle");
         router.back();
       },
-      { confirmLabel: "終了", cancelLabel: "キャンセル" },
+      { confirmLabel: t.endConfirmOk, cancelLabel: t.endCancel },
     );
   };
 
@@ -359,12 +359,10 @@ function BroadcastWeb() {
         {cameraError && (
           <View style={styles.cameraErrorOverlay}>
             <Ionicons name="videocam-off-outline" size={48} color="#ffffff88" />
-            <Text style={styles.cameraErrorText}>カメラ・マイクが使えません</Text>
-            <Text style={styles.cameraErrorSub}>
-              設定でカメラとマイクを許可するか、下のボタンでもう一度お試しください。
-            </Text>
+            <Text style={styles.cameraErrorText}>{t.cameraErrorTitle}</Text>
+            <Text style={styles.cameraErrorSub}>{t.cameraErrorSub}</Text>
             <Pressable style={styles.pwaCameraRetryBtn} onPress={() => void startWebCamera()}>
-              <Text style={styles.pwaCameraRetryText}>もう一度許可する</Text>
+              <Text style={styles.pwaCameraRetryText}>{t.cameraRetry}</Text>
             </Pressable>
           </View>
         )}
@@ -375,11 +373,11 @@ function BroadcastWeb() {
               <ActivityIndicator color="#fff" size="large" />
             ) : (
               <>
-                <Text style={styles.pwaCameraGateTitle}>PWA / モバイルでは先に許可が必要です</Text>
-                <Text style={styles.pwaCameraGateSub}>下のボタンをタップしてカメラとマイクをオンにしてください</Text>
+                <Text style={styles.pwaCameraGateTitle}>{t.pwaGateTitle}</Text>
+                <Text style={styles.pwaCameraGateSub}>{t.pwaGateSub}</Text>
                 <Pressable style={styles.pwaCameraPrimaryBtn} onPress={() => void startWebCamera()}>
                   <Ionicons name="videocam" size={20} color="#000" />
-                  <Text style={styles.pwaCameraPrimaryText}>カメラ・マイクを許可</Text>
+                  <Text style={styles.pwaCameraPrimaryText}>{t.pwaGateBtn}</Text>
                 </Pressable>
               </>
             )}
@@ -412,7 +410,7 @@ function BroadcastWeb() {
             ) : isLoading ? (
               <ActivityIndicator color="#fff" size="small" />
             ) : (
-              <Text style={styles.readyText}>配信準備</Text>
+              <Text style={styles.readyText}>{t.readyLabel}</Text>
             )}
           </View>
 
@@ -433,7 +431,7 @@ function BroadcastWeb() {
             <Ionicons name="create-outline" size={16} color={C.textMuted} style={{ marginRight: 8 }} />
             <TextInput
               style={styles.titleInput}
-              placeholder="配信タイトル（必須）"
+              placeholder={t.titlePlaceholder}
               placeholderTextColor={C.textMuted}
               value={title}
               onChangeText={setTitle}
@@ -458,8 +456,8 @@ function BroadcastWeb() {
               color={useDeepARBlur ? C.accent : C.textMuted}
             />
             <View style={{ flex: 1 }}>
-              <Text style={styles.deeparToggleTitle}>背景ぼかし（DeepAR）</Text>
-              <Text style={styles.deeparToggleSub}>オフにすると従来どおり生カメラのみです</Text>
+              <Text style={styles.deeparToggleTitle}>{t.deeparTitle}</Text>
+              <Text style={styles.deeparToggleSub}>{t.deeparSub}</Text>
             </View>
           </Pressable>
         ) : null}
@@ -487,7 +485,7 @@ function BroadcastWeb() {
             </View>
             <Pressable style={styles.stopBtn} onPress={handleStop}>
               <View style={styles.stopDot} />
-              <Text style={styles.stopBtnText}>配信を終了</Text>
+              <Text style={styles.stopBtnText}>{t.stopStream}</Text>
             </Pressable>
           </View>
         ) : (
@@ -503,7 +501,7 @@ function BroadcastWeb() {
                 <>
                   <View style={styles.goLiveDot} />
                   <Text style={styles.goLiveBtnText}>
-                    {webNeedsCameraTap && !cameraStream ? "先にカメラを許可" : "配信開始"}
+                    {webNeedsCameraTap && !cameraStream ? t.allowCameraFirst : t.goLive}
                   </Text>
                 </>
               )}
