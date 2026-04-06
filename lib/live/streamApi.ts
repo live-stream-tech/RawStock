@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getApiUrl } from "@/lib/query-client";
 
 const AUTH_TOKEN_KEY = "auth_token";
 
@@ -16,9 +17,13 @@ export async function liveAuthHeaders(
   return h;
 }
 
-/** 静的 Web / PWA は同一オリジンの /api を叩く */
+/**
+ * 配信 API のベース URL。`getApiUrl()` と揃える。
+ * 相対パス `/api` だけだと、Expo のオリジン（例: :8080）で開いたときに API に届かない。
+ * EXPO_PUBLIC_DOMAIN で API を別ホストにしている場合もずれないようにする。
+ */
 export function liveApiBase(): string {
-  return "";
+  return getApiUrl().replace(/\/+$/, "");
 }
 
 export type LiveStreamVisibility = "public" | "followers" | "community";
@@ -40,16 +45,25 @@ export async function apiCreateLiveStream(
     body: JSON.stringify(body),
   });
   if (!createRes.ok) {
-    const err = (await createRes.json().catch(() => ({}))) as { error?: string; detail?: string };
+    const err = (await createRes.json().catch(() => ({}))) as {
+      error?: string;
+      detail?: string;
+      hint?: string;
+    };
     const base = err.error ?? "Failed to create stream";
-    throw new Error(err.detail ? `${base}（${err.detail}）` : base);
+    const parts = [base];
+    if (err.detail) parts.push(err.detail);
+    if (err.hint) parts.push(err.hint);
+    throw new Error(parts.join("\n\n"));
   }
   const data = (await createRes.json()) as { id?: number; whipUrl?: string };
   if (typeof data.id !== "number" || !Number.isFinite(data.id)) {
-    throw new Error("配信の作成に失敗しました（ID が取得できません）");
+    throw new Error("Failed to create stream (missing id).");
   }
   if (typeof data.whipUrl !== "string" || !data.whipUrl.trim()) {
-    throw new Error("配信用 URL が取得できませんでした。Cloudflare Stream の設定を確認してください。");
+    throw new Error(
+      "Missing WHIP publish URL. Check Cloudflare Stream is enabled and the live input returns WebRTC.",
+    );
   }
   return { id: data.id, whipUrl: data.whipUrl.trim() };
 }

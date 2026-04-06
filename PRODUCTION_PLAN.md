@@ -71,7 +71,7 @@ Vercel ダッシュボード → プロジェクト → **Settings → Environme
 | `GOOGLE_CALLBACK_URL` | Google コールバック | `https://<ドメイン>/api/auth/google-callback` |
 | `YOUTUBE_API_KEY` | ジュークボックス（YouTube検索） | Google Cloud Console で取得 |
 | `CLOUDFLARE_ACCOUNT_ID` | ライブ配信 | 配信機能を有効にする場合 |
-| `CLOUDFLARE_STREAM_TOKEN` | ライブ配信 | 同上 |
+| `CLOUDFLARE_STREAM_TOKEN` | ライブ配信 | **Stream 用 API トークン**（Account → Stream → Edit）。R2 用キーでは `Authorization Failure` になる |
 | `ANTHROPIC_API_KEY` | 通報の AI 判定 | 未設定時はグレーゾーンとして管理者確認 |
 | `R2_ENDPOINT` | 画像・動画アップロード | Cloudflare R2 |
 | `R2_BUCKET_NAME` | 同上 | |
@@ -150,6 +150,7 @@ npm run deploy
 | LINE ログイン失敗 | `LINE_CALLBACK_URL` が LINE Developers の登録と一致しているか |
 | フロントが API に接続できない | `EXPO_PUBLIC_DOMAIN` がビルド時に正しく設定されているか |
 | デプロイが失敗する | Vercel の Deployments ログでエラー内容を確認 |
+| ライブ開始で Cloudflare Authorization Failure | `CLOUDFLARE_STREAM_TOKEN` が Stream 編集権限を持つ API トークンか、`CLOUDFLARE_ACCOUNT_ID` がそのアカウントと一致するか確認 |
 
 ---
 

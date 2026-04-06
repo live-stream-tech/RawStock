@@ -4425,9 +4425,20 @@ export async function registerRoutes(app: Express): Promise<void> {
       if (!cfRes.ok || !json.success || !json.result) {
         const detail = formatCloudflareApiErrors(json.errors);
         console.error("Cloudflare Stream create error:", cfRes.status, json.errors);
+        const low = (detail ?? "").toLowerCase();
+        const authHint =
+          low.includes("authorization") ||
+          low.includes("not authorized") ||
+          low.includes("credentials") ||
+          low.includes("forbidden") ||
+          cfRes.status === 403;
+        const hint = authHint
+          ? "Fix: In Cloudflare Dashboard → My Profile → API Tokens, create a token with Account → Stream → Edit (or Stream with write). Set CLOUDFLARE_STREAM_TOKEN to that token and CLOUDFLARE_ACCOUNT_ID to the same account. R2 tokens will not work."
+          : undefined;
         return res.status(502).json({
-          error: "Cloudflare Stream live input 作成に失敗しました",
+          error: "Failed to create Cloudflare Stream live input",
           ...(detail ? { detail } : {}),
+          ...(hint ? { hint } : {}),
         });
       }
 
@@ -4440,9 +4451,9 @@ export async function registerRoutes(app: Express): Promise<void> {
 
       if (!cfId || !rtmpsUrl || !rtmpsStreamKey || !webRtcPlaybackUrl) {
         return res.status(502).json({
-          error: "Cloudflare Stream レスポンスが不完全です",
+          error: "Incomplete Cloudflare Stream live input response",
           detail:
-            "Live Input に WHIP(WebRTC) または RTMPS の情報が含まれていません。ダッシュボードで Stream が有効か、課金・枠を確認してください。",
+            "WHIP/WebRTC or RTMPS fields missing. Enable Cloudflare Stream on the account and check billing / minutes quota.",
         });
       }
 
@@ -4474,7 +4485,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       });
     } catch (e: any) {
       console.error("Cloudflare Stream create exception:", e);
-      res.status(500).json({ error: "Cloudflare Stream API 通信でエラーが発生しました" });
+      res.status(500).json({ error: "Cloudflare Stream API request failed" });
     }
   });
 
