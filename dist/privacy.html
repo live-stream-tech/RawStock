@@ -1,29 +1,39 @@
 <!DOCTYPE html><html  lang="en"><head><title data-rh="true"></title><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/><meta http-equiv="X-UA-Compatible" content="IE=edge"/><meta name="theme-color" content="#050505"/><meta name="application-name" content="RawStock"/><meta name="description" content="Underground music live streaming &amp; paid video marketplace"/><meta name="mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/><meta name="apple-mobile-web-app-title" content="RawStock"/><link rel="manifest" href="/manifest.json"/><link rel="icon" type="image/x-icon" href="/favicon.ico"/><link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png"/><link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png"/><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"/><link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&amp;family=Courier+Prime:wght@400;700&amp;family=Noto+Sans+JP:wght@400;500;700&amp;display=swap" rel="stylesheet"/><style id="expo-reset">#root,body,html{height:100%}body{overflow:hidden}#root{display:flex}</style><style>
+          html {
+            height: 100%;
+          }
           html, body {
             scrollbar-gutter: stable;
           }
-          html, body, #root {
-            height: 100%;
+          body {
+            display: flex;
+            flex-direction: column;
+            min-height: 100%;
+            overflow-x: hidden;
+            background-color: #070F18;
+            margin: 0;
+            box-sizing: border-box;
+          }
+          #root {
+            flex: 1 1 auto;
+            min-height: 0;
             overflow-y: auto;
             overflow-x: hidden;
             background-color: #070F18;
+            position: relative;
+            z-index: 1;
+            isolation: isolate;
           }
           /* iOS PWA: 100% だけだとアドレスバー周りで高さがずれることがある */
           @supports (height: 100dvh) {
-            html, body, #root {
+            body {
               min-height: 100dvh;
             }
           }
           @supports (-webkit-touch-callout: none) {
-            html, body, #root {
+            body {
               min-height: -webkit-fill-available;
             }
-          }
-          /* アプリ本体をスキャンラインより手前に（タブバーが消えるのを防ぐ） */
-          #root {
-            position: relative;
-            z-index: 1;
-            isolation: isolate;
           }
           /* PC Web: 細身シアン系スクロールバー。
              #root 配下で詳細度を上げ、RN Web が付ける .class::-webkit-scrollbar{display:none} を潰す */
@@ -69,13 +79,28 @@
             z-index: 0;
           }
           /*
-           * body に safe-area パディングを付けると、PWA スタンドアロンで
-           * #root の flex 高さと position:absolute タブバーの位置がずれ、
-           * フッターが画面外に見えることがある。余白は RN（タブバー・各画面）側で付ける。
+           * グローバル法律フッター: OAuth / クローラー向けに #root 外に実 <a> を残す。
+           * body flex 列の末尾に置き、タブバー余白は RN 側のまま。
            */
-          body {
-            margin: 0;
-            box-sizing: border-box;
+          #global-legal-footer {
+            flex-shrink: 0;
+            position: relative;
+            z-index: 2;
+            padding: 10px 12px;
+            text-align: center;
+            font-size: 11px;
+            letter-spacing: 0.04em;
+            color: rgba(255, 255, 255, 0.45);
+            border-top: 1px solid rgba(0, 255, 204, 0.12);
+            background: rgba(7, 15, 24, 0.96);
+            font-family: 'Courier Prime', monospace;
+          }
+          #global-legal-footer a {
+            color: #00ffcc;
+            text-decoration: none;
+          }
+          #global-legal-footer a:hover {
+            text-decoration: underline;
           }
         </style><style id="react-native-stylesheet">[stylesheet-group="0"]{}
 body{margin:0;}
@@ -881,5 +906,5 @@ Optional: If you use beauty filters or AR effects powered by DeepAR, your camera
 We do not control third-party sites linked from the Service; their policies apply when you leave RawStock.</div></div><div class="css-g5y9jx r-1peese0"><div dir="auto" class="css-146c3p1 r-nsw6w1 r-ubezar r-b88u0q r-15d164r">Article 5 — Cookies &amp; Analytics</div><div dir="auto" class="css-146c3p1 r-1b48ngs r-1b43r93 r-hbpseb">We use cookies and similar technologies for sign-in, preferences, security, and analytics. You may limit cookies in your browser; some features may not work without them.</div></div><div class="css-g5y9jx r-1peese0"><div dir="auto" class="css-146c3p1 r-nsw6w1 r-ubezar r-b88u0q r-15d164r">Article 6 — Security</div><div dir="auto" class="css-146c3p1 r-1b48ngs r-1b43r93 r-hbpseb">We implement technical and organizational measures appropriate to the risk. No method of transmission over the Internet is completely secure.</div></div><div class="css-g5y9jx r-1peese0"><div dir="auto" class="css-146c3p1 r-nsw6w1 r-ubezar r-b88u0q r-15d164r">Article 7 — Access, Correction &amp; Deletion</div><div dir="auto" class="css-146c3p1 r-1b48ngs r-1b43r93 r-hbpseb">You may request access, correction, or deletion of your personal data by contacting rawstock.infomation@gmail.com. We will verify your identity before responding.</div></div><div class="css-g5y9jx r-1peese0"><div dir="auto" class="css-146c3p1 r-nsw6w1 r-ubezar r-b88u0q r-15d164r">Article 8 — GDPR (EU Users)</div><div dir="auto" class="css-146c3p1 r-1b48ngs r-1b43r93 r-hbpseb">If you are in the European Economic Area, we process personal data under lawful bases such as contract, legitimate interests, and consent where applicable. You may have the right to access, rectify, erase, restrict processing, object, and data portability, and to lodge a complaint with your supervisory authority. Contact: rawstock.infomation@gmail.com.</div></div><div class="css-g5y9jx r-1peese0"><div dir="auto" class="css-146c3p1 r-nsw6w1 r-ubezar r-b88u0q r-15d164r">Article 8b — UK GDPR &amp; Data Protection Act 2018</div><div dir="auto" class="css-146c3p1 r-1b48ngs r-1b43r93 r-hbpseb">If you are in the United Kingdom, you have similar rights under the UK GDPR and the Data Protection Act 2018, including the right to lodge a complaint with the Information Commissioner’s Office (ICO): https://ico.org.uk/</div></div><div class="css-g5y9jx r-1peese0"><div dir="auto" class="css-146c3p1 r-nsw6w1 r-ubezar r-b88u0q r-15d164r">Article 9 — Data Retention</div><div dir="auto" class="css-146c3p1 r-1b48ngs r-1b43r93 r-hbpseb">We retain personal data only as long as needed for the purposes above and to comply with law. After you delete your account, we delete or anonymize personal data within a reasonable period (typically within 30 days) except where retention is necessary for legal, tax, fraud-prevention, or dispute-resolution purposes, for backups that roll off on a defined cycle, or where you own or moderate communities that must be transferred or closed before deletion—consistent with our account deletion flow in the app.</div></div><div class="css-g5y9jx r-1peese0"><div dir="auto" class="css-146c3p1 r-nsw6w1 r-ubezar r-b88u0q r-15d164r">Article 10 — Minors</div><div dir="auto" class="css-146c3p1 r-1b48ngs r-1b43r93 r-hbpseb">The Service is not directed to children under 13. Users must be at least 13 (or the minimum age in their country). Users between 13 and 17 should use the Service only with a parent or guardian’s consent, consistent with our Terms of Service.</div></div><div class="css-g5y9jx r-1peese0"><div dir="auto" class="css-146c3p1 r-nsw6w1 r-ubezar r-b88u0q r-15d164r">Article 11 — Policy Updates</div><div dir="auto" class="css-146c3p1 r-1b48ngs r-1b43r93 r-hbpseb">We may update this Policy. Material changes will be communicated through the Service where appropriate.</div></div><div class="css-g5y9jx r-1peese0"><div dir="auto" class="css-146c3p1 r-nsw6w1 r-ubezar r-b88u0q r-15d164r">Article 12 — Contact</div><div class="css-g5y9jx">Name: Hiromi Kanokifu<!-- -->
 <!-- -->Trade name: RawStock<!-- -->
 <!-- -->Address: Shibuya Dogenzaka Tokyu Bldg 2F-C, 1-10-8 Dogenzaka, Shibuya, Tokyo 150-0043, Japan<!-- -->
-<!-- -->Email: rawstock.infomation@gmail.com</div></div><div class="css-g5y9jx" style="height:80px"></div></div></div></div><!--/$--></div></div></div></div></div></div><div class="css-g5y9jx r-hvic4v r-u8s1d" style="transform:translateX(0px) translateY(0px)"></div></div></div><!--/$--></div></div><script src="/_expo/static/js/web/entry-8a2579f9e13708086c257eb84bde275a.js" defer></script>
+<!-- -->Email: rawstock.infomation@gmail.com</div></div><div class="css-g5y9jx" style="height:80px"></div></div></div></div><!--/$--></div></div></div></div></div></div><div class="css-g5y9jx r-hvic4v r-u8s1d" style="transform:translateX(0px) translateY(0px)"></div></div></div><!--/$--></div></div><footer id="global-legal-footer"><a href="/privacy">Privacy Policy</a><span aria-hidden="true"> · </span><a href="/terms">Terms</a></footer><script src="/_expo/static/js/web/entry-3d16593de91e5db29854f081822e5ba7.js" defer></script>
 </body></html>
