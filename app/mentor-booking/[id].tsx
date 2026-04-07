@@ -107,6 +107,7 @@ export default function MentorBookingScreen() {
         amount: MENTOR_TICKET_PRICE,
         type: "spend_session",
         referenceId: String(streamId),
+        creatorId: (stream as any)?.hostUserId ?? (stream as any)?.userId,
         description: `Mentor session with ${stream?.creator ?? "creator"} (stream #${streamId})`,
       });
       await refetchTickets();

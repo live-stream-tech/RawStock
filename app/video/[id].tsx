@@ -194,6 +194,9 @@ export default function VideoDetailScreen() {
     try {
       await apiRequest("POST", "/api/tickets/spend", {
         amount: video.price,
+        type: "spend_gift",
+        referenceId: String(id),
+        creatorId: typeof creatorId === "number" ? creatorId : undefined,
         description: `Video: ${video.title}`,
         videoId: Number(id),
       });
