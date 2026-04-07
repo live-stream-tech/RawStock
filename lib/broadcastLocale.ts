@@ -1,8 +1,7 @@
-import { Platform } from "react-native";
-
-/** 配信画面の UI 言語。ブラウザが日本語優先のときだけ日本語。 */
+/**
+ * Broadcast screen copy language toggle.
+ * Product default: English-only (matches app-wide copy policy).
+ */
 export function isBroadcastJapaneseUi(): boolean {
-  if (Platform.OS !== "web" || typeof navigator === "undefined") return true;
-  const primary = (navigator.languages?.[0] ?? navigator.language ?? "").toLowerCase();
-  return primary.startsWith("ja");
+  return false;
 }
