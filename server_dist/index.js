@@ -2094,10 +2094,10 @@ async function getOrCreateSystemWallets() {
   }
   return result;
 }
-async function getOrCreateUserWallet(userId) {
-  const [w] = await db.select().from(wallets).where(and2(eq2(wallets.userId, userId), isNull(wallets.kind)));
+async function getOrCreateUserWallet(userId, executor = db) {
+  const [w] = await executor.select().from(wallets).where(and2(eq2(wallets.userId, userId), isNull(wallets.kind)));
   if (w) return w.id;
-  const [created] = await db.insert(wallets).values({ userId, kind: null }).returning();
+  const [created] = await executor.insert(wallets).values({ userId, kind: null }).returning();
   return created.id;
 }
 var DEFAULT_LEVEL_THRESHOLDS = [
@@ -2114,10 +2114,10 @@ function getYearMonth(date = /* @__PURE__ */ new Date()) {
   const m = String(date.getMonth() + 1).padStart(2, "0");
   return `${y}-${m}`;
 }
-async function ensureDefaultLevelThresholds() {
-  const rows = await db.select().from(creatorLevelThresholds).orderBy(asc2(creatorLevelThresholds.level));
+async function ensureDefaultLevelThresholds(executor = db) {
+  const rows = await executor.select().from(creatorLevelThresholds).orderBy(asc2(creatorLevelThresholds.level));
   if (rows.length > 0) return rows;
-  await db.insert(creatorLevelThresholds).values(
+  await executor.insert(creatorLevelThresholds).values(
     DEFAULT_LEVEL_THRESHOLDS.map((t) => ({
       level: t.level,
       requiredTipGross: t.requiredTipGross,
@@ -2125,24 +2125,24 @@ async function ensureDefaultLevelThresholds() {
       tipBackRate: t.tipBackRate
     }))
   );
-  return db.select().from(creatorLevelThresholds).orderBy(asc2(creatorLevelThresholds.level));
+  return executor.select().from(creatorLevelThresholds).orderBy(asc2(creatorLevelThresholds.level));
 }
-async function syncCreatorLevelFromMonthlyProgress(creatorId, yearMonth) {
-  const thresholds = await ensureDefaultLevelThresholds();
-  const [score] = await db.select().from(creatorMonthlyScores).where(and2(eq2(creatorMonthlyScores.creatorId, creatorId), eq2(creatorMonthlyScores.yearMonth, yearMonth)));
+async function syncCreatorLevelFromMonthlyProgress(creatorId, yearMonth, executor = db) {
+  const thresholds = await ensureDefaultLevelThresholds(executor);
+  const [score] = await executor.select().from(creatorMonthlyScores).where(and2(eq2(creatorMonthlyScores.creatorId, creatorId), eq2(creatorMonthlyScores.yearMonth, yearMonth)));
   const tipGross = score?.tipGross ?? 0;
   const streamCountMonthly = score?.streamCountMonthly ?? 0;
   const achieved = thresholds.reduce((acc, t) => {
     if (tipGross >= t.requiredTipGross && streamCountMonthly >= t.requiredStreamCount) return Math.max(acc, t.level);
     return acc;
   }, 1);
-  await db.update(creators).set({ currentLevel: achieved }).where(eq2(creators.id, creatorId));
+  await executor.update(creators).set({ currentLevel: achieved }).where(eq2(creators.id, creatorId));
   return achieved;
 }
-async function upsertCreatorMonthlyRevenue(creatorId, yearMonth, source, grossAmount) {
-  const [existing] = await db.select().from(creatorMonthlyScores).where(and2(eq2(creatorMonthlyScores.creatorId, creatorId), eq2(creatorMonthlyScores.yearMonth, yearMonth)));
+async function upsertCreatorMonthlyRevenue(creatorId, yearMonth, source, grossAmount, executor = db) {
+  const [existing] = await executor.select().from(creatorMonthlyScores).where(and2(eq2(creatorMonthlyScores.creatorId, creatorId), eq2(creatorMonthlyScores.yearMonth, yearMonth)));
   if (!existing) {
-    await db.insert(creatorMonthlyScores).values({
+    await executor.insert(creatorMonthlyScores).values({
       creatorId,
       yearMonth,
       tipGross: source === "tip" ? grossAmount : 0,
@@ -2150,24 +2150,24 @@ async function upsertCreatorMonthlyRevenue(creatorId, yearMonth, source, grossAm
     });
     return;
   }
-  await db.update(creatorMonthlyScores).set({
+  await executor.update(creatorMonthlyScores).set({
     tipGross: source === "tip" ? existing.tipGross + grossAmount : existing.tipGross,
     paidLiveGross: source === "tip" ? existing.paidLiveGross : existing.paidLiveGross + grossAmount,
     updatedAt: /* @__PURE__ */ new Date()
   }).where(eq2(creatorMonthlyScores.id, existing.id));
 }
-async function recordRevenue(walletId, userId, creatorId, amount, source, referenceId) {
+async function recordRevenue(walletId, userId, creatorId, amount, source, referenceId, executor = db) {
   const yearMonth = getYearMonth();
   let backRate = 0.9;
   if (source === "tip") {
-    const thresholds = await ensureDefaultLevelThresholds();
-    const [creator] = creatorId ? await db.select().from(creators).where(eq2(creators.id, creatorId)) : [];
+    const thresholds = await ensureDefaultLevelThresholds(executor);
+    const [creator] = creatorId ? await executor.select().from(creators).where(eq2(creators.id, creatorId)) : [];
     const level = creator?.currentLevel ?? 1;
     const rate = thresholds.find((t) => t.level === level)?.tipBackRate;
     backRate = typeof rate === "number" ? rate : 0.5;
   }
   const netAmount = Math.floor(amount * backRate);
-  await db.insert(transactions).values({
+  await executor.insert(transactions).values({
     walletId,
     amount,
     source,
@@ -2180,7 +2180,7 @@ async function recordRevenue(walletId, userId, creatorId, amount, source, refere
     status: "PENDING",
     referenceId
   });
-  await db.insert(earnings).values({
+  await executor.insert(earnings).values({
     userId: `user-${userId}`,
     type: source,
     title: source === "tip" ? "\u6295\u3052\u92AD\u53CE\u76CA" : "\u6709\u6599\u914D\u4FE1\u53CE\u76CA",
@@ -2189,15 +2189,15 @@ async function recordRevenue(walletId, userId, creatorId, amount, source, refere
     netAmount
   });
   if (creatorId) {
-    const [creator] = await db.select().from(creators).where(eq2(creators.id, creatorId));
+    const [creator] = await executor.select().from(creators).where(eq2(creators.id, creatorId));
     if (creator) {
-      await db.update(creators).set({
+      await executor.update(creators).set({
         revenue: creator.revenue + amount,
         revenueShare: Math.round(backRate * 100)
       }).where(eq2(creators.id, creatorId));
     }
-    await upsertCreatorMonthlyRevenue(creatorId, yearMonth, source, amount);
-    await syncCreatorLevelFromMonthlyProgress(creatorId, yearMonth);
+    await upsertCreatorMonthlyRevenue(creatorId, yearMonth, source, amount, executor);
+    await syncCreatorLevelFromMonthlyProgress(creatorId, yearMonth, executor);
   }
 }
 async function registerRoutes(app2) {
@@ -6723,60 +6723,127 @@ data: ${data}
     if (!communityId) return res.status(400).json({ error: "communityId required" });
     const userId = String(user.id);
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    const balRows = await db.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
-    const currentBalance = balRows[0]?.balance ?? 0;
-    if (currentBalance < TICKETS_PER_JUKEBOX) {
-      return res.status(402).json({ error: "Insufficient tickets", balance: currentBalance, required: TICKETS_PER_JUKEBOX });
+    try {
+      let newBalance = 0;
+      await db.transaction(async (tx) => {
+        const [comm] = await tx.select().from(communities).where(eq2(communities.id, communityId)).limit(1);
+        const creatorUserId = comm?.ownerId ?? comm?.adminId;
+        if (!creatorUserId) {
+          throw new Error("COMMUNITY_NO_OWNER");
+        }
+        const balRows = await tx.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
+        const currentBalance = balRows[0]?.balance ?? 0;
+        if (currentBalance < TICKETS_PER_JUKEBOX) {
+          const err = new Error("INSUFFICIENT_TICKETS");
+          err.meta = { balance: currentBalance, required: TICKETS_PER_JUKEBOX };
+          throw err;
+        }
+        newBalance = currentBalance - TICKETS_PER_JUKEBOX;
+        if (balRows.length === 0) {
+          await tx.insert(ticketBalances).values({ userId, balance: newBalance });
+        } else {
+          await tx.update(ticketBalances).set({ balance: newBalance, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
+        }
+        const [spendTx] = await tx.insert(ticketTransactions).values({
+          userId,
+          amount: -TICKETS_PER_JUKEBOX,
+          type: "spend_jukebox",
+          referenceId: queueItemId ? String(queueItemId) : null,
+          description: `Jukebox request in community ${communityId}`
+        }).returning({ id: ticketTransactions.id });
+        const walletId = await getOrCreateUserWallet(creatorUserId, tx);
+        const [creatorRow] = await tx.select().from(creators).where(eq2(creators.userId, creatorUserId)).limit(1);
+        await recordRevenue(
+          walletId,
+          creatorUserId,
+          creatorRow?.id ?? null,
+          TICKETS_PER_JUKEBOX,
+          "paid_live",
+          String(spendTx.id),
+          tx
+        );
+        const countRows = await tx.select().from(jukeboxRequestCounts).where(
+          and2(
+            eq2(jukeboxRequestCounts.userId, userId),
+            eq2(jukeboxRequestCounts.communityId, communityId),
+            eq2(jukeboxRequestCounts.date, today)
+          )
+        ).limit(1);
+        if (countRows.length === 0) {
+          await tx.insert(jukeboxRequestCounts).values({ userId, communityId, date: today, count: 1 });
+        } else {
+          await tx.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(jukeboxRequestCounts.id, countRows[0].id));
+        }
+      });
+      return res.json({ success: true, newBalance });
+    } catch (e) {
+      if (e?.message === "INSUFFICIENT_TICKETS") {
+        const meta = e?.meta ?? {};
+        return res.status(402).json({
+          error: "Insufficient tickets",
+          balance: meta.balance ?? 0,
+          required: meta.required ?? TICKETS_PER_JUKEBOX
+        });
+      }
+      if (e?.message === "COMMUNITY_NO_OWNER") {
+        return res.status(400).json({ error: "Community has no owner for revenue" });
+      }
+      console.error("[tickets/spend-jukebox] failed:", e);
+      return res.status(500).json({ error: "Failed to spend tickets" });
     }
-    if (balRows.length === 0) {
-      await db.insert(ticketBalances).values({ userId, balance: -TICKETS_PER_JUKEBOX });
-    } else {
-      await db.update(ticketBalances).set({ balance: currentBalance - TICKETS_PER_JUKEBOX, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
-    }
-    await db.insert(ticketTransactions).values({
-      userId,
-      amount: -TICKETS_PER_JUKEBOX,
-      type: "spend_jukebox",
-      referenceId: queueItemId ? String(queueItemId) : null,
-      description: `Jukebox request in community ${communityId}`
-    });
-    const countRows = await db.select().from(jukeboxRequestCounts).where(and2(
-      eq2(jukeboxRequestCounts.userId, userId),
-      eq2(jukeboxRequestCounts.communityId, communityId),
-      eq2(jukeboxRequestCounts.date, today)
-    )).limit(1);
-    if (countRows.length === 0) {
-      await db.insert(jukeboxRequestCounts).values({ userId, communityId, date: today, count: 1 });
-    } else {
-      await db.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(jukeboxRequestCounts.id, countRows[0].id));
-    }
-    return res.json({ success: true, newBalance: currentBalance - TICKETS_PER_JUKEBOX });
   });
   app2.post("/api/tickets/spend", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { amount, type, referenceId, description } = req.body;
+    const { amount, type, referenceId, description, creatorId } = req.body;
     if (!amount || amount <= 0) return res.status(400).json({ error: "amount must be positive" });
     if (!type) return res.status(400).json({ error: "type required" });
     const userId = String(user.id);
-    const balRows = await db.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
-    const currentBalance = balRows[0]?.balance ?? 0;
-    if (currentBalance < amount) {
-      return res.status(402).json({ error: "Insufficient tickets", balance: currentBalance, required: amount });
+    const revenueTypes = /* @__PURE__ */ new Set(["spend_session", "spend_gift", "spend_jukebox", "spend_tip"]);
+    const needsRevenueRecord = revenueTypes.has(type);
+    if (needsRevenueRecord && (!Number.isInteger(creatorId) || creatorId <= 0)) {
+      return res.status(400).json({ error: "creatorId required for revenue-eligible spend type" });
     }
-    if (balRows.length === 0) {
-      await db.insert(ticketBalances).values({ userId, balance: -amount });
-    } else {
-      await db.update(ticketBalances).set({ balance: currentBalance - amount, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
+    try {
+      let newBalance = 0;
+      await db.transaction(async (tx) => {
+        const balRows = await tx.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
+        const currentBalance = balRows[0]?.balance ?? 0;
+        if (currentBalance < amount) {
+          const err = new Error("INSUFFICIENT_TICKETS");
+          err.meta = { balance: currentBalance, required: amount };
+          throw err;
+        }
+        newBalance = currentBalance - amount;
+        if (balRows.length === 0) {
+          await tx.insert(ticketBalances).values({ userId, balance: newBalance });
+        } else {
+          await tx.update(ticketBalances).set({ balance: newBalance, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
+        }
+        const [spendTx] = await tx.insert(ticketTransactions).values({
+          userId,
+          amount: -amount,
+          type,
+          referenceId: referenceId ?? null,
+          description: description ?? null
+        }).returning({ id: ticketTransactions.id });
+        if (needsRevenueRecord) {
+          const creatorUserId = Number(creatorId);
+          const walletId = await getOrCreateUserWallet(creatorUserId, tx);
+          const [creatorRow] = await tx.select().from(creators).where(eq2(creators.userId, creatorUserId)).limit(1);
+          const source = type === "spend_tip" ? "tip" : "paid_live";
+          await recordRevenue(walletId, creatorUserId, creatorRow?.id ?? null, amount, source, String(spendTx.id), tx);
+        }
+      });
+      return res.json({ success: true, newBalance });
+    } catch (e) {
+      if (e?.message === "INSUFFICIENT_TICKETS") {
+        const meta = e?.meta ?? {};
+        return res.status(402).json({ error: "Insufficient tickets", balance: meta.balance ?? 0, required: meta.required ?? amount });
+      }
+      console.error("[tickets/spend] failed:", e);
+      return res.status(500).json({ error: "Failed to spend tickets" });
     }
-    await db.insert(ticketTransactions).values({
-      userId,
-      amount: -amount,
-      type,
-      referenceId: referenceId ?? null,
-      description: description ?? null
-    });
-    return res.json({ success: true, newBalance: currentBalance - amount });
   });
   app2.get("/api/tickets/create-checkout", (_req, res) => {
     res.setHeader("Allow", "POST");
