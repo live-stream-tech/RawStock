@@ -40,7 +40,7 @@ type JukeboxState = {
   startedAt: string;
   isPlaying: boolean;
   watchersCount: number;
-  /** サーバーが計算した経過秒数（放送位置）。存在しない場合は startedAt から計算 */
+  /** Server-calculated elapsed seconds (playback position). */
   elapsedSecs?: number;
 };
 
@@ -111,7 +111,7 @@ function calcProgress(startedAt: string, durationSecs: number): number {
   return Math.min(elapsed / durationSecs, 1);
 }
 
-/** Web かつ iPhone / iPad Safari（PWA 含む）— キーボードでレイアウトを動かさない */
+/** On iPhone/iPad Safari (including PWA), avoid keyboard-driven layout shifts. */
 function isIosLikeWebClient(): boolean {
   if (typeof navigator === "undefined") return false;
   const ua = navigator.userAgent || "";
@@ -122,10 +122,10 @@ function isIosLikeWebClient(): boolean {
 }
 
 /**
- * NowPlaying: YouTube IFrame API 統合プレイヤー（音声＋映像、mute=0）
- * 曲変更時は loadVideoById() で切り替え（音声途切れなし）
- * iOS Safari: 初回1回だけタップオーバーレイを表示
- * 縦向き: 16:9 の高さ。横向き: 全画面
+ * NowPlaying: YouTube IFrame API integrated player (audio + video, mute=0)
+ * Switch tracks via loadVideoById() without audio interruption
+ * iOS Safari: show tap overlay only on first interaction
+ * Portrait: 16:9 height. Landscape: fullscreen.
  */
 function NowPlaying({
   state,
@@ -142,9 +142,9 @@ function NowPlaying({
   addModalOpen?: boolean;
   /** Desktop 2-col: window may be "landscape" but player sits in a narrow column — use 16:9 box, not full-window fill. */
   embedInSidebarColumn?: boolean;
-  /** 親がインクリメント（検索完了など）— バックグラウンドになった iframe の再生を再度試す */
+  /** Parent increments this to retry playback for backgrounded iframes. */
   interactionResumeNonce?: number;
-  /** どのコミュニティのジュークボックスか（再生オーバーレイに表示） */
+  /** Community name/id for this jukebox (shown in playback overlay). */
   communityLabel?: string | null;
   onCommunityPress?: () => void;
 }) {
@@ -154,16 +154,16 @@ function NowPlaying({
   const [screenH, setScreenH] = useState(() => Dimensions.get("window").height);
   const onNextRef = useRef(onNext);
   onNextRef.current = onNext;
-  // iOS Safari: 初回のみタップが必要（その後は曲変更でも音声継続）
+  // iOS Safari requires a first tap; audio then persists across track changes.
   const [needsTap, setNeedsTap] = useState(true);
-  /** サーバーは再生中だが WebKit が PAUSED/CUED/UNSTARTED になったとき */
+  /** When server is playing but WebKit reports PAUSED/CUED/UNSTARTED. */
   const [needsResumeTap, setNeedsResumeTap] = useState(false);
-  // IFrame API プレイヤーの参照
+  // IFrame API player reference.
   const ytPlayerRef = useRef<any>(null);
   const ytContainerIdRef = useRef<string>(`jb-yt-${Math.random().toString(36).slice(2)}`);
   const stateRef = useRef<JukeboxState | null>(state);
   stateRef.current = state;
-  /** 自動 tryResume はユーザーが一度でも再生に関わった後のみ（iOS 自動再生ポリシー） */
+  /** Auto tryResume only after user has interacted once (iOS autoplay policy). */
   const hasUserInteractedRef = useRef(false);
   const lastThrottleMsRef = useRef(0);
 
@@ -200,7 +200,7 @@ function NowPlaying({
     scheduleTryResume();
   }, [scheduleTryResume]);
 
-  // 画面サイズ変化を追跡
+  // Track viewport size changes.
   useEffect(() => {
     const sub = Dimensions.addEventListener("change", ({ window }) => {
       setScreenW(window.width);
@@ -209,7 +209,7 @@ function NowPlaying({
     return () => sub?.remove();
   }, []);
 
-  // 表示用の経過時間を1秒ごとに更新（再生中のみ）
+  // Update displayed elapsed time every second while playing.
   useEffect(() => {
     if (!state) return;
     const calcElapsed = () => {
@@ -232,7 +232,7 @@ function NowPlaying({
     state?.elapsedSecs,
   ]);
 
-  // LIVE ラベルのパルスアニメーション
+  // Pulse animation for LIVE label.
   useEffect(() => {
     const pulse = Animated.loop(
       Animated.sequence([
@@ -244,7 +244,7 @@ function NowPlaying({
     return () => { pulse.stop(); };
   }, [pulseAnim]);
 
-  // YouTube IFrame API プレイヤーの初期化・曲切り替え
+  // Initialize YouTube IFrame API player and handle track switching.
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     if (!state?.currentVideoYoutubeId) return;
@@ -271,7 +271,7 @@ function NowPlaying({
     ensureYouTubeApi().then((YT: any) => {
       if (cancelled) return;
       if (ytPlayerRef.current) {
-        // 曲切り替え: プレイヤーを破棄せず loadVideoById で切り替え（音声途切れなし）
+        // Track switch: use loadVideoById without destroying player.
         try {
           ytPlayerRef.current.loadVideoById({
             videoId: state.currentVideoYoutubeId,
@@ -285,7 +285,7 @@ function NowPlaying({
         }
       }
       if (!ytPlayerRef.current) {
-        // プレイヤー新規作成
+        // Create player instance.
         const containerId = ytContainerIdRef.current;
         ytPlayerRef.current = new YT.Player(containerId, {
           videoId: state.currentVideoYoutubeId,
@@ -307,7 +307,7 @@ function NowPlaying({
                 event.target?.unMute?.();
                 event.target?.setVolume?.(100);
                 event.target?.playVideo?.();
-                setNeedsTap(false); // 自動再生成功（Android/PC）
+                setNeedsTap(false); // Autoplay succeeded (Android/Desktop)
               } catch {}
             },
             onStateChange: (event: any) => {
@@ -347,7 +347,7 @@ function NowPlaying({
     return () => { cancelled = true; };
   }, [state?.currentVideoYoutubeId]);
 
-  // アンマウント時にプレイヤーを破棄
+  // Destroy player on unmount.
   useEffect(() => {
     return () => {
       if (ytPlayerRef.current) {
@@ -406,7 +406,7 @@ function NowPlaying({
     setNeedsResumeTap(false);
   }, [state?.currentVideoYoutubeId]);
 
-  // iOS Safari: 初回音声（ユーザージェスチャー直結のため遅延なし）
+  // iOS Safari: first audio start tied to user gesture.
   const handleTapToUnmute = useCallback(() => {
     hasUserInteractedRef.current = true;
     runTryResumeCore();
@@ -419,7 +419,7 @@ function NowPlaying({
     setNeedsResumeTap(false);
   }, [runTryResumeCore]);
 
-  // 縦向き: 16:9 の高さ。横向き: 全画面。サイドバー埋め込み時は常に 16:9 ボックス。
+  // Portrait: 16:9. Landscape: fullscreen. Sidebar embed: always 16:9 box.
   const isLandscape = !embedInSidebarColumn && screenW > screenH;
   const videoAreaH = isLandscape ? screenH : Math.round(screenW * 9 / 16);
   const videoStyle = embedInSidebarColumn
@@ -457,7 +457,7 @@ function NowPlaying({
 
   return (
     <View style={[styles.nowPlaying, videoStyle]}>
-      {/* YouTube IFrame API プレイヤーコンテナ（音声＋映像） */}
+      {/* YouTube IFrame API player container (audio + video) */}
       {Platform.OS === 'web' && state?.currentVideoYoutubeId ? (
         <div
           id={ytContainerIdRef.current}
@@ -466,7 +466,7 @@ function NowPlaying({
       ) : state?.currentVideoThumbnail ? (
         <Image source={{ uri: state.currentVideoThumbnail }} style={StyleSheet.absoluteFillObject} contentFit="cover" />
       ) : null}
-      {/* iOS / WebKit: 初回音声 or 途中停止時の再開（サーバーは再生中） */}
+      {/* iOS/WebKit: first-audio start or resume while server is playing */}
       {Platform.OS === "web" && state?.currentVideoYoutubeId && needsTap ? (
         <Pressable
           style={styles.audioOverlay}
@@ -493,7 +493,7 @@ function NowPlaying({
           </View>
         </Pressable>
       ) : null}
-      {/* 下部オーバーレイ: タイトル・プログレス・スキップ */}
+      {/* Bottom overlay: title, progress, skip */}
       <View style={styles.nowPlayingTop}>
         <View style={styles.liveChip}>
           <Animated.View style={[styles.liveChipDot, { transform: [{ scale: pulseAnim }] }]} />
@@ -564,7 +564,7 @@ function QueueRow({
   onDelete?: (id: number) => void;
   variant?: "horizontal" | "vertical";
 }) {
-  // 再生済みを除外し、再生中の曲もキュー表示から除外（Now Playing と重複しないように）
+  // Exclude played and currently-playing tracks from queue display.
   const upcoming = items.filter(
     (q) =>
       !q.isPlayed &&
@@ -679,12 +679,11 @@ export default function JukeboxScreen() {
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
   const [interactionResumeNonce, setInteractionResumeNonce] = useState(0);
 
-  /** Add モーダル内のみ: レイアウト跳びで iframe が止まりやすいので KAV オフ */
+  /** Disable KAV inside Add modal to avoid iframe playback interruption. */
   const kavDisabledOnIosWeb = Platform.OS === "web" && isIosLikeWebClient();
   /**
-   * 本体（チャット含む）: react-native-keyboard-controller の behavior="height" は
-   * キーボード表示時に flex:0 + 固定 height になり、Android で入力欄が潰れる・タップ不能になることがある。
-   * iOS / Android ネイティブと iOS Web は padding。デスクトップ Web のみ height。
+   * Main layout (including chat): behavior="height" can collapse input on Android.
+   * Use padding on native and iOS web; use height on desktop web only.
    */
   const jukeboxKeyboardBehavior: "padding" | "height" =
     Platform.OS === "web" && !kavDisabledOnIosWeb ? "height" : "padding";
@@ -692,7 +691,7 @@ export default function JukeboxScreen() {
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
-  // 横向きチャットパネルのアニメーション
+  // Landscape chat panel animation.
   useEffect(() => {
     Animated.spring(chatPanelAnim, {
       toValue: chatPanelOpen ? 1 : 0,
@@ -713,16 +712,16 @@ export default function JukeboxScreen() {
   const communityDisplayName =
     (communityRow?.name && String(communityRow.name).trim()) || `Community #${communityId}`;
 
-  // ページ訪問時に常に最新データを取得（staleTime:0でキャッシュが古いままになる問題を防止）
+  // Always fetch fresh data on visit; avoid stale cache.
   const { data } = useQuery<JukeboxData>({
     queryKey: jukeboxKey,
     refetchOnWindowFocus: false,
     staleTime: 0,
   });
 
-  // SSE ストリームでリアルタイム更新
+  // Real-time updates via SSE stream.
   useEffect(() => {
-    if (Platform.OS !== "web") return; // ネイティブはポーリングにフォールバック
+    if (Platform.OS !== "web") return; // Native falls back to polling.
     const baseUrl = getApiUrl().replace(/\/$/, "");
     const sseUrl = `${baseUrl}/api/jukebox/${communityId}/stream`;
     let es: EventSource | null = null;
@@ -770,7 +769,7 @@ export default function JukeboxScreen() {
       es.onerror = () => {
         es?.close();
         if (!closed) {
-          // 指数バックオフ: 1→2→4→8→16→30秒上限
+          // Exponential backoff: 1 -> 2 -> 4 -> 8 -> 16 -> 30s max.
           const delay = Math.min(1000 * Math.pow(2, retryCount), 30000);
           retryCount++;
           retryTimer = setTimeout(connect, delay);
@@ -828,12 +827,12 @@ export default function JukeboxScreen() {
         message: msg,
       }),
     onSuccess: () => {
-      // SSE 経由でチャットが更新されるので invalidate 不要
-      // フォールバック： SSE 接続がない場合は refetch
+      // Chat updates arrive via SSE; no invalidate needed.
+      // Fallback: refetch when SSE is unavailable.
       if (Platform.OS !== "web") qc.invalidateQueries({ queryKey: jukeboxKey });
     },
     onError: (e: Error & { body?: string }) => {
-      let detail = e.message ?? "送信に失敗しました";
+      let detail = e.message ?? "Failed to send message";
       try {
         if (e.body) {
           const j = JSON.parse(e.body) as { error?: string };
@@ -845,7 +844,7 @@ export default function JukeboxScreen() {
       if (Platform.OS === "web" && typeof window !== "undefined") {
         window.alert(detail);
       } else {
-        Alert.alert("コメント", detail);
+        Alert.alert("Comment", detail);
       }
     },
   });
@@ -940,14 +939,14 @@ export default function JukeboxScreen() {
       alert("Please enter a valid YouTube URL");
       return;
     }
-    // YouTube search API で duration を取得（URL 直接追加時）
+    // Fetch duration from YouTube Search API (for direct URL add).
     let durationSecs = 0;
     try {
       const res = await apiRequest("GET", `/api/youtube/search?q=${encodeURIComponent(idPart)}`);
       const results = (await res.json()) as { videoId: string; durationSecs?: number }[];
       const match = results.find((r) => r.videoId === idPart);
       if (match?.durationSecs) durationSecs = match.durationSecs;
-    } catch { /* duration 取得失敗は無視 */ }
+    } catch { /* ignore duration fetch failures */ }
     const video: Video & { youtubeId: string; durationSecs: number } = {
       id: Math.floor(Math.random() * 2000000),
       title: "YouTube Request",
@@ -1003,19 +1002,19 @@ export default function JukeboxScreen() {
     nextMutation.mutate();
   }, [nextMutation]);
 
-  // 入室 = 再生開始（ログインユーザーのみ・負荷軽減）
-  // キューに曲があるが isPlaying=false のとき、1回だけ next を呼んで再生を開始する
+  // Entering room can trigger playback start (logged-in users only).
+  // If queue exists but isPlaying=false, call next once to kick off playback.
   const autoStartedRef = useRef(false);
   useEffect(() => {
-    if (!user) return; // ゲストは不要
-    if (autoStartedRef.current) return; // 1回だけ
-    if (!data) return; // データ未取得
+    if (!user) return; // Skip for guests.
+    if (autoStartedRef.current) return; // Only once.
+    if (!data) return; // Data not ready.
     const hasQueue = (data.queue ?? []).some((q) => !q.isPlayed);
     if (hasQueue && !data.state?.isPlaying) {
       autoStartedRef.current = true;
       nextMutation.mutate();
     } else if (data.state?.isPlaying || (data.queue ?? []).length === 0) {
-      // 既に再生中 or キュー空 → 自動開始不要フラグを立てる
+      // Already playing or queue empty -> mark auto-start as done.
       autoStartedRef.current = true;
     }
   }, [data, user]);
@@ -1028,7 +1027,7 @@ export default function JukeboxScreen() {
 
 
 
-  // プレイリスト取得（モーダル表示時・ログイン済み）
+  // Fetch playlists when modal is open and user is signed in.
   useEffect(() => {
     if (!showAddModal || !user) {
       setYtPlaylists([]);
@@ -1062,7 +1061,7 @@ export default function JukeboxScreen() {
     };
   }, [showAddModal, user?.id]);
 
-  // プレイリスト内の動画取得
+  // Fetch videos inside selected playlist.
   useEffect(() => {
     if (!selectedPlaylistId || !user) {
       setYtPlaylistItems([]);
@@ -1082,14 +1081,14 @@ export default function JukeboxScreen() {
     };
   }, [selectedPlaylistId, user?.id]);
 
-  // 横向き: チャットパネルの translateY（0=閉じ, 1=開く）
+  // Landscape: chat panel translateY (0=closed, 1=open).
   const panelH = winH * 0.55;
   const translateY = chatPanelAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [panelH, 0],
   });
 
-  // 最新チャット1件
+  // Latest chat item.
   const latestChat = chat.length > 0 ? chat[chat.length - 1] : null;
 
   const jukeboxAddPanelCore = (
@@ -1442,7 +1441,7 @@ export default function JukeboxScreen() {
       style={{ flex: 1, backgroundColor: C.bg }}
       behavior={jukeboxKeyboardBehavior as "padding" | "height"}
       keyboardVerticalOffset={0}
-      /** ネイティブでは KAV の padding アニメが TextInput フォーカスと競合しキーボードが即閉じることがある。Web のみ有効。 */
+      /** On native, KAV padding animation can conflict with TextInput focus. Web only. */
       enabled={Platform.OS === "web" && !showAddModal}
     >
       <View style={[styles.container]}>
@@ -1490,7 +1489,7 @@ export default function JukeboxScreen() {
           />
         </View>
 
-        {/* Portrait: queue + chat（WebKit で動画レイヤーより手前に固定し、タッチ・キーボードを奪われにくくする） */}
+        {/* Portrait: queue + chat; keep above video layer for WebKit stability */}
         {!isLandscape && (
           <View style={styles.portraitBelowPlayer}>
             <QueueRow items={queue} state={state} userName={user?.name} onDelete={(id) => deleteMutation.mutate(id)} onAdd={() => {
@@ -1817,7 +1816,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
   },
-  // iOS Safari 音声有効化オーバーレイ
+  // iOS Safari audio-enable overlay.
   audioOverlay: {
     position: "absolute",
     top: 0,
@@ -2153,7 +2152,7 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: { backgroundColor: C.surface2 },
 
-  // 横向き専用
+  // Landscape only.
   landscapeBackBtn: {
     position: "absolute",
     zIndex: 50,

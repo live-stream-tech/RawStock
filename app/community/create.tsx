@@ -143,7 +143,7 @@ export default function CreateCommunityScreen() {
 
       queryClient.invalidateQueries({ queryKey: ["/api/communities"] });
 
-      // Alert に依存せず即座に遷移（Web で Alert が表示されない場合の対策）
+      // Navigate immediately without relying on Alert (web fallback).
       if (newCommunity?.id != null) {
         router.replace(`/community/${newCommunity.id}`);
       } else {
@@ -176,7 +176,7 @@ export default function CreateCommunityScreen() {
         showsVerticalScrollIndicator={scrollShowsVertical}
         keyboardShouldPersistTaps="handled"
       >
-        {/* バナー画像 */}
+        {/* Banner image */}
         <View style={styles.section}>
           <Text style={styles.label}>Banner Image (optional)</Text>
           <Pressable style={styles.bannerPicker} onPress={() => pickImage("banner")}>
@@ -191,7 +191,7 @@ export default function CreateCommunityScreen() {
           </Pressable>
         </View>
 
-        {/* アイコン画像 */}
+        {/* Icon image */}
         <View style={styles.section}>
           <Text style={styles.label}>Icon Image (optional)</Text>
           <Pressable style={styles.iconPicker} onPress={() => pickImage("icon")}>
@@ -206,7 +206,7 @@ export default function CreateCommunityScreen() {
           </Pressable>
         </View>
 
-        {/* コミュニティ名 */}
+        {/* Community name */}
         <View style={styles.section}>
           <Text style={styles.label}>
             Community Name <Text style={styles.required}>*</Text>
@@ -222,7 +222,7 @@ export default function CreateCommunityScreen() {
           <Text style={styles.charCount}>{name.length}/40</Text>
         </View>
 
-        {/* 説明文 */}
+        {/* Description */}
         <View style={styles.section}>
           <Text style={styles.label}>
             Description <Text style={styles.required}>*</Text>
@@ -248,7 +248,7 @@ export default function CreateCommunityScreen() {
           </Text>
         </View>
 
-        {/* カテゴリ選択 */}
+        {/* Category selection */}
         <View style={styles.section}>
           <Text style={styles.label}>
             Category <Text style={styles.required}>*</Text>
@@ -310,7 +310,7 @@ export default function CreateCommunityScreen() {
           )}
         </View>
 
-        {/* 同意確認モーダル */}
+        {/* Consent confirmation modal */}
         <Modal visible={showConsentModal} transparent animationType="fade">
           <Pressable style={styles.consentModalOverlay} onPress={() => setShowConsentModal(false)}>
             <Pressable style={styles.consentModalBox} onPress={(e) => e.stopPropagation()}>
@@ -349,7 +349,7 @@ export default function CreateCommunityScreen() {
           </Pressable>
         </Modal>
 
-        {/* 作成ボタン */}
+        {/* Create button */}
         <View style={[styles.submitSection, { paddingBottom: bottomInset + 24 }]}>
           <Pressable
             style={[styles.submitBtn, (!canSubmit || creating) && styles.submitBtnDisabled]}

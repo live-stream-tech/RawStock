@@ -42,7 +42,7 @@ function parseRouteVisibility(v: string | undefined): LiveStreamVisibility {
   return "public";
 }
 
-/** 本番は Web / PWA のみ。Expo Go 等で開いた場合の案内 */
+/** Production broadcasting is Web/PWA-only; show fallback on other platforms. */
 function BroadcastNativePlaceholder() {
   const insets = useSafeAreaInsets();
   const t = getBroadcastStrings(isBroadcastJapaneseUi());
@@ -91,7 +91,7 @@ function BroadcastWeb() {
   const [webPreviewLoading, setWebPreviewLoading] = useState(false);
   const [deeparBusy, setDeeparBusy] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
-  /** キーがあっても既定はオフ。DeepAR 未同梱・初期化失敗時も生カメラで配信できるようにする */
+  /** Keep DeepAR optional so raw camera streaming still works as fallback. */
   const [useDeepARBlur, setUseDeepARBlur] = useState(false);
   const [lastLiveError, setLastLiveError] = useState<string | null>(null);
   const blinkAnim = useRef(new Animated.Value(1)).current;
@@ -158,7 +158,7 @@ function BroadcastWeb() {
       try {
         await el.play();
       } catch {
-        /* PWA / iOS で無音プレビューは play が弾かれることがある */
+        /* PWA/iOS may reject autoplay even for muted preview. */
       }
     }
     setCameraError(false);
@@ -268,7 +268,7 @@ function BroadcastWeb() {
         try {
           await apiEndLiveStream(createdStreamId);
         } catch {
-          /* 作成直後の失敗時は end が効かない場合もある */
+          /* Immediately after creation, end may fail in some cases. */
         }
       }
       setStreamId(null);

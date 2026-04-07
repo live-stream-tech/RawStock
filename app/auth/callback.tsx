@@ -6,13 +6,11 @@ import { getLoginReturn } from "@/lib/login-return";
 import { C } from "@/constants/colors";
 
 /**
- * 同一タブリダイレクト方式のOAuth認証コールバックページ。
- * サーバーが /auth/callback?token=xxx にリダイレクトしてくる。
+ * OAuth callback page for same-tab redirect flow.
+ * Server redirects to /auth/callback?token=xxx.
  *
- * ポップアップウィンドウ内で動作している場合（Google OAuthなど）:
- *   → window.opener にpostMessageを送ってメインウィンドウを更新し、ポップアップを閉じる
- * 同一タブで動作している場合（ログインページからのリダイレクト）:
- *   → 直接loginWithTokenを呼んでログイン処理する
+ * In popup mode (e.g., Google OAuth), postMessage token to opener and close popup.
+ * In same-tab mode, call loginWithToken directly.
  */
 export default function AuthCallbackScreen() {
   const { loginWithToken } = useAuth();
@@ -24,7 +22,7 @@ export default function AuthCallbackScreen() {
       return;
     }
 
-    // URLSearchParamsから直接tokenを取得（Expo Routerの遅延を回避）
+    // Read token from URLSearchParams directly to avoid router timing issues.
     const params = new URLSearchParams(window.location.search);
     const token = params.get("token");
 
@@ -33,14 +31,14 @@ export default function AuthCallbackScreen() {
       return;
     }
 
-    // ポップアップウィンドウ内かどうかを確認
+    // Detect whether this page is running in a popup window.
     const isPopup =
       typeof window !== "undefined" &&
       window.opener != null &&
       !window.opener.closed;
 
     if (isPopup) {
-      // ポップアップ内: openerにpostMessageを送ってメインウィンドウを更新し、ポップアップを閉じる
+      // Popup mode: notify opener and close.
       try {
         window.opener.postMessage(
           { type: "auth_success", token },
@@ -49,11 +47,11 @@ export default function AuthCallbackScreen() {
         setTimeout(() => window.close(), 300);
         return;
       } catch {
-        // postMessageが失敗した場合は直接ログイン処理にフォールスルー
+        // Fall through to direct login if postMessage fails.
       }
     }
 
-    // 同一タブ（またはpostMessage失敗時）: 直接ログイン処理
+    // Same-tab mode (or postMessage failure): direct login flow.
     let cancelled = false;
     (async () => {
       try {
@@ -61,7 +59,7 @@ export default function AuthCallbackScreen() {
         if (cancelled) return;
         const saved = getLoginReturn();
         let returnTo = saved ?? "/(tabs)/profile";
-        // ログイン後のデフォルト遷移先として不適切なパスを除外
+        // Exclude invalid paths as post-login return destinations.
         const isInvalidReturn =
           returnTo.startsWith("/auth/") ||
           returnTo.startsWith("/jukebox") ||

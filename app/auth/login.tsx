@@ -109,7 +109,7 @@ export default function LoginScreen() {
 
       await loginWithToken(data.token);
 
-      // Auth/callback と同じ方針で、不要な returnTo は除外する
+      // Same rule as auth/callback: filter out invalid return paths.
       const saved = getLoginReturn();
       const fallback = "/(tabs)/profile";
       let returnTo = saved ?? fallback;
@@ -134,8 +134,8 @@ export default function LoginScreen() {
 
       console.info("[auth/login] Try Demo redirect to", returnTo);
       if (Platform.OS === "web" && typeof window !== "undefined") {
-        // Web/PWA では router.replace が環境依存で反映されないことがあるため、
-        // 成功時はブラウザ遷移を優先して確実に画面更新する。
+        // On some Web/PWA environments, router.replace may not reliably refresh.
+        // Prefer browser navigation on success to ensure state updates.
         window.location.replace(returnTo);
       } else {
         router.replace(returnTo as any);

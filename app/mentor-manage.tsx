@@ -1,9 +1,9 @@
 /**
  * mentor-manage.tsx
- * クリエイター向け：メンターセッション管理画面
- * - セッション商品の登録・編集・削除
- * - 予約一覧の確認
- * - ビデオ通話の開始
+ * Creator-facing mentor session management screen.
+ * - Create, edit, and delete session products
+ * - Review booking list
+ * - Start video calls
  */
 import React, { useState, useCallback } from "react";
 import {
@@ -78,7 +78,7 @@ export default function MentorManageScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [tab, setTab] = useState<"sessions" | "bookings">("sessions");
 
-  // セッション作成モーダル
+  // Session create modal
   const [showModal, setShowModal] = useState(false);
   const [editTarget, setEditTarget] = useState<MentorSession | null>(null);
   const [form, setForm] = useState({
@@ -217,7 +217,7 @@ export default function MentorManageScreen() {
 
   return (
     <View style={styles.container}>
-      {/* ヘッダー */}
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={24} color={C.accent} />
@@ -230,7 +230,7 @@ export default function MentorManageScreen() {
         )}
       </View>
 
-      {/* タブ */}
+      {/* Tabs */}
       <View style={styles.tabRow}>
         {(["sessions", "bookings"] as const).map(t => (
           <TouchableOpacity key={t} style={[styles.tabBtn, tab === t && styles.tabBtnActive]} onPress={() => setTab(t)}>
@@ -320,7 +320,7 @@ export default function MentorManageScreen() {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* セッション作成・編集モーダル */}
+      {/* Session create/edit modal */}
       <Modal visible={showModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -462,7 +462,7 @@ const styles = StyleSheet.create({
   bookingUser: { fontFamily: F.mono, fontSize: 12, color: C.textSec, marginBottom: 4 },
   startBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: C.accent, borderRadius: 4, paddingVertical: 10, paddingHorizontal: 16, marginTop: 12, alignSelf: "flex-start" },
   startBtnText: { fontFamily: F.display, fontSize: 14, fontWeight: "700", color: C.bg },
-  // モーダル
+  // Modal
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.8)", justifyContent: "flex-end" },
   modalContent: { backgroundColor: C.surface, borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: "90%", padding: 20 },
   modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },

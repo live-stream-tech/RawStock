@@ -6,13 +6,11 @@ import { getLoginReturn } from "@/lib/login-return";
 import { C } from "@/constants/colors";
 
 /**
- * ポップアップが window.opener を持てない環境（外部OAuthがopenerを切断する場合）のフォールバック。
- * /auth/popup-fallback?token=... にリダイレクトされた場合にトークンを処理する。
+ * Fallback for environments where popup loses window.opener.
+ * Handles /auth/popup-fallback?token=...
  *
- * このページがポップアップ内で動作している場合:
- *   → window.opener にpostMessageを送ってメインウィンドウを更新し、ポップアップを閉じる
- * このページがメインウィンドウで動作している場合（ポップアップが使えない環境）:
- *   → 直接loginWithTokenを呼んでログイン処理する
+ * In popup mode, notify opener and close popup.
+ * In main-window mode, login directly with token.
  */
 export default function PopupFallbackScreen() {
   const { token } = useLocalSearchParams<{ token?: string }>();
@@ -24,14 +22,14 @@ export default function PopupFallbackScreen() {
       return;
     }
 
-    // ポップアップウィンドウ内かどうかを確認
+    // Detect whether this page is in a popup window.
     const isPopup =
       typeof window !== "undefined" &&
       window.opener != null &&
       !window.opener.closed;
 
     if (isPopup) {
-      // ポップアップ内: openerにpostMessageを送ってメインウィンドウを更新
+      // Popup mode: update opener via postMessage.
       try {
         window.opener.postMessage(
           { type: "auth_success", token },
@@ -40,11 +38,11 @@ export default function PopupFallbackScreen() {
         setTimeout(() => window.close(), 300);
         return;
       } catch {
-        // postMessageが失敗した場合は直接ログイン処理にフォールスルー
+        // Fall through to direct login if postMessage fails.
       }
     }
 
-    // メインウィンドウ内（またはpostMessage失敗時）: 直接ログイン処理
+    // Main-window mode (or postMessage failure): direct login flow.
     let cancelled = false;
     (async () => {
       try {

@@ -267,7 +267,7 @@ export default function VideoDetailScreen() {
         style={webScrollStyle(styles.scroll)}
         showsVerticalScrollIndicator={scrollShowsVertical}
       >
-        {/* メディア領域（テキスト / 写真展 / 動画など共通レイアウト） */}
+        {/* Media area (shared layout for text/photos/video) */}
         <View style={styles.playerContainer}>
           <Image
             source={{ uri: (video as any).thumbnail || "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&h=400&fit=crop" }}
@@ -275,7 +275,7 @@ export default function VideoDetailScreen() {
             contentFit="cover"
           />
           <View style={styles.playerOverlay}>
-            {/* 動画再生ボタン（videoUrl または youtubeId がある場合） */}
+            {/* Video play button (when videoUrl or youtubeId exists) */}
             {((video as any).videoUrl || (video as any).youtubeId) && !video.price && (
               <Pressable
                 style={styles.playOverlayBtn}
@@ -292,7 +292,7 @@ export default function VideoDetailScreen() {
                 <Ionicons name="play-circle" size={64} color="rgba(255,255,255,0.9)" />
               </Pressable>
             )}
-            {/* 有料コンテンツの場合のみロック表示 */}
+            {/* Show lock only for paid content */}
             {!purchased && video.price && (
               <View style={styles.lockedOverlay}>
                 <Ionicons name="lock-closed" size={32} color="rgba(255,255,255,0.6)" />
@@ -397,7 +397,7 @@ export default function VideoDetailScreen() {
             </View>
           </View>
 
-          {/* 課金コンテンツ用 CTA（テキスト / 写真 / 動画 いずれも共通） */}
+          {/* Paid-content CTA (shared for text/photo/video) */}
           {video.price && (
             <View style={styles.purchaseSection}>
               {!purchased ? (
@@ -507,7 +507,7 @@ export default function VideoDetailScreen() {
           </View>
         </View>
 
-        {/* AI編集アシスタント導線 */}
+        {/* AI edit assistant entry point */}
         {!isDemo && (video as any).videoUrl && (
           <Pressable
             style={styles.aiEditBtn}
@@ -525,7 +525,7 @@ export default function VideoDetailScreen() {
         <View style={{ height: 100 + bottomInset }} />
       </ScrollView>
 
-      {/* 通報モーダル */}
+      {/* Report modal */}
       <Modal visible={!!reportTarget} transparent animationType="fade">
         <Pressable style={styles.reportModalOverlay} onPress={() => !reportSubmitting && setReportTarget(null)}>
           <Pressable style={styles.reportModalBox} onPress={(e) => e.stopPropagation()}>
@@ -561,7 +561,7 @@ export default function VideoDetailScreen() {
         </Pressable>
       </Modal>
 
-      {/* ページ離脱確認モーダル */}
+      {/* Leave-page confirmation modal */}
       <Modal visible={showLeaveModal} animationType="fade" transparent>
         <View style={styles.leaveModalBg}>
           <View style={styles.leaveModalCard}>

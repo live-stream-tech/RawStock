@@ -6,7 +6,7 @@ import { router } from "expo-router";
 import { C } from "@/constants/colors";
 import { webScrollStyle } from "@/constants/layout";
 
-const CONTACT = "rawstock.infomation@gmail.com";
+const CONTACT = "info@rawstock.live";
 
 type Row = { icon: React.ComponentProps<typeof Ionicons>["name"]; label: string; path: string; sub?: string };
 

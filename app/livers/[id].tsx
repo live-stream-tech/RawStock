@@ -286,7 +286,7 @@ export default function LiverDetailScreen() {
           </View>
         </View>
 
-        {/* 音楽リンク */}
+        {/* Music links */}
         {(displayLiver.spotifyUrl || displayLiver.appleMusicUrl || displayLiver.bandcampUrl) && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Listen &amp; Buy Music</Text>
@@ -320,7 +320,7 @@ export default function LiverDetailScreen() {
           </View>
         )}
 
-        {/* コンパクトなタイムライン + 参加コミュニティ */}
+        {/* Compact timeline + joined communities */}
         {(() => {
           const myVideos = (allVideos as VideoSummary[]).filter((v) => v.creator === displayLiver.name).slice(0, 3);
           const liverCommunities = (allCommunities as CommunitySummary[]).filter(

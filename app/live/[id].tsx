@@ -58,11 +58,11 @@ type LiveStream = {
   whepUrl?: string | null;
   isActive?: boolean;
   isLive?: boolean;
-  /** API: 視聴条件を満たさないとき true（再生 URL は返さない） */
+  /** API: true when access requirements are not met (no playback URL). */
   streamAccessDenied?: boolean;
   visibility?: string;
   hostUserId?: number | null;
-  /** ログイン中かつホストが自分以外のとき、既にフォロー済みか */
+  /** Whether current user already follows the host (excluding self). */
   isFollowingHost?: boolean;
 };
 
@@ -106,7 +106,7 @@ type MentorBooking = {
   userId: string;
 };
 
-/** デモモード用：API が空のときのフォールバック（DUMMY_LIVE と対応） */
+/** Demo-mode fallback when the API returns no stream data. */
 const DEMO_LIVE_STREAMS: Record<number, LiveStream> = {
   1: { id: 1, title: "Miyu ♪ Songs & Dance Live!", creator: "Miyu", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=40&h=40&fit=crop", thumbnail: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=300&h=200&fit=crop", viewers: 1240, category: "idol", fee: "Free", price: null },
   2: { id: 2, title: "REIKA Night Talk — Real Talk", creator: "REIKA", avatar: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=40&h=40&fit=crop", thumbnail: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=300&h=200&fit=crop", viewers: 890, category: "idol", fee: "Free", price: null },
@@ -158,21 +158,21 @@ export default function LiveStreamScreen() {
 
   const followHostMutation = useMutation({
     mutationFn: async () => {
-      if (hostUserId == null) throw new Error("ホスト情報がありません");
+      if (hostUserId == null) throw new Error("Host information is missing");
       const r = await viewerApiFetch(`/api/users/${hostUserId}/follow`, { method: "POST" });
       const body = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error((body as { error?: string }).error ?? "フォローに失敗しました");
+      if (!r.ok) throw new Error((body as { error?: string }).error ?? "Failed to follow host");
       return body;
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["stream-viewer", streamId] });
     },
     onError: (e: Error) => {
-      Alert.alert("フォロー", e.message);
+      Alert.alert("Follow", e.message);
     },
   });
 
-  /** ページ表示中は視聴者としてカウント（権限ありのときのみ join） */
+  /** Count the user as a viewer while this screen is visible. */
   useEffect(() => {
     if (!streamId || !streamMetaFetched) return;
     if (streamAccessDenied) return;
@@ -202,7 +202,7 @@ export default function LiveStreamScreen() {
     }
   }, [myBookingTyped?.status]);
 
-  // WHEP接続（視聴者側WebRTC）
+  // WHEP connection (viewer-side WebRTC)
   const connectWHEP = useCallback(async (whepUrl: string) => {
     if (Platform.OS !== "web") return;
     try {
@@ -354,14 +354,14 @@ export default function LiveStreamScreen() {
             >
               <Ionicons name="lock-closed-outline" size={40} color="#ffffffaa" />
               <Text style={{ color: "#fff", marginTop: 12, fontSize: 15, fontWeight: "700", textAlign: "center" }}>
-                この配信を視聴する権限がありません
+                You do not have permission to watch this stream.
               </Text>
               <Text style={{ color: "#ffffffb3", marginTop: 8, fontSize: 13, textAlign: "center" }}>
                 {apiStream?.visibility === "followers"
-                  ? "ログインし、配信者をフォローしている必要があります。"
+                  ? "Please sign in and follow the streamer."
                   : apiStream?.visibility === "community"
-                    ? "ログインし、指定コミュニティのメンバーである必要があります。"
-                    : "条件を満たしてから再度お試しください。"}
+                    ? "Please sign in and join the required community."
+                    : "Please meet the requirements and try again."}
               </Text>
             </View>
           )}
@@ -395,7 +395,7 @@ export default function LiveStreamScreen() {
                   style={[styles.followBtn, apiStream?.isFollowingHost && styles.followBtnFollowing]}
                   disabled={followHostMutation.isPending || apiStream?.isFollowingHost}
                   onPress={() => {
-                    if (!requireAuth("フォロー")) return;
+                    if (!requireAuth("follow")) return;
                     followHostMutation.mutate();
                   }}
                 >
@@ -403,7 +403,7 @@ export default function LiveStreamScreen() {
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
                     <Text style={styles.followBtnText}>
-                      {apiStream?.isFollowingHost ? "フォロー中" : "フォロー"}
+                      {apiStream?.isFollowingHost ? "Following" : "Follow"}
                     </Text>
                   )}
                 </Pressable>

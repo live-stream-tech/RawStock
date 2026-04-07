@@ -36,7 +36,7 @@ const PAID_HERO_H = Platform.OS === "web"
 // Hero card width: on web the app container is capped at 500px; on native use full screen width
 const HERO_CARD_W = Platform.OS === "web" ? Math.min(SCREEN_W, 500) : SCREEN_W;
 
-/** 本番で相対URL・空URLのサムネが真っ黒になるのを防ぐ */
+/** Prevent black thumbnails from empty/relative media URLs in production. */
 const FALLBACK_VIDEO_THUMB =
   "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=800&h=520&fit=crop";
 
@@ -390,7 +390,7 @@ export default function HomeScreen() {
           style={styles.announcementBar}
           onPress={() => router.push("/announcements" as any)}
           accessibilityRole="button"
-          accessibilityLabel="お知らせ一覧へ"
+          accessibilityLabel="Open announcements"
         >
           <Ionicons name="megaphone-outline" size={16} color={C.accent} style={{ marginRight: 8 }} />
           <Text style={styles.announcementBarText} numberOfLines={1}>

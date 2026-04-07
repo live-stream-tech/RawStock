@@ -1,4 +1,4 @@
-// ビルド時に __CACHE_VERSION__ がスクリプトで置換され、デプロイごとに古いキャッシュが削除される
+// __CACHE_VERSION__ is replaced at build time to rotate caches per deploy.
 const CACHE_NAME = "rawstock-__CACHE_VERSION__";
 const STATIC_ASSETS = [
   "/",
@@ -25,7 +25,7 @@ self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   if (event.request.url.includes("/api/")) return;
 
-  // ナビゲーションリクエスト（HTML）はネットワーク優先で最新版を取得
+  // Navigation requests (HTML): network-first to fetch latest pages.
   const isNav = event.request.mode === "navigate";
   if (isNav) {
     event.respondWith(
@@ -42,7 +42,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // その他はキャッシュ優先
+  // All other requests: cache-first.
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;

@@ -20,11 +20,11 @@ type AnnouncementRow = {
 };
 
 const TYPE_LABEL: Record<string, string> = {
-  official: "運営",
-  event: "イベント",
-  community: "コミュニティ",
-  recruiting: "募集",
-  maintenance: "メンテナンス",
+  official: "Official",
+  event: "Event",
+  community: "Community",
+  recruiting: "Recruiting",
+  maintenance: "Maintenance",
 };
 
 function typeLabel(type: string): string {
@@ -35,7 +35,7 @@ function formatDate(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("ja-JP", { year: "numeric", month: "short", day: "numeric" });
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 }
 
 export default function AnnouncementsScreen() {
@@ -54,19 +54,19 @@ export default function AnnouncementsScreen() {
         <Pressable style={styles.backBtn} onPress={() => router.back()} accessibilityRole="button">
           <Ionicons name="chevron-back" size={24} color={C.text} />
         </Pressable>
-        <Text style={styles.headerTitle}>お知らせ</Text>
+        <Text style={styles.headerTitle}>Announcements</Text>
         <View style={{ width: 36 }} />
       </View>
 
       <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
         {isLoading ? (
           <View style={styles.empty}>
-            <Text style={styles.emptyText}>読み込み中…</Text>
+            <Text style={styles.emptyText}>Loading...</Text>
           </View>
         ) : rows.length === 0 ? (
           <View style={styles.empty}>
             <Ionicons name="newspaper-outline" size={40} color={C.textMuted} />
-            <Text style={styles.emptyText}>お知らせはありません</Text>
+            <Text style={styles.emptyText}>No announcements yet</Text>
           </View>
         ) : (
           rows.map((item) => (
@@ -78,7 +78,7 @@ export default function AnnouncementsScreen() {
                 {item.isPinned ? (
                   <View style={styles.pinnedBadge}>
                     <Ionicons name="pin" size={12} color={C.accent} />
-                    <Text style={styles.pinnedText}>固定</Text>
+                    <Text style={styles.pinnedText}>Pinned</Text>
                   </View>
                 ) : null}
                 <View style={styles.typePill}>

@@ -51,7 +51,7 @@ export default function Root({ children }: PropsWithChildren) {
             z-index: 1;
             isolation: isolate;
           }
-          /* iOS PWA: 100% だけだとアドレスバー周りで高さがずれることがある */
+          /* iOS PWA: avoid viewport-height mismatch around browser chrome */
           @supports (height: 100dvh) {
             body {
               min-height: 100dvh;
@@ -62,8 +62,8 @@ export default function Root({ children }: PropsWithChildren) {
               min-height: -webkit-fill-available;
             }
           }
-          /* PC Web: 細身シアン系スクロールバー。
-             #root 配下で詳細度を上げ、RN Web が付ける .class::-webkit-scrollbar{display:none} を潰す */
+          /* Desktop web: force slim cyan scrollbars.
+             Increase selector specificity under #root to override RN Web defaults. */
           @media (min-width: 768px) and (pointer: fine) {
             #root * {
               scrollbar-width: thin !important;
@@ -89,7 +89,7 @@ export default function Root({ children }: PropsWithChildren) {
           }
           * { font-family: 'Courier Prime', monospace; }
           h1, h2, h3, h4, h5, h6, .display { font-family: 'Barlow Condensed', sans-serif !important; }
-          /* スキャンライン効果 */
+          /* Scanline overlay effect */
           body::after {
             content: '';
             position: fixed;
@@ -102,12 +102,12 @@ export default function Root({ children }: PropsWithChildren) {
               rgba(0, 255, 204, 0.015) 4px
             );
             pointer-events: none;
-            /* #root(z-index:1) の下に回し、タブバー等が隠れないようにする */
+            /* Keep overlay beneath #root to avoid covering tab bars. */
             z-index: 0;
           }
           /*
-           * グローバル法律フッター: OAuth / クローラー向けに #root 外に実 <a> を残す。
-           * body flex 列の末尾に置き、タブバー余白は RN 側のまま。
+           * Global legal footer: keep real anchors outside #root for OAuth crawlers.
+           * Place it at the end of the body flex column; tab spacing stays in RN layouts.
            */
           #global-legal-footer {
             flex-shrink: 0;

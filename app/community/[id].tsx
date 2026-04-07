@@ -203,14 +203,14 @@ function EmbeddedJukebox({ communityId }: { communityId: number }) {
   const state = data?.state ?? null;
   const queue = data?.queue ?? [];
   const chat = (data?.chat ?? []).slice(-3);
-  // 再生中の曲を除外した「次に再生される」キュー（Now Playing と重複しないように）
+  // "Up next" queue excluding currently playing track.
   const upcoming = queue.filter(
     (q) =>
       !q.isPlayed &&
       !(state?.currentVideoId != null && q.videoId === state.currentVideoId) &&
       !(state?.currentVideoYoutubeId && (q as any).youtubeId === state.currentVideoYoutubeId)
   );
-  // 再生中の曲の「誰が選んだか」表示用
+  // Display helper for who selected the current track.
   const addedByItem =
     state &&
     queue.find(
@@ -951,7 +951,7 @@ export default function CommunityDetailScreen() {
                 setFollowing(true);
                 qc.invalidateQueries({ queryKey: [`/api/communities/${communityId}/members`] });
               } catch {
-                // 既にメンバーなど
+                // Already a member, etc.
                 setFollowing(true);
               }
             }}
@@ -1363,7 +1363,7 @@ export default function CommunityDetailScreen() {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* スレッド詳細モーダル */}
+      {/* Thread details modal */}
       <Modal
         visible={!!selectedThreadId}
         transparent
@@ -1410,7 +1410,7 @@ export default function CommunityDetailScreen() {
         </View>
       </Modal>
 
-      {/* 新規スレッド作成モーダル */}
+      {/* New thread modal */}
       <Modal
         visible={showCreateThread}
         transparent
@@ -1460,7 +1460,7 @@ export default function CommunityDetailScreen() {
         </View>
       </Modal>
 
-      {/* 編集依頼モーダル */}
+      {/* Edit request modal */}
       <Modal
         visible={!!requestEditor}
         transparent
@@ -1591,7 +1591,7 @@ export default function CommunityDetailScreen() {
         </Pressable>
       </Modal>
 
-      {/* 管理人・モデレーター設定モーダル（メンバーから選択） */}
+      {/* Admin/moderator settings modal (select from members) */}
       <Modal visible={staffModalVisible} transparent animationType="slide">
         <Pressable style={styles.requestModalOverlay} onPress={() => !savingStaff && setStaffModalVisible(false)}>
           <Pressable style={[styles.requestModalSheet, styles.staffModalSheet]} onPress={() => {}}>

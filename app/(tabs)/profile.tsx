@@ -68,7 +68,7 @@ type LevelProgress = {
 };
 
 
-/** 公開プロフィール用の投稿一覧（プレビュー用） */
+/** Post list for public profile preview. */
 function ProfilePreviewPosts({ userId }: { userId: number }) {
   const { data: posts = [] } = useQuery<MyVideo[]>({
     queryKey: [`/api/users/${userId}/posts`],
@@ -91,10 +91,10 @@ function ProfilePreviewPosts({ userId }: { userId: number }) {
   );
 }
 
-// v2: 旧フラグ（pwa_add_to_home_dismissed）は無視して再度表示できるようにする
+// v2: ignore legacy dismiss flag and allow showing prompt again.
 const PWA_DISMISSED_KEY = "pwa_add_to_home_dismissed_v2";
 
-/** PWA「ホーム画面に追加」FAB＋ポップアップ。Web かつ 未インストール かつ 未閉じの場合のみ表示 */
+/** PWA "Add to Home Screen" FAB + popup for eligible web users. */
 function usePwaInstallBanner() {
   const [showBanner, setShowBanner] = useState(false);
   const [showPopup, setShowPopup] = useState(false);
@@ -125,7 +125,7 @@ function usePwaInstallBanner() {
         isStandalone = true;
       }
     } catch {
-      // 判定に失敗した場合はスタンドアロン扱いにはしない
+      // If detection fails, do not treat as standalone mode.
       isStandalone = false;
     }
 
@@ -134,15 +134,15 @@ function usePwaInstallBanner() {
       return;
     }
 
-    // v2では一旦「閉じた」フラグをかなり緩く扱う（存在しても表示を完全には止めない）
+    // v2 treats "dismissed" flag loosely so prompt can reappear.
     try {
       const dismissed = window.localStorage.getItem(PWA_DISMISSED_KEY);
       if (dismissed === "1") {
-        // 旧来どおり完全に非表示にするのではなく、今回だけは再度表示させる
-        // ユーザーがもう一度閉じれば新しいフラグが保存される
+        // Do not permanently hide by legacy flag; allow one more display.
+        // If closed again, a new flag will be stored.
       }
     } catch {
-      // localStorage が使えなくても表示は続行する
+      // Continue showing even if localStorage is unavailable.
     }
 
     const onBeforeInstall = (e: Event) => {
@@ -160,7 +160,7 @@ function usePwaInstallBanner() {
       try {
         window.localStorage.setItem(PWA_DISMISSED_KEY, "1");
       } catch {
-        // localStorage が使えない環境では単にフラグなしで閉じる
+        // In environments without localStorage, close without persisting.
       }
     }
     setShowPopup(false);
@@ -208,7 +208,7 @@ export default function ProfileScreen() {
   const queryClient = useQueryClient();
   const [demoLoading, setDemoLoading] = useState(false);
 
-  // ポップアップログイン完了時のpostMessageリスナー
+  // postMessage listener for popup-login completion.
   useEffect(() => {
     if (Platform.OS !== "web" || typeof window === "undefined") return;
     const handler = async (event: MessageEvent) => {
@@ -330,7 +330,7 @@ export default function ProfileScreen() {
     setProfileSaving(true);
     try {
       await updateProfile({ name: editName.trim(), bio: editBio.trim(), avatar: editAvatar.trim() || null });
-      // モーダルを先に閉じてから saving を解除（UI の即時反映）
+      // Close modal first, then clear saving for immediate UI response.
       setShowProfileModal(false);
     } catch (e: any) {
       Alert.alert("Save Failed", e.message ?? "Something went wrong");
@@ -713,8 +713,8 @@ export default function ProfileScreen() {
                 TIP BACK RATE: {Math.round(levelProgress.tipBackRate * 100)}% / PAID LIVE: 90%
               </Text>
               <Text style={styles.supporterHint}>
-                次レベルまであと {levelProgress.remainingStreamCount} 回配信 / あと ¥
-                {levelProgress.remainingTipGross.toLocaleString()} 投げ銭
+                {levelProgress.remainingStreamCount} more streams or ¥
+                {levelProgress.remainingTipGross.toLocaleString()} more in tips to next level
               </Text>
             </>
           ) : (
@@ -835,7 +835,7 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        {/* マイリスト */}
+        {/* My List */}
         <View style={styles.myListSection}>
           <View style={styles.myListHeader}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -865,7 +865,7 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* 参加コミュニティパネル */}
+        {/* Joined communities panel */}
         {myCommunities.length > 0 && (
           <View style={styles.myCommunitiesSection}>
             <View style={styles.myCommunitiesHeader}>
@@ -958,7 +958,7 @@ export default function ProfileScreen() {
           )}
         </View>
 
-        {/* 作品タイムライン */}
+        {/* Works timeline */}
         <View style={styles.postsHeader}>
           <View style={styles.postsLeft}>
             <Text style={styles.postsTitle}>Works</Text>
@@ -1034,7 +1034,7 @@ export default function ProfileScreen() {
 
       {profileFloatingActions}
 
-      {/* プレビュー（公開プロフィール）モーダル */}
+      {/* Public profile preview modal */}
       <Modal visible={showPreviewModal} transparent animationType="slide">
         <View style={styles.modalBg}>
           <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setShowPreviewModal(false)} />
