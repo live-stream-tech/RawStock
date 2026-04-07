@@ -21,13 +21,13 @@ if (Platform.OS === "web" && typeof window !== "undefined" && "serviceWorker" in
   });
 }
 
-/** URL に auth/callback?token / ?token があるか（web のみ）。初回から正しく検知してフラッシュを防ぐ */
+/** Detect auth token in web URL to avoid first-render flash. */
 function useHasTokenInUrl(): boolean {
   const [hasToken] = useState(() => {
     if (Platform.OS !== "web" || typeof window === "undefined") return false;
     // /auth/callback?token=xxx
     if (window.location.pathname === "/auth/callback" && new URLSearchParams(window.location.search).get("token")) return true;
-    // /?token=xxx（iOS Safari PWA対応）
+    // /?token=xxx (including iOS Safari PWA flow)
     if (window.location.pathname === "/" && new URLSearchParams(window.location.search).get("token")) return true;
     return false;
   });
@@ -35,19 +35,19 @@ function useHasTokenInUrl(): boolean {
 }
 
 /**
- * 認証トークンハンドラ。
- * - /?token=xxx（iOS Safari PWA対応）: ルートで直接トークン処理
+ * Auth token handler.
+ * - /?token=xxx: process token directly at root route.
  */
 function TokenHandler({ children }: { children: React.ReactNode }) {
   const { loginWithToken } = useAuth();
 
-  // Web: /?token=xxx パターン（iOS Safari PWA対応）
+  // Web /?token=xxx pattern (including iOS Safari PWA).
   useEffect(() => {
     if (Platform.OS !== "web" || typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const token = params.get("token");
     if (!token || window.location.pathname !== "/") return;
-    // URLからtokenを除去してからログイン処理
+    // Remove token from URL before login handling.
     const newUrl = window.location.pathname;
     window.history.replaceState({}, "", newUrl);
     loginWithToken(token)
@@ -63,7 +63,7 @@ function isPublicPath(_pathname: string): boolean {
   return true;
 }
 
-/** 初回ログイン時は設定（登録情報編集）を必須にする */
+/** Require profile setup on first login. */
 const PROFILE_SETUP_REQUIRED_NAMES = ["Google User", "User"];
 function needsProfileSetup(displayName: string | undefined): boolean {
   const name = (displayName ?? "").trim();
@@ -86,7 +86,7 @@ function ProfileSetupGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-/** ルートレベルの認証ガード。指定のパス以外はすべてログイン必須にする。 */
+/** Root-level auth guard for non-public routes. */
 function EventPreviewBanner() {
   const { user, loading } = useAuth();
   if (loading || user) return null;
@@ -103,12 +103,12 @@ function GlobalAuthGate({ children }: { children: React.ReactNode }) {
   const { user, token, loading } = useAuth();
   const pathname = usePathname();
   const hasTokenInUrl = useHasTokenInUrl();
-  // ログイン済み判定: userがあるか、ネットワークエラー時に tokenだけ復元された場合も含む
+  // Treat as signed in if user exists or token was restored.
   const isLoggedIn = !!user || !!token;
 
   useEffect(() => {
     if (loading) return;
-    if (hasTokenInUrl) return; // OAuthコールバック処理中は何もしない
+    if (hasTokenInUrl) return; // Skip redirects while OAuth callback is in progress.
     if (!pathname) return;
     if (isLoggedIn) return;
     if (isPublicPath(pathname)) return;
@@ -120,7 +120,7 @@ function GlobalAuthGate({ children }: { children: React.ReactNode }) {
     router.replace("/auth/login");
   }, [user, token, loading, pathname, hasTokenInUrl, isLoggedIn]);
 
-  // 未ログインかつ保護ページの場合は何も描画しない（リダイレクト待ち）
+  // Render nothing while waiting for redirect on protected routes.
   if (!isLoggedIn && !loading && !hasTokenInUrl && pathname && !isPublicPath(pathname)) {
     return null;
   }

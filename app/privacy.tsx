@@ -73,13 +73,13 @@ export default function PrivacyScreen() {
         </Article>
 
         <Article title="Article 7 — Access, Correction & Deletion">
-          You may request access, correction, or deletion of your personal data by contacting rawstock.infomation@gmail.com.
+          You may request access, correction, or deletion of your personal data by contacting info@rawstock.live.
           We will verify your identity before responding.
         </Article>
 
         <Article title="Article 8 — GDPR (EU Users)">
           {
-            "If you are in the European Economic Area, we process personal data under lawful bases such as contract, legitimate interests, and consent where applicable. You may have the right to access, rectify, erase, restrict processing, object, and data portability, and to lodge a complaint with your supervisory authority. Contact: rawstock.infomation@gmail.com."
+            "If you are in the European Economic Area, we process personal data under lawful bases such as contract, legitimate interests, and consent where applicable. You may have the right to access, rectify, erase, restrict processing, object, and data portability, and to lodge a complaint with your supervisory authority. Contact: info@rawstock.live."
           }
         </Article>
 
@@ -109,7 +109,7 @@ export default function PrivacyScreen() {
           Name: Hiromi Kanokifu{"\n"}
           Trade name: RawStock{"\n"}
           Address: Shibuya Dogenzaka Tokyu Bldg 2F-C, 1-10-8 Dogenzaka, Shibuya, Tokyo 150-0043, Japan{"\n"}
-          Email: rawstock.infomation@gmail.com
+          Email: info@rawstock.live
         </Article>
 
         <View style={{ height: 80 }} />

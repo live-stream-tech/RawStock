@@ -6,7 +6,7 @@ import { router } from "expo-router";
 import { C } from "@/constants/colors";
 import { webScrollStyle } from "@/constants/layout";
 
-const AGENT_EMAIL = "rawstock.infomation@gmail.com";
+const AGENT_EMAIL = "info@rawstock.live";
 
 export default function DmcaScreen() {
   const insets = useSafeAreaInsets();

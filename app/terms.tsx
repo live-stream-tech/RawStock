@@ -106,7 +106,7 @@ export default function TermsScreen() {
 
         <Article title="7. Payments, Subscriptions & Virtual Gifts">
           {
-            'Purchases of paid content, tickets, or virtual gifts are final and non-refundable unless required by applicable law (for example, certain consumer rights in the EU or UK).\n\nCalifornia residents: Under California Civil Code § 1789.3, consumer rights information may be obtained by contacting rawstock.infomation@gmail.com.'
+            'Purchases of paid content, tickets, or virtual gifts are final and non-refundable unless required by applicable law (for example, certain consumer rights in the EU or UK).\n\nCalifornia residents: Under California Civil Code § 1789.3, consumer rights information may be obtained by contacting info@rawstock.live.'
           }
         </Article>
 

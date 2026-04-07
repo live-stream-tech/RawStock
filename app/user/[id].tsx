@@ -130,20 +130,20 @@ export default function UserProfileScreen() {
   });
   const handleDM = useCallback(async () => {
     if (!me) {
-      Alert.alert("ログインが必要です", "DM を送るにはサインインしてください");
+      Alert.alert("Login Required", "Please sign in to send a DM.");
       return;
     }
     try {
       const res = await apiRequest("POST", "/api/dm/open", { peerUserId: userId });
       const data = (await res.json()) as { threadId?: number };
       if (data.threadId == null) {
-        Alert.alert("DM", "スレッドを開けませんでした");
+        Alert.alert("DM", "Could not open the thread.");
         return;
       }
       void queryClient.invalidateQueries({ queryKey: ["/api/dm-messages"] });
       router.push(`/dm/${data.threadId}`);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "DM を開けませんでした";
+      const msg = e instanceof Error ? e.message : "Could not open DM.";
       Alert.alert("DM", msg);
     }
   }, [me, userId, queryClient]);
@@ -228,7 +228,7 @@ export default function UserProfileScreen() {
       </View>
 
       <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
-        {/* 写真・名前・公開情報 */}
+        {/* Avatar, name, public profile info */}
         <View style={styles.profileCard}>
           <View style={styles.avatarWrap}>
             {avatar ? (
@@ -244,7 +244,7 @@ export default function UserProfileScreen() {
             <Text style={styles.roleBadge}>{profile.role}</Text>
           ) : null}
           {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
-          {/* フォロー数 */}
+          {/* Follow counts */}
           <View style={styles.followStatsRow}>
             <Pressable style={styles.followStat} onPress={() => router.push(`/user/${userId}/followers`)}>
               <Text style={styles.followStatValue}>{profile.followersCount ?? 0}</Text>
@@ -255,7 +255,7 @@ export default function UserProfileScreen() {
               <Text style={styles.followStatLabel}>Following</Text>
             </Pressable>
           </View>
-          {/* フォローボタン・DMボタン（自分以外） */}
+          {/* Follow/DM buttons (for other users) */}
           {me && me.id !== userId && (
             <View style={styles.actionRow}>
               <Pressable
@@ -315,7 +315,7 @@ export default function UserProfileScreen() {
           ) : null}
         </View>
 
-        {/* メンターセッション */}
+        {/* Mentor sessions */}
         {mentorSessions.length > 0 && (
           <View style={styles.mentorSection}>
             <Text style={styles.sectionTitle}>MENTOR SESSION</Text>
@@ -348,10 +348,10 @@ export default function UserProfileScreen() {
           </View>
         )}
 
-        {/* 参加コミュニティ厳選4つ（パネル表示） */}
+        {/* Up to 4 pinned communities (panel view) */}
         {pinnedCommunities.length > 0 && (
           <View style={styles.communitiesSection}>
-            <Text style={styles.sectionTitle}>ピン留めコミュニティ</Text>
+            <Text style={styles.sectionTitle}>Pinned Communities</Text>
             <View style={styles.communityGrid}>
               {pinnedCommunities.slice(0, 4).map((c) => (
                 <Pressable
@@ -370,7 +370,7 @@ export default function UserProfileScreen() {
 
         {memberCommunities.length > 0 && (
           <View style={styles.communitiesSection}>
-            <Text style={styles.sectionTitle}>参加コミュニティ</Text>
+            <Text style={styles.sectionTitle}>Communities</Text>
             <View style={styles.communityList}>
               {memberCommunities.map((c) => (
                 <Pressable
@@ -392,7 +392,7 @@ export default function UserProfileScreen() {
 
 
 
-        {/* 投稿一覧 */}
+        {/* Post list */}
         <View style={styles.postsSection}>
           <Text style={styles.postsTitle}>Posts</Text>
           {posts.length === 0 ? (
@@ -538,7 +538,7 @@ const styles = StyleSheet.create({
   postBody: { flex: 1 },
   postTitle: { color: C.text, fontSize: 14, fontWeight: "600" },
   postMeta: { color: C.textMuted, fontSize: 12, marginTop: 2 },
-  // メンターセッション
+  // Mentor sessions
   mentorSection: { paddingHorizontal: 16, paddingBottom: 24 },
   mentorCard: {
     flexDirection: "row",

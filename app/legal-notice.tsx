@@ -7,7 +7,7 @@ import { router } from "expo-router";
 import { C } from "@/constants/colors";
 import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 
-const CONTACT_EMAIL = "rawstock.infomation@gmail.com";
+const CONTACT_EMAIL = "info@rawstock.live";
 
 export default function LegalNoticeScreen() {
   const insets = useSafeAreaInsets();

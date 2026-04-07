@@ -247,7 +247,7 @@ export default function MentorBookingScreen() {
                 ["Service Timing", "During the live stream, when your queue position is reached"],
                 ["Cancellation", "No refunds for user-initiated cancellations. Full refund if cancelled by creator."],
                 ["Payment Method", "RawStock Tickets (purchased via Stripe in USD)"],
-                ["Support", "support@rawstock-app.com"],
+                ["Support", "info@rawstock.live"],
               ].map(([label, value]) => (
                 <View key={label} style={styles.tokushoRow}>
                   <Text style={styles.tokushoLabel}>{label}</Text>

@@ -10,7 +10,7 @@ const ROWS: [string, string][] = [
   ["Seller", "Hiromi Kanokifu"],
   ["Address", "Shibuya Dogenzaka Tokyu Bldg 2F-C, 1-10-8 Dogenzaka, Shibuya, Tokyo 150-0043, Japan"],
   ["Phone", "Not publicly listed. Please contact us by email."],
-  ["Email", "rawstock.infomation@gmail.com"],
+  ["Email", "info@rawstock.live"],
   ["Response Hours", "Email inquiries accepted. Replies within 3 business days."],
   ["Service URL", typeof window !== "undefined" ? window.location.origin : "https://rawstock.app"],
   ["Pricing", "Prices shown on each content or service page (inclusive of applicable taxes)."],

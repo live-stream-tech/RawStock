@@ -1,45 +1,48 @@
-# ネイティブライブ・フィルター方針（WHIP / Cloudflare Stream）
+# Native Live and Filter Policy (WHIP / Cloudflare Stream)
 
-RawStock のライブ送信は Cloudflare Stream の **WHIP**（WebRTC ingest）を使う。ブラウザでは [`lib/live/whip.ts`](../lib/live/whip.ts) が `RTCPeerConnection` にカメラの `MediaStream` を載せて SDP を POST する。
+RawStock live publishing uses Cloudflare Stream **WHIP** (WebRTC ingest).
+On web, [`lib/live/whip.ts`](../lib/live/whip.ts) posts SDP from `RTCPeerConnection` using camera `MediaStream`.
 
-## 方針変更（SNOW について）
+## Policy Update (SNOW)
 
-**ビューティー AR 系 SDK（旧ドキュメントでは SNOW を例示）は現状の既定パスとしない。**  
-実装コスト・`MediaStream` への載せ替え保証・ライセンスを踏まえ、次の優先順位で進める。
+Beauty AR SDKs (SNOW in earlier docs) are not the default path.
+Priorities are based on implementation cost, `MediaStream` compatibility, and licensing.
 
-| 優先 | 内容 | 備考 |
-|------|------|------|
-| A | **`react-native-webrtc` + カメラで素の `MediaStream` → 既存 `connectWHIP`** | 低遅延寄り。まず「モバイルからも配信できる」を達成する主経路。Expo では prebuild / 開発ビルドが前提。 |
-| B | **軽い映像加工** | [`react-native-vision-camera`](https://react-native-vision-camera.com/) の Frame Processor やコミュニティプラグインを候補とする。品質・メンテは自己責任。 |
-| C | **RTMPS インジェスト** | DB の `streams` に `rtmpsUrl` / `rtmpsStreamKey` がある。`MediaStream` 不要だが遅延は WebRTC より大きくなりがち。 |
-| Web | **素プレビュー**（[`app/broadcast.tsx`](../app/broadcast.tsx)） | ライブ前の CSS フィルター UI は撤去済み。加工が要る場合は B（Vision Camera 等）や Insertable Streams を別途検討。 |
+| Priority | Approach | Notes |
+|----------|----------|-------|
+| A | **`react-native-webrtc` + camera raw `MediaStream` -> existing `connectWHIP`** | Main path to enable mobile broadcasting. Requires prebuild/dev client in Expo. |
+| B | **Lightweight processing** | Consider [`react-native-vision-camera`](https://react-native-vision-camera.com/) frame processors/community plugins. |
+| C | **RTMPS ingest** | Uses `streams.rtmpsUrl` / `streams.rtmpsStreamKey`; typically higher latency than WebRTC. |
+| Web | **Raw preview** in [`app/broadcast.tsx`](../app/broadcast.tsx) | Pre-live CSS filter UI was removed. Evaluate processing separately if needed. |
 
-旧ファイル名での参照用: [`SNOW_SDK_INTEGRATION.md`](./SNOW_SDK_INTEGRATION.md)（リダイレクトのみ）。
+Legacy reference: [`SNOW_SDK_INTEGRATION.md`](./SNOW_SDK_INTEGRATION.md).
 
-## 遠隔セッション・演奏同期
+## Remote Session / Sync
 
-**複数拠点での「ノリの合った同時演奏」や厳密な同期は現状スコープ外。** ネットワーク遅延と一般配信スタックだけでは成立が難しい。  
-**研究・実装に協力してくれるコントリビュータを募集する**（アプリ内「お知らせ」や開発者向けチャネルで案内）。
+Strict low-latency synchronized multi-site performance is currently out of scope.
+Contributors interested in this research area are welcome.
 
 ## Expo / EAS
 
-- **Expo Go では不可。** `npx expo prebuild` 後の **開発ビルド**（EAS Build 等）が前提。
-- 本番は **Web / PWA のみ**（`expo prebuild` 用のカメラプラグインは撤去済み）。
+- Expo Go is not supported for this workflow.
+- Use `npx expo prebuild` + development build (e.g. EAS Build).
+- Current production target is Web/PWA.
 
-## アプリ内の接続点
+## App Integration Points
 
-| 画面 | ファイル | 備考 |
-|------|-----------|------|
-| ライブ配信（ホスト） | [`app/broadcast.tsx`](../app/broadcast.tsx) | Web / PWA のみ。`getUserMedia` + WHIP。[`lib/live/webBroadcastMedia.ts`](../lib/live/webBroadcastMedia.ts) の `acquireBroadcastMediaStream`。 |
-| メンター WHIP | [`app/mentor-room/[id].tsx`](../app/mentor-room/[id].tsx) | Web のみ `connectWHIP`。ネイティブは上記パイプライン整備後に同ユーティリティを共有。 |
+| Screen | File | Notes |
+|--------|------|-------|
+| Live broadcast (host) | [`app/broadcast.tsx`](../app/broadcast.tsx) | Web/PWA only. `getUserMedia` + WHIP via `acquireBroadcastMediaStream`. |
+| Mentor WHIP | [`app/mentor-room/[id].tsx`](../app/mentor-room/[id].tsx) | `connectWHIP` on web; native path to share utility later. |
 
-## プライバシー・ストア審査
+## Privacy / Store Review
 
-第三者のカメラ・映像 SDK を入れる場合は、**プライバシーラベル・ポリシー**にデータ取り扱いを追記する。バージョンは Pod / Gradle / `package.json` でピン留め推奨。
+If third-party camera/video SDKs are added, update privacy labels/policy accordingly.
+Pin versions in Pod/Gradle/`package.json`.
 
-## コンポーネントバージョン（手動メモ）
+## Component Version Notes
 
-| コンポーネント | バージョン | 更新日 |
-|----------------|------------|--------|
+| Component | Version | Updated |
+|-----------|---------|---------|
 | react-native-webrtc | _TBD_ | |
 | react-native-vision-camera | _TBD_ | |

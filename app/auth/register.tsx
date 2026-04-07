@@ -1,7 +1,7 @@
 import React, { useEffect } from "react";
 import { router } from "expo-router";
 
-/** 新規登録はLINEログインで行う。この画面はLINEログインへリダイレクト。 */
+/** Registration uses LINE login; this screen redirects to login. */
 export default function RegisterScreen() {
   useEffect(() => {
     router.replace("/auth/login");

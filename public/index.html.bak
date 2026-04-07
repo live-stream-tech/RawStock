@@ -5,7 +5,7 @@
     <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
     <title>%WEB_TITLE%</title>
-    <!-- Google Fonts: Barlow Condensed + Courier Prime (LPと統一) -->
+    <!-- Google Fonts: Barlow Condensed + Courier Prime (aligned with LP) -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@300;400;500;600;700;800&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet" />
@@ -15,7 +15,7 @@
       html,
       body {
         height: 100%;
-        /* PC表示時の余白背景色 */
+        /* Desktop gutter background color */
         background-color: #070F18;
         margin: 0;
         padding: 0;

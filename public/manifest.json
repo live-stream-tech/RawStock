@@ -1,13 +1,13 @@
 {
   "name": "RawStock",
   "short_name": "RawStock",
-  "description": "ライブ配信・有料動画プラットフォーム",
+  "description": "Live streaming and premium video platform",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#050505",
   "theme_color": "#00ffcc",
-  "lang": "ja",
+  "lang": "en",
   "scope": "/",
   "icons": [
     {

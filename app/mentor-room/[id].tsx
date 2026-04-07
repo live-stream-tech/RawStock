@@ -1,8 +1,8 @@
 /**
  * mentor-room/[id].tsx
- * メンターセッション ビデオ通話ルーム
- * - role=mentor: WHIP で配信（メンター側）
- * - role=user: WHEP で視聴（参加者側）
+ * Mentor session video call room.
+ * - role=mentor: publish via WHIP
+ * - role=user: watch via WHEP
  */
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -43,12 +43,12 @@ export default function MentorRoomScreen() {
     Authorization: `Bearer ${token}`,
   });
 
-  // Web のみ WebRTC（Native は MediaStream 供給後に connectWHIP を共有利用予定）
+  // WebRTC is currently web-only.
   useEffect(() => {
     if (Platform.OS !== "web") {
       setStatus("error");
       setErrorMsg(
-        "メンターセッションの映像は現在ブラウザ（Web）のみ対応です。モバイルはネイティブ WebRTC パイプライン整備後に有効化予定です（docs/LIVE_NATIVE_AND_FILTERS.md）。",
+        "Mentor session video currently works on web browsers only. Mobile support will be enabled after the native WebRTC pipeline is completed (docs/LIVE_NATIVE_AND_FILTERS.md).",
       );
       return;
     }
@@ -74,7 +74,7 @@ export default function MentorRoomScreen() {
     return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
   };
 
-  /** メンター側: WHIP で配信（ネイティブでは同 connectWHIP に MediaStream を渡す） */
+  /** Mentor side: publish via WHIP. */
   const startMentor = async () => {
     if (!whipParam) { setStatus("error"); setErrorMsg("WHIP URL not found"); return; }
     try {
@@ -93,9 +93,9 @@ export default function MentorRoomScreen() {
     }
   };
 
-  /** 参加者側: WHEP で視聴 */
+  /** Participant side: watch via WHEP. */
   const joinAsUser = async () => {
-    // まず API から WHEP URL を取得
+    // Fetch WHEP URL from API first.
     let whep = whepParam ? decodeURIComponent(whepParam) : "";
     if (!whep && id) {
       try {
@@ -181,7 +181,7 @@ export default function MentorRoomScreen() {
 
   return (
     <View style={styles.container}>
-      {/* ヘッダー */}
+      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>MENTOR SESSION</Text>
         {status === "connected" && (
@@ -192,7 +192,7 @@ export default function MentorRoomScreen() {
         )}
       </View>
 
-      {/* ビデオエリア */}
+      {/* Video area */}
       <View style={styles.videoArea}>
         {status === "connecting" && (
           <View style={styles.center}>
@@ -216,7 +216,7 @@ export default function MentorRoomScreen() {
             </TouchableOpacity>
           </View>
         )}
-        {/* Web ビデオ要素は dangerouslySetInnerHTML 経由で挿入 */}
+        {/* Insert web video element via dangerouslySetInnerHTML */}
         {Platform.OS === "web" && (
           <div style={{ width: "100%", height: "100%", position: "relative" }}>
             {role === "mentor" ? (
@@ -239,7 +239,7 @@ export default function MentorRoomScreen() {
         )}
       </View>
 
-      {/* コントロール */}
+      {/* Controls */}
       <View style={styles.controls}>
         <TouchableOpacity style={styles.endBtn} onPress={endSession}>
           <Ionicons name="call" size={24} color="#fff" />

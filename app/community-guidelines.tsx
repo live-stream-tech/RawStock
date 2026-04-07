@@ -84,7 +84,7 @@ export default function CommunityGuidelinesScreen() {
           }
         />
 
-        <Section title="7. Contact" children={"Questions: rawstock.infomation@gmail.com"} />
+        <Section title="7. Contact" children={"Questions: info@rawstock.live"} />
 
         <View style={{ height: 80 }} />
       </ScrollView>
