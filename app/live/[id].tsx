@@ -20,7 +20,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { C } from "@/constants/colors";
-import { apiRequest, getApiUrl } from "@/lib/query-client";
+import { ApiError, apiRequest, getApiUrl } from "@/lib/query-client";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/lib/auth";
 
@@ -275,6 +275,25 @@ export default function LiveStreamScreen() {
     onSuccess: () => qc.invalidateQueries({ queryKey: [`/api/live-streams/${streamId}/chat`] }),
   });
 
+  const giftSpendMutation = useMutation({
+    mutationFn: async ({ amount }: { amount: number }) => {
+      const creatorId = stream?.hostUserId;
+      if (!creatorId || !Number.isInteger(creatorId) || creatorId <= 0) {
+        throw new Error("Creator information is missing");
+      }
+      await apiRequest("POST", "/api/tickets/spend", {
+        amount,
+        type: "spend_tip",
+        creatorId,
+        referenceId: String(streamId),
+        description: `Live gift for stream ${streamId}`,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/tickets/balance"] });
+    },
+  });
+
   const sendChat = useCallback(() => {
     const msg = chatInput.trim();
     if (!msg) return;
@@ -286,12 +305,33 @@ export default function LiveStreamScreen() {
   const sendGift = useCallback((amount: number, emoji: string) => {
     if (!requireAuth("send gifts")) return;
     setShowGiftModal(false);
-    chatMutation.mutate({
-      message: `${emoji} Sent a 🎟${amount.toLocaleString()} gift!`,
-      isGift: true,
-      giftAmount: amount,
-    });
-  }, [requireAuth]);
+    giftSpendMutation.mutate(
+      { amount },
+      {
+        onSuccess: () => {
+          chatMutation.mutate({
+            message: `${emoji} Sent a 🎟${amount.toLocaleString()} gift!`,
+            isGift: true,
+            giftAmount: amount,
+          });
+        },
+        onError: (err) => {
+          if (err instanceof ApiError && err.status === 402) {
+            Alert.alert(
+              "Not Enough Tickets",
+              `You need 🎟${amount.toLocaleString()} to send this gift. Please top up your tickets.`,
+              [
+                { text: "Cancel", style: "cancel" },
+                { text: "Get Tickets", onPress: () => router.push("/tickets") },
+              ],
+            );
+            return;
+          }
+          Alert.alert("Gift Failed", "Could not send gift. Please try again.");
+        },
+      },
+    );
+  }, [chatMutation, giftSpendMutation, requireAuth]);
 
   useEffect(() => {
     if (chat.length > 0) {
