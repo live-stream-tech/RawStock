@@ -2,6 +2,8 @@
 
 > *The underground music marketplace that connects artists, editors, and fans — with no middlemen, no algorithms, and flat 90% creator payouts via direct Stripe (JPY) transactions.*
 
+RawStockは、動画販売とライブ交流を一体化した収益プラットフォームです。クリエイターは動画をアップして価格を設定するだけで販売でき、AI編集で素材をそのまま商品化できます。ファンはチケットひとつで動画購入・ライブギフト・コミュニティ機能を利用でき、収益は投稿者だけでなくコミュニティ管理者や共同制作者にも自動配分されます。チケット利用と同時に90%還元分が記録され、好きなタイミングで出金できます。
+
 **Replit Agent 4 Buildathon Entry** — March 2026
 
 ---
