@@ -9,6 +9,7 @@ export default function Root({ children }: PropsWithChildren) {
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <meta name="theme-color" content="#050505" />
+        <meta name="google-site-verification" content="HUXiBuwwGVo9sqbntmcyyHIqOoMTIEVhWh9E1mYR5V8" />
         <meta name="application-name" content="RawStock" />
         <meta name="description" content="Underground music live streaming & paid video marketplace" />
         <meta name="mobile-web-app-capable" content="yes" />
