@@ -8,14 +8,50 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
  */
 export function getApiUrl(): string {
   const host = process.env.EXPO_PUBLIC_DOMAIN;
+  let source: "env" | "window" | "localhost-dev" | "error" = "error";
+  let resolved = "";
 
   if (host) {
     const normalized = host.startsWith("http") ? host : `http://${host}`;
-    return new URL(normalized).origin + "/";
+    resolved = new URL(normalized).origin + "/";
+    source = "env";
+    // #region agent log
+    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
+      body: JSON.stringify({
+        sessionId: "88cb7d",
+        runId: "initial",
+        hypothesisId: "H1",
+        location: "lib/query-client.ts:getApiUrl",
+        message: "Resolved API base URL",
+        data: { source, resolved },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    return resolved;
   }
 
   if (typeof window !== "undefined" && window.location?.origin) {
-    return window.location.origin + "/";
+    resolved = window.location.origin + "/";
+    source = "window";
+    // #region agent log
+    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
+      body: JSON.stringify({
+        sessionId: "88cb7d",
+        runId: "initial",
+        hypothesisId: "H1",
+        location: "lib/query-client.ts:getApiUrl",
+        message: "Resolved API base URL",
+        data: { source, resolved },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    return resolved;
   }
 
   // Native 開発環境向けのフォールバック
@@ -24,7 +60,24 @@ export function getApiUrl(): string {
     console.warn(
       "[getApiUrl] EXPO_PUBLIC_DOMAIN が未設定のため、開発用に http://localhost:5000/ を使用します。",
     );
-    return "http://localhost:5000/";
+    resolved = "http://localhost:5000/";
+    source = "localhost-dev";
+    // #region agent log
+    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
+      body: JSON.stringify({
+        sessionId: "88cb7d",
+        runId: "initial",
+        hypothesisId: "H1",
+        location: "lib/query-client.ts:getApiUrl",
+        message: "Resolved API base URL",
+        data: { source, resolved },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    return resolved;
   }
 
   throw new Error(
@@ -57,6 +110,21 @@ export async function apiRequest(
 ): Promise<Response> {
   const baseUrl = getApiUrl();
   const url = new URL(route, baseUrl);
+  // #region agent log
+  fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
+    body: JSON.stringify({
+      sessionId: "88cb7d",
+      runId: "initial",
+      hypothesisId: "H2",
+      location: "lib/query-client.ts:apiRequest",
+      message: "Issuing API request",
+      data: { method, route, url: url.toString(), hasBody: Boolean(data) },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
 
   const headers: Record<string, string> = {};
   if (data) headers["Content-Type"] = "application/json";

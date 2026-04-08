@@ -53,6 +53,21 @@ const TOKEN_KEY = "auth_token";
 async function apiFetch(path: string, options?: RequestInit) {
   const base = getApiUrl();
   const url = new URL(path, base).toString();
+  // #region agent log
+  fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
+    body: JSON.stringify({
+      sessionId: "88cb7d",
+      runId: "initial",
+      hypothesisId: "H2",
+      location: "lib/auth.tsx:apiFetch",
+      message: "Auth API request start",
+      data: { path, url, method: options?.method ?? "GET" },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
   const res = await fetch(url, {
     headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
     ...options,
@@ -69,6 +84,21 @@ async function apiFetch(path: string, options?: RequestInit) {
   }
 
   if (!res.ok) {
+    // #region agent log
+    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
+      body: JSON.stringify({
+        sessionId: "88cb7d",
+        runId: "initial",
+        hypothesisId: "H3",
+        location: "lib/auth.tsx:apiFetch",
+        message: "Auth API request failed",
+        data: { path, status: res.status, error: data?.error ?? null, code: data?.code ?? null },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     const err: Error & { status?: number; code?: unknown; body?: string } = new Error(
       data?.error ?? "エラーが発生しました",
     );
@@ -164,6 +194,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (data.xUrl !== undefined) payload.xUrl = data.xUrl;
     if (data.phoneNumber !== undefined) payload.phoneNumber = data.phoneNumber;
     if (data.pinnedCommunityIds !== undefined) payload.pinnedCommunityIds = data.pinnedCommunityIds;
+    // #region agent log
+    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
+      body: JSON.stringify({
+        sessionId: "88cb7d",
+        runId: "initial",
+        hypothesisId: "H3",
+        location: "lib/auth.tsx:updateProfile",
+        message: "Submitting profile update",
+        data: { payloadKeys: Object.keys(payload), hasToken: Boolean(t) },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     const updated = await apiFetch("/api/auth/profile", {
       method: "PUT",
       headers: { Authorization: `Bearer ${t}` },
