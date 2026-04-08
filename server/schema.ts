@@ -507,6 +507,8 @@ export const users = pgTable("users", {
   email: text("email").unique(),
   passwordHash: text("password_hash"),
   welcomeDmSentAt: timestamp("welcome_dm_sent_at"),
+  /** 運営DM（Operations Team）を初めて開いた日時。未設定かつ welcome 済みなら一覧に未読バッジ */
+  operationsDmOpenedAt: timestamp("operations_dm_opened_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

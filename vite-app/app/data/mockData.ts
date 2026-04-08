@@ -4,7 +4,6 @@ export interface User {
   avatar: string;
   followers: number;
   following: number;
-  enneagramScores: number[]; // 9 values for enneagram
   isSupporter: boolean;
   supporterLevel: number;
   bio?: string; // 自己紹介文
@@ -188,7 +187,6 @@ export const currentUser: User = {
   avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&h=400&fit=crop",
   followers: 1234,
   following: 567,
-  enneagramScores: [8, 6, 7, 5, 9, 4, 6, 7, 8],
   isSupporter: true,
   supporterLevel: 3,
   bio: "音楽と旅行が大好き！",
@@ -207,7 +205,6 @@ export const allUsers: User[] = [
     avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&h=400&fit=crop",
     followers: 45200,
     following: 234,
-    enneagramScores: [7, 8, 9, 6, 5, 7, 8, 9, 6],
     isSupporter: false,
     supporterLevel: 0,
     bio: "地下アイドルやってます！ライブ来てね✨",
@@ -222,7 +219,6 @@ export const allUsers: User[] = [
     avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400&h=400&fit=crop",
     followers: 28900,
     following: 456,
-    enneagramScores: [8, 7, 6, 9, 8, 7, 5, 6, 7],
     isSupporter: false,
     supporterLevel: 0,
     bio: "JKです📱毎日配信してるよ〜",
@@ -237,7 +233,6 @@ export const allUsers: User[] = [
     avatar: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=400&h=400&fit=crop",
     followers: 67800,
     following: 123,
-    enneagramScores: [9, 8, 7, 8, 9, 6, 7, 8, 5],
     isSupporter: true,
     supporterLevel: 5,
     bio: "六本木のキャバ嬢💋メイク・ファッション配信",
@@ -252,7 +247,6 @@ export const allUsers: User[] = [
     avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=400&fit=crop",
     followers: 52100,
     following: 678,
-    enneagramScores: [7, 9, 8, 6, 7, 8, 9, 7, 6],
     isSupporter: false,
     supporterLevel: 0,
     bio: "芸人目指して修行中！笑ってください😂",
@@ -267,7 +261,6 @@ export const allUsers: User[] = [
     avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400&h=400&fit=crop",
     followers: 89300,
     following: 234,
-    enneagramScores: [6, 7, 8, 9, 6, 7, 8, 5, 9],
     isSupporter: true,
     supporterLevel: 4,
     bio: "舞台俳優🎭演劇の魅力を伝えたい",
@@ -282,7 +275,6 @@ export const allUsers: User[] = [
     avatar: "https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?w=400&h=400&fit=crop",
     followers: 72400,
     following: 890,
-    enneagramScores: [8, 9, 7, 8, 6, 9, 7, 8, 6],
     isSupporter: false,
     supporterLevel: 0,
     bio: "クラブDJ 🎧 毎週末ライブ配信",
@@ -297,7 +289,6 @@ export const allUsers: User[] = [
     avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400&h=400&fit=crop",
     followers: 34500,
     following: 345,
-    enneagramScores: [7, 6, 8, 7, 9, 6, 5, 7, 8],
     isSupporter: true,
     supporterLevel: 2,
     bio: "モデル志望✨ファッション・美容配信",
@@ -312,7 +303,6 @@ export const allUsers: User[] = [
     avatar: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400&h=400&fit=crop",
     followers: 95600,
     following: 567,
-    enneagramScores: [6, 8, 7, 9, 6, 8, 7, 5, 9],
     isSupporter: false,
     supporterLevel: 0,
     bio: "プロゲーマー目指してます🎮FPS/格ゲー",

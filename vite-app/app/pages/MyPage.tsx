@@ -2,7 +2,6 @@ import { Award, Calendar, Video, ChevronDown, ChevronUp, ImageIcon, Wallet, Edit
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
-import EnneagramGraph from "../components/EnneagramGraph";
 import CommunityPanel from "../components/CommunityPanel";
 import ProfileEditModal from "../components/ProfileEditModal";
 import UserSearchModal from "../components/UserSearchModal";
@@ -288,17 +287,6 @@ export default function MyPage() {
               )}
             </button>
           )}
-        </div>
-      </div>
-
-      {/* Enneagram Graph */}
-      <div className="pb-6">
-        <div className="px-4 pt-6 pb-2 flex items-center justify-between">
-          <h2 className="font-black text-sm uppercase tracking-[0.2em] text-slate-400">Enneagram Analysis</h2>
-          <span className="text-[10px] font-black text-[#0891B2] italic underline cursor-pointer">Retake Test</span>
-        </div>
-        <div className="bg-slate-800/30 border-y border-slate-700">
-          <EnneagramGraph scores={currentUser.enneagramScores} />
         </div>
       </div>
 

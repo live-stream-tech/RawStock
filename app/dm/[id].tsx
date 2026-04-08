@@ -73,7 +73,7 @@ export default function DMChatScreen() {
 
   const { data: peerMeta } = useQuery<{ name: string; avatar: string; otherUserId: number }>({
     queryKey: [`/api/dm-messages/${dmId}/peer`],
-    enabled: dmId > 0 && !!token && !dmInfo,
+    enabled: Number.isFinite(dmId) && dmId !== 0 && !!token && !dmInfo,
     queryFn: async () => {
       const res = await fetch(new URL(`/api/dm-messages/${dmId}/peer`, getApiUrl()).toString(), {
         headers: { Authorization: `Bearer ${token}` },
@@ -88,7 +88,7 @@ export default function DMChatScreen() {
 
   const { data: messages = [] } = useQuery<ConvMsg[]>({
     queryKey: [`/api/dm-messages/${dmId}/conversation`],
-    enabled: dmId > 0 && !!token,
+    enabled: Number.isFinite(dmId) && dmId !== 0 && !!token,
     refetchInterval: 4000,
   });
 
@@ -117,6 +117,19 @@ export default function DMChatScreen() {
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     }
   }, [messages.length]);
+
+  /** 運営DM（負のレガシーID）を開いたら初回未読バッジを消す */
+  useEffect(() => {
+    if (!token || !Number.isFinite(dmId) || dmId === 0 || dmId > 0) return;
+    void (async () => {
+      try {
+        await apiRequest("POST", `/api/dm-messages/${dmId}/read`, {});
+        await qc.invalidateQueries({ queryKey: ["/api/dm-messages"] });
+      } catch {
+        // ignore
+      }
+    })();
+  }, [dmId, token, qc]);
 
   return (
     <KeyboardAvoidingView

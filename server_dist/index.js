@@ -546,6 +546,8 @@ var users = pgTable("users", {
   email: text("email").unique(),
   passwordHash: text("password_hash"),
   welcomeDmSentAt: timestamp("welcome_dm_sent_at"),
+  /** 運営DM（Operations Team）を初めて開いた日時。未設定かつ welcome 済みなら一覧に未読バッジ */
+  operationsDmOpenedAt: timestamp("operations_dm_opened_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow()
 });
@@ -2019,16 +2021,57 @@ async function promoteAdminByEmail(target) {
 var OPERATIONS_DM_NAME = "Operations Team";
 var OPERATIONS_DM_AVATAR = "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=100&h=100&fit=crop";
 var WELCOME_DM_TEXT = [
-  "Welcome to RawStock!",
+  "Welcome to RawStock \u2014 we're the Operations Team.",
   "",
-  "Quick start guide:",
-  "1) Complete your profile to help people find you.",
-  "2) Join communities and say hello in chat.",
-  "3) Start posting videos or go live when ready.",
-  "4) Open Revenue to track earnings and withdrawals.",
+  "Here's how to get started:",
   "",
-  "If you need help, reply to this DM anytime."
+  "Everyone",
+  "\u2022 Sign in with Google to comment, buy tickets, upload, and manage your profile.",
+  "\u2022 Open My Page \u2192 Edit profile to add a photo, bio, and social links.",
+  "\u2022 Explore communities, join the ones you like, and chat with members.",
+  "",
+  "Fans",
+  "\u2022 Buy tickets and use them for paid videos, live gifts, jukebox requests in communities, and more.",
+  "\u2022 Follow creators from their profile to stay updated.",
+  "",
+  "Creators",
+  "\u2022 Upload videos and set a price to sell. Use the AI Edit Assistant to polish raw footage.",
+  "\u2022 Go live from the web / PWA broadcaster to connect with fans in real time.",
+  "\u2022 Open Revenue to see earnings and request payouts (Stripe Connect setup required).",
+  "",
+  "Community hosts",
+  "\u2022 Run a community: member activity can generate shared revenue (e.g. ads, jukebox).",
+  "",
+  "Questions? Reply to this DM anytime."
 ].join("\n");
+async function ensureOperationsDmRow() {
+  const [existing] = await db.select().from(dmMessages).where(eq2(dmMessages.name, OPERATIONS_DM_NAME));
+  if (existing) return existing;
+  try {
+    const previewLine = WELCOME_DM_TEXT.split("\n").find((line) => line.trim().length > 0) ?? "Welcome to RawStock";
+    const [created] = await db.insert(dmMessages).values({
+      name: OPERATIONS_DM_NAME,
+      avatar: OPERATIONS_DM_AVATAR,
+      lastMessage: previewLine.slice(0, 500),
+      time: "Just now",
+      unread: 0,
+      online: true,
+      sortOrder: 0
+    }).returning();
+    if (created) {
+      await db.insert(dmConversationMessages).values({
+        dmId: created.id,
+        sender: "them",
+        text: WELCOME_DM_TEXT,
+        isRead: false
+      });
+    }
+    return created;
+  } catch {
+    const [again] = await db.select().from(dmMessages).where(eq2(dmMessages.name, OPERATIONS_DM_NAME));
+    return again;
+  }
+}
 function formatDmThreadTime(d) {
   if (!d) return "";
   const t = d instanceof Date ? d.getTime() : new Date(d).getTime();
@@ -2094,10 +2137,10 @@ async function getOrCreateSystemWallets() {
   }
   return result;
 }
-async function getOrCreateUserWallet(userId) {
-  const [w] = await db.select().from(wallets).where(and2(eq2(wallets.userId, userId), isNull(wallets.kind)));
+async function getOrCreateUserWallet(userId, executor = db) {
+  const [w] = await executor.select().from(wallets).where(and2(eq2(wallets.userId, userId), isNull(wallets.kind)));
   if (w) return w.id;
-  const [created] = await db.insert(wallets).values({ userId, kind: null }).returning();
+  const [created] = await executor.insert(wallets).values({ userId, kind: null }).returning();
   return created.id;
 }
 var DEFAULT_LEVEL_THRESHOLDS = [
@@ -2114,10 +2157,10 @@ function getYearMonth(date = /* @__PURE__ */ new Date()) {
   const m = String(date.getMonth() + 1).padStart(2, "0");
   return `${y}-${m}`;
 }
-async function ensureDefaultLevelThresholds() {
-  const rows = await db.select().from(creatorLevelThresholds).orderBy(asc2(creatorLevelThresholds.level));
+async function ensureDefaultLevelThresholds(executor = db) {
+  const rows = await executor.select().from(creatorLevelThresholds).orderBy(asc2(creatorLevelThresholds.level));
   if (rows.length > 0) return rows;
-  await db.insert(creatorLevelThresholds).values(
+  await executor.insert(creatorLevelThresholds).values(
     DEFAULT_LEVEL_THRESHOLDS.map((t) => ({
       level: t.level,
       requiredTipGross: t.requiredTipGross,
@@ -2125,24 +2168,24 @@ async function ensureDefaultLevelThresholds() {
       tipBackRate: t.tipBackRate
     }))
   );
-  return db.select().from(creatorLevelThresholds).orderBy(asc2(creatorLevelThresholds.level));
+  return executor.select().from(creatorLevelThresholds).orderBy(asc2(creatorLevelThresholds.level));
 }
-async function syncCreatorLevelFromMonthlyProgress(creatorId, yearMonth) {
-  const thresholds = await ensureDefaultLevelThresholds();
-  const [score] = await db.select().from(creatorMonthlyScores).where(and2(eq2(creatorMonthlyScores.creatorId, creatorId), eq2(creatorMonthlyScores.yearMonth, yearMonth)));
+async function syncCreatorLevelFromMonthlyProgress(creatorId, yearMonth, executor = db) {
+  const thresholds = await ensureDefaultLevelThresholds(executor);
+  const [score] = await executor.select().from(creatorMonthlyScores).where(and2(eq2(creatorMonthlyScores.creatorId, creatorId), eq2(creatorMonthlyScores.yearMonth, yearMonth)));
   const tipGross = score?.tipGross ?? 0;
   const streamCountMonthly = score?.streamCountMonthly ?? 0;
   const achieved = thresholds.reduce((acc, t) => {
     if (tipGross >= t.requiredTipGross && streamCountMonthly >= t.requiredStreamCount) return Math.max(acc, t.level);
     return acc;
   }, 1);
-  await db.update(creators).set({ currentLevel: achieved }).where(eq2(creators.id, creatorId));
+  await executor.update(creators).set({ currentLevel: achieved }).where(eq2(creators.id, creatorId));
   return achieved;
 }
-async function upsertCreatorMonthlyRevenue(creatorId, yearMonth, source, grossAmount) {
-  const [existing] = await db.select().from(creatorMonthlyScores).where(and2(eq2(creatorMonthlyScores.creatorId, creatorId), eq2(creatorMonthlyScores.yearMonth, yearMonth)));
+async function upsertCreatorMonthlyRevenue(creatorId, yearMonth, source, grossAmount, executor = db) {
+  const [existing] = await executor.select().from(creatorMonthlyScores).where(and2(eq2(creatorMonthlyScores.creatorId, creatorId), eq2(creatorMonthlyScores.yearMonth, yearMonth)));
   if (!existing) {
-    await db.insert(creatorMonthlyScores).values({
+    await executor.insert(creatorMonthlyScores).values({
       creatorId,
       yearMonth,
       tipGross: source === "tip" ? grossAmount : 0,
@@ -2150,24 +2193,24 @@ async function upsertCreatorMonthlyRevenue(creatorId, yearMonth, source, grossAm
     });
     return;
   }
-  await db.update(creatorMonthlyScores).set({
+  await executor.update(creatorMonthlyScores).set({
     tipGross: source === "tip" ? existing.tipGross + grossAmount : existing.tipGross,
     paidLiveGross: source === "tip" ? existing.paidLiveGross : existing.paidLiveGross + grossAmount,
     updatedAt: /* @__PURE__ */ new Date()
   }).where(eq2(creatorMonthlyScores.id, existing.id));
 }
-async function recordRevenue(walletId, userId, creatorId, amount, source, referenceId) {
+async function recordRevenue(walletId, userId, creatorId, amount, source, referenceId, executor = db) {
   const yearMonth = getYearMonth();
   let backRate = 0.9;
   if (source === "tip") {
-    const thresholds = await ensureDefaultLevelThresholds();
-    const [creator] = creatorId ? await db.select().from(creators).where(eq2(creators.id, creatorId)) : [];
+    const thresholds = await ensureDefaultLevelThresholds(executor);
+    const [creator] = creatorId ? await executor.select().from(creators).where(eq2(creators.id, creatorId)) : [];
     const level = creator?.currentLevel ?? 1;
     const rate = thresholds.find((t) => t.level === level)?.tipBackRate;
     backRate = typeof rate === "number" ? rate : 0.5;
   }
   const netAmount = Math.floor(amount * backRate);
-  await db.insert(transactions).values({
+  await executor.insert(transactions).values({
     walletId,
     amount,
     source,
@@ -2180,7 +2223,7 @@ async function recordRevenue(walletId, userId, creatorId, amount, source, refere
     status: "PENDING",
     referenceId
   });
-  await db.insert(earnings).values({
+  await executor.insert(earnings).values({
     userId: `user-${userId}`,
     type: source,
     title: source === "tip" ? "\u6295\u3052\u92AD\u53CE\u76CA" : "\u6709\u6599\u914D\u4FE1\u53CE\u76CA",
@@ -2189,15 +2232,15 @@ async function recordRevenue(walletId, userId, creatorId, amount, source, refere
     netAmount
   });
   if (creatorId) {
-    const [creator] = await db.select().from(creators).where(eq2(creators.id, creatorId));
+    const [creator] = await executor.select().from(creators).where(eq2(creators.id, creatorId));
     if (creator) {
-      await db.update(creators).set({
+      await executor.update(creators).set({
         revenue: creator.revenue + amount,
         revenueShare: Math.round(backRate * 100)
       }).where(eq2(creators.id, creatorId));
     }
-    await upsertCreatorMonthlyRevenue(creatorId, yearMonth, source, amount);
-    await syncCreatorLevelFromMonthlyProgress(creatorId, yearMonth);
+    await upsertCreatorMonthlyRevenue(creatorId, yearMonth, source, amount, executor);
+    await syncCreatorLevelFromMonthlyProgress(creatorId, yearMonth, executor);
   }
 }
 async function registerRoutes(app2) {
@@ -2257,19 +2300,10 @@ async function registerRoutes(app2) {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
     const [u] = await db.select({
-      enneagramScores: users.enneagramScores,
       pinnedCommunityIds: users.pinnedCommunityIds
     }).from(users).where(eq2(users.id, user.id));
-    let enneagramScores = null;
     let pinnedCommunityIds = [];
     if (u) {
-      if (u.enneagramScores) {
-        try {
-          const p = JSON.parse(u.enneagramScores);
-          if (Array.isArray(p) && p.length === 9) enneagramScores = p;
-        } catch {
-        }
-      }
       if (u.pinnedCommunityIds) {
         try {
           const p = JSON.parse(u.pinnedCommunityIds);
@@ -2296,7 +2330,6 @@ async function registerRoutes(app2) {
       youtubeUrl: user.youtubeUrl ?? null,
       xUrl: user.xUrl ?? null,
       phoneNumber: user.phoneNumber ?? null,
-      enneagramScores,
       pinnedCommunityIds
     });
   });
@@ -2468,12 +2501,11 @@ async function registerRoutes(app2) {
   app2.put("/api/auth/profile", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
-    const { name, displayName, bio, avatar, profileImageUrl, spotifyUrl, appleMusicUrl, bandcampUrl, instagramUrl, youtubeUrl, xUrl, phoneNumber, enneagramScores, pinnedCommunityIds } = req.body;
+    const { name, displayName, bio, avatar, profileImageUrl, spotifyUrl, appleMusicUrl, bandcampUrl, instagramUrl, youtubeUrl, xUrl, phoneNumber, pinnedCommunityIds } = req.body;
     const newName = name ?? displayName ?? user.displayName;
     const newBio = bio ?? user.bio;
     const newAvatar = avatar ?? profileImageUrl ?? user.profileImageUrl;
     const newPhone = phoneNumber !== void 0 ? phoneNumber?.trim() || null : void 0;
-    const enneagramJson = enneagramScores !== void 0 ? Array.isArray(enneagramScores) && enneagramScores.length === 9 ? JSON.stringify(enneagramScores) : null : void 0;
     const pinnedJson = pinnedCommunityIds !== void 0 ? Array.isArray(pinnedCommunityIds) ? JSON.stringify(pinnedCommunityIds.slice(0, 4)) : null : void 0;
     const [updated] = await db.update(users).set({
       displayName: newName,
@@ -2486,19 +2518,10 @@ async function registerRoutes(app2) {
       ...youtubeUrl !== void 0 ? { youtubeUrl: youtubeUrl?.trim() || null } : {},
       ...xUrl !== void 0 ? { xUrl: xUrl?.trim() || null } : {},
       ...newPhone !== void 0 && { phoneNumber: newPhone },
-      ...enneagramJson !== void 0 && { enneagramScores: enneagramJson },
       ...pinnedJson !== void 0 && { pinnedCommunityIds: pinnedJson },
       updatedAt: /* @__PURE__ */ new Date()
     }).where(eq2(users.id, user.id)).returning();
-    let outEnneagram = null;
     let outPinned = [];
-    if (updated.enneagramScores) {
-      try {
-        const p = JSON.parse(updated.enneagramScores);
-        if (Array.isArray(p) && p.length === 9) outEnneagram = p;
-      } catch {
-      }
-    }
     if (updated.pinnedCommunityIds) {
       try {
         const p = JSON.parse(updated.pinnedCommunityIds);
@@ -2521,7 +2544,6 @@ async function registerRoutes(app2) {
       bandcampUrl: updated.bandcampUrl ?? null,
       instagramUrl: updated.instagramUrl ?? null,
       youtubeUrl: updated.youtubeUrl ?? null,
-      enneagramScores: outEnneagram,
       pinnedCommunityIds: outPinned,
       xUrl: updated.xUrl ?? null
     });
@@ -2570,7 +2592,6 @@ async function registerRoutes(app2) {
       spotifyUrl: users.spotifyUrl,
       appleMusicUrl: users.appleMusicUrl,
       bandcampUrl: users.bandcampUrl,
-      enneagramScores: users.enneagramScores,
       pinnedCommunityIds: users.pinnedCommunityIds
     }).from(users).where(eq2(users.id, id));
     if (!u) return res.status(404).json({ error: "Not found" });
@@ -2591,15 +2612,6 @@ async function registerRoutes(app2) {
       } catch {
       }
     }
-    let enneagramScores = null;
-    const scoresRaw = u.enneagramScores;
-    if (scoresRaw && typeof scoresRaw === "string") {
-      try {
-        const parsed = JSON.parse(scoresRaw);
-        if (Array.isArray(parsed) && parsed.length === 9) enneagramScores = parsed;
-      } catch {
-      }
-    }
     const [{ c: followersCountRaw }] = await db.select({ c: count() }).from(userFollows).where(eq2(userFollows.followingId, id));
     const [{ c: followingCountRaw }] = await db.select({ c: count() }).from(userFollows).where(eq2(userFollows.followerId, id));
     res.json({
@@ -2616,7 +2628,6 @@ async function registerRoutes(app2) {
       spotifyUrl: u.spotifyUrl ?? null,
       appleMusicUrl: u.appleMusicUrl ?? null,
       bandcampUrl: u.bandcampUrl ?? null,
-      enneagramScores,
       pinnedCommunities,
       followersCount: Number(followersCountRaw ?? 0),
       followingCount: Number(followingCountRaw ?? 0)
@@ -4685,21 +4696,47 @@ async function registerRoutes(app2) {
         otherUserId: peerId
       });
     }
+    const opsDm = await ensureOperationsDmRow();
+    const [{ welcomeDmSentAt, operationsDmOpenedAt }] = await db.select({
+      welcomeDmSentAt: users.welcomeDmSentAt,
+      operationsDmOpenedAt: users.operationsDmOpenedAt
+    }).from(users).where(eq2(users.id, me.id));
+    if (opsDm) {
+      const preview = (opsDm.lastMessage ?? "").split("\n").find((line) => line.trim().length > 0) ?? opsDm.lastMessage ?? "";
+      const opsUnread = welcomeDmSentAt && !operationsDmOpenedAt ? 1 : 0;
+      out.unshift({
+        id: -opsDm.id,
+        name: opsDm.name,
+        avatar: opsDm.avatar,
+        lastMessage: preview.slice(0, 200),
+        time: opsDm.time || "Just now",
+        unread: opsUnread,
+        online: Boolean(opsDm.online),
+        otherUserId: 0
+      });
+    }
     res.json(out);
   });
   app2.post("/api/dm-messages/:id/read", async (req, res) => {
-    const id = paramNum(req, "id");
+    const rawId = paramNum(req, "id");
+    const legacyDmId = rawId < 0 ? -rawId : rawId;
     const me = await getAuthUser(req);
-    if (me) {
+    if (me && rawId > 0) {
       const [th] = await db.select().from(dmThreads).where(
         and2(
-          eq2(dmThreads.id, id),
+          eq2(dmThreads.id, rawId),
           or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id))
         )
       );
       if (th) return res.json({ ok: true });
     }
-    const [updated] = await db.update(dmMessages).set({ unread: 0 }).where(eq2(dmMessages.id, id)).returning();
+    const [updated] = await db.update(dmMessages).set({ unread: 0 }).where(eq2(dmMessages.id, legacyDmId)).returning();
+    if (me) {
+      const [legacyMeta] = await db.select({ name: dmMessages.name }).from(dmMessages).where(eq2(dmMessages.id, legacyDmId));
+      if (legacyMeta?.name === OPERATIONS_DM_NAME) {
+        await db.update(users).set({ operationsDmOpenedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq2(users.id, me.id));
+      }
+    }
     res.json(updated ?? { ok: true });
   });
   app2.get("/api/notifications/unread-count", async (_req, res) => {
@@ -4751,83 +4788,104 @@ async function registerRoutes(app2) {
     res.json(msg);
   });
   app2.get("/api/dm-messages/:id/peer", async (req, res) => {
-    const id = paramNum(req, "id");
+    const rawId = paramNum(req, "id");
     const me = await getAuthUser(req);
     if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
-    const [th] = await db.select().from(dmThreads).where(
-      and2(eq2(dmThreads.id, id), or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id)))
-    );
-    if (!th) return res.status(404).json({ error: "Not found" });
-    const peerId = th.user1Id === me.id ? th.user2Id : th.user1Id;
-    const [peer] = await db.select({ displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(users).where(eq2(users.id, peerId));
-    if (!peer) return res.status(404).json({ error: "Not found" });
+    const legacyDmId = rawId < 0 ? -rawId : rawId;
+    if (rawId > 0) {
+      const [th] = await db.select().from(dmThreads).where(
+        and2(eq2(dmThreads.id, rawId), or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id)))
+      );
+      if (th) {
+        const peerId = th.user1Id === me.id ? th.user2Id : th.user1Id;
+        const [peer] = await db.select({ displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(users).where(eq2(users.id, peerId));
+        if (!peer) return res.status(404).json({ error: "Not found" });
+        return res.json({
+          name: peer.displayName ?? "User",
+          avatar: peer.profileImageUrl ?? "",
+          otherUserId: peerId
+        });
+      }
+    }
+    const [legacyDm] = await db.select().from(dmMessages).where(eq2(dmMessages.id, legacyDmId));
+    if (!legacyDm) return res.status(404).json({ error: "Not found" });
     res.json({
-      name: peer.displayName ?? "User",
-      avatar: peer.profileImageUrl ?? "",
-      otherUserId: peerId
+      name: legacyDm.name,
+      avatar: legacyDm.avatar,
+      otherUserId: 0
     });
   });
   app2.get("/api/dm-messages/:id/conversation", async (req, res) => {
-    const id = paramNum(req, "id");
+    const rawId = paramNum(req, "id");
     const me = await getAuthUser(req);
     if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
-    const [th] = await db.select().from(dmThreads).where(
-      and2(eq2(dmThreads.id, id), or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id)))
-    );
-    if (th) {
-      const rows = await db.select().from(dmThreadMessages).where(eq2(dmThreadMessages.threadId, id)).orderBy(asc2(dmThreadMessages.createdAt));
-      return res.json(
-        rows.map((m) => ({
-          id: m.id,
-          sender: m.senderUserId === me.id ? "me" : "them",
-          senderId: m.senderUserId,
-          text: m.text,
-          isRead: true,
-          createdAt: (m.createdAt ?? /* @__PURE__ */ new Date()).toISOString(),
-          imageUrl: null
-        }))
+    const legacyDmId = rawId < 0 ? -rawId : rawId;
+    if (rawId > 0) {
+      const [th] = await db.select().from(dmThreads).where(
+        and2(eq2(dmThreads.id, rawId), or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id)))
       );
+      if (th) {
+        const rows = await db.select().from(dmThreadMessages).where(eq2(dmThreadMessages.threadId, rawId)).orderBy(asc2(dmThreadMessages.createdAt));
+        return res.json(
+          rows.map((m) => ({
+            id: m.id,
+            sender: m.senderUserId === me.id ? "me" : "them",
+            senderId: m.senderUserId,
+            text: m.text,
+            isRead: true,
+            createdAt: (m.createdAt ?? /* @__PURE__ */ new Date()).toISOString(),
+            imageUrl: null
+          }))
+        );
+      }
     }
-    const msgs = await db.select().from(dmConversationMessages).where(eq2(dmConversationMessages.dmId, id)).orderBy(asc2(dmConversationMessages.createdAt));
+    const msgs = await db.select().from(dmConversationMessages).where(eq2(dmConversationMessages.dmId, legacyDmId)).orderBy(asc2(dmConversationMessages.createdAt));
     res.json(msgs);
   });
   app2.post("/api/dm-messages/:id/conversation", async (req, res) => {
-    const id = paramNum(req, "id");
+    const rawId = paramNum(req, "id");
+    const legacyDmId = rawId < 0 ? -rawId : rawId;
     const me = await getAuthUser(req);
     if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
     const text2 = typeof req.body?.text === "string" ? req.body.text : "";
     if (!text2.trim()) return res.status(400).json({ error: "\u30E1\u30C3\u30BB\u30FC\u30B8\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
-    const [th] = await db.select().from(dmThreads).where(
-      and2(eq2(dmThreads.id, id), or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id)))
-    );
-    if (th) {
-      const [msg2] = await db.insert(dmThreadMessages).values({
-        threadId: id,
-        senderUserId: me.id,
-        text: text2.trim()
-      }).returning();
-      await db.update(dmThreads).set({
-        lastMessagePreview: text2.trim().slice(0, 200),
-        updatedAt: /* @__PURE__ */ new Date()
-      }).where(eq2(dmThreads.id, id));
-      return res.json({
-        id: msg2.id,
-        sender: "me",
-        senderId: me.id,
-        text: msg2.text,
-        isRead: true,
-        createdAt: (msg2.createdAt ?? /* @__PURE__ */ new Date()).toISOString(),
-        imageUrl: null
-      });
+    if (rawId > 0) {
+      const [th] = await db.select().from(dmThreads).where(
+        and2(eq2(dmThreads.id, rawId), or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id)))
+      );
+      if (th) {
+        const [msg2] = await db.insert(dmThreadMessages).values({
+          threadId: rawId,
+          senderUserId: me.id,
+          text: text2.trim()
+        }).returning();
+        await db.update(dmThreads).set({
+          lastMessagePreview: text2.trim().slice(0, 200),
+          updatedAt: /* @__PURE__ */ new Date()
+        }).where(eq2(dmThreads.id, rawId));
+        return res.json({
+          id: msg2.id,
+          sender: "me",
+          senderId: me.id,
+          text: msg2.text,
+          isRead: true,
+          createdAt: (msg2.createdAt ?? /* @__PURE__ */ new Date()).toISOString(),
+          imageUrl: null
+        });
+      }
     }
     const [msg] = await db.insert(dmConversationMessages).values({
-      dmId: id,
+      dmId: legacyDmId,
       sender: "me",
       text: text2.trim(),
       isRead: true
     }).returning();
-    await db.update(dmMessages).set({ lastMessage: text2.trim(), unread: 0 }).where(eq2(dmMessages.id, id));
-    res.json(msg);
+    await db.update(dmMessages).set({ lastMessage: text2.trim(), unread: 0 }).where(eq2(dmMessages.id, legacyDmId));
+    res.json({
+      ...msg,
+      createdAt: (msg.createdAt ?? /* @__PURE__ */ new Date()).toISOString(),
+      imageUrl: null
+    });
   });
   app2.get("/api/jukebox/active-sessions", async (_req, res) => {
     const playingRows = await db.select({
@@ -6695,60 +6753,127 @@ data: ${data}
     if (!communityId) return res.status(400).json({ error: "communityId required" });
     const userId = String(user.id);
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    const balRows = await db.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
-    const currentBalance = balRows[0]?.balance ?? 0;
-    if (currentBalance < TICKETS_PER_JUKEBOX) {
-      return res.status(402).json({ error: "Insufficient tickets", balance: currentBalance, required: TICKETS_PER_JUKEBOX });
+    try {
+      let newBalance = 0;
+      await db.transaction(async (tx) => {
+        const [comm] = await tx.select().from(communities).where(eq2(communities.id, communityId)).limit(1);
+        const creatorUserId = comm?.ownerId ?? comm?.adminId;
+        if (!creatorUserId) {
+          throw new Error("COMMUNITY_NO_OWNER");
+        }
+        const balRows = await tx.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
+        const currentBalance = balRows[0]?.balance ?? 0;
+        if (currentBalance < TICKETS_PER_JUKEBOX) {
+          const err = new Error("INSUFFICIENT_TICKETS");
+          err.meta = { balance: currentBalance, required: TICKETS_PER_JUKEBOX };
+          throw err;
+        }
+        newBalance = currentBalance - TICKETS_PER_JUKEBOX;
+        if (balRows.length === 0) {
+          await tx.insert(ticketBalances).values({ userId, balance: newBalance });
+        } else {
+          await tx.update(ticketBalances).set({ balance: newBalance, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
+        }
+        const [spendTx] = await tx.insert(ticketTransactions).values({
+          userId,
+          amount: -TICKETS_PER_JUKEBOX,
+          type: "spend_jukebox",
+          referenceId: queueItemId ? String(queueItemId) : null,
+          description: `Jukebox request in community ${communityId}`
+        }).returning({ id: ticketTransactions.id });
+        const walletId = await getOrCreateUserWallet(creatorUserId, tx);
+        const [creatorRow] = await tx.select().from(creators).where(eq2(creators.userId, creatorUserId)).limit(1);
+        await recordRevenue(
+          walletId,
+          creatorUserId,
+          creatorRow?.id ?? null,
+          TICKETS_PER_JUKEBOX,
+          "paid_live",
+          String(spendTx.id),
+          tx
+        );
+        const countRows = await tx.select().from(jukeboxRequestCounts).where(
+          and2(
+            eq2(jukeboxRequestCounts.userId, userId),
+            eq2(jukeboxRequestCounts.communityId, communityId),
+            eq2(jukeboxRequestCounts.date, today)
+          )
+        ).limit(1);
+        if (countRows.length === 0) {
+          await tx.insert(jukeboxRequestCounts).values({ userId, communityId, date: today, count: 1 });
+        } else {
+          await tx.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(jukeboxRequestCounts.id, countRows[0].id));
+        }
+      });
+      return res.json({ success: true, newBalance });
+    } catch (e) {
+      if (e?.message === "INSUFFICIENT_TICKETS") {
+        const meta = e?.meta ?? {};
+        return res.status(402).json({
+          error: "Insufficient tickets",
+          balance: meta.balance ?? 0,
+          required: meta.required ?? TICKETS_PER_JUKEBOX
+        });
+      }
+      if (e?.message === "COMMUNITY_NO_OWNER") {
+        return res.status(400).json({ error: "Community has no owner for revenue" });
+      }
+      console.error("[tickets/spend-jukebox] failed:", e);
+      return res.status(500).json({ error: "Failed to spend tickets" });
     }
-    if (balRows.length === 0) {
-      await db.insert(ticketBalances).values({ userId, balance: -TICKETS_PER_JUKEBOX });
-    } else {
-      await db.update(ticketBalances).set({ balance: currentBalance - TICKETS_PER_JUKEBOX, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
-    }
-    await db.insert(ticketTransactions).values({
-      userId,
-      amount: -TICKETS_PER_JUKEBOX,
-      type: "spend_jukebox",
-      referenceId: queueItemId ? String(queueItemId) : null,
-      description: `Jukebox request in community ${communityId}`
-    });
-    const countRows = await db.select().from(jukeboxRequestCounts).where(and2(
-      eq2(jukeboxRequestCounts.userId, userId),
-      eq2(jukeboxRequestCounts.communityId, communityId),
-      eq2(jukeboxRequestCounts.date, today)
-    )).limit(1);
-    if (countRows.length === 0) {
-      await db.insert(jukeboxRequestCounts).values({ userId, communityId, date: today, count: 1 });
-    } else {
-      await db.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(jukeboxRequestCounts.id, countRows[0].id));
-    }
-    return res.json({ success: true, newBalance: currentBalance - TICKETS_PER_JUKEBOX });
   });
   app2.post("/api/tickets/spend", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { amount, type, referenceId, description } = req.body;
+    const { amount, type, referenceId, description, creatorId } = req.body;
     if (!amount || amount <= 0) return res.status(400).json({ error: "amount must be positive" });
     if (!type) return res.status(400).json({ error: "type required" });
     const userId = String(user.id);
-    const balRows = await db.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
-    const currentBalance = balRows[0]?.balance ?? 0;
-    if (currentBalance < amount) {
-      return res.status(402).json({ error: "Insufficient tickets", balance: currentBalance, required: amount });
+    const revenueTypes = /* @__PURE__ */ new Set(["spend_session", "spend_gift", "spend_jukebox", "spend_tip"]);
+    const needsRevenueRecord = revenueTypes.has(type);
+    if (needsRevenueRecord && (!Number.isInteger(creatorId) || creatorId <= 0)) {
+      return res.status(400).json({ error: "creatorId required for revenue-eligible spend type" });
     }
-    if (balRows.length === 0) {
-      await db.insert(ticketBalances).values({ userId, balance: -amount });
-    } else {
-      await db.update(ticketBalances).set({ balance: currentBalance - amount, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
+    try {
+      let newBalance = 0;
+      await db.transaction(async (tx) => {
+        const balRows = await tx.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
+        const currentBalance = balRows[0]?.balance ?? 0;
+        if (currentBalance < amount) {
+          const err = new Error("INSUFFICIENT_TICKETS");
+          err.meta = { balance: currentBalance, required: amount };
+          throw err;
+        }
+        newBalance = currentBalance - amount;
+        if (balRows.length === 0) {
+          await tx.insert(ticketBalances).values({ userId, balance: newBalance });
+        } else {
+          await tx.update(ticketBalances).set({ balance: newBalance, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
+        }
+        const [spendTx] = await tx.insert(ticketTransactions).values({
+          userId,
+          amount: -amount,
+          type,
+          referenceId: referenceId ?? null,
+          description: description ?? null
+        }).returning({ id: ticketTransactions.id });
+        if (needsRevenueRecord) {
+          const creatorUserId = Number(creatorId);
+          const walletId = await getOrCreateUserWallet(creatorUserId, tx);
+          const [creatorRow] = await tx.select().from(creators).where(eq2(creators.userId, creatorUserId)).limit(1);
+          const source = type === "spend_tip" ? "tip" : "paid_live";
+          await recordRevenue(walletId, creatorUserId, creatorRow?.id ?? null, amount, source, String(spendTx.id), tx);
+        }
+      });
+      return res.json({ success: true, newBalance });
+    } catch (e) {
+      if (e?.message === "INSUFFICIENT_TICKETS") {
+        const meta = e?.meta ?? {};
+        return res.status(402).json({ error: "Insufficient tickets", balance: meta.balance ?? 0, required: meta.required ?? amount });
+      }
+      console.error("[tickets/spend] failed:", e);
+      return res.status(500).json({ error: "Failed to spend tickets" });
     }
-    await db.insert(ticketTransactions).values({
-      userId,
-      amount: -amount,
-      type,
-      referenceId: referenceId ?? null,
-      description: description ?? null
-    });
-    return res.json({ success: true, newBalance: currentBalance - amount });
   });
   app2.get("/api/tickets/create-checkout", (_req, res) => {
     res.setHeader("Allow", "POST");

@@ -204,16 +204,63 @@ async function promoteAdminByEmail(target?: { id: number; email: string | null |
 const OPERATIONS_DM_NAME = "Operations Team";
 const OPERATIONS_DM_AVATAR = "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=100&h=100&fit=crop";
 const WELCOME_DM_TEXT = [
-  "Welcome to RawStock!",
+  "Welcome to RawStock — we're the Operations Team.",
   "",
-  "Quick start guide:",
-  "1) Complete your profile to help people find you.",
-  "2) Join communities and say hello in chat.",
-  "3) Start posting videos or go live when ready.",
-  "4) Open Revenue to track earnings and withdrawals.",
+  "Here's how to get started:",
   "",
-  "If you need help, reply to this DM anytime.",
+  "Everyone",
+  "• Sign in with Google to comment, buy tickets, upload, and manage your profile.",
+  "• Open My Page → Edit profile to add a photo, bio, and social links.",
+  "• Explore communities, join the ones you like, and chat with members.",
+  "",
+  "Fans",
+  "• Buy tickets and use them for paid videos, live gifts, jukebox requests in communities, and more.",
+  "• Follow creators from their profile to stay updated.",
+  "",
+  "Creators",
+  "• Upload videos and set a price to sell. Use the AI Edit Assistant to polish raw footage.",
+  "• Go live from the web / PWA broadcaster to connect with fans in real time.",
+  "• Open Revenue to see earnings and request payouts (Stripe Connect setup required).",
+  "",
+  "Community hosts",
+  "• Run a community: member activity can generate shared revenue (e.g. ads, jukebox).",
+  "",
+  "Questions? Reply to this DM anytime.",
 ].join("\n");
+
+/** 運営DM行が無い環境でも一覧からガイドを開けるようにする */
+async function ensureOperationsDmRow() {
+  const [existing] = await db.select().from(dmMessages).where(eq(dmMessages.name, OPERATIONS_DM_NAME));
+  if (existing) return existing;
+  try {
+    const previewLine =
+      WELCOME_DM_TEXT.split("\n").find((line) => line.trim().length > 0) ?? "Welcome to RawStock";
+    const [created] = await db
+      .insert(dmMessages)
+      .values({
+        name: OPERATIONS_DM_NAME,
+        avatar: OPERATIONS_DM_AVATAR,
+        lastMessage: previewLine.slice(0, 500),
+        time: "Just now",
+        unread: 0,
+        online: true,
+        sortOrder: 0,
+      } as typeof dmMessages.$inferInsert)
+      .returning();
+    if (created) {
+      await db.insert(dmConversationMessages).values({
+        dmId: created.id,
+        sender: "them",
+        text: WELCOME_DM_TEXT,
+        isRead: false,
+      } as typeof dmConversationMessages.$inferInsert);
+    }
+    return created;
+  } catch {
+    const [again] = await db.select().from(dmMessages).where(eq(dmMessages.name, OPERATIONS_DM_NAME));
+    return again;
+  }
+}
 
 function formatDmThreadTime(d: Date | null | undefined): string {
   if (!d) return "";
@@ -528,18 +575,10 @@ export async function registerRoutes(app: Express): Promise<void> {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "未認証です" });
     const [u] = await db.select({
-      enneagramScores: users.enneagramScores,
       pinnedCommunityIds: users.pinnedCommunityIds,
     }).from(users).where(eq(users.id, user.id));
-    let enneagramScores: number[] | null = null;
     let pinnedCommunityIds: number[] = [];
     if (u) {
-      if ((u as any).enneagramScores) {
-        try {
-          const p = JSON.parse((u as any).enneagramScores) as number[];
-          if (Array.isArray(p) && p.length === 9) enneagramScores = p;
-        } catch {}
-      }
       if ((u as any).pinnedCommunityIds) {
         try {
           const p = JSON.parse((u as any).pinnedCommunityIds) as number[];
@@ -565,7 +604,6 @@ export async function registerRoutes(app: Express): Promise<void> {
       youtubeUrl: (user as any).youtubeUrl ?? null,
       xUrl: (user as any).xUrl ?? null,
       phoneNumber: (user as any).phoneNumber ?? null,
-      enneagramScores,
       pinnedCommunityIds,
     });
   });
@@ -780,7 +818,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   app.put("/api/auth/profile", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "未認証です" });
-    const { name, displayName, bio, avatar, profileImageUrl, spotifyUrl, appleMusicUrl, bandcampUrl, instagramUrl, youtubeUrl, xUrl, phoneNumber, enneagramScores, pinnedCommunityIds } = req.body as {
+    const { name, displayName, bio, avatar, profileImageUrl, spotifyUrl, appleMusicUrl, bandcampUrl, instagramUrl, youtubeUrl, xUrl, phoneNumber, pinnedCommunityIds } = req.body as {
       name?: string;
       displayName?: string;
       bio?: string;
@@ -793,19 +831,12 @@ export async function registerRoutes(app: Express): Promise<void> {
       youtubeUrl?: string | null;
       xUrl?: string | null;
       phoneNumber?: string | null;
-      enneagramScores?: number[] | null;
       pinnedCommunityIds?: number[] | null;
     };
     const newName = name ?? displayName ?? user.displayName;
     const newBio = bio ?? user.bio;
     const newAvatar = avatar ?? profileImageUrl ?? user.profileImageUrl;
     const newPhone = phoneNumber !== undefined ? (phoneNumber?.trim() || null) : undefined;
-    const enneagramJson =
-      enneagramScores !== undefined
-        ? Array.isArray(enneagramScores) && enneagramScores.length === 9
-          ? JSON.stringify(enneagramScores)
-          : null
-        : undefined;
     const pinnedJson =
       pinnedCommunityIds !== undefined
         ? Array.isArray(pinnedCommunityIds)
@@ -825,20 +856,12 @@ export async function registerRoutes(app: Express): Promise<void> {
         ...(youtubeUrl !== undefined ? { youtubeUrl: youtubeUrl?.trim() || null } : {}),
         ...(xUrl !== undefined ? { xUrl: xUrl?.trim() || null } : {}),
         ...(newPhone !== undefined && { phoneNumber: newPhone }),
-        ...(enneagramJson !== undefined && { enneagramScores: enneagramJson }),
         ...(pinnedJson !== undefined && { pinnedCommunityIds: pinnedJson }),
         updatedAt: new Date(),
       } as Partial<typeof users.$inferInsert>)
       .where(eq(users.id, user.id))
       .returning();
-    let outEnneagram: number[] | null = null;
     let outPinned: number[] = [];
-    if ((updated as any).enneagramScores) {
-      try {
-        const p = JSON.parse((updated as any).enneagramScores) as number[];
-        if (Array.isArray(p) && p.length === 9) outEnneagram = p;
-      } catch {}
-    }
     if ((updated as any).pinnedCommunityIds) {
       try {
         const p = JSON.parse((updated as any).pinnedCommunityIds) as number[];
@@ -860,7 +883,6 @@ export async function registerRoutes(app: Express): Promise<void> {
       bandcampUrl: updated.bandcampUrl ?? null,
       instagramUrl: (updated as any).instagramUrl ?? null,
       youtubeUrl: (updated as any).youtubeUrl ?? null,
-      enneagramScores: outEnneagram,
       pinnedCommunityIds: outPinned,
       xUrl: (updated as any).xUrl ?? null,
     });
@@ -917,7 +939,6 @@ export async function registerRoutes(app: Express): Promise<void> {
       spotifyUrl: users.spotifyUrl,
       appleMusicUrl: users.appleMusicUrl,
       bandcampUrl: users.bandcampUrl,
-      enneagramScores: users.enneagramScores,
       pinnedCommunityIds: users.pinnedCommunityIds,
     }).from(users).where(eq(users.id, id));
     if (!u) return res.status(404).json({ error: "Not found" });
@@ -939,15 +960,6 @@ export async function registerRoutes(app: Express): Promise<void> {
             category: r.category,
           }));
         }
-      } catch {}
-    }
-
-    let enneagramScores: number[] | null = null;
-    const scoresRaw = (u as any).enneagramScores;
-    if (scoresRaw && typeof scoresRaw === "string") {
-      try {
-        const parsed = JSON.parse(scoresRaw) as number[];
-        if (Array.isArray(parsed) && parsed.length === 9) enneagramScores = parsed;
       } catch {}
     }
 
@@ -974,7 +986,6 @@ export async function registerRoutes(app: Express): Promise<void> {
       spotifyUrl: (u as any).spotifyUrl ?? null,
       appleMusicUrl: (u as any).appleMusicUrl ?? null,
       bandcampUrl: (u as any).bandcampUrl ?? null,
-      enneagramScores,
       pinnedCommunities,
       followersCount: Number(followersCountRaw ?? 0),
       followingCount: Number(followingCountRaw ?? 0),
@@ -3865,19 +3876,43 @@ export async function registerRoutes(app: Express): Promise<void> {
         otherUserId: peerId,
       });
     }
+    const opsDm = await ensureOperationsDmRow();
+    const [{ welcomeDmSentAt, operationsDmOpenedAt }] = await db
+      .select({
+        welcomeDmSentAt: users.welcomeDmSentAt,
+        operationsDmOpenedAt: users.operationsDmOpenedAt,
+      })
+      .from(users)
+      .where(eq(users.id, me.id));
+    if (opsDm) {
+      const preview =
+        (opsDm.lastMessage ?? "").split("\n").find((line) => line.trim().length > 0) ?? opsDm.lastMessage ?? "";
+      const opsUnread = welcomeDmSentAt && !operationsDmOpenedAt ? 1 : 0;
+      out.unshift({
+        id: -opsDm.id,
+        name: opsDm.name,
+        avatar: opsDm.avatar,
+        lastMessage: preview.slice(0, 200),
+        time: opsDm.time || "Just now",
+        unread: opsUnread,
+        online: Boolean(opsDm.online),
+        otherUserId: 0,
+      });
+    }
     res.json(out);
   });
 
   app.post("/api/dm-messages/:id/read", async (req: Request, res: Response) => {
-    const id = paramNum(req, "id");
+    const rawId = paramNum(req, "id");
+    const legacyDmId = rawId < 0 ? -rawId : rawId;
     const me = await getAuthUser(req);
-    if (me) {
+    if (me && rawId > 0) {
       const [th] = await db
         .select()
         .from(dmThreads)
         .where(
           and(
-            eq(dmThreads.id, id),
+            eq(dmThreads.id, rawId),
             or(eq(dmThreads.user1Id, me.id), eq(dmThreads.user2Id, me.id)),
           ),
         );
@@ -3886,8 +3921,20 @@ export async function registerRoutes(app: Express): Promise<void> {
     const [updated] = await db
       .update(dmMessages)
       .set({ unread: 0 } as Partial<typeof dmMessages.$inferInsert>)
-      .where(eq(dmMessages.id, id))
+      .where(eq(dmMessages.id, legacyDmId))
       .returning();
+    if (me) {
+      const [legacyMeta] = await db
+        .select({ name: dmMessages.name })
+        .from(dmMessages)
+        .where(eq(dmMessages.id, legacyDmId));
+      if (legacyMeta?.name === OPERATIONS_DM_NAME) {
+        await db
+          .update(users)
+          .set({ operationsDmOpenedAt: new Date(), updatedAt: new Date() } as Partial<typeof users.$inferInsert>)
+          .where(eq(users.id, me.id));
+      }
+    }
     res.json(updated ?? { ok: true });
   });
 
@@ -3958,107 +4005,124 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   // ── DM 会話（:id = dm_threads.id。レガシー dm_messages.id は下でフォールバック） ──
   app.get("/api/dm-messages/:id/peer", async (req: Request, res: Response) => {
-    const id = paramNum(req, "id");
+    const rawId = paramNum(req, "id");
     const me = await getAuthUser(req);
     if (!me) return res.status(401).json({ error: "未認証です" });
-    const [th] = await db
-      .select()
-      .from(dmThreads)
-      .where(
-        and(eq(dmThreads.id, id), or(eq(dmThreads.user1Id, me.id), eq(dmThreads.user2Id, me.id))),
-      );
-    if (!th) return res.status(404).json({ error: "Not found" });
-    const peerId = th.user1Id === me.id ? th.user2Id : th.user1Id;
-    const [peer] = await db
-      .select({ displayName: users.displayName, profileImageUrl: users.profileImageUrl })
-      .from(users)
-      .where(eq(users.id, peerId));
-    if (!peer) return res.status(404).json({ error: "Not found" });
+    const legacyDmId = rawId < 0 ? -rawId : rawId;
+    if (rawId > 0) {
+      const [th] = await db
+        .select()
+        .from(dmThreads)
+        .where(
+          and(eq(dmThreads.id, rawId), or(eq(dmThreads.user1Id, me.id), eq(dmThreads.user2Id, me.id))),
+        );
+      if (th) {
+        const peerId = th.user1Id === me.id ? th.user2Id : th.user1Id;
+        const [peer] = await db
+          .select({ displayName: users.displayName, profileImageUrl: users.profileImageUrl })
+          .from(users)
+          .where(eq(users.id, peerId));
+        if (!peer) return res.status(404).json({ error: "Not found" });
+        return res.json({
+          name: peer.displayName ?? "User",
+          avatar: peer.profileImageUrl ?? "",
+          otherUserId: peerId,
+        });
+      }
+    }
+    const [legacyDm] = await db.select().from(dmMessages).where(eq(dmMessages.id, legacyDmId));
+    if (!legacyDm) return res.status(404).json({ error: "Not found" });
     res.json({
-      name: peer.displayName ?? "User",
-      avatar: peer.profileImageUrl ?? "",
-      otherUserId: peerId,
+      name: legacyDm.name,
+      avatar: legacyDm.avatar,
+      otherUserId: 0,
     });
   });
 
   app.get("/api/dm-messages/:id/conversation", async (req: Request, res: Response) => {
-    const id = paramNum(req, "id");
+    const rawId = paramNum(req, "id");
     const me = await getAuthUser(req);
     if (!me) return res.status(401).json({ error: "未認証です" });
-    const [th] = await db
-      .select()
-      .from(dmThreads)
-      .where(
-        and(eq(dmThreads.id, id), or(eq(dmThreads.user1Id, me.id), eq(dmThreads.user2Id, me.id))),
-      );
-    if (th) {
-      const rows = await db
+    const legacyDmId = rawId < 0 ? -rawId : rawId;
+    if (rawId > 0) {
+      const [th] = await db
         .select()
-        .from(dmThreadMessages)
-        .where(eq(dmThreadMessages.threadId, id))
-        .orderBy(asc(dmThreadMessages.createdAt));
-      return res.json(
-        rows.map((m) => ({
-          id: m.id,
-          sender: m.senderUserId === me.id ? "me" : "them",
-          senderId: m.senderUserId,
-          text: m.text,
-          isRead: true,
-          createdAt: (m.createdAt ?? new Date()).toISOString(),
-          imageUrl: null as string | null,
-        })),
-      );
+        .from(dmThreads)
+        .where(
+          and(eq(dmThreads.id, rawId), or(eq(dmThreads.user1Id, me.id), eq(dmThreads.user2Id, me.id))),
+        );
+      if (th) {
+        const rows = await db
+          .select()
+          .from(dmThreadMessages)
+          .where(eq(dmThreadMessages.threadId, rawId))
+          .orderBy(asc(dmThreadMessages.createdAt));
+        return res.json(
+          rows.map((m) => ({
+            id: m.id,
+            sender: m.senderUserId === me.id ? "me" : "them",
+            senderId: m.senderUserId,
+            text: m.text,
+            isRead: true,
+            createdAt: (m.createdAt ?? new Date()).toISOString(),
+            imageUrl: null as string | null,
+          })),
+        );
+      }
     }
     const msgs = await db
       .select()
       .from(dmConversationMessages)
-      .where(eq(dmConversationMessages.dmId, id))
+      .where(eq(dmConversationMessages.dmId, legacyDmId))
       .orderBy(asc(dmConversationMessages.createdAt));
     res.json(msgs);
   });
 
   app.post("/api/dm-messages/:id/conversation", async (req: Request, res: Response) => {
-    const id = paramNum(req, "id");
+    const rawId = paramNum(req, "id");
+    const legacyDmId = rawId < 0 ? -rawId : rawId;
     const me = await getAuthUser(req);
     if (!me) return res.status(401).json({ error: "未認証です" });
     const text = typeof (req.body as { text?: unknown })?.text === "string" ? (req.body as { text: string }).text : "";
     if (!text.trim()) return res.status(400).json({ error: "メッセージを入力してください" });
-    const [th] = await db
-      .select()
-      .from(dmThreads)
-      .where(
-        and(eq(dmThreads.id, id), or(eq(dmThreads.user1Id, me.id), eq(dmThreads.user2Id, me.id))),
-      );
-    if (th) {
-      const [msg] = await db
-        .insert(dmThreadMessages)
-        .values({
-          threadId: id,
-          senderUserId: me.id,
-          text: text.trim(),
-        } as typeof dmThreadMessages.$inferInsert)
-        .returning();
-      await db
-        .update(dmThreads)
-        .set({
-          lastMessagePreview: text.trim().slice(0, 200),
-          updatedAt: new Date(),
-        } as Partial<typeof dmThreads.$inferInsert>)
-        .where(eq(dmThreads.id, id));
-      return res.json({
-        id: msg.id,
-        sender: "me",
-        senderId: me.id,
-        text: msg.text,
-        isRead: true,
-        createdAt: (msg.createdAt ?? new Date()).toISOString(),
-        imageUrl: null,
-      });
+    if (rawId > 0) {
+      const [th] = await db
+        .select()
+        .from(dmThreads)
+        .where(
+          and(eq(dmThreads.id, rawId), or(eq(dmThreads.user1Id, me.id), eq(dmThreads.user2Id, me.id))),
+        );
+      if (th) {
+        const [msg] = await db
+          .insert(dmThreadMessages)
+          .values({
+            threadId: rawId,
+            senderUserId: me.id,
+            text: text.trim(),
+          } as typeof dmThreadMessages.$inferInsert)
+          .returning();
+        await db
+          .update(dmThreads)
+          .set({
+            lastMessagePreview: text.trim().slice(0, 200),
+            updatedAt: new Date(),
+          } as Partial<typeof dmThreads.$inferInsert>)
+          .where(eq(dmThreads.id, rawId));
+        return res.json({
+          id: msg.id,
+          sender: "me",
+          senderId: me.id,
+          text: msg.text,
+          isRead: true,
+          createdAt: (msg.createdAt ?? new Date()).toISOString(),
+          imageUrl: null,
+        });
+      }
     }
     const [msg] = await db
       .insert(dmConversationMessages)
       .values({
-        dmId: id,
+        dmId: legacyDmId,
         sender: "me",
         text: text.trim(),
         isRead: true,
@@ -4067,8 +4131,12 @@ export async function registerRoutes(app: Express): Promise<void> {
     await db
       .update(dmMessages)
       .set({ lastMessage: text.trim(), unread: 0 } as Partial<typeof dmMessages.$inferInsert>)
-      .where(eq(dmMessages.id, id));
-    res.json(msg);
+      .where(eq(dmMessages.id, legacyDmId));
+    res.json({
+      ...msg,
+      createdAt: (msg.createdAt ?? new Date()).toISOString(),
+      imageUrl: null as string | null,
+    });
   });
 
   // ── Jukebox ───────────────────────────────────────────────────────
