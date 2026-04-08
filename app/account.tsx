@@ -19,10 +19,6 @@ import { router } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { AuthGuard, useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
-import { EnneagramChart, ENNEAGRAM_TYPES } from "@/components/EnneagramChart";
-
-const DEFAULT_ENNEAGRAM = [6, 5, 7, 4, 8, 5, 6, 4, 7];
-
 export default function AccountEditScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
@@ -40,7 +36,6 @@ export default function AccountEditScreen() {
   const [xUrl, setXUrl] = useState(user?.xUrl ?? "");
   const [phoneNumber, setPhoneNumber] = useState(user?.phoneNumber ?? "");
   const [saving, setSaving] = useState(false);
-  const [enneagramScores, setEnneagramScores] = useState<number[]>(DEFAULT_ENNEAGRAM);
   const [pinnedCommunityIds, setPinnedCommunityIds] = useState<number[]>([]);
 
   const { data: myCommunities = [] } = useQuery<{ id: number; name: string; thumbnail: string; category: string }[]>({
@@ -60,9 +55,6 @@ export default function AccountEditScreen() {
       setYoutubeUrl(user.youtubeUrl ?? "");
       setXUrl(user.xUrl ?? "");
       setPhoneNumber(user.phoneNumber ?? "");
-      if (user.enneagramScores && user.enneagramScores.length === 9) {
-        setEnneagramScores(user.enneagramScores);
-      }
       if (user.pinnedCommunityIds && user.pinnedCommunityIds.length > 0) {
         setPinnedCommunityIds(user.pinnedCommunityIds);
       }
@@ -74,14 +66,6 @@ export default function AccountEditScreen() {
       if (prev.includes(id)) return prev.filter((x) => x !== id);
       if (prev.length >= 4) return prev;
       return [...prev, id];
-    });
-  }
-
-  function changeEnneagramScore(index: number, delta: number) {
-    setEnneagramScores((prev) => {
-      const next = [...prev];
-      next[index] = Math.max(0, Math.min(10, next[index] + delta));
-      return next;
     });
   }
 
@@ -103,12 +87,9 @@ export default function AccountEditScreen() {
         youtubeUrl: youtubeUrl.trim() || null,
         xUrl: xUrl.trim() || null,
         phoneNumber: phoneNumber.trim() || null,
-        enneagramScores,
         pinnedCommunityIds,
       });
-      Alert.alert("Saved", "Your profile has been updated", [
-        { text: "OK", onPress: () => router.back() },
-      ]);
+      router.replace("/(tabs)/profile");
     } catch (e: any) {
       Alert.alert("Save failed", e?.message ?? "Please try again later");
     } finally {
@@ -296,26 +277,6 @@ export default function AccountEditScreen() {
           <Text style={styles.sectionTitle}>Public Profile</Text>
           <Text style={styles.sectionHint}>Visible to other users</Text>
 
-          <Text style={styles.label}>Enneagram</Text>
-          <View style={styles.enneagramWrap}>
-            <EnneagramChart scores={enneagramScores} />
-            <View style={styles.enneagramControls}>
-              {ENNEAGRAM_TYPES.map((t, i) => (
-                <View key={i} style={styles.enneagramRow}>
-                  <View style={[styles.enneagramDot, { backgroundColor: t.color }]} />
-                  <Text style={styles.enneagramLabel}>{t.label}</Text>
-                  <Pressable style={styles.enneagramBtn} onPress={() => changeEnneagramScore(i, -1)}>
-                    <Ionicons name="remove" size={14} color={C.text} />
-                  </Pressable>
-                  <Text style={styles.enneagramValue}>{enneagramScores[i]}</Text>
-                  <Pressable style={styles.enneagramBtn} onPress={() => changeEnneagramScore(i, 1)}>
-                    <Ionicons name="add" size={14} color={C.text} />
-                  </Pressable>
-                </View>
-              ))}
-            </View>
-          </View>
-
           <Text style={styles.label}>Featured Communities (up to 4)</Text>
           <Text style={styles.sectionHint}>Select up to 4 communities to feature on your profile</Text>
           {myCommunities.length === 0 ? (
@@ -451,26 +412,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   saveText: { color: "#fff", fontSize: 14, fontWeight: "800" },
-  enneagramWrap: {
-    backgroundColor: C.surface,
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 8,
-    alignItems: "center",
-  },
-  enneagramControls: { marginTop: 12, width: "100%", gap: 6 },
-  enneagramRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  enneagramDot: { width: 8, height: 8, borderRadius: 4 },
-  enneagramLabel: { flex: 1, color: C.text, fontSize: 12 },
-  enneagramBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: C.surface2,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  enneagramValue: { width: 20, textAlign: "center", color: C.text, fontSize: 13, fontWeight: "700" },
   hintText: { color: C.textMuted, fontSize: 13, marginTop: 8 },
   pinnedList: { marginTop: 8, gap: 8 },
   pinnedItem: {

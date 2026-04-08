@@ -546,6 +546,8 @@ var users = pgTable("users", {
   email: text("email").unique(),
   passwordHash: text("password_hash"),
   welcomeDmSentAt: timestamp("welcome_dm_sent_at"),
+  /** 運営DM（Operations Team）を初めて開いた日時。未設定かつ welcome 済みなら一覧に未読バッジ */
+  operationsDmOpenedAt: timestamp("operations_dm_opened_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow()
 });
@@ -2019,16 +2021,57 @@ async function promoteAdminByEmail(target) {
 var OPERATIONS_DM_NAME = "Operations Team";
 var OPERATIONS_DM_AVATAR = "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=100&h=100&fit=crop";
 var WELCOME_DM_TEXT = [
-  "Welcome to RawStock!",
+  "Welcome to RawStock \u2014 we're the Operations Team.",
   "",
-  "Quick start guide:",
-  "1) Complete your profile to help people find you.",
-  "2) Join communities and say hello in chat.",
-  "3) Start posting videos or go live when ready.",
-  "4) Open Revenue to track earnings and withdrawals.",
+  "Here's how to get started:",
   "",
-  "If you need help, reply to this DM anytime."
+  "Everyone",
+  "\u2022 Sign in with Google to comment, buy tickets, upload, and manage your profile.",
+  "\u2022 Open My Page \u2192 Edit profile to add a photo, bio, and social links.",
+  "\u2022 Explore communities, join the ones you like, and chat with members.",
+  "",
+  "Fans",
+  "\u2022 Buy tickets and use them for paid videos, live gifts, jukebox requests in communities, and more.",
+  "\u2022 Follow creators from their profile to stay updated.",
+  "",
+  "Creators",
+  "\u2022 Upload videos and set a price to sell. Use the AI Edit Assistant to polish raw footage.",
+  "\u2022 Go live from the web / PWA broadcaster to connect with fans in real time.",
+  "\u2022 Open Revenue to see earnings and request payouts (Stripe Connect setup required).",
+  "",
+  "Community hosts",
+  "\u2022 Run a community: member activity can generate shared revenue (e.g. ads, jukebox).",
+  "",
+  "Questions? Reply to this DM anytime."
 ].join("\n");
+async function ensureOperationsDmRow() {
+  const [existing] = await db.select().from(dmMessages).where(eq2(dmMessages.name, OPERATIONS_DM_NAME));
+  if (existing) return existing;
+  try {
+    const previewLine = WELCOME_DM_TEXT.split("\n").find((line) => line.trim().length > 0) ?? "Welcome to RawStock";
+    const [created] = await db.insert(dmMessages).values({
+      name: OPERATIONS_DM_NAME,
+      avatar: OPERATIONS_DM_AVATAR,
+      lastMessage: previewLine.slice(0, 500),
+      time: "Just now",
+      unread: 0,
+      online: true,
+      sortOrder: 0
+    }).returning();
+    if (created) {
+      await db.insert(dmConversationMessages).values({
+        dmId: created.id,
+        sender: "them",
+        text: WELCOME_DM_TEXT,
+        isRead: false
+      });
+    }
+    return created;
+  } catch {
+    const [again] = await db.select().from(dmMessages).where(eq2(dmMessages.name, OPERATIONS_DM_NAME));
+    return again;
+  }
+}
 function formatDmThreadTime(d) {
   if (!d) return "";
   const t = d instanceof Date ? d.getTime() : new Date(d).getTime();
@@ -2257,19 +2300,10 @@ async function registerRoutes(app2) {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
     const [u] = await db.select({
-      enneagramScores: users.enneagramScores,
       pinnedCommunityIds: users.pinnedCommunityIds
     }).from(users).where(eq2(users.id, user.id));
-    let enneagramScores = null;
     let pinnedCommunityIds = [];
     if (u) {
-      if (u.enneagramScores) {
-        try {
-          const p = JSON.parse(u.enneagramScores);
-          if (Array.isArray(p) && p.length === 9) enneagramScores = p;
-        } catch {
-        }
-      }
       if (u.pinnedCommunityIds) {
         try {
           const p = JSON.parse(u.pinnedCommunityIds);
@@ -2296,7 +2330,6 @@ async function registerRoutes(app2) {
       youtubeUrl: user.youtubeUrl ?? null,
       xUrl: user.xUrl ?? null,
       phoneNumber: user.phoneNumber ?? null,
-      enneagramScores,
       pinnedCommunityIds
     });
   });
@@ -2468,12 +2501,11 @@ async function registerRoutes(app2) {
   app2.put("/api/auth/profile", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
-    const { name, displayName, bio, avatar, profileImageUrl, spotifyUrl, appleMusicUrl, bandcampUrl, instagramUrl, youtubeUrl, xUrl, phoneNumber, enneagramScores, pinnedCommunityIds } = req.body;
+    const { name, displayName, bio, avatar, profileImageUrl, spotifyUrl, appleMusicUrl, bandcampUrl, instagramUrl, youtubeUrl, xUrl, phoneNumber, pinnedCommunityIds } = req.body;
     const newName = name ?? displayName ?? user.displayName;
     const newBio = bio ?? user.bio;
     const newAvatar = avatar ?? profileImageUrl ?? user.profileImageUrl;
     const newPhone = phoneNumber !== void 0 ? phoneNumber?.trim() || null : void 0;
-    const enneagramJson = enneagramScores !== void 0 ? Array.isArray(enneagramScores) && enneagramScores.length === 9 ? JSON.stringify(enneagramScores) : null : void 0;
     const pinnedJson = pinnedCommunityIds !== void 0 ? Array.isArray(pinnedCommunityIds) ? JSON.stringify(pinnedCommunityIds.slice(0, 4)) : null : void 0;
     const [updated] = await db.update(users).set({
       displayName: newName,
@@ -2486,19 +2518,10 @@ async function registerRoutes(app2) {
       ...youtubeUrl !== void 0 ? { youtubeUrl: youtubeUrl?.trim() || null } : {},
       ...xUrl !== void 0 ? { xUrl: xUrl?.trim() || null } : {},
       ...newPhone !== void 0 && { phoneNumber: newPhone },
-      ...enneagramJson !== void 0 && { enneagramScores: enneagramJson },
       ...pinnedJson !== void 0 && { pinnedCommunityIds: pinnedJson },
       updatedAt: /* @__PURE__ */ new Date()
     }).where(eq2(users.id, user.id)).returning();
-    let outEnneagram = null;
     let outPinned = [];
-    if (updated.enneagramScores) {
-      try {
-        const p = JSON.parse(updated.enneagramScores);
-        if (Array.isArray(p) && p.length === 9) outEnneagram = p;
-      } catch {
-      }
-    }
     if (updated.pinnedCommunityIds) {
       try {
         const p = JSON.parse(updated.pinnedCommunityIds);
@@ -2521,7 +2544,6 @@ async function registerRoutes(app2) {
       bandcampUrl: updated.bandcampUrl ?? null,
       instagramUrl: updated.instagramUrl ?? null,
       youtubeUrl: updated.youtubeUrl ?? null,
-      enneagramScores: outEnneagram,
       pinnedCommunityIds: outPinned,
       xUrl: updated.xUrl ?? null
     });
@@ -2570,7 +2592,6 @@ async function registerRoutes(app2) {
       spotifyUrl: users.spotifyUrl,
       appleMusicUrl: users.appleMusicUrl,
       bandcampUrl: users.bandcampUrl,
-      enneagramScores: users.enneagramScores,
       pinnedCommunityIds: users.pinnedCommunityIds
     }).from(users).where(eq2(users.id, id));
     if (!u) return res.status(404).json({ error: "Not found" });
@@ -2591,15 +2612,6 @@ async function registerRoutes(app2) {
       } catch {
       }
     }
-    let enneagramScores = null;
-    const scoresRaw = u.enneagramScores;
-    if (scoresRaw && typeof scoresRaw === "string") {
-      try {
-        const parsed = JSON.parse(scoresRaw);
-        if (Array.isArray(parsed) && parsed.length === 9) enneagramScores = parsed;
-      } catch {
-      }
-    }
     const [{ c: followersCountRaw }] = await db.select({ c: count() }).from(userFollows).where(eq2(userFollows.followingId, id));
     const [{ c: followingCountRaw }] = await db.select({ c: count() }).from(userFollows).where(eq2(userFollows.followerId, id));
     res.json({
@@ -2616,7 +2628,6 @@ async function registerRoutes(app2) {
       spotifyUrl: u.spotifyUrl ?? null,
       appleMusicUrl: u.appleMusicUrl ?? null,
       bandcampUrl: u.bandcampUrl ?? null,
-      enneagramScores,
       pinnedCommunities,
       followersCount: Number(followersCountRaw ?? 0),
       followingCount: Number(followingCountRaw ?? 0)
@@ -4685,21 +4696,47 @@ async function registerRoutes(app2) {
         otherUserId: peerId
       });
     }
+    const opsDm = await ensureOperationsDmRow();
+    const [{ welcomeDmSentAt, operationsDmOpenedAt }] = await db.select({
+      welcomeDmSentAt: users.welcomeDmSentAt,
+      operationsDmOpenedAt: users.operationsDmOpenedAt
+    }).from(users).where(eq2(users.id, me.id));
+    if (opsDm) {
+      const preview = (opsDm.lastMessage ?? "").split("\n").find((line) => line.trim().length > 0) ?? opsDm.lastMessage ?? "";
+      const opsUnread = welcomeDmSentAt && !operationsDmOpenedAt ? 1 : 0;
+      out.unshift({
+        id: -opsDm.id,
+        name: opsDm.name,
+        avatar: opsDm.avatar,
+        lastMessage: preview.slice(0, 200),
+        time: opsDm.time || "Just now",
+        unread: opsUnread,
+        online: Boolean(opsDm.online),
+        otherUserId: 0
+      });
+    }
     res.json(out);
   });
   app2.post("/api/dm-messages/:id/read", async (req, res) => {
-    const id = paramNum(req, "id");
+    const rawId = paramNum(req, "id");
+    const legacyDmId = rawId < 0 ? -rawId : rawId;
     const me = await getAuthUser(req);
-    if (me) {
+    if (me && rawId > 0) {
       const [th] = await db.select().from(dmThreads).where(
         and2(
-          eq2(dmThreads.id, id),
+          eq2(dmThreads.id, rawId),
           or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id))
         )
       );
       if (th) return res.json({ ok: true });
     }
-    const [updated] = await db.update(dmMessages).set({ unread: 0 }).where(eq2(dmMessages.id, id)).returning();
+    const [updated] = await db.update(dmMessages).set({ unread: 0 }).where(eq2(dmMessages.id, legacyDmId)).returning();
+    if (me) {
+      const [legacyMeta] = await db.select({ name: dmMessages.name }).from(dmMessages).where(eq2(dmMessages.id, legacyDmId));
+      if (legacyMeta?.name === OPERATIONS_DM_NAME) {
+        await db.update(users).set({ operationsDmOpenedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq2(users.id, me.id));
+      }
+    }
     res.json(updated ?? { ok: true });
   });
   app2.get("/api/notifications/unread-count", async (_req, res) => {
@@ -4751,83 +4788,104 @@ async function registerRoutes(app2) {
     res.json(msg);
   });
   app2.get("/api/dm-messages/:id/peer", async (req, res) => {
-    const id = paramNum(req, "id");
+    const rawId = paramNum(req, "id");
     const me = await getAuthUser(req);
     if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
-    const [th] = await db.select().from(dmThreads).where(
-      and2(eq2(dmThreads.id, id), or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id)))
-    );
-    if (!th) return res.status(404).json({ error: "Not found" });
-    const peerId = th.user1Id === me.id ? th.user2Id : th.user1Id;
-    const [peer] = await db.select({ displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(users).where(eq2(users.id, peerId));
-    if (!peer) return res.status(404).json({ error: "Not found" });
+    const legacyDmId = rawId < 0 ? -rawId : rawId;
+    if (rawId > 0) {
+      const [th] = await db.select().from(dmThreads).where(
+        and2(eq2(dmThreads.id, rawId), or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id)))
+      );
+      if (th) {
+        const peerId = th.user1Id === me.id ? th.user2Id : th.user1Id;
+        const [peer] = await db.select({ displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(users).where(eq2(users.id, peerId));
+        if (!peer) return res.status(404).json({ error: "Not found" });
+        return res.json({
+          name: peer.displayName ?? "User",
+          avatar: peer.profileImageUrl ?? "",
+          otherUserId: peerId
+        });
+      }
+    }
+    const [legacyDm] = await db.select().from(dmMessages).where(eq2(dmMessages.id, legacyDmId));
+    if (!legacyDm) return res.status(404).json({ error: "Not found" });
     res.json({
-      name: peer.displayName ?? "User",
-      avatar: peer.profileImageUrl ?? "",
-      otherUserId: peerId
+      name: legacyDm.name,
+      avatar: legacyDm.avatar,
+      otherUserId: 0
     });
   });
   app2.get("/api/dm-messages/:id/conversation", async (req, res) => {
-    const id = paramNum(req, "id");
+    const rawId = paramNum(req, "id");
     const me = await getAuthUser(req);
     if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
-    const [th] = await db.select().from(dmThreads).where(
-      and2(eq2(dmThreads.id, id), or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id)))
-    );
-    if (th) {
-      const rows = await db.select().from(dmThreadMessages).where(eq2(dmThreadMessages.threadId, id)).orderBy(asc2(dmThreadMessages.createdAt));
-      return res.json(
-        rows.map((m) => ({
-          id: m.id,
-          sender: m.senderUserId === me.id ? "me" : "them",
-          senderId: m.senderUserId,
-          text: m.text,
-          isRead: true,
-          createdAt: (m.createdAt ?? /* @__PURE__ */ new Date()).toISOString(),
-          imageUrl: null
-        }))
+    const legacyDmId = rawId < 0 ? -rawId : rawId;
+    if (rawId > 0) {
+      const [th] = await db.select().from(dmThreads).where(
+        and2(eq2(dmThreads.id, rawId), or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id)))
       );
+      if (th) {
+        const rows = await db.select().from(dmThreadMessages).where(eq2(dmThreadMessages.threadId, rawId)).orderBy(asc2(dmThreadMessages.createdAt));
+        return res.json(
+          rows.map((m) => ({
+            id: m.id,
+            sender: m.senderUserId === me.id ? "me" : "them",
+            senderId: m.senderUserId,
+            text: m.text,
+            isRead: true,
+            createdAt: (m.createdAt ?? /* @__PURE__ */ new Date()).toISOString(),
+            imageUrl: null
+          }))
+        );
+      }
     }
-    const msgs = await db.select().from(dmConversationMessages).where(eq2(dmConversationMessages.dmId, id)).orderBy(asc2(dmConversationMessages.createdAt));
+    const msgs = await db.select().from(dmConversationMessages).where(eq2(dmConversationMessages.dmId, legacyDmId)).orderBy(asc2(dmConversationMessages.createdAt));
     res.json(msgs);
   });
   app2.post("/api/dm-messages/:id/conversation", async (req, res) => {
-    const id = paramNum(req, "id");
+    const rawId = paramNum(req, "id");
+    const legacyDmId = rawId < 0 ? -rawId : rawId;
     const me = await getAuthUser(req);
     if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
     const text2 = typeof req.body?.text === "string" ? req.body.text : "";
     if (!text2.trim()) return res.status(400).json({ error: "\u30E1\u30C3\u30BB\u30FC\u30B8\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
-    const [th] = await db.select().from(dmThreads).where(
-      and2(eq2(dmThreads.id, id), or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id)))
-    );
-    if (th) {
-      const [msg2] = await db.insert(dmThreadMessages).values({
-        threadId: id,
-        senderUserId: me.id,
-        text: text2.trim()
-      }).returning();
-      await db.update(dmThreads).set({
-        lastMessagePreview: text2.trim().slice(0, 200),
-        updatedAt: /* @__PURE__ */ new Date()
-      }).where(eq2(dmThreads.id, id));
-      return res.json({
-        id: msg2.id,
-        sender: "me",
-        senderId: me.id,
-        text: msg2.text,
-        isRead: true,
-        createdAt: (msg2.createdAt ?? /* @__PURE__ */ new Date()).toISOString(),
-        imageUrl: null
-      });
+    if (rawId > 0) {
+      const [th] = await db.select().from(dmThreads).where(
+        and2(eq2(dmThreads.id, rawId), or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id)))
+      );
+      if (th) {
+        const [msg2] = await db.insert(dmThreadMessages).values({
+          threadId: rawId,
+          senderUserId: me.id,
+          text: text2.trim()
+        }).returning();
+        await db.update(dmThreads).set({
+          lastMessagePreview: text2.trim().slice(0, 200),
+          updatedAt: /* @__PURE__ */ new Date()
+        }).where(eq2(dmThreads.id, rawId));
+        return res.json({
+          id: msg2.id,
+          sender: "me",
+          senderId: me.id,
+          text: msg2.text,
+          isRead: true,
+          createdAt: (msg2.createdAt ?? /* @__PURE__ */ new Date()).toISOString(),
+          imageUrl: null
+        });
+      }
     }
     const [msg] = await db.insert(dmConversationMessages).values({
-      dmId: id,
+      dmId: legacyDmId,
       sender: "me",
       text: text2.trim(),
       isRead: true
     }).returning();
-    await db.update(dmMessages).set({ lastMessage: text2.trim(), unread: 0 }).where(eq2(dmMessages.id, id));
-    res.json(msg);
+    await db.update(dmMessages).set({ lastMessage: text2.trim(), unread: 0 }).where(eq2(dmMessages.id, legacyDmId));
+    res.json({
+      ...msg,
+      createdAt: (msg.createdAt ?? /* @__PURE__ */ new Date()).toISOString(),
+      imageUrl: null
+    });
   });
   app2.get("/api/jukebox/active-sessions", async (_req, res) => {
     const playingRows = await db.select({

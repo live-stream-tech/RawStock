@@ -42,7 +42,6 @@ type UserProfile = {
   spotifyUrl?: string | null;
   appleMusicUrl?: string | null;
   bandcampUrl?: string | null;
-  enneagramScores?: number[] | null;
   pinnedCommunities?: PinnedCommunity[];
   followersCount?: number;
   followingCount?: number;
@@ -521,8 +520,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingBottom: 10,
   },
-  enneagramSection: { paddingHorizontal: 16, paddingBottom: 24, alignItems: "center" },
-  enneagramWrap: { backgroundColor: C.surface2, borderRadius: 16, padding: 16 },
   postsSection: { paddingHorizontal: 16, paddingBottom: 32 },
   postsTitle: { color: C.text, fontSize: 16, fontWeight: "700", marginBottom: 12 },
   emptyText: { color: C.textMuted, fontSize: 14, paddingVertical: 24 },

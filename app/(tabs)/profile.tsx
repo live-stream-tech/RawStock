@@ -329,8 +329,8 @@ export default function ProfileScreen() {
     setProfileSaving(true);
     try {
       await updateProfile({ name: editName.trim(), bio: editBio.trim(), avatar: editAvatar.trim() || null });
-      // Close modal first, then clear saving for immediate UI response.
       setShowProfileModal(false);
+      router.replace("/(tabs)/profile");
     } catch (e: any) {
       Alert.alert("Save Failed", e.message ?? "Something went wrong");
     } finally {
