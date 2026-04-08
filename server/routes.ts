@@ -149,13 +149,45 @@ async function getAuthUser(req: Request): Promise<{
   stripeConnectId: string | null;
 } | null> {
   const auth = (req as any).headers?.authorization ?? "";
-  if (!auth.startsWith("Bearer ")) return null;
+  if (!auth.startsWith("Bearer ")) {
+    // #region agent log
+    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
+      body: JSON.stringify({
+        sessionId: "88cb7d",
+        runId: "initial",
+        hypothesisId: "H4",
+        location: "server/routes.ts:getAuthUser",
+        message: "Missing bearer token",
+        data: { hasAuthHeader: Boolean(auth), authPrefix: typeof auth === "string" ? auth.slice(0, 16) : "" },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    return null;
+  }
   try {
     const payload = jwt.verify(auth.slice(7), JWT_SECRET);
     if (typeof payload === "string" || !payload || typeof (payload as unknown as { sub?: number }).sub !== "number") return null;
     const sub = (payload as unknown as { sub: number }).sub;
     const [user] = await db.select().from(users).where(eq(users.id, sub));
     if (!user) return null;
+    // #region agent log
+    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
+      body: JSON.stringify({
+        sessionId: "88cb7d",
+        runId: "initial",
+        hypothesisId: "H4",
+        location: "server/routes.ts:getAuthUser",
+        message: "Authenticated request",
+        data: { userId: user.id },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     return {
       ...user,
       avatar: user.profileImageUrl,
@@ -816,6 +848,21 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   app.put("/api/auth/profile", async (req: Request, res: Response) => {
+    // #region agent log
+    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
+      body: JSON.stringify({
+        sessionId: "88cb7d",
+        runId: "initial",
+        hypothesisId: "H3",
+        location: "server/routes.ts:/api/auth/profile",
+        message: "Profile endpoint hit",
+        data: { bodyKeys: Object.keys((req.body ?? {}) as Record<string, unknown>) },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "未認証です" });
     const { name, displayName, bio, avatar, profileImageUrl, spotifyUrl, appleMusicUrl, bandcampUrl, instagramUrl, youtubeUrl, xUrl, phoneNumber, pinnedCommunityIds } = req.body as {
@@ -3429,6 +3476,21 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   // ── Upload signed URL (Cloudflare R2) ────────────────────────────
   app.post("/api/upload-url", async (req: Request, res: Response) => {
+    // #region agent log
+    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
+      body: JSON.stringify({
+        sessionId: "88cb7d",
+        runId: "initial",
+        hypothesisId: "H5",
+        location: "server/routes.ts:/api/upload-url",
+        message: "Upload URL endpoint hit",
+        data: { hasFileName: Boolean((req.body as { fileName?: string })?.fileName), hasContentType: Boolean((req.body as { contentType?: string })?.contentType) },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "未認証です" });
 
@@ -4407,6 +4469,25 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   // ── Cloudflare Stream Live Input 作成 ───────────────────────────────
   app.post("/api/stream/create", async (req: Request, res: Response) => {
+    // #region agent log
+    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
+      body: JSON.stringify({
+        sessionId: "88cb7d",
+        runId: "initial",
+        hypothesisId: "H5",
+        location: "server/routes.ts:/api/stream/create",
+        message: "Stream create endpoint hit",
+        data: {
+          hasCloudflareAccountId: Boolean(CLOUDFLARE_ACCOUNT_ID),
+          hasCloudflareStreamToken: Boolean(CLOUDFLARE_STREAM_TOKEN),
+          bodyKeys: Object.keys((req.body ?? {}) as Record<string, unknown>),
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_STREAM_TOKEN) {
       return res.status(500).json({ error: "Cloudflare Stream is not configured" });
     }
