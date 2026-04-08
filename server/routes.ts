@@ -498,40 +498,9 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json({ token, user: { id: user.id, name: user.displayName, email: user.email } });
   });
 
-  app.post("/api/auth/demo", async (_req: Request, res: Response) => {
-    try {
-      const DEMO_LINE_ID = "demo_account";
-      const DEMO_NAME = "Demo User";
-      const [demoUser] = await db
-        .insert(users)
-        .values({
-          lineId: DEMO_LINE_ID,
-          displayName: DEMO_NAME,
-          profileImageUrl: null,
-          role: "USER",
-        } as typeof users.$inferInsert)
-        .onConflictDoUpdate({
-          target: users.lineId,
-          set: {
-            displayName: DEMO_NAME,
-            role: "USER",
-            updatedAt: new Date(),
-          } as Partial<typeof users.$inferInsert>,
-        })
-        .returning();
-      await sendWelcomeDmIfNeeded(demoUser.id);
-      const token = makeToken(demoUser.id);
-      res.json({ token });
-    } catch (err) {
-      console.error("Demo login error:", err);
-      const message = err instanceof Error ? err.message : String(err);
-      const isProd = process.env.NODE_ENV === "production";
-      res.status(500).json({
-        error: "Demo login failed",
-        code: "DEMO_LOGIN_FAILED",
-        ...(isProd ? {} : { message }),
-      });
-    }
+  /** Demo login removed for production launch; keep route so old clients get a clear error. */
+  app.post("/api/auth/demo", (_req: Request, res: Response) => {
+    return res.status(403).json({ error: "Demo login is disabled", code: "DEMO_DISABLED" });
   });
 
   app.post("/api/auth/login", async (req: Request, res: Response) => {

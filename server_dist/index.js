@@ -2231,36 +2231,8 @@ async function registerRoutes(app2) {
     const token = makeToken(user.id);
     res.json({ token, user: { id: user.id, name: user.displayName, email: user.email } });
   });
-  app2.post("/api/auth/demo", async (_req, res) => {
-    try {
-      const DEMO_LINE_ID = "demo_account";
-      const DEMO_NAME = "Demo User";
-      const [demoUser] = await db.insert(users).values({
-        lineId: DEMO_LINE_ID,
-        displayName: DEMO_NAME,
-        profileImageUrl: null,
-        role: "USER"
-      }).onConflictDoUpdate({
-        target: users.lineId,
-        set: {
-          displayName: DEMO_NAME,
-          role: "USER",
-          updatedAt: /* @__PURE__ */ new Date()
-        }
-      }).returning();
-      await sendWelcomeDmIfNeeded(demoUser.id);
-      const token = makeToken(demoUser.id);
-      res.json({ token });
-    } catch (err) {
-      console.error("Demo login error:", err);
-      const message = err instanceof Error ? err.message : String(err);
-      const isProd = process.env.NODE_ENV === "production";
-      res.status(500).json({
-        error: "Demo login failed",
-        code: "DEMO_LOGIN_FAILED",
-        ...isProd ? {} : { message }
-      });
-    }
+  app2.post("/api/auth/demo", (_req, res) => {
+    return res.status(403).json({ error: "Demo login is disabled", code: "DEMO_DISABLED" });
   });
   app2.post("/api/auth/login", async (req, res) => {
     const password = req.body?.password;

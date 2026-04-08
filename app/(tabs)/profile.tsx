@@ -206,7 +206,6 @@ export default function ProfileScreen() {
   const unreadCount = useUnreadCount();
   const { user, token, loading: authLoading, logout, updateProfile, loginWithToken } = useAuth();
   const queryClient = useQueryClient();
-  const [demoLoading, setDemoLoading] = useState(false);
 
   // postMessage listener for popup-login completion.
   useEffect(() => {
@@ -470,25 +469,6 @@ export default function ProfileScreen() {
       }
     }
 
-    async function handleDemoLogin() {
-      try {
-        setDemoLoading(true);
-        const res = await apiRequest("POST", "/api/auth/demo", {});
-        if (res?.token) {
-          await loginWithToken(res.token);
-          if (Platform.OS === "web" && typeof window !== "undefined") {
-            window.location.replace("/profile");
-          } else {
-            router.replace("/(tabs)/profile");
-          }
-        }
-      } catch (e: any) {
-        Alert.alert("Error", e?.message ?? "Demo login failed");
-      } finally {
-        setDemoLoading(false);
-      }
-    }
-
     return (
       <View style={{ flex: 1 }}>
         <View style={[styles.container, styles.guestContainer, { paddingTop: topInset + 40 }]}>
@@ -500,16 +480,6 @@ export default function ProfileScreen() {
           <Pressable style={styles.googleLoginBtn} onPress={handleGoogleLogin}>
             <Image source={{ uri: "https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" }} style={styles.googleIcon} contentFit="contain" />
             <Text style={styles.googleLoginText}>Sign in with Google</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.demoBtnProfile, demoLoading && { opacity: 0.5 }]}
-            onPress={handleDemoLogin}
-            disabled={demoLoading}
-          >
-            {demoLoading
-              ? <ActivityIndicator size="small" color={C.accent} />
-              : <Text style={styles.demoBtnProfileText}>Try Demo</Text>
-            }
           </Pressable>
           <View style={styles.guestLegalLinks}>
             <Pressable onPress={() => router.push("/legal")}>
@@ -1813,8 +1783,6 @@ const styles = StyleSheet.create({
   },
   googleIcon: { width: 22, height: 22 },
   googleLoginText: { color: "#050505", fontSize: 16, fontWeight: "800" },
-  demoBtnProfile: { marginTop: 4, borderWidth: 1.5, borderColor: C.accent, borderRadius: 3, paddingHorizontal: 28, paddingVertical: 12, alignItems: "center" as const, minWidth: 200 },
-  demoBtnProfileText: { color: C.accent, fontSize: 15, fontWeight: "700" as const },
   guestLegalLinks: {
     position: "absolute",
     left: 0,
