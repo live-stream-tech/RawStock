@@ -1978,13 +1978,43 @@ function queryStr(req, key) {
 }
 async function getAuthUser(req) {
   const auth = req.headers?.authorization ?? "";
-  if (!auth.startsWith("Bearer ")) return null;
+  if (!auth.startsWith("Bearer ")) {
+    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
+      body: JSON.stringify({
+        sessionId: "88cb7d",
+        runId: "initial",
+        hypothesisId: "H4",
+        location: "server/routes.ts:getAuthUser",
+        message: "Missing bearer token",
+        data: { hasAuthHeader: Boolean(auth), authPrefix: typeof auth === "string" ? auth.slice(0, 16) : "" },
+        timestamp: Date.now()
+      })
+    }).catch(() => {
+    });
+    return null;
+  }
   try {
     const payload = jwt.verify(auth.slice(7), JWT_SECRET);
     if (typeof payload === "string" || !payload || typeof payload.sub !== "number") return null;
     const sub = payload.sub;
     const [user] = await db.select().from(users).where(eq2(users.id, sub));
     if (!user) return null;
+    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
+      body: JSON.stringify({
+        sessionId: "88cb7d",
+        runId: "initial",
+        hypothesisId: "H4",
+        location: "server/routes.ts:getAuthUser",
+        message: "Authenticated request",
+        data: { userId: user.id },
+        timestamp: Date.now()
+      })
+    }).catch(() => {
+    });
     return {
       ...user,
       avatar: user.profileImageUrl
@@ -2499,6 +2529,20 @@ async function registerRoutes(app2) {
     }
   });
   app2.put("/api/auth/profile", async (req, res) => {
+    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
+      body: JSON.stringify({
+        sessionId: "88cb7d",
+        runId: "initial",
+        hypothesisId: "H3",
+        location: "server/routes.ts:/api/auth/profile",
+        message: "Profile endpoint hit",
+        data: { bodyKeys: Object.keys(req.body ?? {}) },
+        timestamp: Date.now()
+      })
+    }).catch(() => {
+    });
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
     const { name, displayName, bio, avatar, profileImageUrl, spotifyUrl, appleMusicUrl, bandcampUrl, instagramUrl, youtubeUrl, xUrl, phoneNumber, pinnedCommunityIds } = req.body;
@@ -4412,6 +4456,20 @@ async function registerRoutes(app2) {
     res.json({ ok: true, id: videoId });
   });
   app2.post("/api/upload-url", async (req, res) => {
+    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
+      body: JSON.stringify({
+        sessionId: "88cb7d",
+        runId: "initial",
+        hypothesisId: "H5",
+        location: "server/routes.ts:/api/upload-url",
+        message: "Upload URL endpoint hit",
+        data: { hasFileName: Boolean(req.body?.fileName), hasContentType: Boolean(req.body?.contentType) },
+        timestamp: Date.now()
+      })
+    }).catch(() => {
+    });
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
     const { fileName, contentType } = req.body;
@@ -5062,6 +5120,24 @@ data: ${data}
     return true;
   }
   app2.post("/api/stream/create", async (req, res) => {
+    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
+      body: JSON.stringify({
+        sessionId: "88cb7d",
+        runId: "initial",
+        hypothesisId: "H5",
+        location: "server/routes.ts:/api/stream/create",
+        message: "Stream create endpoint hit",
+        data: {
+          hasCloudflareAccountId: Boolean(CLOUDFLARE_ACCOUNT_ID),
+          hasCloudflareStreamToken: Boolean(CLOUDFLARE_STREAM_TOKEN),
+          bodyKeys: Object.keys(req.body ?? {})
+        },
+        timestamp: Date.now()
+      })
+    }).catch(() => {
+    });
     if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_STREAM_TOKEN) {
       return res.status(500).json({ error: "Cloudflare Stream is not configured" });
     }
