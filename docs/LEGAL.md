@@ -22,6 +22,10 @@ Last updated: April 2026
 - DMCA policy: `app/dmca.tsx`
 - Community Guidelines: `app/community-guidelines.tsx`
 - Payout settings UI: `app/payout-settings.tsx`
+- **Counsel review checklist:** `docs/COUNSEL_REVIEW_CHECKLIST.md`
+- **DMCA internal runbook:** `docs/DMCA_RUNBOOK.md`
+- Policy version constants: `constants/legalVersions.ts`
+- User consent columns: `migrations/0015_users_policy_acceptance.sql`
 - Server routes/schema: `server/routes.ts`, `server/schema.ts`
 - Migration: `migrations/0012_users_payout_terms_agreed_at.sql`
 

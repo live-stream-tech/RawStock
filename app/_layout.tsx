@@ -6,6 +6,7 @@ import { ActivityIndicator, Platform, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { PolicyReacceptanceBanner } from "@/components/PolicyReacceptanceBanner";
 import { queryClient } from "@/lib/query-client";
 import { DemoModeProvider } from "@/lib/demo-mode";
 import { AuthProvider, useAuth } from "@/lib/auth";
@@ -215,6 +216,7 @@ export default function RootLayout() {
                     <PlayingVideoProvider>
                       <View style={{ flex: 1, ...(Platform.OS === "web" ? { minHeight: 0 } : {}) }}>
                         <EventPreviewBanner />
+                        <PolicyReacceptanceBanner />
                         <RootLayoutNav />
                         <GlobalMyListPlayer />
                       </View>

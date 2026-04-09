@@ -523,6 +523,11 @@ export const users = pgTable("users", {
   operationsDmOpenedAt: timestamp("operations_dm_opened_at"),
   // migrations/0014_users_last_content_lang.sql — franc による直近コンテンツ言語（ISO 639-1、例: ja, en）
   lastContentLang: text("last_content_lang"),
+  // migrations/0015_users_policy_acceptance.sql — 条項・プライバシー同意の版と日時（constants/legalVersions と対応）
+  termsAcceptedVersion: text("terms_accepted_version"),
+  termsAcceptedAt: timestamp("terms_accepted_at"),
+  privacyAcceptedVersion: text("privacy_accepted_version"),
+  privacyAcceptedAt: timestamp("privacy_accepted_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

@@ -1,6 +1,7 @@
 import { fetch } from "expo/fetch";
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { debugIngestLocal } from "@/lib/debugIngest";
 
 /**
  * Gets the base URL for the Express API server (e.g., "http://localhost:5000")
@@ -15,42 +16,30 @@ export function getApiUrl(): string {
     const normalized = host.startsWith("http") ? host : `http://${host}`;
     resolved = new URL(normalized).origin + "/";
     source = "env";
-    // #region agent log
-    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
-      body: JSON.stringify({
-        sessionId: "88cb7d",
-        runId: "initial",
-        hypothesisId: "H1",
-        location: "lib/query-client.ts:getApiUrl",
-        message: "Resolved API base URL",
-        data: { source, resolved },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
+    debugIngestLocal({
+      sessionId: "88cb7d",
+      runId: "initial",
+      hypothesisId: "H1",
+      location: "lib/query-client.ts:getApiUrl",
+      message: "Resolved API base URL",
+      data: { source, resolved },
+      timestamp: Date.now(),
+    });
     return resolved;
   }
 
   if (typeof window !== "undefined" && window.location?.origin) {
     resolved = window.location.origin + "/";
     source = "window";
-    // #region agent log
-    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
-      body: JSON.stringify({
-        sessionId: "88cb7d",
-        runId: "initial",
-        hypothesisId: "H1",
-        location: "lib/query-client.ts:getApiUrl",
-        message: "Resolved API base URL",
-        data: { source, resolved },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
+    debugIngestLocal({
+      sessionId: "88cb7d",
+      runId: "initial",
+      hypothesisId: "H1",
+      location: "lib/query-client.ts:getApiUrl",
+      message: "Resolved API base URL",
+      data: { source, resolved },
+      timestamp: Date.now(),
+    });
     return resolved;
   }
 
@@ -62,21 +51,15 @@ export function getApiUrl(): string {
     );
     resolved = "http://localhost:5000/";
     source = "localhost-dev";
-    // #region agent log
-    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
-      body: JSON.stringify({
-        sessionId: "88cb7d",
-        runId: "initial",
-        hypothesisId: "H1",
-        location: "lib/query-client.ts:getApiUrl",
-        message: "Resolved API base URL",
-        data: { source, resolved },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
+    debugIngestLocal({
+      sessionId: "88cb7d",
+      runId: "initial",
+      hypothesisId: "H1",
+      location: "lib/query-client.ts:getApiUrl",
+      message: "Resolved API base URL",
+      data: { source, resolved },
+      timestamp: Date.now(),
+    });
     return resolved;
   }
 
@@ -110,21 +93,15 @@ export async function apiRequest(
 ): Promise<Response> {
   const baseUrl = getApiUrl();
   const url = new URL(route, baseUrl);
-  // #region agent log
-  fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
-    body: JSON.stringify({
-      sessionId: "88cb7d",
-      runId: "initial",
-      hypothesisId: "H2",
-      location: "lib/query-client.ts:apiRequest",
-      message: "Issuing API request",
-      data: { method, route, url: url.toString(), hasBody: Boolean(data) },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
+  debugIngestLocal({
+    sessionId: "88cb7d",
+    runId: "initial",
+    hypothesisId: "H2",
+    location: "lib/query-client.ts:apiRequest",
+    message: "Issuing API request",
+    data: { method, route, url: url.toString(), hasBody: Boolean(data) },
+    timestamp: Date.now(),
+  });
 
   const headers: Record<string, string> = {};
   if (data) headers["Content-Type"] = "application/json";

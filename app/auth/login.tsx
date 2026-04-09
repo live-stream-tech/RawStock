@@ -26,6 +26,7 @@ const getErrorLabel = (key: string) => {
 export default function LoginScreen() {
   const { auth_error } = useLocalSearchParams<{ auth_error?: string }>();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [agreePolicies, setAgreePolicies] = useState(false);
   useEffect(() => {
     if (auth_error && Platform.OS === "web" && typeof window !== "undefined") {
       const msg = getErrorLabel(auth_error);
@@ -54,6 +55,12 @@ export default function LoginScreen() {
   }
 
   function handleGoogleLogin() {
+    if (Platform.OS === "web" && !agreePolicies) {
+      return;
+    }
+    if (Platform.OS === "web" && typeof window !== "undefined" && agreePolicies) {
+      window.sessionStorage.setItem("rawstock_policy_ack", "1");
+    }
     openAuthRedirect("/api/auth/google");
   }
 
@@ -83,7 +90,27 @@ export default function LoginScreen() {
           Sign in with Google to comment, purchase, upload, and manage your profile.
         </Text>
 
-        <Pressable style={styles.googleLoginBtn} onPress={handleGoogleLogin}>
+        {Platform.OS === "web" ? (
+          <Pressable
+            style={styles.policyCheckRow}
+            onPress={() => setAgreePolicies((v) => !v)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: agreePolicies }}
+          >
+            <View style={[styles.policyCheckBox, agreePolicies && styles.policyCheckBoxOn]}>
+              {agreePolicies ? <Text style={styles.policyCheckMark}>✓</Text> : null}
+            </View>
+            <Text style={styles.policyCheckLabel}>
+              I have read and agree to the Terms of Service and Privacy Policy.
+            </Text>
+          </Pressable>
+        ) : null}
+
+        <Pressable
+          style={[styles.googleLoginBtn, Platform.OS === "web" && !agreePolicies && styles.googleLoginBtnDisabled]}
+          onPress={handleGoogleLogin}
+          disabled={Platform.OS === "web" && !agreePolicies}
+        >
           <Image
             source={{ uri: "https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" }}
             style={styles.googleIcon}
@@ -150,6 +177,27 @@ const styles = StyleSheet.create({
   errorText: { color: "#ef4444", fontSize: 13, fontFamily: "Courier Prime" },
   cardSub: { color: C.textMuted, fontSize: 13, marginBottom: 24, lineHeight: 20, fontFamily: "Courier Prime" },
 
+  policyCheckRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    marginBottom: 16,
+    paddingVertical: 4,
+  },
+  policyCheckBox: {
+    width: 22,
+    height: 22,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: C.accent,
+    marginTop: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "transparent",
+  },
+  policyCheckBoxOn: { backgroundColor: C.accent },
+  policyCheckMark: { color: "#050505", fontSize: 14, fontWeight: "900" },
+  policyCheckLabel: { flex: 1, color: C.textMuted, fontSize: 12, lineHeight: 18, fontFamily: "Courier Prime" },
   googleLoginBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -159,6 +207,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     paddingVertical: 16,
   },
+  googleLoginBtnDisabled: { opacity: 0.45 },
   googleIcon: { width: 24, height: 24 },
   googleLoginText: { color: "#050505", fontSize: 16, fontWeight: "800", fontFamily: "Barlow Condensed" },
   consentWrap: { marginTop: 10, alignItems: "center" },
