@@ -11,6 +11,11 @@
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="RawStock — You keep 90%" />
   <meta name="twitter:description" content="Sell live sets, stream, build scenes. 90% on paid content &amp; paid live access." />
+  <link rel="canonical" href="LP_CANONICAL_URL_PLACEHOLDER" />
+  <link rel="alternate" hreflang="en" href="LP_CANONICAL_URL_PLACEHOLDER" />
+  <link rel="alternate" hreflang="ja" href="LP_CANONICAL_URL_PLACEHOLDER" />
+  <link rel="alternate" hreflang="x-default" href="LP_CANONICAL_URL_PLACEHOLDER" />
+  <!--WEGLOT_INJECT-->
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow+Condensed:wght@400;600;700&family=Courier+Prime:wght@400;700&family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet" />
   <style>
     * {
@@ -42,9 +47,9 @@
     }
 
     .lang-bar {
-      background: #050505;
-      border-bottom: 1px solid #222;
-      padding: 10px 0;
+      background: #020202;
+      border-bottom: 1px solid #00ffa333;
+      padding: 12px 0;
       position: sticky;
       top: 0;
       z-index: 200;
@@ -57,8 +62,49 @@
       display: flex;
       align-items: center;
       justify-content: flex-end;
-      gap: 12px;
+      gap: 14px;
       flex-wrap: wrap;
+    }
+
+    .lang-bar-label {
+      font-family: "Barlow Condensed", sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      color: #555;
+      text-transform: uppercase;
+      margin-right: auto;
+    }
+
+    html[lang="ja"] .lang-bar-label {
+      font-family: "Noto Sans JP", sans-serif;
+      letter-spacing: 0.12em;
+      text-transform: none;
+      font-size: 12px;
+    }
+
+    .lang-switch-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .lang-soon {
+      font-size: 10px;
+      color: #444;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 6px 10px;
+      border: 1px dashed #333;
+      border-radius: 2px;
+      cursor: default;
+    }
+
+    html[lang="ja"] .lang-soon {
+      font-family: "Noto Sans JP", sans-serif;
+      text-transform: none;
+      letter-spacing: 0.04em;
     }
 
     .lang-btn {
@@ -66,13 +112,15 @@
       font-size: 12px;
       font-weight: 700;
       letter-spacing: 0.14em;
-      padding: 8px 16px;
-      border: 1px solid #333;
+      padding: 10px 18px;
+      border: 1px solid #444;
       background: transparent;
-      color: #888;
+      color: #aaa;
       cursor: pointer;
       text-transform: uppercase;
       border-radius: 2px;
+      min-height: 44px;
+      box-sizing: border-box;
     }
 
     .lang-btn:hover {
@@ -80,10 +128,27 @@
       border-color: #00ffa3;
     }
 
+    .lang-btn:focus-visible {
+      outline: 2px solid #00ffa3;
+      outline-offset: 2px;
+    }
+
     .lang-btn.active {
       color: #000;
       background: #00ffa3;
       border-color: #00ffa3;
+    }
+
+    .header-lang {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .header-lang .lang-btn {
+      padding: 6px 12px;
+      font-size: 10px;
+      min-height: 36px;
     }
 
     /* Japanese: readable stack + no condensed Latin headings on CJK */
@@ -179,6 +244,14 @@
       gap: 16px;
     }
 
+    .header-right {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 16px 24px;
+    }
+
     nav {
       display: flex;
       flex-wrap: wrap;
@@ -218,11 +291,16 @@
 
     h1 {
       font-family: "Bebas Neue", sans-serif;
-      font-size: 64px;
+      font-size: clamp(36px, 6vw, 64px);
       font-weight: 700;
       letter-spacing: 3px;
       margin-bottom: 20px;
       color: #fff;
+      line-height: 1.08;
+    }
+
+    .hero-content h1 {
+      text-shadow: 0 2px 24px rgba(0, 0, 0, 0.75);
     }
 
     .tagline {
@@ -341,8 +419,247 @@
       text-transform: uppercase;
     }
 
+    .hero-fullbleed {
+      position: relative;
+      overflow: hidden;
+      min-height: min(88vh, 920px);
+      border-bottom: 1px solid #1a1a1a;
+    }
+
+    .hero-media {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      background: #0a0a0a;
+    }
+
+    .hero-media video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .hero-media-poster {
+      position: absolute;
+      inset: 0;
+      background-size: cover;
+      background-position: center;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .hero-media video {
+        display: none !important;
+      }
+
+      .hero-media-poster {
+        opacity: 1;
+      }
+    }
+
+    .hero-media-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      background: linear-gradient(
+        165deg,
+        rgba(10, 10, 10, 0.55) 0%,
+        rgba(13, 13, 13, 0.82) 45%,
+        rgba(13, 13, 13, 0.94) 100%
+      );
+    }
+
+    .hero-content {
+      position: relative;
+      z-index: 2;
+      padding-top: 48px;
+      padding-bottom: 72px;
+    }
+
+    .hero .tagline-sub {
+      font-family: "Barlow Condensed", sans-serif;
+      font-size: clamp(18px, 2.5vw, 24px);
+      color: #00ffa3;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      margin: -8px 0 20px;
+      max-width: 36rem;
+      line-height: 1.35;
+    }
+
+    html[lang="ja"] .hero .tagline-sub {
+      font-family: "Noto Sans JP", sans-serif;
+      letter-spacing: 0.02em;
+      font-weight: 700;
+    }
+
+    #demo {
+      scroll-margin-top: 96px;
+    }
+
+    .demo-section {
+      background: #0a0a0a;
+    }
+
+    .demo-video-wrap {
+      position: relative;
+      max-width: 880px;
+      margin: 0 auto;
+      border: 1px solid #333;
+      border-radius: 4px;
+      overflow: hidden;
+      background: #000;
+    }
+
+    .demo-video-wrap video {
+      display: block;
+      width: 100%;
+      height: auto;
+      vertical-align: bottom;
+    }
+
+    .demo-caption {
+      margin-top: 16px;
+      color: #777;
+      font-size: 14px;
+      max-width: 640px;
+    }
+
+    html[lang="ja"] .demo-caption {
+      font-family: "Noto Sans JP", sans-serif;
+    }
+
+    .btn-tertiary {
+      background: transparent;
+      color: #e0e0e0;
+      border-color: #666;
+    }
+
+    .btn-tertiary:hover {
+      border-color: #00ffa3;
+      color: #00ffa3;
+      background: rgba(0, 255, 163, 0.06);
+    }
+
+    .step-visual {
+      margin: -8px -8px 16px -8px;
+      border-radius: 2px;
+      overflow: hidden;
+      border: 1px solid #2a2a2a;
+      aspect-ratio: 16 / 10;
+      background: #111;
+    }
+
+    .step-visual img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 24px;
+      margin-top: 32px;
+    }
+
+    .feature-card {
+      border: 1px solid #2a2a2a;
+      background: #0f0f0f;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .feature-card-visual {
+      aspect-ratio: 16 / 9;
+      overflow: hidden;
+      border-bottom: 1px solid #2a2a2a;
+      background: #080808;
+    }
+
+    .feature-card-visual img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .feature-card-body {
+      padding: 20px 18px 22px;
+    }
+
+    .feature-card .feature-title {
+      margin-bottom: 10px;
+    }
+
+    .revenue-chart-wrap {
+      margin: 40px 0 24px;
+      max-width: 520px;
+    }
+
+    .revenue-chart-wrap svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    .faq-section details {
+      border: 1px solid #2a2a2a;
+      background: #0c0c0c;
+      margin-bottom: 10px;
+      border-radius: 2px;
+    }
+
+    .faq-section summary {
+      padding: 16px 18px;
+      cursor: pointer;
+      font-family: "Barlow Condensed", sans-serif;
+      font-weight: 700;
+      font-size: 16px;
+      letter-spacing: 0.04em;
+      color: #ddd;
+      list-style: none;
+    }
+
+    .faq-section summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .faq-section summary::after {
+      content: "+";
+      float: right;
+      color: #00ffa3;
+      font-weight: 400;
+    }
+
+    .faq-section details[open] summary::after {
+      content: "−";
+    }
+
+    .faq-section .faq-body {
+      padding: 0 18px 18px;
+      color: #999;
+      font-size: 15px;
+      line-height: 1.75;
+      border-top: 1px solid #222;
+      padding-top: 14px;
+    }
+
+    html[lang="ja"] .faq-section summary {
+      font-family: "Noto Sans JP", sans-serif;
+      letter-spacing: 0.02em;
+      text-transform: none;
+    }
+
+    html[lang="ja"] .faq-section .faq-body {
+      font-family: "Noto Sans JP", sans-serif;
+    }
+
     .hero {
-      padding-top: 60px;
+      padding-top: 0;
     }
 
     .cta-buttons {
@@ -647,23 +964,51 @@
 <body>
   <div class="lang-bar" role="region" aria-label="Language">
     <div class="lang-bar-inner">
-      <button type="button" class="lang-btn active" id="lang-en" aria-pressed="true">ENG</button>
-      <button type="button" class="lang-btn" id="lang-ja" aria-pressed="false">日本語</button>
+      <span class="lang-bar-label"><span class="only-en">Language</span><span class="only-ja">表示言語</span></span>
+      <div class="lang-switch-group">
+        <button type="button" class="lang-btn active" data-lp-lang="en" id="lang-en" aria-pressed="true">ENG</button>
+        <button type="button" class="lang-btn" data-lp-lang="ja" id="lang-ja" aria-pressed="false">日本語</button>
+        <span class="lang-soon only-en" title="Additional locales ship with our multilingual stack (e.g. Weglot) on this domain.">+ ES · PT · KO · 中文 · FR · DE</span>
+        <span class="lang-soon only-ja" title="追加言語はドメイン側の多言語ツール連携で順次対応予定です。">+ 他言語対応予定</span>
+      </div>
     </div>
   </div>
 
   <header class="container">
     <div class="logo"><img src="RAWSTOCK_LOGO_URL_PLACEHOLDER" alt="RawStock" /></div>
-    <nav>
-      <a href="#features"><span class="only-en">Features</span><span class="only-ja">特徴</span></a>
-      <a href="#revenue"><span class="only-en">Revenue</span><span class="only-ja">収益モデル</span></a>
-      <a href="#tickets"><span class="only-en">Tickets</span><span class="only-ja">チケット</span></a>
-      <a href="/teamz">VC / TEAMZ</a>
-    </nav>
+    <div class="header-right">
+      <nav>
+        <a href="#features"><span class="only-en">Features</span><span class="only-ja">特徴</span></a>
+        <a href="#demo"><span class="only-en">Demo</span><span class="only-ja">デモ</span></a>
+        <a href="#revenue"><span class="only-en">Revenue</span><span class="only-ja">収益モデル</span></a>
+        <a href="#tickets"><span class="only-en">Tickets</span><span class="only-ja">チケット</span></a>
+        <a href="#faq"><span class="only-en">FAQ</span><span class="only-ja">FAQ</span></a>
+        <a href="/teamz">VC / TEAMZ</a>
+      </nav>
+      <div class="header-lang" aria-hidden="true">
+        <button type="button" class="lang-btn active" data-lp-lang="en">EN</button>
+        <button type="button" class="lang-btn" data-lp-lang="ja">JA</button>
+      </div>
+    </div>
   </header>
 
-  <section class="hero container">
-    <h1><span class="only-en">You keep 90%.</span><span class="only-ja">売上の90%が、本人の手に。</span></h1>
+  <section class="hero-fullbleed" aria-label="Hero">
+    <div class="hero-media" aria-hidden="true">
+      <video
+        src="RAWSTOCK_HERO_VIDEO_URL_PLACEHOLDER"
+        poster="RAWSTOCK_HERO_POSTER_URL_PLACEHOLDER"
+        autoplay
+        muted
+        loop
+        playsinline
+      ></video>
+      <div class="hero-media-poster" style="background-image: url(RAWSTOCK_HERO_POSTER_URL_PLACEHOLDER)"></div>
+      <div class="hero-media-overlay"></div>
+    </div>
+    <div class="hero-content container hero">
+    <h1><span class="only-en">You keep 90%. Sell your live footage worldwide.</span><span class="only-ja">売上の90%が本人に。ライブ映像を、世界中のファンへ直接。</span></h1>
+    <p class="tagline-sub only-en">No labels. No gatekeepers. Upload, price, and sell — ticket packs are billed in USD via Stripe today; more languages across the product are rolling out.</p>
+    <p class="tagline-sub only-ja">レーベルもゲートキーパーもいない。アップロードして価格を決めて販売。チケットは現状USD（Stripe）建て。アプリ内の言語対応は順次拡張しています。</p>
     <p class="hero-text">
       <span class="only-en">
         No labels. No gatekeepers. No cuts.<br />
@@ -719,13 +1064,28 @@
     </div>
 
     <div class="cta-buttons">
-      <a href="/auth/login" class="btn"><span class="only-en">Try it now</span><span class="only-ja">無料で始める</span></a>
+      <a href="/auth/login" class="btn"><span class="only-en">Create free account</span><span class="only-ja">無料でアカウント作成</span></a>
       <a href="/api/auth/google" class="btn btn-secondary"><span class="only-en">Sign in with Google</span><span class="only-ja">Googleで登録・ログイン</span></a>
+      <a href="#demo" class="btn btn-tertiary"><span class="only-en">Watch demo clip</span><span class="only-ja">デモ映像を見る</span></a>
     </div>
-    <p style="color: #666; font-size: 13px; margin-top: 16px; max-width: 520px;">
-      <span class="only-en">Create an account with email and password on the login page, or use Google.</span>
-      <span class="only-ja">ログイン画面から<strong>メールアドレスでの新規登録</strong>、または<strong>Googleアカウント</strong>で利用を開始できます。</span>
+    <p style="color: #aaa; font-size: 13px; margin-top: 16px; max-width: 520px;">
+      <span class="only-en">Start selling your next set in minutes — email signup on the login page or one tap with Google.</span>
+      <span class="only-ja">次のライブからすぐ販売へ。ログイン画面で<strong>メール登録</strong>、または<strong>Google</strong>で開始できます。</span>
     </p>
+    </div>
+  </section>
+
+  <section id="demo" class="demo-section container">
+    <h2><span class="only-en">See the energy.</span><span class="only-ja">熱量を、まずは映像で。</span></h2>
+    <p style="color: #999; margin-bottom: 28px; max-width: 640px;">
+      <span class="only-en">A short loop of the kind of moment RawStock is built for. Replace this clip on the server with your own hero or demo asset when you are ready.</span>
+      <span class="only-ja">RawStockが想定する「現場」の雰囲気を短いループで示しています。本番用のヒーロー／デモ映像はサーバー側の設定で差し替えてください。</span>
+    </p>
+    <div class="demo-video-wrap">
+      <video controls playsinline poster="RAWSTOCK_HERO_POSTER_URL_PLACEHOLDER" src="RAWSTOCK_LP_DEMO_VIDEO_URL_PLACEHOLDER"></video>
+    </div>
+    <p class="demo-caption only-en">Product walkthrough screen recordings can replace this block when ready — the flow below stays the source of truth.</p>
+    <p class="demo-caption only-ja">アプリ画面の操作デモに差し替える場合は、このブロックを置き換えてください。手順の正確さは下の「ご利用の流れ」が基準です。</p>
   </section>
 
   <section class="why container">
@@ -772,11 +1132,13 @@
 
     <div class="how-it-works">
       <div class="step-box">
+        <div class="step-visual"><img src="RAWSTOCK_LP_STEP_IMG_SHOOT_PLACEHOLDER" alt="" loading="lazy" /></div>
         <div class="step-number">①</div>
         <h4><span class="only-en">Shoot the Show</span><span class="only-ja">ライブを撮影</span></h4>
         <p><span class="only-en">Film the gig on your phone. Raw, unfiltered, real.</span><span class="only-ja">スマートフォンでOK。飾らない、ありのままの1本に。</span></p>
       </div>
       <div class="step-box">
+        <div class="step-visual"><img src="RAWSTOCK_LP_STEP_IMG_EDIT_PLACEHOLDER" alt="" loading="lazy" /></div>
         <div class="step-number">②</div>
         <h4><span class="only-en">Edit &amp; polish</span><span class="only-ja">編集・仕上げ</span></h4>
         <p>
@@ -785,52 +1147,79 @@
         </p>
       </div>
       <div class="step-box">
+        <div class="step-visual"><img src="RAWSTOCK_LP_STEP_IMG_SELL_PLACEHOLDER" alt="" loading="lazy" /></div>
         <div class="step-number">③</div>
         <h4><span class="only-en">Sell the Footage</span><span class="only-ja">本編を販売</span></h4>
         <p><span class="only-en">Fans buy the full video naturally after seeing the preview.</span><span class="only-ja">無料のダイジェストから本編へ。ファンがそのまま決済できます。</span></p>
       </div>
       <div class="step-box">
+        <div class="step-visual"><img src="RAWSTOCK_LP_STEP_IMG_PROMO_PLACEHOLDER" alt="" loading="lazy" /></div>
         <div class="step-number">④</div>
         <h4><span class="only-en">Promote the Next Gig</span><span class="only-ja">次の公演へ誘導</span></h4>
         <p><span class="only-en">Link to tickets and merch. The cycle continues.</span><span class="only-ja">外部チケットやグッズ販売へのリンクを載せ、次の現場につなげます。</span></p>
       </div>
     </div>
+    <p style="color:#777;font-size:14px;margin-top:28px;max-width:640px;">
+      <span class="only-en">In-product copy, captions, and creator tools keep gaining locale coverage — this page highlights the revenue rules that already ship today.</span>
+      <span class="only-ja">アプリ内の文言・テロップ・クリエイター向けUIの言語対応は拡張中です。本ページの数値は、現行リリースのルールを優先して記載しています。</span>
+    </p>
   </section>
 
   <section class="scene container" id="features">
     <h2><span class="only-en">The scene, in your room.</span><span class="only-ja">いつもの部屋で、その熱量を</span></h2>
     <p style="color: #999; margin-bottom: 40px;"><span class="only-en">The energy of the underground, without leaving your couch.</span><span class="only-ja">外出しなくても、アンダーグラウンドの空気感に触れられる場所に。</span></p>
 
-    <div class="scene-feature">
-      <div class="feature-title">🎵 <span class="only-en">Jukebox</span><span class="only-ja">ジュークボックス</span></div>
-      <p class="feature-desc">
-        <span class="only-en">Every community has a Jukebox — queue YouTube tracks and stay in sync in real time (server-driven playback). <strong>First 3 requests per day, per community</strong> are free. After that, each request costs <strong>30 tickets</strong> ($0.30 at 1 ticket = $0.01).</span>
-        <span class="only-ja">コミュニティごとに設置。YouTubeの楽曲をキューに入れ、サーバー側の再生でみんな同じタイミングで視聴できます。<strong>1コミュニティ・1日あたり3曲まで</strong>リクエスト無料。4曲目以降は<strong>30チケット／1リクエスト</strong>（1チケット＝US$0.01の場合、約$0.30相当）。</span>
-      </p>
-    </div>
-
-    <div class="scene-feature">
-      <div class="feature-title">🤖 <span class="only-en">AI Edit Assistant</span><span class="only-ja">AI編集アシスタント</span></div>
-      <p class="feature-desc">
-        <span class="only-en">Upload footage, describe the cut, and get an AI-generated edit plan. Charged in <strong>tickets</strong> by plan length (15 / 30 / 45 / 60 minutes). The <strong>first revision</strong> after the plan is free; additional revisions cost <strong>100 tickets</strong> each.</span>
-        <span class="only-ja">映像をアップロードし、どう切りたいかを文章で指示。AIが編集プランをたたき台として提示します。尺に応じて<strong>チケット</strong>を消費（15／30／45／60分）。<strong>初回のプラン修正は無料</strong>、以降は<strong>100チケット／回</strong>です。</span>
-      </p>
-    </div>
-
-    <div class="scene-feature">
-      <div class="feature-title">🏘 <span class="only-en">Districts</span><span class="only-ja">ディストリクト</span></div>
-      <p class="feature-desc">
-        <span class="only-en">Genre-based communities. Community banner ad revenue is split: <strong>70%</strong> to admins &amp; moderators (per your distribution settings), <strong>10%</strong> to the event fund, <strong>20%</strong> to the platform.</span>
-        <span class="only-ja">ジャンルやシーン単位のコミュニティ。バナー広告の純収益は<strong>70%</strong>が管理者・モデレーター（あなたが設定した配分どおり）、<strong>10%</strong>がイベント基金、<strong>20%</strong>が当社（プラットフォーム）です。</span>
-      </p>
-    </div>
-
-    <div class="scene-feature">
-      <div class="feature-title">📡 <span class="only-en">Live Cast</span><span class="only-ja">ライブ配信</span></div>
-      <p class="feature-desc">
-        <span class="only-en">Go live with chat and tips. Paid live access and mentor sessions record at <strong>90%</strong> back to the creator side; <strong>tips</strong> use the level-based scale (50%–80%). Creator level updates from monthly tip volume and stream count.</span>
-        <span class="only-ja">チャットやギフト付きで配信。<strong>有料ライブ</strong>と<strong>メンタリング</strong>の売上はクリエイター側<strong>90%</strong>。<strong>ギフト</strong>は月間のクリエイターレベルに応じ<strong>50〜80%</strong>還元。レベルは、その月のギフト総額と配信本数で更新されます。</span>
-      </p>
+    <div class="feature-grid">
+      <article class="feature-card">
+        <div class="feature-card-visual"><img src="RAWSTOCK_LP_FEATURE_IMG_JUKE_PLACEHOLDER" alt="" loading="lazy" /></div>
+        <div class="feature-card-body">
+          <div class="feature-title">🎵 <span class="only-en">Jukebox</span><span class="only-ja">ジュークボックス</span></div>
+          <p class="feature-desc">
+            <span class="only-en">Every community has a Jukebox — queue YouTube tracks and stay in sync in real time (server-driven playback). <strong>First 3 requests per day, per community</strong> are free. After that, each request costs <strong>30 tickets</strong> ($0.30 at 1 ticket = $0.01).</span>
+            <span class="only-ja">コミュニティごとに設置。YouTubeの楽曲をキューに入れ、サーバー側の再生でみんな同じタイミングで視聴できます。<strong>1コミュニティ・1日あたり3曲まで</strong>リクエスト無料。4曲目以降は<strong>30チケット／1リクエスト</strong>（1チケット＝US$0.01の場合、約$0.30相当）。</span>
+          </p>
+        </div>
+      </article>
+      <article class="feature-card">
+        <div class="feature-card-visual"><img src="RAWSTOCK_LP_FEATURE_IMG_AI_PLACEHOLDER" alt="" loading="lazy" /></div>
+        <div class="feature-card-body">
+          <div class="feature-title">🤖 <span class="only-en">AI Edit Assistant</span><span class="only-ja">AI編集アシスタント</span></div>
+          <p class="feature-desc">
+            <span class="only-en">Upload footage, describe the cut, and get an AI-generated edit plan. Charged in <strong>tickets</strong> by plan length (15 / 30 / 45 / 60 minutes). The <strong>first revision</strong> after the plan is free; additional revisions cost <strong>100 tickets</strong> each.</span>
+            <span class="only-ja">映像をアップロードし、どう切りたいかを文章で指示。AIが編集プランをたたき台として提示します。尺に応じて<strong>チケット</strong>を消費（15／30／45／60分）。<strong>初回のプラン修正は無料</strong>、以降は<strong>100チケット／回</strong>です。</span>
+          </p>
+        </div>
+      </article>
+      <article class="feature-card">
+        <div class="feature-card-visual"><img src="RAWSTOCK_LP_FEATURE_IMG_DISTRICT_PLACEHOLDER" alt="" loading="lazy" /></div>
+        <div class="feature-card-body">
+          <div class="feature-title">🏘 <span class="only-en">Districts</span><span class="only-ja">ディストリクト</span></div>
+          <p class="feature-desc">
+            <span class="only-en">Genre-based communities. Community banner ad revenue is split: <strong>70%</strong> to admins &amp; moderators (per your distribution settings), <strong>10%</strong> to the event fund, <strong>20%</strong> to the platform.</span>
+            <span class="only-ja">ジャンルやシーン単位のコミュニティ。バナー広告の純収益は<strong>70%</strong>が管理者・モデレーター（あなたが設定した配分どおり）、<strong>10%</strong>がイベント基金、<strong>20%</strong>が当社（プラットフォーム）です。</span>
+          </p>
+        </div>
+      </article>
+      <article class="feature-card">
+        <div class="feature-card-visual"><img src="RAWSTOCK_LP_FEATURE_IMG_LIVE_PLACEHOLDER" alt="" loading="lazy" /></div>
+        <div class="feature-card-body">
+          <div class="feature-title">📡 <span class="only-en">Live Cast</span><span class="only-ja">ライブ配信</span></div>
+          <p class="feature-desc">
+            <span class="only-en">Go live with chat and tips. Paid live access and mentor sessions record at <strong>90%</strong> back to the creator side; <strong>tips</strong> use the level-based scale (50%–80%). Creator level updates from monthly tip volume and stream count.</span>
+            <span class="only-ja">チャットやギフト付きで配信。<strong>有料ライブ</strong>と<strong>メンタリング</strong>の売上はクリエイター側<strong>90%</strong>。<strong>ギフト</strong>は月間のクリエイターレベルに応じ<strong>50〜80%</strong>還元。レベルは、その月のギフト総額と配信本数で更新されます。</span>
+          </p>
+        </div>
+      </article>
+      <article class="feature-card">
+        <div class="feature-card-visual"><img src="RAWSTOCK_LP_FEATURE_IMG_GLOBAL_PLACEHOLDER" alt="" loading="lazy" /></div>
+        <div class="feature-card-body">
+          <div class="feature-title">🌐 <span class="only-en">Global-ready workflow</span><span class="only-ja">グローバルに伸ばす土台</span></div>
+          <p class="feature-desc">
+            <span class="only-en">List once, share everywhere you already talk to fans. Ticket packs settle in USD via Stripe today while we keep widening locale coverage across the creator and fan experience.</span>
+            <span class="only-ja">一度アップロードすれば、普段つながっているファンへ横展開。チケット決済は現状USD（Stripe）を中心にしつつ、クリエイター／ファン双方の体験でロケール対応を広げていきます。</span>
+          </p>
+        </div>
+      </article>
     </div>
   </section>
 
@@ -880,6 +1269,19 @@
         <span style="color: #666; font-size: 12px;">配信ギフトは、ご自身のレベルに応じた率が適用され、この例とは一致しません。</span>
       </span>
     </div>
+
+    <div class="revenue-chart-wrap" aria-hidden="true">
+      <p class="only-en" style="color:#888;font-size:13px;margin-bottom:10px;">Paid content / paid live — $100 gross (illustrative)</p>
+      <p class="only-ja" style="color:#888;font-size:13px;margin-bottom:10px;">有料コンテンツ／有料ライブ — 売上$100のイメージ（例示）</p>
+      <svg viewBox="0 0 400 56" role="img" aria-label="90 percent creator, 10 percent platform">
+        <rect x="0" y="12" width="360" height="28" fill="#2a2a2a" rx="3" />
+        <rect x="0" y="12" width="324" height="28" fill="#00ffa3" rx="3" />
+        <text x="162" y="30" fill="#0a0a0a" font-size="13" font-family="Barlow Condensed, sans-serif" font-weight="700" text-anchor="middle">90%</text>
+        <text x="342" y="30" fill="#ccc" font-size="12" font-family="Barlow Condensed, sans-serif" text-anchor="middle">10%</text>
+        <text x="0" y="54" fill="#777" font-size="11" font-family="Barlow Condensed, sans-serif">Creator side</text>
+        <text x="280" y="54" fill="#777" font-size="11" font-family="Barlow Condensed, sans-serif" text-anchor="end">Platform</text>
+      </svg>
+    </div>
   </section>
 
   <section class="container">
@@ -907,10 +1309,66 @@
         <div class="pack-tickets">3,000 🎟</div>
       </div>
     </div>
+    <p style="color:#777;font-size:14px;margin-top:24px;max-width:640px;">
+      <span class="only-en">Pack copy stays in English numerals for parity with checkout; bank statements follow your card’s locale.</span>
+      <span class="only-ja">パック表記は決済画面との整合のため英数字表記です。明細はカード会社の表示言語に従います。</span>
+    </p>
+  </section>
+
+  <!-- Testimonials: drop in real quotes + headshots when you have permission. Template:
+  <section class="container" id="testimonials">...</section>
+  -->
+
+  <section class="container faq-section" id="faq">
+    <h2><span class="only-en">FAQ</span><span class="only-ja">よくある質問</span></h2>
+    <p style="color:#999;margin-bottom:28px;max-width:640px;">
+      <span class="only-en">Straight answers tied to how the product works today. Policies can change — we will update this page when they do.</span>
+      <span class="only-ja">現行プロダクトの挙動に沿った回答です。仕様変更時は本ページも更新します。</span>
+    </p>
+
+    <details>
+      <summary><span class="only-en">Who owns the footage I upload?</span><span class="only-ja">アップロードした映像の権利は誰のものですか？</span></summary>
+      <div class="faq-body">
+        <span class="only-en">You remain responsible for clearing performance, label, and third-party rights before you sell or stream. RawStock provides tooling to monetize once you have the rights lined up.</span>
+        <span class="only-ja">著作権・実演・レーベル契約などは、販売・配信前にクリエイター側でクリアしてください。RawStockは、権利整理が済んだコンテンツをマネタイズするための仕組みを提供します。</span>
+      </div>
+    </details>
+    <details>
+      <summary><span class="only-en">How do payouts and currencies work?</span><span class="only-ja">入金や通貨はどうなりますか？</span></summary>
+      <div class="faq-body">
+        <span class="only-en">Fans buy ticket packs in USD through Stripe. Payout timing and tax forms follow your Stripe Connect / payout settings — check your dashboard for the latest status.</span>
+        <span class="only-ja">ファンはStripe経由でチケットパックを購入します（請求はUSDが基本）。出金タイミングや税務情報はStripe Connect等の設定に従います。最新状況はダッシュボードでご確認ください。</span>
+      </div>
+    </details>
+    <details>
+      <summary><span class="only-en">What can tickets be spent on?</span><span class="only-ja">チケットは何に使えますか？</span></summary>
+      <div class="faq-body">
+        <span class="only-en">Tips, Jukebox requests after the free daily quota, AI Edit Assistant plans, and other in-app flows that debit tickets. See the Tickets section above for pack sizing.</span>
+        <span class="only-ja">ギフト、無料枠を超えたジュークボックスリクエスト、AI編集アシスタントなど、アプリ内でチケット消費が発生する機能に利用できます。パック例は上の「チケット」を参照してください。</span>
+      </div>
+    </details>
+    <details>
+      <summary><span class="only-en">Do viewers get automatic subtitles in every language?</span><span class="only-ja">視聴者はすべての言語で自動字幕が付きますか？</span></summary>
+      <div class="faq-body">
+        <span class="only-en">Localization for fans and creators keeps improving, but there is no guarantee of auto-translated playback for every upload yet. Treat advanced captioning as roadmap unless a release note says otherwise.</span>
+        <span class="only-ja">ファン・クリエイター向けのローカライズは拡張中ですが、すべてのアップロードに自動翻訳字幕が付くわけではありません。高度な字幕機能はリリースノートで告知があるまでロードマップ扱いとしてください。</span>
+      </div>
+    </details>
+    <details>
+      <summary><span class="only-en">How are live tips different from paid live access?</span><span class="only-ja">配信ギフトと有料ライブの収益は何が違いますか？</span></summary>
+      <div class="faq-body">
+        <span class="only-en">Paid live and mentor sessions follow the 90/10 creator-side split described on this page. Tips use the monthly creator level table (50%–80% to the creator). Both are calculated inside the app today.</span>
+        <span class="only-ja">有料ライブ・メンタリングは本ページ記載の9対1（クリエイター側／プラットフォーム）です。配信ギフトは月次のクリエイターレベルに応じた50〜80%還元です。いずれも現行アプリ内で計算されます。</span>
+      </div>
+    </details>
   </section>
 
   <section class="closing container">
     <h2><span class="only-en">If you were there, you know.</span><span class="only-ja">フロアに立った人なら、言葉はいらない</span></h2>
+    <p style="color:#888;font-size:17px;max-width:560px;margin:-12px auto 28px;line-height:1.6;">
+      <span class="only-en">Put your next set in front of fans everywhere — start free, keep 90% on paid video and paid live.</span>
+      <span class="only-ja">次のライブを、どこにいるファンにも。無料で始め、有料動画・有料ライブは手元に90%。</span>
+    </p>
     <p><span class="only-en">Words connect people. But the shivers, the tears, the moment your chest fills up at a gig — that's something no AI can replicate.</span><span class="only-ja">言葉でつながることもある。でもライブで鳥肌が立ち、声が枯れ、胸の奥が熱くなるあの時間だけは、どんな生成AIにも作れない。</span></p>
     <p><span class="only-en">We're looking for the ones shaping what's next.</span><span class="only-ja">次の文化をつくる側にいる人に、会いにいきたい。</span></p>
     <div class="cta-buttons" style="justify-content: center;">
@@ -942,12 +1400,11 @@
 
         var enBtn = document.getElementById("lang-en");
         var jaBtn = document.getElementById("lang-ja");
-        if (enBtn && jaBtn) {
-          enBtn.classList.toggle("active", !isJa);
-          jaBtn.classList.toggle("active", isJa);
-          enBtn.setAttribute("aria-pressed", isJa ? "false" : "true");
-          jaBtn.setAttribute("aria-pressed", isJa ? "true" : "false");
-        }
+        document.querySelectorAll("[data-lp-lang]").forEach(function (btn) {
+          var on = btn.getAttribute("data-lp-lang") === (isJa ? "ja" : "en");
+          btn.classList.toggle("active", on);
+          btn.setAttribute("aria-pressed", on ? "true" : "false");
+        });
 
         document.title = isJa ? titleJa : titleEn;
         var md = document.getElementById("meta-desc");
@@ -962,10 +1419,12 @@
       var initial = stored === "ja" || stored === "en" ? stored : navJa ? "ja" : "en";
       apply(initial);
 
-      var enBtn = document.getElementById("lang-en");
-      var jaBtn = document.getElementById("lang-ja");
-      if (enBtn) enBtn.addEventListener("click", function () { apply("en"); });
-      if (jaBtn) jaBtn.addEventListener("click", function () { apply("ja"); });
+      document.querySelectorAll("[data-lp-lang]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var lang = btn.getAttribute("data-lp-lang");
+          if (lang === "en" || lang === "ja") apply(lang);
+        });
+      });
     })();
   </script>
 </body>

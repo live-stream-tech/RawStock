@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>RawStock — You keep 90%</title>
 <meta id="meta-desc" name="description" content="Underground live footage marketplace and streaming. Paid content &amp; paid live: 90% to creators. Live tips 50–80% by level. Tickets via Stripe (USD)." />
+<link rel="canonical" href="LP_CANONICAL_URL_PLACEHOLDER" />
+<link rel="alternate" hreflang="en" href="LP_CANONICAL_URL_PLACEHOLDER" />
+<link rel="alternate" hreflang="ja" href="LP_CANONICAL_URL_PLACEHOLDER" />
+<link rel="alternate" hreflang="x-default" href="LP_CANONICAL_URL_PLACEHOLDER" />
+<!--WEGLOT_INJECT-->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Courier+Prime:wght@400;700&family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -54,20 +59,44 @@ html[lang="ja"] .sec-label-text { letter-spacing: 0.12em; }
 html[lang="ja"] .for-you-desc, html[lang="ja"] .flow-desc { line-height: 1.65; }
 html[lang="ja"] h2[style*="font-size:32px"], html[lang="ja"] h2[style*="font-size:28px"] { font-size: clamp(20px, 5vw, 26px) !important; line-height: 1.35; }
 html[lang="ja"] h3 { font-family: "Noto Sans JP", sans-serif !important; font-weight: 700; }
-.lang-bar { background: #020808; border-bottom: 1px solid var(--border-dim); padding: 10px 40px; display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
-.lang-btn { font-family: 'Barlow Condensed', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; padding: 7px 14px; border: 1px solid var(--border-dim); background: transparent; color: var(--text-muted); cursor: pointer; text-transform: uppercase; border-radius: 2px; }
+.lang-bar { background: #020202; border-bottom: 1px solid rgba(0,255,204,0.2); padding: 12px 40px; display: flex; justify-content: flex-end; position: sticky; top: 0; z-index: 200; }
+.lang-bar-inner { width: 100%; max-width: 1000px; margin: 0 auto; display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; }
+.lang-bar-label { font-family: 'Barlow Condensed', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.18em; color: #555; text-transform: uppercase; margin-right: auto; }
+html[lang="ja"] .lang-bar-label { font-family: "Noto Sans JP", sans-serif; letter-spacing: 0.1em; text-transform: none; }
+.lang-switch-group { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.lang-soon { font-size: 9px; color: #444; letter-spacing: 0.06em; text-transform: uppercase; padding: 6px 8px; border: 1px dashed #333; border-radius: 2px; }
+html[lang="ja"] .lang-soon { font-family: "Noto Sans JP", sans-serif; text-transform: none; }
+.lang-btn { font-family: 'Barlow Condensed', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; padding: 9px 14px; border: 1px solid #444; background: transparent; color: var(--text-sec); cursor: pointer; text-transform: uppercase; border-radius: 2px; min-height: 40px; box-sizing: border-box; }
 .lang-btn:hover { color: var(--neon); border-color: var(--neon); }
+.lang-btn:focus-visible { outline: 2px solid var(--neon); outline-offset: 2px; }
 .lang-btn.active { color: #000; background: var(--neon); border-color: var(--neon); }
-.masthead { background: rgba(5,5,5,0.9); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border-dim); padding: 0 40px; min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 16px; position: sticky; top: 0; z-index: 100; flex-wrap: wrap; }
+.masthead { background: rgba(5,5,5,0.9); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border-dim); padding: 0 40px; min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 16px; position: sticky; top: 48px; z-index: 100; flex-wrap: wrap; }
 .masthead img { height: 32px; width: auto; }
 .masthead-right { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .masthead-link { font-family: 'Courier Prime', monospace; font-size: 10px; letter-spacing: .18em; color: var(--neon); text-decoration: none; text-transform: uppercase; font-weight: 700; white-space: nowrap; }
 .masthead-link:hover { color: #fff; }
 .masthead-tag { font-family: 'Courier Prime', monospace; font-size: 9px; letter-spacing: .2em; color: var(--text-muted); text-transform: uppercase; }
-.hero { position: relative; min-height: 100vh; display: flex; align-items: flex-end; overflow: hidden; background-image: url('/hero-bg.png'); background-size: cover; background-position: center top; }
-.hero-overlay { position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg, rgba(5,5,5,0) 0%, rgba(5,5,5,0.8) 70%, var(--bg-darkest) 100%); }
-.hero-grid { position: absolute; inset: 0; z-index: 1; background-image: linear-gradient(rgba(0,255,204,.02) 1px, transparent 1px), linear-gradient(90deg, rgba(0,255,204,.02) 1px, transparent 1px); background-size: 40px 40px; }
-.hero-inner { position: relative; z-index: 2; width: 100%; max-width: 1000px; margin: 0 auto; padding: 0 40px 80px; }
+.hero { position: relative; min-height: 100vh; display: flex; align-items: flex-end; overflow: hidden; background: var(--bg-darkest); }
+.hero-video-bg { position: absolute; inset: 0; z-index: 0; background: #000; }
+.hero-video-bg video { width: 100%; height: 100%; object-fit: cover; }
+.hero-poster-fallback { position: absolute; inset: 0; background-size: cover; background-position: center; opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  .hero-video-bg video { display: none !important; }
+  .hero-poster-fallback { opacity: 1; }
+}
+.hero-video-shade { position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg, rgba(5,5,5,0.5) 0%, rgba(5,5,5,0.88) 70%, var(--bg-darkest) 100%); }
+.hero-overlay { position: absolute; inset: 0; z-index: 2; background: linear-gradient(180deg, rgba(5,5,5,0) 0%, rgba(5,5,5,0.5) 70%, transparent 100%); pointer-events: none; }
+.hero-grid { position: absolute; inset: 0; z-index: 2; background-image: linear-gradient(rgba(0,255,204,.02) 1px, transparent 1px), linear-gradient(90deg, rgba(0,255,204,.02) 1px, transparent 1px); background-size: 40px 40px; pointer-events: none; }
+.hero-inner { position: relative; z-index: 3; width: 100%; max-width: 1000px; margin: 0 auto; padding: 0 40px 80px; }
+.hero-tagline { font-size: clamp(16px, 2.2vw, 20px); color: var(--neon); font-weight: 700; margin-bottom: 16px; max-width: 36rem; line-height: 1.35; font-family: 'Barlow Condensed', sans-serif; }
+html[lang="ja"] .hero-tagline { font-family: "Noto Sans JP", sans-serif; }
+.hero-cta-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+.cta-button.secondary-outline { background: transparent; color: var(--neon); border: 1px solid var(--neon); }
+.cta-button.secondary-outline:hover { background: rgba(0,255,204,0.08); color: #fff; }
+#demo { scroll-margin-top: 100px; }
+.demo-block { background: var(--bg-dark); padding: 56px 40px; border-top: 1px solid var(--border-dim); }
+.demo-video-box { max-width: 800px; margin: 0 auto; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; background: #000; }
+.demo-video-box video { display: block; width: 100%; height: auto; }
 .hero-h1 { font-size: clamp(32px, 5.5vw, 80px); font-weight: 800; line-height: 1.1; margin-bottom: 20px; letter-spacing: -0.03em; }
 .hero-h1 em { font-style: normal; color: var(--neon); }
 .hero-sub { font-family: 'Courier Prime', monospace; font-size: 12px; color: var(--orange); margin-bottom: 20px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; }
@@ -130,8 +159,15 @@ html[lang="ja"] .story-pillar h3 { font-family: "Noto Sans JP", sans-serif; font
 </head>
 <body>
 <div class="lang-bar" role="region" aria-label="Language">
-  <button type="button" class="lang-btn active" id="lang-en" aria-pressed="true">ENG</button>
-  <button type="button" class="lang-btn" id="lang-ja" aria-pressed="false">日本語</button>
+  <div class="lang-bar-inner">
+    <span class="lang-bar-label"><span class="only-en">Language</span><span class="only-ja">表示言語</span></span>
+    <div class="lang-switch-group">
+      <button type="button" class="lang-btn active" data-lp-lang="en" id="lang-en" aria-pressed="true">ENG</button>
+      <button type="button" class="lang-btn" data-lp-lang="ja" id="lang-ja" aria-pressed="false">日本語</button>
+      <span class="lang-soon only-en">+ ES · PT · KO · 中文 · FR · DE</span>
+      <span class="lang-soon only-ja">+ 他言語対応予定</span>
+    </div>
+  </div>
 </div>
 <header class="masthead">
   <img src="RAWSTOCK_LOGO_URL_PLACEHOLDER" alt="RawStock">
@@ -142,13 +178,20 @@ html[lang="ja"] .story-pillar h3 { font-family: "Noto Sans JP", sans-serif; font
   </div>
 </header>
 <section class="hero">
+  <div class="hero-video-bg" aria-hidden="true">
+    <video src="RAWSTOCK_HERO_VIDEO_URL_PLACEHOLDER" poster="RAWSTOCK_HERO_POSTER_URL_PLACEHOLDER" autoplay muted loop playsinline></video>
+    <div class="hero-poster-fallback" style="background-image:url(RAWSTOCK_HERO_POSTER_URL_PLACEHOLDER)"></div>
+    <div class="hero-video-shade"></div>
+  </div>
   <div class="hero-grid"></div>
   <div class="hero-overlay"></div>
   <div class="hero-inner">
     <p class="hero-sub only-en">The underground marketplace for live music</p>
     <p class="hero-sub only-ja">ライブ音楽のアンダーグラウンド・マーケット</p>
-    <h1 class="hero-h1 only-en">Film it.<br>Sell it.<br>Keep <em>90%</em>.</h1>
-    <h1 class="hero-h1 only-ja">撮って。<br>売って。<br>売上の<em>90%</em>は本人に。</h1>
+    <h1 class="hero-h1 only-en">You keep <em>90%</em>.<br>Sell live footage worldwide.</h1>
+    <h1 class="hero-h1 only-ja">売上の<em>90%</em>は本人に。<br>ライブ映像を世界へ。</h1>
+    <p class="hero-tagline only-en">No labels. No gatekeepers. Ticket packs in USD via Stripe today — more locales across the product are rolling out.</p>
+    <p class="hero-tagline only-ja">レーベルもゲートキーパーもいない。チケットは現状USD（Stripe）。アプリの言語対応は拡張中です。</p>
     <div class="hero-lead only-en">
       No labels. No algorithms. No middlemen.<br>
       Paid video, paid live &amp; mentor: <strong>90%</strong> to you. Live tips: <strong>50–80%</strong> by level.<br>
@@ -191,6 +234,20 @@ html[lang="ja"] .story-pillar h3 { font-family: "Noto Sans JP", sans-serif; font
         <p class="only-en"><strong>AI Edit Assistant</strong> helps ship without living in the timeline — ticket costs in step 02.</p>
         <p class="only-ja"><strong>AI編集アシスタント</strong>で商品化を後押し。チケットは流れの「編集」を参照。</p>
       </div>
+    </div>
+    <div class="hero-cta-row">
+      <a href="/auth/login" class="cta-button"><span class="only-en">Create free account</span><span class="only-ja">無料でアカウント作成</span></a>
+      <a href="/api/auth/google" class="cta-button secondary-outline"><span class="only-en">Google</span><span class="only-ja">Googleで開始</span></a>
+      <a href="#demo" class="cta-button secondary-outline"><span class="only-en">Watch demo</span><span class="only-ja">デモを見る</span></a>
+    </div>
+  </div>
+</section>
+<section id="demo" class="demo-block">
+  <div class="wrap">
+    <h2 style="font-size:24px;font-family:'Barlow Condensed',sans-serif;font-weight:800;margin-bottom:12px;"><span class="only-en">Demo clip</span><span class="only-ja">デモ映像</span></h2>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;max-width:640px;"><span class="only-en">Loop preview — replace anytime with your hero asset on the server.</span><span class="only-ja">ループプレビュー。本番用映像はサーバー設定で差し替え可能です。</span></p>
+    <div class="demo-video-box">
+      <video controls playsinline poster="RAWSTOCK_HERO_POSTER_URL_PLACEHOLDER" src="RAWSTOCK_LP_DEMO_VIDEO_URL_PLACEHOLDER"></video>
     </div>
   </div>
 </section>
@@ -291,8 +348,9 @@ html[lang="ja"] .story-pillar h3 { font-family: "Noto Sans JP", sans-serif; font
     <h2 style="font-size:28px; margin-bottom:24px; font-family: 'Barlow Condensed', sans-serif; font-weight: 800;"><span class="only-en">Build your scene</span><span class="only-ja">シーンを一緒に</span></h2>
     <p style="font-size:15px; color:var(--text-sec); margin-bottom:32px;"><span class="only-en">Tokyo basement to Berlin warehouse to Brooklyn rooftop.<br>We're looking for the ones shaping what's next in music.</span><span class="only-ja">東京の地下室から、ベルリンの倉庫、ブルックリンの屋上まで。<br>次の音楽を決める側にいる人と、つながりたい。</span></p>
     <div style="display:flex; flex-wrap:wrap; gap:12px; justify-content:center;">
-      <a href="/auth/login" class="cta-button"><span class="only-en">Try it now</span><span class="only-ja">無料で始める</span></a>
+      <a href="/auth/login" class="cta-button"><span class="only-en">Create free account</span><span class="only-ja">無料でアカウント作成</span></a>
       <a href="/api/auth/google" class="cta-button" style="background:transparent;color:var(--neon);border:1px solid var(--neon);"><span class="only-en">Sign in with Google</span><span class="only-ja">Googleで登録・ログイン</span></a>
+      <a href="#demo" class="cta-button" style="background:transparent;color:var(--neon);border:1px solid var(--neon);"><span class="only-en">Watch demo</span><span class="only-ja">デモを見る</span></a>
     </div>
     <p style="font-size:12px; color:var(--text-muted); margin-top:20px;"><span class="only-en">Or </span><span class="only-ja">お問い合わせ：</span><a href="mailto:info@rawstock.live" style="color:var(--neon);">info@rawstock.live</a></p>
   </div>
@@ -314,14 +372,11 @@ html[lang="ja"] .story-pillar h3 { font-family: "Noto Sans JP", sans-serif; font
     root.lang = lang === "ja" ? "ja" : "en";
     var isJa = root.lang === "ja";
     try { localStorage.setItem(KEY, root.lang); } catch (e) {}
-    var enBtn = document.getElementById("lang-en");
-    var jaBtn = document.getElementById("lang-ja");
-    if (enBtn && jaBtn) {
-      enBtn.classList.toggle("active", !isJa);
-      jaBtn.classList.toggle("active", isJa);
-      enBtn.setAttribute("aria-pressed", isJa ? "false" : "true");
-      jaBtn.setAttribute("aria-pressed", isJa ? "true" : "false");
-    }
+    document.querySelectorAll("[data-lp-lang]").forEach(function (btn) {
+      var on = btn.getAttribute("data-lp-lang") === (isJa ? "ja" : "en");
+      btn.classList.toggle("active", on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+    });
     document.title = isJa ? titleJa : titleEn;
     var md = document.getElementById("meta-desc");
     if (md) md.setAttribute("content", isJa ? descJa : descEn);
@@ -331,10 +386,12 @@ html[lang="ja"] .story-pillar h3 { font-family: "Noto Sans JP", sans-serif; font
   var navJa = /^ja/i.test(navigator.language || "");
   var initial = stored === "ja" || stored === "en" ? stored : navJa ? "ja" : "en";
   apply(initial);
-  var enB = document.getElementById("lang-en");
-  var jaB = document.getElementById("lang-ja");
-  if (enB) enB.addEventListener("click", function () { apply("en"); });
-  if (jaB) jaB.addEventListener("click", function () { apply("ja"); });
+  document.querySelectorAll("[data-lp-lang]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var lang = btn.getAttribute("data-lp-lang");
+      if (lang === "en" || lang === "ja") apply(lang);
+    });
+  });
 })();
 </script>
 </body>

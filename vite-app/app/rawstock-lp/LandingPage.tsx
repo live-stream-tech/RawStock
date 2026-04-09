@@ -24,6 +24,10 @@ import {
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 
 import { RAWSTOCK_LOGO_URL } from "./rawstockLogoUrl";
+import {
+  RAWSTOCK_HERO_POSTER_URL,
+  RAWSTOCK_HERO_VIDEO_URL,
+} from "../../../lib/brand";
 import heroBgAsset from "figma:asset/309842f0ad72149da798df32c7ca400d2c1a681c.png";
 import finalBgAsset from "figma:asset/7297cac4224d17f6386dfb8b7fc7e6ebcd88fab4.png";
 import metalPatternAsset from "figma:asset/69679f731dbb4e472bf4a5e49e335dcaded790ad.png";
@@ -119,8 +123,17 @@ export default function LandingPage() {
 
         <section className="relative h-[90vh] min-h-[750px] flex flex-col items-center justify-start text-center px-8 pt-[190px]">
           <div className="absolute inset-0 z-0 overflow-hidden">
+            <video
+              className="absolute inset-0 z-[1] h-full w-full object-cover opacity-45"
+              autoPlay
+              muted
+              loop
+              playsInline
+              poster={RAWSTOCK_HERO_POSTER_URL}
+              src={RAWSTOCK_HERO_VIDEO_URL}
+            />
             <div 
-              className="absolute inset-0 opacity-80"
+              className="absolute inset-0 opacity-80 z-[2]"
               style={{ 
                 backgroundImage: `url(${heroBgAsset})`,
                 backgroundSize: '120% auto',
@@ -144,13 +157,13 @@ export default function LandingPage() {
               Underground Music Marketplace
             </div>
             
-            <h1 className="font-black italic tracking-[-0.1em] uppercase leading-none mb-6 drop-shadow-2xl text-center">
-              <span className="text-[42px] block text-white">
-                <span className="bg-[#0891B2]/50 px-2 inline-block">Film it. Sell it.</span>
+            <h1 className="font-black italic tracking-[-0.08em] uppercase leading-tight mb-5 drop-shadow-2xl text-center px-1">
+              <span className="text-[36px] sm:text-[42px] block text-white">
+                <span className="bg-[#0891B2]/50 px-2 inline-block">Keep 90%. Sell worldwide.</span>
               </span>
-              <span className="text-[32px] block mt-1 text-white">
-                <span className="bg-[#0891B2]/50 px-2 inline-block">
-                  Keep <span className="text-[#ea580c] text-[46px] underline decoration-[8px] decoration-[#0891B2]/60 underline-offset-[-2px]">90%</span>.
+              <span className="text-[22px] sm:text-[26px] block mt-2 text-white/95 normal-case font-bold tracking-tight not-italic">
+                <span className="bg-black/40 px-2 py-1 inline-block border border-white/10 rounded-md">
+                  Live footage. No gatekeepers.
                 </span>
               </span>
             </h1>
