@@ -1,0 +1,101 @@
+
+ユーザーが投稿ボタンを押した瞬間に走るバックエンドの処理イメージです。
+
+
+
+TypeScript
+
+app.post("/api/posts", async (req, res) => {
+
+  const { content } = req.body;
+
+
+
+  // 1. Claude等の軽量モデルを「文脈抽出器」として呼び出す
+
+  const context = await extractContextFromText(content); 
+
+  /* 出力例: { 
+
+       lang: "ja", 
+
+       isProfessional: true, 
+
+       suggestedEditStyle: "dynamic" 
+
+     } 
+
+  */
+
+
+
+  // 2. ユーザーの「メモリDB」を更新（ここがOSのコア）
+
+  await db.userContext.upsert({
+
+    where: { userId: req.user.id },
+
+    update: { ...context, lastUpdatedAt: new Date() }
+
+  });
+
+
+
+  // 3. 本来の投稿処理を実行
+
+  const post = await db.posts.create({ data: { content, ... } });
+
+
+
+  res.json({ post, autoConfiguredUI: context.lang });
+
+});
+
+その流れ（投稿直前に軽く文脈を取る → ユーザー文脈を更新 → 投稿保存 → レスポンスに反映）は、体験としてはイメージしやすく、説明もしやすいです。
+
+整理すると、次のようにすると運用と整合しやすいです。
+
+処理順（おすすめ）
+認証・バリデーション・レート制限（本文長・禁止ワードなど）を先に済ませる。
+LLM 呼び出し（extractContextFromText）。失敗したときのフォールバック（lang: null やデフォルト）を決める。
+userContext の upsert（ここはトランザクションの要否を検討。投稿と一緒にコミットするか、文脈だけ別でもよい）。
+posts.create（content に加え、この投稿に紐づく detectedLang なども保存すると後から一覧・検索が楽）。
+res.json({ post, autoConfiguredUI })。
+ポイントは、高コスト・高遅延な処理の前に弾けるものは全部弾くことです。
+
+設計上の補足
+「投稿ボタン押下の瞬間」同期で Claude まで含めると、レイテンシとコストが毎回乗ります。
+対策: 短文はルール／軽量検知のみ、長文や「編集スタイルが必要なときだけ LLM**、あるいは投稿は即返し、文脈更新はキュー（その場合 autoConfiguredUI は次回以降反映、などルールを決める）。
+userContext を毎回フル上書きにすると、単発の変な投稿でプロファイルが歪むことがあります。直近N件の集約や信頼度付きマージ、または**「投稿ごとのメタ」だけDBに積んで、文脈はバッチで更新**も選択肢です。
+以前の「投稿文だけ」というスコープとも整合します。入力は常に content だけ、出力が lang 以外にも広がるのは問題ありません（抽出結果の話なので）。
+RawStock に落とすときの型イメージ
+posts に contentLocale（または detectedLang）を持たせる。
+user_preferences / user_context に lastContentLang や suggestedEditStyle などUI向けの要約を持つ。
+API レスポンスは { post, contextPatch } のように、**「今回確定した投稿」＋「ユーザー全体に反映した差分」**を分けると、クライアントが扱いやすいです。
+まとめると、疑似コードの骨子はそのまま使えます。実務では (1) バリデーション先行 (2) LLM失敗時の挙動 (3) 同期か非同期か (4) 上書きかマージか の4点だけ先に決めると、後戻りが減ります。
+
+無料で組みたいどこがいい？
+
+「無料で組む」なら、課金を避ける優先順位はだいたい次のとおりです。
+
+言語だけなら（LLMなし）
+ライブラリ: franc / tinyld など（npm・ローカル推論・API課金なし）。
+バックエンド: いまの Node（Express）にそのまま足すだけで足りることが多いです。
+→ コストも遅延も最小で、**「投稿文から言語タグ」**にはこれが一番ラクです。
+文脈抽出まで LLM でやりたい場合（無料寄り）
+APIの「無料」は変わりやすいので、公式の無料枠ページを都度確認が前提です。
+
+Google Gemini API（無料枠あり・比較的わかりやすい）
+Groq（高速・無料枠の有無・上限は要確認）
+ローカル:Ollama + 小さいモデル（お金はかからないが、サーバは自前）
+「Claude API は無料枠がほぼ無い」イメージで、プロトタイプは Gemini かローカルが現実的です。
+
+DB・ホスティング（無料枠）
+DB: Neon / Supabase（PostgreSQL・無料枠）
+アプリ: Vercel Hobby、Cloudflare Workers（小さめAPI向き）
+おすすめの組み合わせ（無料優先・シンプル）
+言語: franc 等のみ（まずここで十分なことが多い）
+どうしても LLM: Gemini か Ollama
+DB: Neon または Supabase
+API: 既存の Express のまま or Vercel に寄せる
+「無料で」と「Claude固定」は両立しにくいので、MVP は franc → 足りなければ Gemini/Ollama がコスパとスピードのバランスがよいです。
