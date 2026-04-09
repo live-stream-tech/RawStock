@@ -18,14 +18,10 @@
 - [x] Jukebox動画追加モーダルのサイズ修正（modalList maxHeight追加、modalSheet縮小）
 - [x] PC表示時のDimensions.get("window").width問題を全ページで修正（上限430px）
 - [x] ヘッダーのアイコン+テキストを新しいRawStockロゴ画像に差替え
-- [ ] 「ツーショット」→「メンター」全体名称変更（UI・API・DB表示）
+- [x] 「ツーショット」→「メンター」名称統一（UI・API・DB表示）※文言残りがあれば随時
 - [x] コミュニティ掲示板タブをナビから削除（入口を封鎖）
 - [ ] コンサート管理・スタッフ申請を外部リンクのみに変更
-- [ ] ライブ配信WHIP実装（broadcast.tsx）
-- [ ] ライブ視聴WHEP実装（live/[id].tsx）
-- [x] ツーショット→メンター全体名称変更
-- [x] コミュニティ掲示板タブをナビから削除
-- [x] ライブ配信WHIP/WHEP実装
+- [x] ライブ WHIP/WHEP（配信: `broadcast.tsx` / 視聴: `live/[id].tsx`・現状は Web 視聴中心）
 - [ ] メンターセッション常時予約化（mentor_sessions/mentor_bookings DBスキーマ）
 - [ ] メンターセッション予約API（スロット管理・Stripe決済・WHIP発行）
 - [ ] クリエイター側メンターUI（セッション登録・スロット設定・配信開始）
