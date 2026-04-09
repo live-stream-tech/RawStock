@@ -4,7 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RawStock — You keep 90%</title>
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow+Condensed:wght@400;600;700&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet" />
+  <meta id="meta-desc" name="description" content="Underground live footage marketplace and streaming. Sell sets, stream live, run genre communities. Paid content and paid live: 90% to creators. Tips scale 50–80% by level. Tickets via Stripe (USD)." />
+  <meta property="og:title" content="RawStock — You keep 90%" />
+  <meta property="og:description" content="Live footage marketplace × streaming. No gatekeepers. Paid content &amp; paid live: 90% to the creator side. Community ads: 70% to admins &amp; mods." />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="RawStock — You keep 90%" />
+  <meta name="twitter:description" content="Sell live sets, stream, build scenes. 90% on paid content &amp; paid live access." />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow+Condensed:wght@400;600;700&family=Courier+Prime:wght@400;700&family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet" />
   <style>
     * {
       margin: 0;
@@ -26,12 +33,158 @@
       padding: 0 20px;
     }
 
+    html[lang="ja"] .only-en {
+      display: none !important;
+    }
+
+    html[lang="en"] .only-ja {
+      display: none !important;
+    }
+
+    .lang-bar {
+      background: #050505;
+      border-bottom: 1px solid #222;
+      padding: 10px 0;
+      position: sticky;
+      top: 0;
+      z-index: 200;
+    }
+
+    .lang-bar-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .lang-btn {
+      font-family: "Barlow Condensed", sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      padding: 8px 16px;
+      border: 1px solid #333;
+      background: transparent;
+      color: #888;
+      cursor: pointer;
+      text-transform: uppercase;
+      border-radius: 2px;
+    }
+
+    .lang-btn:hover {
+      color: #00ffa3;
+      border-color: #00ffa3;
+    }
+
+    .lang-btn.active {
+      color: #000;
+      background: #00ffa3;
+      border-color: #00ffa3;
+    }
+
+    /* Japanese: readable stack + no condensed Latin headings on CJK */
+    html[lang="ja"] body {
+      font-family: "Noto Sans JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", sans-serif;
+      line-height: 1.75;
+      letter-spacing: 0.02em;
+      font-feature-settings: "palt" 1;
+    }
+
+    html[lang="ja"] h1 {
+      font-family: "Noto Sans JP", sans-serif;
+      font-weight: 900;
+      letter-spacing: 0;
+      font-size: clamp(26px, 6.5vw, 44px);
+      line-height: 1.35;
+    }
+
+    html[lang="ja"] h2 {
+      font-family: "Noto Sans JP", sans-serif;
+      font-weight: 800;
+      letter-spacing: 0;
+      font-size: clamp(22px, 5vw, 34px);
+      line-height: 1.4;
+    }
+
+    html[lang="ja"] h3 {
+      font-family: "Noto Sans JP", sans-serif;
+      letter-spacing: 0.04em;
+    }
+
+    html[lang="ja"] .hero-text {
+      font-size: 16px;
+      max-width: 42rem;
+    }
+
+    html[lang="ja"] nav a {
+      letter-spacing: 0;
+      text-transform: none;
+      font-size: 13px;
+    }
+
+    html[lang="ja"] .btn {
+      letter-spacing: 0.04em;
+      text-transform: none;
+      font-family: "Noto Sans JP", sans-serif;
+    }
+
+    html[lang="ja"] .lang-btn {
+      font-family: "Noto Sans JP", "Barlow Condensed", sans-serif;
+      letter-spacing: 0.06em;
+      text-transform: none;
+    }
+
+    html[lang="ja"] .role h4,
+    html[lang="ja"] .step-box h4,
+    html[lang="ja"] .feature-title {
+      font-family: "Noto Sans JP", sans-serif;
+      letter-spacing: 0;
+      text-transform: none;
+      font-weight: 700;
+    }
+
+    html[lang="ja"] .revenue-label {
+      letter-spacing: 0;
+      text-transform: none;
+      font-family: "Noto Sans JP", sans-serif;
+      font-size: 13px;
+    }
+
+    html[lang="ja"] .belief {
+      font-size: 16px;
+    }
+
+    html[lang="ja"] .math {
+      font-family: "Noto Sans JP", "Courier Prime", monospace;
+      font-size: 13px;
+      line-height: 1.9;
+    }
+
+    html[lang="ja"] .pack-tickets {
+      text-transform: none;
+      letter-spacing: 0;
+    }
+
     header {
       padding: 40px 0;
       display: flex;
       justify-content: space-between;
       align-items: center;
       border-bottom: 1px solid #222;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px 20px;
     }
 
     .logo img {
@@ -43,7 +196,7 @@
     nav a {
       color: #aaa;
       text-decoration: none;
-      margin-left: 30px;
+      margin-left: 0;
       font-size: 14px;
       text-transform: uppercase;
       letter-spacing: 1px;
@@ -258,9 +411,15 @@
 
     .revenue-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(2, 1fr);
       gap: 30px;
       margin-top: 40px;
+    }
+
+    @media (min-width: 900px) {
+      .revenue-grid {
+        grid-template-columns: repeat(4, 1fr);
+      }
     }
 
     .revenue-item {
@@ -280,6 +439,23 @@
       color: #aaa;
       text-transform: uppercase;
       letter-spacing: 1px;
+    }
+
+    .revenue-note {
+      font-size: 12px;
+      color: #777;
+      line-height: 1.5;
+      margin-top: 12px;
+      max-width: 720px;
+    }
+
+    .revenue-sub {
+      font-size: 11px;
+      color: #666;
+      text-transform: none;
+      letter-spacing: 0;
+      margin-top: 8px;
+      line-height: 1.4;
     }
 
     .math {
@@ -371,154 +547,232 @@
         grid-template-columns: 1fr;
       }
 
-      nav {
-        display: none;
+      nav a {
+        font-size: 11px;
+        letter-spacing: 0.05em;
+      }
+
+      html[lang="ja"] h1 {
+        font-size: 28px;
+        letter-spacing: 0;
+      }
+
+      html[lang="ja"] h2 {
+        font-size: 22px;
       }
     }
   </style>
 </head>
 <body>
+  <div class="lang-bar" role="region" aria-label="Language">
+    <div class="lang-bar-inner">
+      <button type="button" class="lang-btn active" id="lang-en" aria-pressed="true">ENG</button>
+      <button type="button" class="lang-btn" id="lang-ja" aria-pressed="false">日本語</button>
+    </div>
+  </div>
+
   <header class="container">
     <div class="logo"><img src="/assets/logo-200x70-v2.png" alt="RawStock" /></div>
     <nav>
-      <a href="#features">Features</a>
-      <a href="#revenue">Revenue</a>
-      <a href="#tickets">Tickets</a>
+      <a href="#features"><span class="only-en">Features</span><span class="only-ja">特徴</span></a>
+      <a href="#revenue"><span class="only-en">Revenue</span><span class="only-ja">収益モデル</span></a>
+      <a href="#tickets"><span class="only-en">Tickets</span><span class="only-ja">チケット</span></a>
       <a href="/teamz">VC / TEAMZ</a>
     </nav>
   </header>
 
   <section class="hero container">
-    <h1>You keep 90%.</h1>
+    <h1><span class="only-en">You keep 90%.</span><span class="only-ja">売上の90%が、本人の手に。</span></h1>
     <p class="hero-text">
-      No labels. No gatekeepers. No cuts.<br />
-      Just real moments, sold by the people who were there.<br />
-      Live footage marketplace × Streaming platform.
+      <span class="only-en">
+        No labels. No gatekeepers. No cuts.<br />
+        Just real moments, sold by the people who were there.<br />
+        Live footage marketplace × Streaming platform.<br />
+        <span style="color: #888; font-size: 15px; display: block; margin-top: 16px;">
+          On paid video sales, paid live access, and mentor sessions, <strong style="color: #ccc;">90%</strong> goes to the creator side (platform 10%).<br />
+          <strong style="color: #ccc;">Live tips</strong> use a separate scale: <strong style="color: #00ffa3;">50%–80%</strong> to the creator, based on your monthly creator level (7 tiers).
+        </span>
+      </span>
+      <span class="only-ja">
+        レーベルも主催者も、途中で抜き取る仲介もいない。<br />
+        現場にいた人から、生のライブ映像と配信をそのままマネタイズ。<br />
+        ライブ映像マーケット × 配信プラットフォーム。<br />
+        <span class="hero-detail-ja" style="color: #888; font-size: 15px; display: block; margin-top: 16px;">
+          有料動画・チケット制の有料ライブ・メンタリングは、<strong style="color: #ccc;">クリエイター側90%</strong>（当社手数料10%）。<br />
+          配信中の<strong style="color: #ccc;">ギフト（投げ銭）</strong>は別レート。月間の<strong style="color: #ccc;">クリエイターレベル</strong>（全7段階）に応じ、<strong style="color: #00ffa3;">50〜80%</strong>が還元されます。
+        </span>
+      </span>
     </p>
     <div class="cta-buttons">
-      <a href="/auth/login" class="btn">Try it now</a>
-      <a href="/api/auth/google" class="btn btn-secondary">Sign in with Google</a>
+      <a href="/auth/login" class="btn"><span class="only-en">Try it now</span><span class="only-ja">無料で始める</span></a>
+      <a href="/api/auth/google" class="btn btn-secondary"><span class="only-en">Sign in with Google</span><span class="only-ja">Googleで登録・ログイン</span></a>
     </div>
+    <p style="color: #666; font-size: 13px; margin-top: 16px; max-width: 520px;">
+      <span class="only-en">Create an account with email and password on the login page, or use Google.</span>
+      <span class="only-ja">ログイン画面から<strong>メールアドレスでの新規登録</strong>、または<strong>Googleアカウント</strong>で利用を開始できます。</span>
+    </p>
   </section>
 
   <section class="why container">
-    <h2>Why we built this.</h2>
-    <p class="belief">The world's underground scenes should be accessible to everyone, from your bed.</p>
-    <p class="belief">Music is better when you're in it with people — even if you're oceans apart.</p>
-    <p class="belief">Artists should be able to not just survive, but thrive from their music alone.</p>
+    <h2><span class="only-en">Why we built this.</span><span class="only-ja">このサービスに込めたこと</span></h2>
+    <p class="belief only-en">The world's underground scenes should be accessible to everyone, from your bed.</p>
+    <p class="belief only-ja">世界中の「現場の熱量」は、自宅のベッドの上からでも追いかけられるべきだと考えています。</p>
+    <p class="belief only-en">Music is better when you're in it with people — even if you're oceans apart.</p>
+    <p class="belief only-ja">遠くにいても、同じ時間を共有できる。音楽には、そういう力があります。</p>
+    <p class="belief only-en">Artists should be able to not just survive, but thrive from their music alone.</p>
+    <p class="belief only-ja">アーティストが、自分の音楽だけで生活し、さらに伸びていける。それを当たり前に近づけたい。</p>
   </section>
 
   <section class="container">
-    <h2>It's for the ones actually doing it.</h2>
-    <p style="color: #999; margin-bottom: 40px; font-size: 16px;">Not for everyone. And that's the point.</p>
+    <h2><span class="only-en">It's for the ones actually doing it.</span><span class="only-ja">現場で背中を見せている人へ</span></h2>
+    <p style="color: #999; margin-bottom: 40px; font-size: 16px;"><span class="only-en">Not for everyone. And that's the point.</span><span class="only-ja">万人向けの「便利ツール」ではありません。それでよいと思っています。</span></p>
 
     <div class="for-who">
       <div class="role">
-        <h4>🎨 Artists</h4>
-        <p>Sell your set. No middlemen. Get rich from your craft.</p>
+        <h4>🎨 <span class="only-en">Artists</span><span class="only-ja">ライブアーティスト</span></h4>
+        <p><span class="only-en">Sell your set. No middlemen. Get rich from your craft.</span><span class="only-ja">ライブ映像やセットを販売。余計な仲介は挟みません。</span></p>
       </div>
       <div class="role">
-        <h4>📡 Live Streamers</h4>
-        <p>Practice sessions, fan meetings, or masterclasses. Stream your process and get paid directly.</p>
+        <h4>📡 <span class="only-en">Live Streamers</span><span class="only-ja">配信者</span></h4>
+        <p><span class="only-en">Practice sessions, fan meetings, or masterclasses. Stream your process and get paid directly.</span><span class="only-ja">練習配信、ファンとの時間、オンラインレッスンなど。日々のプロセスをそのまま収益の源に。</span></p>
       </div>
       <div class="role">
-        <h4>✂️ Editors</h4>
-        <p>Get work. Get paid. No delays.</p>
+        <h4>✂️ <span class="only-en">Editors</span><span class="only-ja">動画編集者</span></h4>
+        <p><span class="only-en">Get work. Get paid. No delays.</span><span class="only-ja">ライブ映像まわりの案件が届き、成果に応じた報酬へつながります。</span></p>
       </div>
       <div class="role">
-        <h4>🏘 Community Leaders</h4>
-        <p>Build scenes. Take your cut. Your District, your rules, your revenue.</p>
+        <h4>🏘 <span class="only-en">Community Leaders</span><span class="only-ja">コミュニティ運営者</span></h4>
+        <p><span class="only-en">Build scenes. Take your cut. Your District, your rules, your revenue.</span><span class="only-ja">ジャンルコミュニティ（ディストリクト）を育てる。広告収益の配分は、運営側で設計できます。</span></p>
       </div>
       <div class="role">
-        <h4>🎪 Event Organisers</h4>
-        <p>Fund the next one. Keep the scene moving.</p>
+        <h4>🎪 <span class="only-en">Event Organisers</span><span class="only-ja">イベント主催・会場</span></h4>
+        <p><span class="only-en">Fund the next one. Keep the scene moving.</span><span class="only-ja">次の開催につながる資金づくり。ローカルのシーンを止めずに回す。</span></p>
       </div>
     </div>
   </section>
 
   <section class="container">
-    <h2>How it works.</h2>
-    <p style="color: #999; margin-bottom: 40px;">Get it on camera. Order an edit. Your fans buy it. Next gig, repeat.</p>
+    <h2><span class="only-en">How it works.</span><span class="only-ja">ご利用の流れ</span></h2>
+    <p style="color: #999; margin-bottom: 40px;"><span class="only-en">Get it on camera. Order an edit. Your fans buy it. Next gig, repeat.</span><span class="only-ja">撮影 → 編集 → 販売 → 次の公演へ。シンプルなループです。</span></p>
 
     <div class="how-it-works">
       <div class="step-box">
         <div class="step-number">①</div>
-        <h4>Shoot the Show</h4>
-        <p>Film the gig on your phone. Raw, unfiltered, real.</p>
+        <h4><span class="only-en">Shoot the Show</span><span class="only-ja">ライブを撮影</span></h4>
+        <p><span class="only-en">Film the gig on your phone. Raw, unfiltered, real.</span><span class="only-ja">スマートフォンでOK。飾らない、ありのままの1本に。</span></p>
       </div>
       <div class="step-box">
         <div class="step-number">②</div>
-        <h4>Commission an Editor</h4>
-        <p>Order a cut from an editor or use AI-edit on the platform.</p>
+        <h4><span class="only-en">Edit &amp; polish</span><span class="only-ja">編集・仕上げ</span></h4>
+        <p>
+          <span class="only-en">Commission an editor, or use the <strong>AI Edit Assistant</strong> (15 / 30 / 45 / 60 min — <strong>200 / 400 / 600 / 800</strong> tickets). First plan revision is free; further revisions cost <strong>100 tickets</strong> each.</span>
+          <span class="only-ja">信頼できる編集パートナーに外注するか、<strong>AI編集アシスタント</strong>で進める（15／30／45／60分プラン＝チケット<strong>200／400／600／800</strong>枚）。プラン確定後の<strong>初回修正は無料</strong>、2回目以降は<strong>100枚／回</strong>です。</span>
+        </p>
       </div>
       <div class="step-box">
         <div class="step-number">③</div>
-        <h4>Sell the Footage</h4>
-        <p>Fans buy the full video naturally after seeing the preview.</p>
+        <h4><span class="only-en">Sell the Footage</span><span class="only-ja">本編を販売</span></h4>
+        <p><span class="only-en">Fans buy the full video naturally after seeing the preview.</span><span class="only-ja">無料のダイジェストから本編へ。ファンがそのまま決済できます。</span></p>
       </div>
       <div class="step-box">
         <div class="step-number">④</div>
-        <h4>Promote the Next Gig</h4>
-        <p>Link to tickets and merch. The cycle continues.</p>
+        <h4><span class="only-en">Promote the Next Gig</span><span class="only-ja">次の公演へ誘導</span></h4>
+        <p><span class="only-en">Link to tickets and merch. The cycle continues.</span><span class="only-ja">外部チケットやグッズ販売へのリンクを載せ、次の現場につなげます。</span></p>
       </div>
     </div>
   </section>
 
-  <section class="scene container">
-    <h2>The scene, in your room.</h2>
-    <p style="color: #999; margin-bottom: 40px;">The energy of the underground, without leaving your couch.</p>
+  <section class="scene container" id="features">
+    <h2><span class="only-en">The scene, in your room.</span><span class="only-ja">いつもの部屋で、その熱量を</span></h2>
+    <p style="color: #999; margin-bottom: 40px;"><span class="only-en">The energy of the underground, without leaving your couch.</span><span class="only-ja">外出しなくても、アンダーグラウンドの空気感に触れられる場所に。</span></p>
 
     <div class="scene-feature">
-      <div class="feature-title">🎵 Jukebox</div>
+      <div class="feature-title">🎵 <span class="only-en">Jukebox</span><span class="only-ja">ジュークボックス</span></div>
       <p class="feature-desc">
-        Every District has a Jukebox — Add tracks via YouTube and vibe together in real-time. First 3 requests daily are free.
+        <span class="only-en">Every community has a Jukebox — queue YouTube tracks and stay in sync in real time (server-driven playback). <strong>First 3 requests per day, per community</strong> are free. After that, each request costs <strong>30 tickets</strong> ($0.30 at 1 ticket = $0.01).</span>
+        <span class="only-ja">コミュニティごとに設置。YouTubeの楽曲をキューに入れ、サーバー側の再生でみんな同じタイミングで視聴できます。<strong>1コミュニティ・1日あたり3曲まで</strong>リクエスト無料。4曲目以降は<strong>30チケット／1リクエスト</strong>（1チケット＝US$0.01の場合、約$0.30相当）。</span>
       </p>
     </div>
 
     <div class="scene-feature">
-      <div class="feature-title">🏘 Districts</div>
+      <div class="feature-title">🤖 <span class="only-en">AI Edit Assistant</span><span class="only-ja">AI編集アシスタント</span></div>
       <p class="feature-desc">
-        Genre-based communities. 70% of ad revenue goes to the community, and 10% is saved to fund future events.
+        <span class="only-en">Upload footage, describe the cut, and get an AI-generated edit plan. Charged in <strong>tickets</strong> by plan length (15 / 30 / 45 / 60 minutes). The <strong>first revision</strong> after the plan is free; additional revisions cost <strong>100 tickets</strong> each.</span>
+        <span class="only-ja">映像をアップロードし、どう切りたいかを文章で指示。AIが編集プランをたたき台として提示します。尺に応じて<strong>チケット</strong>を消費（15／30／45／60分）。<strong>初回のプラン修正は無料</strong>、以降は<strong>100チケット／回</strong>です。</span>
       </p>
     </div>
 
     <div class="scene-feature">
-      <div class="feature-title">📡 Live Cast</div>
+      <div class="feature-title">🏘 <span class="only-en">Districts</span><span class="only-ja">ディストリクト</span></div>
       <p class="feature-desc">
-        Artists go live. Fans join in real-time. Tip, interact, or just vibe from anywhere in the world.
+        <span class="only-en">Genre-based communities. Community banner ad revenue is split: <strong>70%</strong> to admins &amp; moderators (per your distribution settings), <strong>10%</strong> to the event fund, <strong>20%</strong> to the platform.</span>
+        <span class="only-ja">ジャンルやシーン単位のコミュニティ。バナー広告の純収益は<strong>70%</strong>が管理者・モデレーター（あなたが設定した配分どおり）、<strong>10%</strong>がイベント基金、<strong>20%</strong>が当社（プラットフォーム）です。</span>
+      </p>
+    </div>
+
+    <div class="scene-feature">
+      <div class="feature-title">📡 <span class="only-en">Live Cast</span><span class="only-ja">ライブ配信</span></div>
+      <p class="feature-desc">
+        <span class="only-en">Go live with chat and tips. Paid live access and mentor sessions record at <strong>90%</strong> back to the creator side; <strong>tips</strong> use the level-based scale (50%–80%). Creator level updates from monthly tip volume and stream count.</span>
+        <span class="only-ja">チャットやギフト付きで配信。<strong>有料ライブ</strong>と<strong>メンタリング</strong>の売上はクリエイター側<strong>90%</strong>。<strong>ギフト</strong>は月間のクリエイターレベルに応じ<strong>50〜80%</strong>還元。レベルは、その月のギフト総額と配信本数で更新されます。</span>
       </p>
     </div>
   </section>
 
-  <section class="revenue container">
-    <h2>Revenue.</h2>
-    <p style="color: #999; margin-bottom: 40px; max-width: 600px;">We keep 10%. We promise to spend even that on growing the scene.</p>
+  <section class="revenue container" id="revenue">
+    <h2><span class="only-en">Revenue.</span><span class="only-ja">収益の考え方</span></h2>
+    <p style="color: #999; margin-bottom: 40px; max-width: 600px;">
+      <span class="only-en">Paid sales and paid live are a flat <strong style="color: #ccc;">90/10</strong> split to the creator side. Tips reward consistency — up to <strong style="color: #00ffa3;">80%</strong> at the top creator level.</span>
+      <span class="only-ja">動画販売や有料ライブの売上は、いずれもクリエイター側への<strong style="color: #ccc;">9対1</strong>。配信ギフトは継続的に活動するほど還元率が上がり、最大<strong style="color: #00ffa3;">80%</strong>まで届きます。</span>
+    </p>
 
     <div class="revenue-grid">
       <div class="revenue-item">
         <div class="revenue-percent">90%</div>
-        <div class="revenue-label">Paid Content</div>
+        <div class="revenue-label"><span class="only-en">Paid Content</span><span class="only-ja">有料コンテンツ販売</span></div>
+        <p class="revenue-sub"><span class="only-en">Video sales &amp; downloads. You split the creator 90% among artist, filmmaker, editor as you choose.</span><span class="only-ja">映像の販売・ダウンロード。クリエイター側90%を、アーティスト／撮影／編集など、関係者で自由に配分できます。</span></p>
       </div>
       <div class="revenue-item">
-        <div class="revenue-percent">95%</div>
-        <div class="revenue-label">Live Streaming</div>
+        <div class="revenue-percent">90%</div>
+        <div class="revenue-label"><span class="only-en">Paid Live &amp; Mentor</span><span class="only-ja">有料ライブ・メンタリング</span></div>
+        <p class="revenue-sub"><span class="only-en">Ticketed live access and mentor sessions: 90% to creator side, 10% platform.</span><span class="only-ja">視聴チケット制のライブや1対1のメンタリング。クリエイター側90%、当社手数料10%です。</span></p>
+      </div>
+      <div class="revenue-item">
+        <div class="revenue-percent">50–80%</div>
+        <div class="revenue-label"><span class="only-en">Live Tips</span><span class="only-ja">配信ギフト</span></div>
+        <p class="revenue-sub"><span class="only-en">Seven creator levels (monthly tips + stream count). Starts at 50%, up to 80% to the creator.</span><span class="only-ja">月次で判定されるクリエイターレベル（全7段階）。ギフト総額と配信本数に応じ、還元は50%から最大80%まで。</span></p>
       </div>
       <div class="revenue-item">
         <div class="revenue-percent">70%</div>
-        <div class="revenue-label">Community Ad Revenue</div>
+        <div class="revenue-label"><span class="only-en">Community Ads</span><span class="only-ja">コミュニティ広告</span></div>
+        <p class="revenue-sub"><span class="only-en">Of net community ad spend: 70% admins/mods, 10% event fund, 20% platform.</span><span class="only-ja">コミュニティ内バナー広告の純支出に対し、70%が運営・モデレーター、10%がイベント基金、20%がプラットフォームです。</span></p>
       </div>
     </div>
 
+    <p class="revenue-note"><span class="only-en">Percentages above match how payouts are calculated in the product today (separate handling for tips vs paid live and mentor sessions). If rules change, this page will be updated to match.</span><span class="only-ja">上記の率は、現行アプリ内の計算ロジック（ギフトと有料ライブ／メンタリングの扱いの違いを含む）に沿っています。仕様変更時は本ページも改訂します。</span></p>
+
     <div class="math">
-      You earn $100<br />
-      → You keep $90<br />
-      → We keep $10
+      <span class="only-en">
+        Example — paid content or paid live ($100 gross)<br />
+        → Creator side keeps $90<br />
+        → Platform keeps $10<br />
+        <span style="color: #666; font-size: 12px;">Tips use the percentage for your current level, not this example.</span>
+      </span>
+      <span class="only-ja">
+        例：有料コンテンツ／有料ライブで売上が<strong>$100</strong>のとき（税・為替は別）<br />
+        → クリエイター側 <strong>$90</strong><br />
+        → 当社 <strong>$10</strong><br />
+        <span style="color: #666; font-size: 12px;">配信ギフトは、ご自身のレベルに応じた率が適用され、この例とは一致しません。</span>
+      </span>
     </div>
   </section>
 
   <section class="container">
-    <h2 id="tickets">Tickets.</h2>
-    <p style="color: #999; margin-bottom: 40px;">1 ticket = $0.01. No mystery.</p>
+    <h2 id="tickets"><span class="only-en">Tickets.</span><span class="only-ja">RawStockチケット</span></h2>
+    <p style="color: #999; margin-bottom: 40px;">
+      <span class="only-en">1 ticket = $0.01 USD via Stripe. Spent in-app. No mystery.</span>
+      <span class="only-ja"><strong>1チケット＝US$0.01</strong>。クレジットカード決済（Stripe、請求はUSD）。ギフト・ジュークボックス・AI編集など、アプリ内の各種消費に使います。仕組みはシンプルに据え置きます。</span>
+    </p>
 
     <div class="ticket-grid">
       <div class="ticket-pack">
@@ -541,18 +795,63 @@
   </section>
 
   <section class="closing container">
-    <h2>If you were there, you know.</h2>
-    <p>Words connect people. But the shivers, the tears, the moment your chest fills up at a gig — that's something no AI can replicate.</p>
-    <p>We're looking for the ones shaping what's next.</p>
+    <h2><span class="only-en">If you were there, you know.</span><span class="only-ja">フロアに立った人なら、言葉はいらない</span></h2>
+    <p><span class="only-en">Words connect people. But the shivers, the tears, the moment your chest fills up at a gig — that's something no AI can replicate.</span><span class="only-ja">言葉でつながることもある。でもライブで鳥肌が立ち、声が枯れ、胸の奥が熱くなるあの時間だけは、どんな生成AIにも作れない。</span></p>
+    <p><span class="only-en">We're looking for the ones shaping what's next.</span><span class="only-ja">次の文化をつくる側にいる人に、会いにいきたい。</span></p>
     <div class="cta-buttons" style="justify-content: center;">
-      <a href="/auth/login" class="btn">Join the movement</a>
-      <a href="/auth/login" class="btn btn-secondary">Try it now</a>
-      <a href="/api/auth/google" class="btn btn-secondary">Sign in with Google</a>
+      <a href="/auth/login" class="btn"><span class="only-en">Join the movement</span><span class="only-ja">一緒に育てる</span></a>
+      <a href="/auth/login" class="btn btn-secondary"><span class="only-en">Try it now</span><span class="only-ja">無料で始める</span></a>
+      <a href="/api/auth/google" class="btn btn-secondary"><span class="only-en">Sign in with Google</span><span class="only-ja">Googleで登録・ログイン</span></a>
     </div>
   </section>
 
   <footer class="container">
-    <p>RawStock — Built so artists can live from music.</p>
+    <p><span class="only-en">RawStock — Built so artists can live from music.</span><span class="only-ja">RawStock — 音楽で生きるための、ひとつの器として。</span></p>
   </footer>
+
+  <script>
+    (function () {
+      var KEY = "rawstock_lp_lang";
+      var descEn = "Underground live footage marketplace and streaming. Sell sets, stream live, run genre communities. Paid content and paid live: 90% to creators. Tips scale 50–80% by level. Tickets via Stripe (USD).";
+      var descJa = "ライブ映像の売買と配信。有料コンテンツ・有料ライブは手元に90%。配信ギフトはレベルで最大80%。チケットはStripe（USD）。";
+      var titleEn = "RawStock — You keep 90%";
+      var titleJa = "RawStock — 売上の90%が本人に";
+
+      function apply(lang) {
+        var root = document.documentElement;
+        root.lang = lang === "ja" ? "ja" : "en";
+        var isJa = root.lang === "ja";
+        try {
+          localStorage.setItem(KEY, root.lang);
+        } catch (e) {}
+
+        var enBtn = document.getElementById("lang-en");
+        var jaBtn = document.getElementById("lang-ja");
+        if (enBtn && jaBtn) {
+          enBtn.classList.toggle("active", !isJa);
+          jaBtn.classList.toggle("active", isJa);
+          enBtn.setAttribute("aria-pressed", isJa ? "false" : "true");
+          jaBtn.setAttribute("aria-pressed", isJa ? "true" : "false");
+        }
+
+        document.title = isJa ? titleJa : titleEn;
+        var md = document.getElementById("meta-desc");
+        if (md) md.setAttribute("content", isJa ? descJa : descEn);
+      }
+
+      var stored = null;
+      try {
+        stored = localStorage.getItem(KEY);
+      } catch (e) {}
+      var navJa = /^ja/i.test(navigator.language || "");
+      var initial = stored === "ja" || stored === "en" ? stored : navJa ? "ja" : "en";
+      apply(initial);
+
+      var enBtn = document.getElementById("lang-en");
+      var jaBtn = document.getElementById("lang-ja");
+      if (enBtn) enBtn.addEventListener("click", function () { apply("en"); });
+      if (jaBtn) jaBtn.addEventListener("click", function () { apply("ja"); });
+    })();
+  </script>
 </body>
 </html>

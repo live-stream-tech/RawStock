@@ -39,7 +39,7 @@ export default function LandingPage() {
     },
     {
       title: "DJs & Producers",
-      desc: "Stream sets. Drop exclusives. Keep 90%.",
+      desc: "Stream sets. Paid live & mentor: 90% to you. Tips: 50–80% by creator level.",
       icon: <Radio size={24} className="text-[#0891B2]" />
     },
     {
@@ -78,12 +78,16 @@ export default function LandingPage() {
     { name: "Solo artist", poster: "90%", artist: "-", photographer: "-", editor: "-", platform: "10%" },
   ];
 
-  const liveLevels = [
-    { level: "Level 4", agency: "95%", individual: "75%", note: "Top tier (criteria met)" },
-    { level: "Level 3", agency: "90%", individual: "70%", note: "Advanced" },
-    { level: "Level 2", agency: "80%", individual: "60%", note: "Intermediate" },
-    { level: "Level 1", agency: "70%", individual: "50%", note: "New / Entry" },
-  ];
+  /** Mirrors server/routes.ts DEFAULT_LEVEL_THRESHOLDS — tip gross & stream count are per calendar month. */
+  const creatorTipLevels = [
+    { level: 1, tipPct: "50%", tipMinUsd: "$0", streamsMin: "0" },
+    { level: 2, tipPct: "55%", tipMinUsd: "$500", streamsMin: "4" },
+    { level: 3, tipPct: "60%", tipMinUsd: "$1,000", streamsMin: "8" },
+    { level: 4, tipPct: "65%", tipMinUsd: "$1,600", streamsMin: "12" },
+    { level: 5, tipPct: "70%", tipMinUsd: "$2,400", streamsMin: "16" },
+    { level: 6, tipPct: "75%", tipMinUsd: "$3,400", streamsMin: "20" },
+    { level: 7, tipPct: "80%", tipMinUsd: "$4,600", streamsMin: "24" },
+  ] as const;
 
   const genres = ["Rock", "HIP-HOP", "Electronic", "Jazz", "Punk", "Metal", "Idol", "R&B", "World"];
 
@@ -327,38 +331,39 @@ export default function LandingPage() {
 
           <div className="w-full mt-24 space-y-12">
             <div className="border-l-8 border-[#0891B2] pl-6 py-2">
-              <h3 className="text-2xl font-black italic tracking-tighter uppercase mb-2">2. Live Streaming</h3>
-              <p className="text-[12px] font-bold text-white/50 uppercase tracking-widest leading-relaxed">Tiered payout based on level and affiliation</p>
+              <h3 className="text-2xl font-black italic tracking-tighter uppercase mb-2">2. Live</h3>
+              <p className="text-[12px] font-bold text-white/50 uppercase tracking-widest leading-relaxed">Paid access vs tips (different rules in-app)</p>
+            </div>
+
+            <div className="bg-[#1a2331] border border-[#0891B2]/30 p-6 space-y-3 text-[13px] font-bold leading-relaxed">
+              <p><span className="text-[#0891B2]">Paid live &amp; mentor sessions:</span> <span className="text-white">90%</span> to the creator side, <span className="text-white/60">10%</span> platform — flat, not level-based.</p>
+              <p><span className="text-[#0891B2]">Tips during live:</span> Creator share scales by <span className="text-white">monthly creator level</span> (tip volume + stream count). Table below.</p>
             </div>
 
             <div className="space-y-6">
-              <div className="bg-black border border-white/10 overflow-hidden">
-                <table className="w-full text-left border-collapse">
+              <div className="bg-black border border-white/10 overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[340px]">
                   <thead>
                     <tr className="bg-white/5 border-b border-white/10 text-[9px] font-black uppercase tracking-widest text-white/40">
-                      <th className="p-4 border-r border-white/10">Level</th>
-                      <th className="p-4 border-r border-white/10">Agency</th>
-                      <th className="p-4 border-r border-white/10">Independent</th>
-                      <th className="p-4">Note</th>
+                      <th className="p-3 border-r border-white/10">Lvl</th>
+                      <th className="p-3 border-r border-white/10">Tip to creator</th>
+                      <th className="p-3 border-r border-white/10">Min tip/mo</th>
+                      <th className="p-3">Min streams/mo</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {liveLevels.map((l, i) => (
+                    {creatorTipLevels.map((l, i) => (
                       <tr key={i} className="border-b border-white/5 text-[10px] font-bold hover:bg-white/5 transition-colors">
-                        <td className="p-4 border-r border-white/10 bg-[#1a2331] font-black italic">{l.level}</td>
-                        <td className="p-4 border-r border-white/10 text-white text-[12px]">{l.agency}</td>
-                        <td className="p-4 border-r border-white/10 text-[#0891B2] text-[12px]">{l.individual}</td>
-                        <td className="p-4 text-white/40">{l.note}</td>
+                        <td className="p-3 border-r border-white/10 bg-[#1a2331] font-black italic">{l.level}</td>
+                        <td className="p-3 border-r border-white/10 text-[#0891B2] text-[12px]">{l.tipPct}</td>
+                        <td className="p-3 border-r border-white/10">{l.tipMinUsd}</td>
+                        <td className="p-3 text-white/50">{l.streamsMin}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <div className="bg-[#1a2331]/50 p-8 space-y-6 text-[13px] leading-relaxed font-bold border border-white/5">
-                 <p><span className="text-[#0891B2]">Agency-affiliated:</span> Higher split accounts for management overhead (promo, contracts, dispute resolution)</p>
-                 <p><span className="text-[#0891B2]">Independent:</span> Lower fees + agency-level tools (audience analytics, payment processing, booking)</p>
-                 <p className="text-white/40 text-[11px] italic underline underline-offset-4">Level-up criteria: watch-time retention, consistent revenue, community contribution</p>
-              </div>
+              <p className="text-white/40 text-[11px] font-bold px-1">Thresholds follow server defaults (USD gross tips + completed streams per month).</p>
             </div>
           </div>
 
@@ -419,12 +424,12 @@ export default function LandingPage() {
                 <div className="bg-black border border-white/10 p-6 space-y-4 text-left">
                    <div className="flex justify-between items-center border-b border-white/10 pb-4">
                       <span className="text-[11px] font-black uppercase text-white/40 tracking-widest">Genre-wide ads</span>
-                      <span className="text-xl font-black italic">Total members x ¥5 / day</span>
+                      <span className="text-xl font-black italic">Members × $0.03 / day</span>
                    </div>
                 </div>
                 <p className="text-white/60">
-                  The biggest community in each genre auto-appoints the genre admin monthly.<br />
-                  Same transparent revenue split applies.
+                  Genre and community flows use the same 70 / 10 / 20 split of net ad spend where applicable.<br />
+                  Rates above match community vs genre pricing in the server API.
                 </p>
              </div>
           </div>
