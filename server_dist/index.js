@@ -561,6 +561,11 @@ var users = pgTable("users", {
   operationsDmOpenedAt: timestamp("operations_dm_opened_at"),
   // migrations/0014_users_last_content_lang.sql — franc による直近コンテンツ言語（ISO 639-1、例: ja, en）
   lastContentLang: text("last_content_lang"),
+  // migrations/0015_users_policy_acceptance.sql — 条項・プライバシー同意の版と日時（constants/legalVersions と対応）
+  termsAcceptedVersion: text("terms_accepted_version"),
+  termsAcceptedAt: timestamp("terms_accepted_at"),
+  privacyAcceptedVersion: text("privacy_accepted_version"),
+  privacyAcceptedAt: timestamp("privacy_accepted_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow()
 });
@@ -1889,6 +1894,21 @@ function detectContentLang(text2) {
   }
 }
 
+// server/debugIngest.ts
+function debugIngestServer(body, sessionId = "88cb7d") {
+  if (process.env.NODE_ENV === "production") return;
+  fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": sessionId },
+    body: JSON.stringify(body)
+  }).catch(() => {
+  });
+}
+
+// constants/legalVersions.ts
+var LEGAL_TERMS_VERSION = "2026-04-04";
+var LEGAL_PRIVACY_VERSION = "2026-04-04";
+
 // server/redis.ts
 import { Redis } from "@upstash/redis";
 import { EventEmitter } from "node:events";
@@ -2024,19 +2044,14 @@ function queryStr(req, key) {
 async function getAuthUser(req) {
   const auth = req.headers?.authorization ?? "";
   if (!auth.startsWith("Bearer ")) {
-    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
-      body: JSON.stringify({
-        sessionId: "88cb7d",
-        runId: "initial",
-        hypothesisId: "H4",
-        location: "server/routes.ts:getAuthUser",
-        message: "Missing bearer token",
-        data: { hasAuthHeader: Boolean(auth), authPrefix: typeof auth === "string" ? auth.slice(0, 16) : "" },
-        timestamp: Date.now()
-      })
-    }).catch(() => {
+    debugIngestServer({
+      sessionId: "88cb7d",
+      runId: "initial",
+      hypothesisId: "H4",
+      location: "server/routes.ts:getAuthUser",
+      message: "Missing bearer token",
+      data: { hasAuthHeader: Boolean(auth), authPrefix: typeof auth === "string" ? auth.slice(0, 16) : "" },
+      timestamp: Date.now()
     });
     return null;
   }
@@ -2046,19 +2061,14 @@ async function getAuthUser(req) {
     const sub = payload.sub;
     const [user] = await db.select().from(users).where(eq2(users.id, sub));
     if (!user) return null;
-    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
-      body: JSON.stringify({
-        sessionId: "88cb7d",
-        runId: "initial",
-        hypothesisId: "H4",
-        location: "server/routes.ts:getAuthUser",
-        message: "Authenticated request",
-        data: { userId: user.id },
-        timestamp: Date.now()
-      })
-    }).catch(() => {
+    debugIngestServer({
+      sessionId: "88cb7d",
+      runId: "initial",
+      hypothesisId: "H4",
+      location: "server/routes.ts:getAuthUser",
+      message: "Authenticated request",
+      data: { userId: user.id },
+      timestamp: Date.now()
     });
     return {
       ...user,
@@ -2077,6 +2087,20 @@ async function syncUserLastContentLang(userId, rawText) {
   } catch (e) {
     console.warn("syncUserLastContentLang skipped:", e);
   }
+}
+function policyFieldsForApi(u) {
+  const tv = u.termsAcceptedVersion ?? null;
+  const pv = u.privacyAcceptedVersion ?? null;
+  return {
+    currentTermsVersion: LEGAL_TERMS_VERSION,
+    currentPrivacyVersion: LEGAL_PRIVACY_VERSION,
+    termsAcceptedVersion: tv,
+    termsAcceptedAt: u.termsAcceptedAt ? new Date(u.termsAcceptedAt).toISOString() : null,
+    privacyAcceptedVersion: pv,
+    privacyAcceptedAt: u.privacyAcceptedAt ? new Date(u.privacyAcceptedAt).toISOString() : null,
+    needsTermsReacceptance: tv !== LEGAL_TERMS_VERSION,
+    needsPrivacyReacceptance: pv !== LEGAL_PRIVACY_VERSION
+  };
 }
 function isAdminRole(role) {
   return (role ?? "").toUpperCase() === "ADMIN";
@@ -2416,7 +2440,30 @@ async function registerRoutes(app2) {
       youtubeUrl: user.youtubeUrl ?? null,
       xUrl: user.xUrl ?? null,
       phoneNumber: user.phoneNumber ?? null,
-      pinnedCommunityIds
+      pinnedCommunityIds,
+      ...policyFieldsForApi(user)
+    });
+  });
+  app2.post("/api/auth/accept-policies", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    const { acceptTerms, acceptPrivacy } = req.body;
+    const doTerms = acceptTerms !== false;
+    const doPrivacy = acceptPrivacy !== false;
+    const now = /* @__PURE__ */ new Date();
+    const patch = { updatedAt: now };
+    if (doTerms) {
+      patch.termsAcceptedVersion = LEGAL_TERMS_VERSION;
+      patch.termsAcceptedAt = now;
+    }
+    if (doPrivacy) {
+      patch.privacyAcceptedVersion = LEGAL_PRIVACY_VERSION;
+      patch.privacyAcceptedAt = now;
+    }
+    const [row] = await db.update(users).set(patch).where(eq2(users.id, user.id)).returning();
+    res.json({
+      ok: true,
+      ...policyFieldsForApi(row)
     });
   });
   app2.post("/api/connect/payout-terms-agree", async (req, res) => {
@@ -2585,19 +2632,14 @@ async function registerRoutes(app2) {
     }
   });
   app2.put("/api/auth/profile", async (req, res) => {
-    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
-      body: JSON.stringify({
-        sessionId: "88cb7d",
-        runId: "initial",
-        hypothesisId: "H3",
-        location: "server/routes.ts:/api/auth/profile",
-        message: "Profile endpoint hit",
-        data: { bodyKeys: Object.keys(req.body ?? {}) },
-        timestamp: Date.now()
-      })
-    }).catch(() => {
+    debugIngestServer({
+      sessionId: "88cb7d",
+      runId: "initial",
+      hypothesisId: "H3",
+      location: "server/routes.ts:/api/auth/profile",
+      message: "Profile endpoint hit",
+      data: { bodyKeys: Object.keys(req.body ?? {}) },
+      timestamp: Date.now()
     });
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
@@ -2650,7 +2692,8 @@ async function registerRoutes(app2) {
       instagramUrl: updated.instagramUrl ?? null,
       youtubeUrl: updated.youtubeUrl ?? null,
       pinnedCommunityIds: outPinned,
-      xUrl: updated.xUrl ?? null
+      xUrl: updated.xUrl ?? null,
+      ...policyFieldsForApi(updated)
     });
   });
   app2.delete("/api/auth/account", async (req, res) => {
@@ -4518,19 +4561,17 @@ async function registerRoutes(app2) {
     res.json({ ok: true, id: videoId });
   });
   app2.post("/api/upload-url", async (req, res) => {
-    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
-      body: JSON.stringify({
-        sessionId: "88cb7d",
-        runId: "initial",
-        hypothesisId: "H5",
-        location: "server/routes.ts:/api/upload-url",
-        message: "Upload URL endpoint hit",
-        data: { hasFileName: Boolean(req.body?.fileName), hasContentType: Boolean(req.body?.contentType) },
-        timestamp: Date.now()
-      })
-    }).catch(() => {
+    debugIngestServer({
+      sessionId: "88cb7d",
+      runId: "initial",
+      hypothesisId: "H5",
+      location: "server/routes.ts:/api/upload-url",
+      message: "Upload URL endpoint hit",
+      data: {
+        hasFileName: Boolean(req.body?.fileName),
+        hasContentType: Boolean(req.body?.contentType)
+      },
+      timestamp: Date.now()
     });
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
@@ -4642,7 +4683,13 @@ async function registerRoutes(app2) {
   app2.post("/api/videos", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
-    const { title, community, communityId, duration, price, thumbnail, description, concertId, visibility, videoUrl, youtubeId, postType } = req.body;
+    const { title, community, communityId, duration, price, thumbnail, description, concertId, visibility, videoUrl, youtubeId, postType, complianceAcknowledged } = req.body;
+    if (complianceAcknowledged !== true) {
+      return res.status(400).json({
+        message: "\u6295\u7A3F\u524D\u306B\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u30AC\u30A4\u30C9\u30E9\u30A4\u30F3\u3068\u6A29\u5229\u306B\u95A2\u3059\u308B\u78BA\u8A8D\u304C\u5FC5\u8981\u3067\u3059",
+        code: "COMPLIANCE_ACK_REQUIRED"
+      });
+    }
     if (!title || !duration || !thumbnail) {
       return res.status(400).json({ message: "\u5FC5\u9808\u30D5\u30A3\u30FC\u30EB\u30C9\u304C\u4E0D\u8DB3\u3057\u3066\u3044\u307E\u3059" });
     }
@@ -5189,23 +5236,18 @@ data: ${data}
     return true;
   }
   app2.post("/api/stream/create", async (req, res) => {
-    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
-      body: JSON.stringify({
-        sessionId: "88cb7d",
-        runId: "initial",
-        hypothesisId: "H5",
-        location: "server/routes.ts:/api/stream/create",
-        message: "Stream create endpoint hit",
-        data: {
-          hasCloudflareAccountId: Boolean(CLOUDFLARE_ACCOUNT_ID),
-          hasCloudflareStreamToken: Boolean(CLOUDFLARE_STREAM_TOKEN),
-          bodyKeys: Object.keys(req.body ?? {})
-        },
-        timestamp: Date.now()
-      })
-    }).catch(() => {
+    debugIngestServer({
+      sessionId: "88cb7d",
+      runId: "initial",
+      hypothesisId: "H5",
+      location: "server/routes.ts:/api/stream/create",
+      message: "Stream create endpoint hit",
+      data: {
+        hasCloudflareAccountId: Boolean(CLOUDFLARE_ACCOUNT_ID),
+        hasCloudflareStreamToken: Boolean(CLOUDFLARE_STREAM_TOKEN),
+        bodyKeys: Object.keys(req.body ?? {})
+      },
+      timestamp: Date.now()
     });
     if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_STREAM_TOKEN) {
       return res.status(500).json({ error: "Cloudflare Stream is not configured" });

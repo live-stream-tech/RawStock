@@ -1,5 +1,6 @@
 import React, { Component, ComponentType, PropsWithChildren } from "react";
 import { ErrorFallback, ErrorFallbackProps } from "@/components/ErrorFallback";
+import { debugIngestErrorBoundary } from "@/lib/debugIngest";
 
 export type ErrorBoundaryProps = PropsWithChildren<{
   FallbackComponent?: ComponentType<ErrorFallbackProps>;
@@ -30,33 +31,19 @@ export class ErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error, info: { componentStack: string }): void {
-    // #region agent log
-    // Debug instrumentation for error boundary to capture runtime errors
-    try {
-      fetch("http://127.0.0.1:7349/ingest/7dff581f-bd1a-45e7-a59d-07959fb1fc8e", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Debug-Session-Id": "47cd06",
-        },
-        body: JSON.stringify({
-          sessionId: "47cd06",
-          runId: "initial",
-          hypothesisId: "H-error-source",
-          location: "components/ErrorBoundary.tsx:componentDidCatch",
-          message: "Error boundary caught an error",
-          data: {
-            errorMessage: error.message,
-            errorName: error.name,
-            componentStack: info.componentStack,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-    } catch {
-      // ignore logging failures
-    }
-    // #endregion agent log
+    debugIngestErrorBoundary({
+      sessionId: "47cd06",
+      runId: "initial",
+      hypothesisId: "H-error-source",
+      location: "components/ErrorBoundary.tsx:componentDidCatch",
+      message: "Error boundary caught an error",
+      data: {
+        errorMessage: error.message,
+        errorName: error.name,
+        componentStack: info.componentStack,
+      },
+      timestamp: Date.now(),
+    });
 
     if (typeof this.props.onError === "function") {
       this.props.onError(error, info.componentStack);

@@ -48,6 +48,8 @@ export default function DailyUploadScreen() {
   const [showPublishFromModal, setShowPublishFromModal] = useState(false);
   const [addMenuVisible, setAddMenuVisible] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [agreeGuidelines, setAgreeGuidelines] = useState(false);
+  const [agreeRights, setAgreeRights] = useState(false);
 
   const { data: myVideos = [] } = useQuery<any[]>({
     queryKey: ["/api/videos/my"],
@@ -302,6 +304,10 @@ export default function DailyUploadScreen() {
       return;
     }
     if (!requireAuth("post")) return;
+    if (!agreeGuidelines || !agreeRights) {
+      Alert.alert("Confirmation required", "Please confirm the guidelines and rights checkboxes before posting.");
+      return;
+    }
     setUploading(true);
     try {
       const communityName = selectedCommunity?.name ?? "";
@@ -348,6 +354,7 @@ export default function DailyUploadScreen() {
         visibility: postTarget === "my_page_only" ? "my_page_only" : "community",
         videoUrl: videoUrlToSend,
         postType: "daily",
+        complianceAcknowledged: true,
       });
       router.replace("/(tabs)/profile");
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
@@ -365,7 +372,7 @@ export default function DailyUploadScreen() {
     }
   }
 
-  const canSubmit = text.trim().length > 0 && !uploading;
+  const canSubmit = text.trim().length > 0 && !uploading && agreeGuidelines && agreeRights;
 
   return (
     <View style={[styles.container, { paddingTop: topInset }]}>
@@ -473,6 +480,30 @@ export default function DailyUploadScreen() {
               <Text style={styles.communityChipText}>Linked Concert: {concertId}</Text>
             </View>
           )}
+
+          <View style={styles.complianceBlock}>
+            <Pressable style={styles.complianceRow} onPress={() => setAgreeGuidelines((v) => !v)}>
+              <View style={[styles.complianceCheckOuter, agreeGuidelines && styles.complianceCheckOuterOn]}>
+                {agreeGuidelines ? <Ionicons name="checkmark" size={14} color="#050505" /> : null}
+              </View>
+              <Text style={styles.complianceText}>
+                I have read and agree to follow the{" "}
+                <Text style={styles.complianceLink} onPress={() => router.push("/community-guidelines")}>
+                  Community Guidelines
+                </Text>
+                .
+              </Text>
+            </Pressable>
+            <Pressable style={styles.complianceRow} onPress={() => setAgreeRights((v) => !v)}>
+              <View style={[styles.complianceCheckOuter, agreeRights && styles.complianceCheckOuterOn]}>
+                {agreeRights ? <Ionicons name="checkmark" size={14} color="#050505" /> : null}
+              </View>
+              <Text style={styles.complianceText}>
+                I confirm I have the rights to post this content and it does not infringe others&apos; intellectual
+                property or privacy.
+              </Text>
+            </Pressable>
+          </View>
         </View>
       </ScrollView>
 
@@ -627,6 +658,21 @@ const styles = StyleSheet.create({
   postTargetBtnActive: { borderColor: C.accent, backgroundColor: "rgba(41,182,207,0.15)" },
   postTargetText: { color: C.textSec, fontSize: 13, fontWeight: "600" },
   postTargetTextActive: { color: C.accent },
+  complianceBlock: { marginTop: 20, gap: 12 },
+  complianceRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  complianceCheckOuter: {
+    width: 22,
+    height: 22,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: C.accent,
+    marginTop: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  complianceCheckOuterOn: { backgroundColor: C.accent },
+  complianceText: { flex: 1, color: C.textMuted, fontSize: 12, lineHeight: 18 },
+  complianceLink: { color: C.accent, textDecorationLine: "underline" },
   publishFromBtn: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8, paddingVertical: 8 },
   publishFromText: { color: C.accent, fontSize: 13, fontWeight: "600" },
   publishFromModal: {

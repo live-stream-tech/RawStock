@@ -76,6 +76,8 @@ import { createTemplatedRender } from "./lib/templatedClient";
 import { createSignedUploadUrl } from "./r2";
 import { moderateContent } from "./moderation";
 import { detectContentLang } from "./langFromText";
+import { debugIngestServer } from "./debugIngest";
+import { LEGAL_PRIVACY_VERSION, LEGAL_TERMS_VERSION } from "@/constants/legalVersions";
 import { publishJukeboxEvent, redis, jukeboxChannel, subscribeJukeboxEvents } from "./redis";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
@@ -149,24 +151,23 @@ async function getAuthUser(req: Request): Promise<{
   role: string;
   bio: string;
   stripeConnectId: string | null;
+  lastContentLang: string | null;
+  termsAcceptedVersion?: string | null;
+  termsAcceptedAt?: Date | null;
+  privacyAcceptedVersion?: string | null;
+  privacyAcceptedAt?: Date | null;
 } | null> {
   const auth = (req as any).headers?.authorization ?? "";
   if (!auth.startsWith("Bearer ")) {
-    // #region agent log
-    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
-      body: JSON.stringify({
-        sessionId: "88cb7d",
-        runId: "initial",
-        hypothesisId: "H4",
-        location: "server/routes.ts:getAuthUser",
-        message: "Missing bearer token",
-        data: { hasAuthHeader: Boolean(auth), authPrefix: typeof auth === "string" ? auth.slice(0, 16) : "" },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
+    debugIngestServer({
+      sessionId: "88cb7d",
+      runId: "initial",
+      hypothesisId: "H4",
+      location: "server/routes.ts:getAuthUser",
+      message: "Missing bearer token",
+      data: { hasAuthHeader: Boolean(auth), authPrefix: typeof auth === "string" ? auth.slice(0, 16) : "" },
+      timestamp: Date.now(),
+    });
     return null;
   }
   try {
@@ -175,21 +176,15 @@ async function getAuthUser(req: Request): Promise<{
     const sub = (payload as unknown as { sub: number }).sub;
     const [user] = await db.select().from(users).where(eq(users.id, sub));
     if (!user) return null;
-    // #region agent log
-    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
-      body: JSON.stringify({
-        sessionId: "88cb7d",
-        runId: "initial",
-        hypothesisId: "H4",
-        location: "server/routes.ts:getAuthUser",
-        message: "Authenticated request",
-        data: { userId: user.id },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
+    debugIngestServer({
+      sessionId: "88cb7d",
+      runId: "initial",
+      hypothesisId: "H4",
+      location: "server/routes.ts:getAuthUser",
+      message: "Authenticated request",
+      data: { userId: user.id },
+      timestamp: Date.now(),
+    });
     return {
       ...user,
       avatar: user.profileImageUrl,
@@ -212,6 +207,27 @@ async function syncUserLastContentLang(userId: number, rawText: string): Promise
   } catch (e) {
     console.warn("syncUserLastContentLang skipped:", e);
   }
+}
+
+/** GET /api/auth/me 等: 条項・プライバシー同意状態（constants/legalVersions と突合） */
+function policyFieldsForApi(u: {
+  termsAcceptedVersion?: string | null;
+  termsAcceptedAt?: Date | null;
+  privacyAcceptedVersion?: string | null;
+  privacyAcceptedAt?: Date | null;
+}) {
+  const tv = u.termsAcceptedVersion ?? null;
+  const pv = u.privacyAcceptedVersion ?? null;
+  return {
+    currentTermsVersion: LEGAL_TERMS_VERSION,
+    currentPrivacyVersion: LEGAL_PRIVACY_VERSION,
+    termsAcceptedVersion: tv,
+    termsAcceptedAt: u.termsAcceptedAt ? new Date(u.termsAcceptedAt).toISOString() : null,
+    privacyAcceptedVersion: pv,
+    privacyAcceptedAt: u.privacyAcceptedAt ? new Date(u.privacyAcceptedAt).toISOString() : null,
+    needsTermsReacceptance: tv !== LEGAL_TERMS_VERSION,
+    needsPrivacyReacceptance: pv !== LEGAL_PRIVACY_VERSION,
+  };
 }
 
 function isAdminRole(role: string | null | undefined): boolean {
@@ -655,6 +671,31 @@ export async function registerRoutes(app: Express): Promise<void> {
       xUrl: (user as any).xUrl ?? null,
       phoneNumber: (user as any).phoneNumber ?? null,
       pinnedCommunityIds,
+      ...policyFieldsForApi(user),
+    });
+  });
+
+  /** 現行の Terms / Privacy 版への同意を記録（条項更新後の再同意用） */
+  app.post("/api/auth/accept-policies", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "未認証です" });
+    const { acceptTerms, acceptPrivacy } = req.body as { acceptTerms?: boolean; acceptPrivacy?: boolean };
+    const doTerms = acceptTerms !== false;
+    const doPrivacy = acceptPrivacy !== false;
+    const now = new Date();
+    const patch: Partial<typeof users.$inferInsert> = { updatedAt: now };
+    if (doTerms) {
+      patch.termsAcceptedVersion = LEGAL_TERMS_VERSION;
+      patch.termsAcceptedAt = now;
+    }
+    if (doPrivacy) {
+      patch.privacyAcceptedVersion = LEGAL_PRIVACY_VERSION;
+      patch.privacyAcceptedAt = now;
+    }
+    const [row] = await db.update(users).set(patch).where(eq(users.id, user.id)).returning();
+    res.json({
+      ok: true,
+      ...policyFieldsForApi(row),
     });
   });
 
@@ -866,21 +907,15 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   app.put("/api/auth/profile", async (req: Request, res: Response) => {
-    // #region agent log
-    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
-      body: JSON.stringify({
-        sessionId: "88cb7d",
-        runId: "initial",
-        hypothesisId: "H3",
-        location: "server/routes.ts:/api/auth/profile",
-        message: "Profile endpoint hit",
-        data: { bodyKeys: Object.keys((req.body ?? {}) as Record<string, unknown>) },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
+    debugIngestServer({
+      sessionId: "88cb7d",
+      runId: "initial",
+      hypothesisId: "H3",
+      location: "server/routes.ts:/api/auth/profile",
+      message: "Profile endpoint hit",
+      data: { bodyKeys: Object.keys((req.body ?? {}) as Record<string, unknown>) },
+      timestamp: Date.now(),
+    });
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "未認証です" });
     const { name, displayName, bio, avatar, profileImageUrl, spotifyUrl, appleMusicUrl, bandcampUrl, instagramUrl, youtubeUrl, xUrl, phoneNumber, pinnedCommunityIds } = req.body as {
@@ -956,6 +991,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       youtubeUrl: (updated as any).youtubeUrl ?? null,
       pinnedCommunityIds: outPinned,
       xUrl: (updated as any).xUrl ?? null,
+      ...policyFieldsForApi(updated as typeof users.$inferSelect),
     });
   });
 
@@ -3501,21 +3537,18 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   // ── Upload signed URL (Cloudflare R2) ────────────────────────────
   app.post("/api/upload-url", async (req: Request, res: Response) => {
-    // #region agent log
-    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
-      body: JSON.stringify({
-        sessionId: "88cb7d",
-        runId: "initial",
-        hypothesisId: "H5",
-        location: "server/routes.ts:/api/upload-url",
-        message: "Upload URL endpoint hit",
-        data: { hasFileName: Boolean((req.body as { fileName?: string })?.fileName), hasContentType: Boolean((req.body as { contentType?: string })?.contentType) },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
+    debugIngestServer({
+      sessionId: "88cb7d",
+      runId: "initial",
+      hypothesisId: "H5",
+      location: "server/routes.ts:/api/upload-url",
+      message: "Upload URL endpoint hit",
+      data: {
+        hasFileName: Boolean((req.body as { fileName?: string })?.fileName),
+        hasContentType: Boolean((req.body as { contentType?: string })?.contentType),
+      },
+      timestamp: Date.now(),
+    });
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "未認証です" });
 
@@ -3675,7 +3708,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "未認証です" });
 
-    const { title, community, communityId, duration, price, thumbnail, description, concertId, visibility, videoUrl, youtubeId, postType } = req.body as {
+    const { title, community, communityId, duration, price, thumbnail, description, concertId, visibility, videoUrl, youtubeId, postType, complianceAcknowledged } = req.body as {
       title?: string;
       community?: string;
       communityId?: number | null;
@@ -3688,7 +3721,15 @@ export async function registerRoutes(app: Express): Promise<void> {
       videoUrl?: string | null;
       youtubeId?: string | null;
       postType?: "daily" | "work";
+      complianceAcknowledged?: boolean;
     };
+
+    if (complianceAcknowledged !== true) {
+      return res.status(400).json({
+        message: "投稿前にコミュニティガイドラインと権利に関する確認が必要です",
+        code: "COMPLIANCE_ACK_REQUIRED",
+      });
+    }
 
     if (!title || !duration || !thumbnail) {
       return res.status(400).json({ message: "必須フィールドが不足しています" });
@@ -4505,25 +4546,19 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   // ── Cloudflare Stream Live Input 作成 ───────────────────────────────
   app.post("/api/stream/create", async (req: Request, res: Response) => {
-    // #region agent log
-    fetch("http://127.0.0.1:7508/ingest/394829cb-326c-4cb8-ad25-91374b2c7523", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "88cb7d" },
-      body: JSON.stringify({
-        sessionId: "88cb7d",
-        runId: "initial",
-        hypothesisId: "H5",
-        location: "server/routes.ts:/api/stream/create",
-        message: "Stream create endpoint hit",
-        data: {
-          hasCloudflareAccountId: Boolean(CLOUDFLARE_ACCOUNT_ID),
-          hasCloudflareStreamToken: Boolean(CLOUDFLARE_STREAM_TOKEN),
-          bodyKeys: Object.keys((req.body ?? {}) as Record<string, unknown>),
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
+    debugIngestServer({
+      sessionId: "88cb7d",
+      runId: "initial",
+      hypothesisId: "H5",
+      location: "server/routes.ts:/api/stream/create",
+      message: "Stream create endpoint hit",
+      data: {
+        hasCloudflareAccountId: Boolean(CLOUDFLARE_ACCOUNT_ID),
+        hasCloudflareStreamToken: Boolean(CLOUDFLARE_STREAM_TOKEN),
+        bodyKeys: Object.keys((req.body ?? {}) as Record<string, unknown>),
+      },
+      timestamp: Date.now(),
+    });
     if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_STREAM_TOKEN) {
       return res.status(500).json({ error: "Cloudflare Stream is not configured" });
     }
