@@ -93,10 +93,6 @@ html[lang="ja"] .hero-tagline { font-family: "Noto Sans JP", sans-serif; }
 .hero-cta-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
 .cta-button.secondary-outline { background: transparent; color: var(--neon); border: 1px solid var(--neon); }
 .cta-button.secondary-outline:hover { background: rgba(0,255,204,0.08); color: #fff; }
-#demo { scroll-margin-top: 100px; }
-.demo-block { background: var(--bg-dark); padding: 56px 40px; border-top: 1px solid var(--border-dim); }
-.demo-video-box { max-width: 800px; margin: 0 auto; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; background: #000; }
-.demo-video-box video { display: block; width: 100%; height: auto; }
 .hero-h1 { font-size: clamp(32px, 5.5vw, 80px); font-weight: 800; line-height: 1.1; margin-bottom: 20px; letter-spacing: -0.03em; }
 .hero-h1 em { font-style: normal; color: var(--neon); }
 .hero-sub { font-family: 'Courier Prime', monospace; font-size: 12px; color: var(--orange); margin-bottom: 20px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; }
@@ -238,16 +234,6 @@ html[lang="ja"] .story-pillar h3 { font-family: "Noto Sans JP", sans-serif; font
     <div class="hero-cta-row">
       <a href="/auth/login" class="cta-button"><span class="only-en">Create free account</span><span class="only-ja">無料でアカウント作成</span></a>
       <a href="/api/auth/google" class="cta-button secondary-outline"><span class="only-en">Google</span><span class="only-ja">Googleで開始</span></a>
-      <a href="#demo" class="cta-button secondary-outline"><span class="only-en">Watch demo</span><span class="only-ja">デモを見る</span></a>
-    </div>
-  </div>
-</section>
-<section id="demo" class="demo-block">
-  <div class="wrap">
-    <h2 style="font-size:24px;font-family:'Barlow Condensed',sans-serif;font-weight:800;margin-bottom:12px;"><span class="only-en">Demo clip</span><span class="only-ja">デモ映像</span></h2>
-    <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;max-width:640px;"><span class="only-en">Loop preview — replace anytime with your hero asset on the server.</span><span class="only-ja">ループプレビュー。本番用映像はサーバー設定で差し替え可能です。</span></p>
-    <div class="demo-video-box">
-      <video controls playsinline poster="RAWSTOCK_HERO_POSTER_URL_PLACEHOLDER" src="RAWSTOCK_LP_DEMO_VIDEO_URL_PLACEHOLDER"></video>
     </div>
   </div>
 </section>
@@ -350,7 +336,6 @@ html[lang="ja"] .story-pillar h3 { font-family: "Noto Sans JP", sans-serif; font
     <div style="display:flex; flex-wrap:wrap; gap:12px; justify-content:center;">
       <a href="/auth/login" class="cta-button"><span class="only-en">Create free account</span><span class="only-ja">無料でアカウント作成</span></a>
       <a href="/api/auth/google" class="cta-button" style="background:transparent;color:var(--neon);border:1px solid var(--neon);"><span class="only-en">Sign in with Google</span><span class="only-ja">Googleで登録・ログイン</span></a>
-      <a href="#demo" class="cta-button" style="background:transparent;color:var(--neon);border:1px solid var(--neon);"><span class="only-en">Watch demo</span><span class="only-ja">デモを見る</span></a>
     </div>
     <p style="font-size:12px; color:var(--text-muted); margin-top:20px;"><span class="only-en">Or </span><span class="only-ja">お問い合わせ：</span><a href="mailto:info@rawstock.live" style="color:var(--neon);">info@rawstock.live</a></p>
   </div>

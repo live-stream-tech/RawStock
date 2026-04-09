@@ -21,11 +21,6 @@ export const RAWSTOCK_HERO_POSTER_URL =
   (typeof process !== "undefined" && process.env.PUBLIC_HERO_POSTER_URL?.trim()) ||
   DEFAULT_HERO_POSTER_URL;
 
-/** #demo section MP4; defaults to hero loop. */
-export const RAWSTOCK_LP_DEMO_VIDEO_URL =
-  (typeof process !== "undefined" && process.env.PUBLIC_LP_DEMO_VIDEO_URL?.trim()) ||
-  RAWSTOCK_HERO_VIDEO_URL;
-
 /** How it works — optional imagery (Unsplash). */
 export const RAWSTOCK_LP_STEP_IMG_SHOOT =
   process.env.PUBLIC_LP_STEP_SHOOT_IMG?.trim() ||
@@ -63,8 +58,6 @@ export const RAWSTOCK_HERO_VIDEO_URL_PLACEHOLDER =
   "RAWSTOCK_HERO_VIDEO_URL_PLACEHOLDER";
 export const RAWSTOCK_HERO_POSTER_URL_PLACEHOLDER =
   "RAWSTOCK_HERO_POSTER_URL_PLACEHOLDER";
-export const RAWSTOCK_LP_DEMO_VIDEO_URL_PLACEHOLDER =
-  "RAWSTOCK_LP_DEMO_VIDEO_URL_PLACEHOLDER";
 export const LP_CANONICAL_URL_PLACEHOLDER = "LP_CANONICAL_URL_PLACEHOLDER";
 export const RAWSTOCK_LP_STEP_IMG_SHOOT_PLACEHOLDER =
   "RAWSTOCK_LP_STEP_IMG_SHOOT_PLACEHOLDER";
