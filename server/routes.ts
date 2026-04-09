@@ -5034,6 +5034,186 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   // ── Mentor session bookings ───────────────────────────────────────────────────
 
+  /** 互換: mentor-book/[id].tsx 用セッション取得 */
+  app.get("/api/mentor/session/:id", async (req: Request, res: Response) => {
+    const id = paramNum(req, "id");
+    if (!id) return res.status(400).json({ error: "invalid_session_id" });
+
+    const [session] = await db
+      .select()
+      .from(mentorSessions)
+      .where(and(eq(mentorSessions.id, id), eq(mentorSessions.isActive, true)));
+    if (!session) return res.status(404).json({ error: "session_not_found" });
+
+    return res.json({
+      ...session,
+      userId: session.creatorId,
+    });
+  });
+
+  /** 互換: mentor-book/[id].tsx 用空き枠取得 */
+  app.get("/api/availability/:userId", async (req: Request, res: Response) => {
+    const userId = paramNum(req, "userId");
+    if (!userId) return res.status(400).json({ error: "invalid_user_id" });
+    const rows = await db
+      .select()
+      .from(liverAvailability)
+      .where(eq(liverAvailability.liverId, userId))
+      .orderBy(asc(liverAvailability.date), asc(liverAvailability.startTime));
+    return res.json(rows);
+  });
+
+  /** 互換: mentor-book/[id].tsx 用予約作成（チケット即時消費） */
+  app.post("/api/mentor/bookings", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+    const { sessionId, slotId, scheduledAt } = req.body as {
+      sessionId?: number | string;
+      slotId?: number | string | null;
+      scheduledAt?: string;
+    };
+    const sid =
+      typeof sessionId === "number" && Number.isFinite(sessionId)
+        ? sessionId
+        : parseInt(String(sessionId ?? ""), 10);
+    if (!sid) return res.status(400).json({ error: "session_not_found" });
+    if (!scheduledAt) return res.status(400).json({ error: "scheduled_at_required" });
+
+    const [sessionRow] = await db
+      .select()
+      .from(mentorSessions)
+      .where(and(eq(mentorSessions.id, sid), eq(mentorSessions.isActive, true)));
+    if (!sessionRow) return res.status(404).json({ error: "session_not_found" });
+
+    const parsedPrice = Number(sessionRow.price);
+    if (!Number.isInteger(parsedPrice) || parsedPrice <= 0) {
+      return res.status(400).json({ error: "invalid_session_price" });
+    }
+
+    let parsedSlotId: number | null = null;
+    if (slotId !== undefined && slotId !== null && String(slotId).trim() !== "") {
+      parsedSlotId =
+        typeof slotId === "number" && Number.isFinite(slotId)
+          ? slotId
+          : parseInt(String(slotId), 10);
+      if (!parsedSlotId || !Number.isFinite(parsedSlotId)) {
+        return res.status(400).json({ error: "invalid_slot_id" });
+      }
+      const [slot] = await db
+        .select()
+        .from(liverAvailability)
+        .where(and(eq(liverAvailability.id, parsedSlotId), eq(liverAvailability.liverId, sessionRow.creatorId)));
+      if (!slot) return res.status(404).json({ error: "slot_not_found" });
+      if (slot.bookedSlots >= slot.maxSlots) return res.status(409).json({ error: "slot_full" });
+    }
+
+    try {
+      let bookingId = 0;
+      await db.transaction(async (tx) => {
+        const userId = String(user.id);
+        const balRows = await tx
+          .select()
+          .from(ticketBalances)
+          .where(eq(ticketBalances.userId, userId))
+          .limit(1);
+        const currentBalance = balRows[0]?.balance ?? 0;
+        if (currentBalance < parsedPrice) {
+          const err = new Error("INSUFFICIENT_TICKETS");
+          (err as any).meta = { balance: currentBalance, required: parsedPrice };
+          throw err;
+        }
+
+        if (parsedSlotId != null) {
+          const slotRows = await tx
+            .update(liverAvailability)
+            .set({ bookedSlots: sql`${liverAvailability.bookedSlots} + 1` } as Partial<typeof liverAvailability.$inferInsert>)
+            .where(
+              and(
+                eq(liverAvailability.id, parsedSlotId),
+                eq(liverAvailability.liverId, sessionRow.creatorId),
+                sql`${liverAvailability.bookedSlots} < ${liverAvailability.maxSlots}`
+              ),
+            )
+            .returning({ id: liverAvailability.id });
+          if (slotRows.length === 0) {
+            throw new Error("SLOT_FULL");
+          }
+        }
+
+        const newBalance = currentBalance - parsedPrice;
+        if (balRows.length === 0) {
+          await tx.insert(ticketBalances).values({ userId, balance: newBalance });
+        } else {
+          await tx
+            .update(ticketBalances)
+            .set({ balance: newBalance, updatedAt: new Date() })
+            .where(eq(ticketBalances.userId, userId));
+        }
+
+        const [booking] = await tx
+          .insert(mentorBookings)
+          .values({
+            sessionId: sid,
+            userId: `user-${user.id}`,
+            userName: user.displayName,
+            userAvatar: user.profileImageUrl ?? null,
+            scheduledAt: new Date(scheduledAt),
+            price: parsedPrice, // session.price = ticket count
+            status: "paid",
+            queuePosition: 0,
+            agreedToTerms: true,
+            agreedAt: new Date(),
+            refundable: false,
+          } as typeof mentorBookings.$inferInsert)
+          .returning({ id: mentorBookings.id });
+        bookingId = booking.id;
+
+        const [spendTx] = await tx
+          .insert(ticketTransactions)
+          .values({
+            userId,
+            amount: -parsedPrice,
+            type: "spend_session",
+            referenceId: String(bookingId),
+            description: `Mentor session booking ${sid}`,
+          })
+          .returning({ id: ticketTransactions.id });
+
+        const walletId = await getOrCreateUserWallet(sessionRow.creatorId, tx);
+        const [creatorRow] = await tx
+          .select()
+          .from(creators)
+          .where(eq(creators.userId, sessionRow.creatorId))
+          .limit(1);
+        await recordRevenue(
+          walletId,
+          sessionRow.creatorId,
+          creatorRow?.id ?? null,
+          parsedPrice,
+          "mentor",
+          String(spendTx.id),
+          tx,
+        );
+      });
+
+      return res.json({ ok: true, bookingId });
+    } catch (e: any) {
+      if (e?.message === "INSUFFICIENT_TICKETS") {
+        const meta = e?.meta ?? {};
+        return res.status(402).json({
+          error: "Insufficient tickets",
+          balance: meta.balance ?? 0,
+          required: meta.required ?? parsedPrice,
+        });
+      }
+      if (e?.message === "SLOT_FULL") {
+        return res.status(409).json({ error: "slot_full" });
+      }
+      return res.status(500).json({ error: e.message ?? "booking_create_failed" });
+    }
+  });
+
   app.get("/api/mentor/publishable-key", async (_req: Request, res: Response) => {
     try {
       const key = await getStripePublishableKey();
@@ -5150,6 +5330,41 @@ export async function registerRoutes(app: Express): Promise<void> {
         .from(mentorBookings)
         .where(eq(mentorBookings.stripeSessionId, sessionId));
       if (!booking) return res.status(404).json({ error: "Booking not found" });
+      if (booking.status === "paid") return res.json({ ok: true, booking });
+
+      const metadata = (session.metadata ?? {}) as Record<string, string | undefined>;
+      const slotIdRaw = metadata.slotId;
+      const slotId = slotIdRaw && slotIdRaw.trim() ? parseInt(slotIdRaw, 10) : NaN;
+      let mentorSessionForBooking:
+        | (typeof mentorSessions.$inferSelect)
+        | null = null;
+      if (booking.sessionId != null) {
+        const [mentorSession] = await db
+          .select()
+          .from(mentorSessions)
+          .where(eq(mentorSessions.id, booking.sessionId));
+        mentorSessionForBooking = mentorSession ?? null;
+      }
+
+      // 新モデル(sessionId) + slot指定時は、決済確認時に枠を確保する（競合対策）
+      if (booking.sessionId != null && Number.isFinite(slotId) && slotId > 0) {
+        const creatorId = mentorSessionForBooking?.creatorId;
+        if (!creatorId) return res.status(404).json({ error: "session_not_found" });
+        const updatedSlots = await db
+          .update(liverAvailability)
+          .set({ bookedSlots: sql`${liverAvailability.bookedSlots} + 1` } as Partial<typeof liverAvailability.$inferInsert>)
+          .where(
+            and(
+              eq(liverAvailability.id, slotId),
+              eq(liverAvailability.liverId, creatorId),
+              sql`${liverAvailability.bookedSlots} < ${liverAvailability.maxSlots}`
+            )
+          )
+          .returning();
+        if (updatedSlots.length === 0) {
+          return res.status(409).json({ error: "slot_full" });
+        }
+      }
 
       await db
         .update(mentorBookings)
@@ -5160,13 +5375,24 @@ export async function registerRoutes(app: Express): Promise<void> {
         .where(eq(mentorBookings.stripeSessionId, sessionId));
 
       // 共通スコア集計用：REVENUE を transactions に記録（ライバー＝配信者に紐づくウォレット）
-      const [stream] = await db.select().from(liveStreams).where(eq(liveStreams.id, booking.streamId));
-      if (stream) {
-        const [creatorUser] = await db.select().from(users).where(eq(users.displayName, stream.creator));
-        if (creatorUser) {
-          const walletId = await getOrCreateUserWallet(creatorUser.id);
-          const [creatorRow] = await db.select().from(creators).where(eq(creators.name, stream.creator));
-          await recordRevenue(walletId, creatorUser.id, creatorRow?.id ?? null, booking.price, "mentor", String(booking.id));
+      if (booking.sessionId != null) {
+        if (mentorSessionForBooking) {
+          const [creatorUser] = await db.select().from(users).where(eq(users.id, mentorSessionForBooking.creatorId));
+          if (creatorUser) {
+            const walletId = await getOrCreateUserWallet(creatorUser.id);
+            const [creatorRow] = await db.select().from(creators).where(eq(creators.name, creatorUser.displayName));
+            await recordRevenue(walletId, creatorUser.id, creatorRow?.id ?? null, booking.price, "mentor", String(booking.id));
+          }
+        }
+      } else {
+        const [stream] = await db.select().from(liveStreams).where(eq(liveStreams.id, booking.streamId));
+        if (stream) {
+          const [creatorUser] = await db.select().from(users).where(eq(users.displayName, stream.creator));
+          if (creatorUser) {
+            const walletId = await getOrCreateUserWallet(creatorUser.id);
+            const [creatorRow] = await db.select().from(creators).where(eq(creators.name, stream.creator));
+            await recordRevenue(walletId, creatorUser.id, creatorRow?.id ?? null, booking.price, "mentor", String(booking.id));
+          }
         }
       }
 
