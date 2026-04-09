@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 
-import logoAsset from "figma:asset/da32ce1180d23d5a28e8ffcb227e16a2155b7d56.png";
+import { RAWSTOCK_LOGO_URL } from "./rawstockLogoUrl";
 import heroBgAsset from "figma:asset/309842f0ad72149da798df32c7ca400d2c1a681c.png";
 import finalBgAsset from "figma:asset/7297cac4224d17f6386dfb8b7fc7e6ebcd88fab4.png";
 import metalPatternAsset from "figma:asset/69679f731dbb4e472bf4a5e49e335dcaded790ad.png";
@@ -109,7 +109,7 @@ export default function LandingPage() {
 
         <header className="absolute top-0 left-0 right-0 z-[100] px-8 pt-[53px] flex flex-col items-center gap-2">
            <ImageWithFallback 
-             src={logoAsset} 
+             src={RAWSTOCK_LOGO_URL} 
              fallback={<div className="text-[#0891B2] font-black italic text-2xl tracking-tighter uppercase">RawStock</div>}
              className="h-[70px] w-auto object-contain"
              alt="RawStock Logo"
@@ -180,6 +180,51 @@ export default function LandingPage() {
               </div>
             </div>
           </motion.div>
+        </section>
+
+        <section className="relative z-20 px-8 py-14 bg-[#0a0f16] border-t border-white/10">
+          <div className="max-w-[400px] mx-auto space-y-5 text-left">
+            <p className="text-white/90 text-[13px] leading-relaxed">
+              Ever leave a show thinking{" "}
+              <span className="text-white font-semibold italic">
+                this shouldn&apos;t end the second the lights go up
+              </span>
+              ? Editing is a grind, monetization is split across tools, and fan relationships scatter.
+            </p>
+            <p className="text-[#0891B2] font-black text-sm tracking-tight">
+              RawStock brings capture, sales, and community into one lane.
+            </p>
+            <div className="border border-white/10 rounded-xl p-5 bg-black/35 space-y-4">
+              <div>
+                <h3 className="text-[#7dd3fc] font-black text-[11px] tracking-widest uppercase mb-1">
+                  Experience
+                </h3>
+                <p className="text-white/65 text-[11px] leading-snug">
+                  Upload footage, set your price, sell and share — your shortest path is up → price → ship. (See the four-step flow below.) Fans use{" "}
+                  <strong className="text-white/80">tickets</strong> for purchases, paid live, and gifts.
+                </p>
+              </div>
+              <div>
+                <h3 className="text-[#7dd3fc] font-black text-[11px] tracking-widest uppercase mb-1">
+                  Revenue
+                </h3>
+                <p className="text-white/65 text-[11px] leading-snug">
+                  Creator-side splits first; collaborators and communities follow the rules you set. Exact percentages are in the revenue section below.
+                </p>
+              </div>
+              <div>
+                <h3 className="text-[#7dd3fc] font-black text-[11px] tracking-widest uppercase mb-1">
+                  AI as support
+                </h3>
+                <p className="text-white/65 text-[11px] leading-snug">
+                  <strong className="text-white/80">AI Edit Assistant</strong> helps you productize footage without camping in the timeline. Ticket pricing is in the ecosystem copy below.
+                </p>
+              </div>
+            </div>
+            <p className="text-white/55 text-[11px] leading-relaxed border-l-2 border-[#0891B2]/50 pl-3">
+              ライブのあの瞬間の熱量を、編集・収益・ファンとの関係まで一つのレーンに。詳しい数値と手順は下のセクションへ。
+            </p>
+          </div>
         </section>
 
         <section className="py-24 px-8 bg-[#0a0f16] relative flex flex-col items-center">

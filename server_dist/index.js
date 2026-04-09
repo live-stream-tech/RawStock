@@ -7955,8 +7955,18 @@ function setupErrorHandler(app2) {
 import * as fs from "fs";
 import * as path from "path";
 import { createProxyMiddleware } from "http-proxy-middleware";
+
+// lib/brand.ts
+var DEFAULT_RAWSTOCK_LOGO_URL = "https://d2xsxph8kpxj0f.cloudfront.net/310519663449879480/M2pBP9b9EdXaS65j3mPhNW/RawStock_logo_3fd8a263.webp";
+var RAWSTOCK_LOGO_URL = typeof process !== "undefined" && process.env.PUBLIC_LOGO_URL?.trim() || DEFAULT_RAWSTOCK_LOGO_URL;
+var RAWSTOCK_LOGO_URL_PLACEHOLDER = "RAWSTOCK_LOGO_URL_PLACEHOLDER";
+
+// server/index.ts
 var app = express2();
 var log2 = console.log;
+function injectRawstockLogo(html) {
+  return html.split(RAWSTOCK_LOGO_URL_PLACEHOLDER).join(RAWSTOCK_LOGO_URL);
+}
 app.get("/healthcheck", (_req, res) => res.status(200).send("OK"));
 app.get("/api/healthcheck", (_req, res) => res.status(200).send("OK"));
 function serveExpoManifest(platform, res) {
@@ -7979,7 +7989,24 @@ function configureExpoAndLanding(app2) {
   const isDev = process.env.NODE_ENV === "development";
   log2("Serving static Expo files with dynamic manifest routing");
   app2.get("/lp", (_req, res) => {
-    const html = fs.readFileSync(path.resolve(process.cwd(), "server/templates/landing-page.html"), "utf-8");
+    const raw = fs.readFileSync(
+      path.resolve(process.cwd(), "server/templates/landing-page.html"),
+      "utf-8"
+    );
+    const html = injectRawstockLogo(raw);
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.status(200).send(html);
+  });
+  const lpStandalonePath = path.resolve(
+    process.cwd(),
+    "public/lp-standalone.html"
+  );
+  app2.get("/lp-standalone.html", (_req, res) => {
+    if (!fs.existsSync(lpStandalonePath)) {
+      return res.status(404).send("lp-standalone.html not found");
+    }
+    const raw = fs.readFileSync(lpStandalonePath, "utf-8");
+    const html = injectRawstockLogo(raw);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.status(200).send(html);
   });
@@ -7988,7 +8015,8 @@ function configureExpoAndLanding(app2) {
     if (!fs.existsSync(teamzPath)) {
       return res.status(404).send("teamz.html not found");
     }
-    const html = fs.readFileSync(teamzPath, "utf-8");
+    const raw = fs.readFileSync(teamzPath, "utf-8");
+    const html = injectRawstockLogo(raw);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.status(200).send(html);
   });
@@ -8000,7 +8028,7 @@ function configureExpoAndLanding(app2) {
     if (req.path.startsWith("/api")) {
       return next();
     }
-    if (req.path === "/lp" || req.path === "/teamz") {
+    if (req.path === "/lp" || req.path === "/teamz" || req.path === "/lp-standalone.html") {
       return next();
     }
     const platform = req.header("expo-platform");

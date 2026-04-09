@@ -103,6 +103,19 @@ td { padding: 12px; border-bottom: 1px solid var(--border-dim); text-align: cent
 .cta-button:hover { background: #fff; transform: translateX(2px); }
 .footer { background: var(--bg-dark); border-top: 1px solid var(--border-dim); padding: 40px; text-align: center; }
 .footer-text { font-size: 11px; color: var(--text-muted); letter-spacing: 0.05em; }
+.story-pitch { margin: 28px 0 0; padding: 20px 22px; border: 1px solid var(--border-dim); background: rgba(0,0,0,0.45); max-width: 600px; }
+.story-pitch-lead { font-size: 14px; color: var(--text); line-height: 1.65; margin-bottom: 12px; }
+.story-pitch-problems { color: var(--text-sec); margin: 6px 0 14px 18px; line-height: 1.6; font-size: 13px; }
+.story-pitch-promise { color: var(--neon); font-weight: 800; font-size: 15px; margin-bottom: 18px; line-height: 1.45; font-family: 'Barlow Condensed', sans-serif; }
+.story-pillar { margin-bottom: 16px; }
+.story-pillar:last-child { margin-bottom: 0; }
+.story-pillar h3 { font-size: 13px; color: var(--text); margin-bottom: 6px; font-family: 'Barlow Condensed', sans-serif; font-weight: 800; letter-spacing: 0.04em; text-transform: none; }
+.story-pillar p { font-size: 12px; color: var(--text-sec); line-height: 1.65; margin-bottom: 6px; }
+.story-pitch a { color: var(--neon); text-decoration: underline; text-underline-offset: 2px; }
+html[lang="ja"] .story-pitch-lead { font-size: 14px; }
+html[lang="ja"] .story-pitch-promise { font-family: "Noto Sans JP", sans-serif; font-weight: 800; }
+html[lang="ja"] .story-pillar h3 { font-family: "Noto Sans JP", sans-serif; font-weight: 800; }
+
 @media (max-width: 768px) {
   .wrap { padding: 0 20px; }
   .lang-bar { padding: 10px 20px; }
@@ -121,7 +134,7 @@ td { padding: 12px; border-bottom: 1px solid var(--border-dim); text-align: cent
   <button type="button" class="lang-btn" id="lang-ja" aria-pressed="false">日本語</button>
 </div>
 <header class="masthead">
-  <img src="/logo-200x70-v2.png" alt="RawStock">
+  <img src="RAWSTOCK_LOGO_URL_PLACEHOLDER" alt="RawStock">
   <div class="masthead-right">
     <a class="masthead-link" href="/teamz">VC · TEAMZ</a>
     <span class="masthead-tag only-en">Underground Music Marketplace / Global 2026</span>
@@ -147,6 +160,37 @@ td { padding: 12px; border-bottom: 1px solid var(--border-dim); text-align: cent
       有料動画・チケット制の有料ライブ・メンタリングは<strong>クリエイター側90%</strong>。配信ギフトは月次レベルで<strong>50〜80%</strong>。<br>
       チケットは<strong>1枚＝US$0.01</strong>（Stripe・USD建て）。
       <div class="hero-lead-sub">フロアに立ったことのある人なら、説明は要らないはずです。</div>
+    </div>
+
+    <div class="story-pitch">
+      <p class="story-pitch-lead only-en">Ever leave a show thinking, <em>this shouldn't end the second the lights go up</em>? In practice, editing is a slog, monetization is split across tools, and fan relationships scatter.</p>
+      <p class="story-pitch-lead only-ja">ライブのあの瞬間、「このまま終わるのはもったいない」と思ったことは？</p>
+      <p class="only-ja" style="color:var(--text-sec);margin-bottom:6px;font-size:13px;">でも現実は、</p>
+      <ul class="story-pitch-problems only-ja">
+        <li>編集が大変</li>
+        <li>収益化が分断されている</li>
+        <li>ファンとの関係もバラバラ</li>
+      </ul>
+      <p class="story-pitch-promise only-en">RawStock brings capture, sales, and community into one lane.</p>
+      <p class="story-pitch-promise only-ja">RawStockは、それを一つにします。</p>
+      <div class="story-pillar">
+        <h3 class="only-en">🥉 Experience (what matters most)</h3>
+        <h3 class="only-ja">🥉 体験（ここが一番大事）</h3>
+        <p class="only-en">Upload, price, sell and share — details in <strong>How it works</strong> below. Fans use <strong>tickets</strong> for buys, paid live, and gifts (see revenue tables).</p>
+        <p class="only-ja">(1) アップ (2) 価格 (3) 販売・共有。全体の流れは下の「ご利用の流れ」。チケットの内訳は収益表を参照。</p>
+      </div>
+      <div class="story-pillar">
+        <h3 class="only-en">💰 Revenue (the edge)</h3>
+        <h3 class="only-ja">💰 収益（強み）</h3>
+        <p class="only-en">Creator-side splits first; collaborators and communities follow your rules. Percentages are in the tables below.</p>
+        <p class="only-ja">クリエイター還元を軸に、共同制作者・コミュニティへ仕組み通り分配。数値は下の表を参照。</p>
+      </div>
+      <div class="story-pillar">
+        <h3 class="only-en">🤖 AI as support</h3>
+        <h3 class="only-ja">🤖 AI（&ldquo;補助&rdquo;として）</h3>
+        <p class="only-en"><strong>AI Edit Assistant</strong> helps ship without living in the timeline — ticket costs in step 02.</p>
+        <p class="only-ja"><strong>AI編集アシスタント</strong>で商品化を後押し。チケットは流れの「編集」を参照。</p>
+      </div>
     </div>
   </div>
 </section>
