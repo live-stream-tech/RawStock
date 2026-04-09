@@ -23,6 +23,8 @@ export type User = {
   xUrl?: string | null;
   phoneNumber?: string | null;
   pinnedCommunityIds?: number[];
+  /** 直近コンテンツから推定した言語（ISO 639-1）。未検知は null */
+  lastContentLang?: string | null;
   followersCount?: number;
   followingCount?: number;
 };
@@ -127,6 +129,7 @@ function normalizeMe(me: Record<string, unknown>): User {
     xUrl: (me.xUrl ?? null) as string | null,
     phoneNumber: (me.phoneNumber ?? null) as string | null,
     pinnedCommunityIds: (me.pinnedCommunityIds ?? []) as number[],
+    lastContentLang: (me.lastContentLang ?? null) as string | null,
     payoutTermsAgreedAt: (me.payoutTermsAgreedAt ?? null) as string | null,
   };
 }

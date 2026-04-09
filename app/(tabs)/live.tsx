@@ -454,18 +454,20 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
                 try {
                   setCreating(true);
                   const visibility =
-                    scope === "followers"
-                      ? "followers"
-                      : scope === "community"
-                        ? "community"
-                        : "public";
+                    fee === "paid"
+                      ? "paid"
+                      : scope === "followers"
+                        ? "followers"
+                        : scope === "community"
+                          ? "community"
+                          : "public";
                   onClose();
                   router.push({
                     pathname: "/broadcast",
                     params:
                       visibility === "community" && selectedCommunityId != null
-                        ? { visibility, communityId: String(selectedCommunityId) }
-                        : { visibility, communityId: "" },
+                        ? { visibility, communityId: String(selectedCommunityId), ticketPrice: String(price) }
+                        : { visibility, communityId: "", ticketPrice: String(price) },
                   });
                 } catch (e: any) {
                   Alert.alert("Error", e?.message ?? "Could not open broadcast.");

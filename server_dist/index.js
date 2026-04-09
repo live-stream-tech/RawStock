@@ -64,6 +64,7 @@ __export(schema_exports, {
   phoneVerifications: () => phoneVerifications,
   reports: () => reports,
   savedVideos: () => savedVideos,
+  streamPaidAccess: () => streamPaidAccess,
   streams: () => streams,
   ticketBalances: () => ticketBalances,
   ticketTransactions: () => ticketTransactions,
@@ -341,8 +342,18 @@ var streams = pgTable("streams", {
   whipUrl: text("whip_url"),
   /** public | followers | community */
   visibility: text("visibility").notNull().default("public"),
+  /** visibility=paid のときのチケット価格（1 ticket = $0.01） */
+  ticketPrice: integer("ticket_price"),
   /** visibility=community のとき、視聴に必要なコミュニティ */
   restrictedCommunityId: integer("restricted_community_id")
+});
+var streamPaidAccess = pgTable("stream_paid_access", {
+  id: serial("id").primaryKey(),
+  streamId: integer("stream_id").notNull(),
+  viewerUserId: integer("viewer_user_id").notNull(),
+  ticketAmount: integer("ticket_amount").notNull(),
+  ticketTransactionId: integer("ticket_transaction_id"),
+  createdAt: timestamp("created_at").defaultNow()
 });
 var creators = pgTable("creators", {
   id: serial("id").primaryKey(),
@@ -548,6 +559,8 @@ var users = pgTable("users", {
   welcomeDmSentAt: timestamp("welcome_dm_sent_at"),
   /** 運営DM（Operations Team）を初めて開いた日時。未設定かつ welcome 済みなら一覧に未読バッジ */
   operationsDmOpenedAt: timestamp("operations_dm_opened_at"),
+  // migrations/0014_users_last_content_lang.sql — franc による直近コンテンツ言語（ISO 639-1、例: ja, en）
+  lastContentLang: text("last_content_lang"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow()
 });
@@ -1844,6 +1857,38 @@ async function moderateContent(text2) {
   return { allowed: true };
 }
 
+// server/langFromText.ts
+import { franc } from "franc";
+var MIN_LENGTH = 10;
+var ISO639_3_TO_1 = {
+  jpn: "ja",
+  eng: "en",
+  kor: "ko",
+  zho: "zh",
+  cmn: "zh",
+  spa: "es",
+  fra: "fr",
+  deu: "de",
+  por: "pt",
+  ita: "it",
+  vie: "vi",
+  tha: "th",
+  ind: "id",
+  rus: "ru",
+  arb: "ar"
+};
+function detectContentLang(text2) {
+  try {
+    const t = text2.trim();
+    if (t.length < MIN_LENGTH) return null;
+    const code = franc(t);
+    if (code === "und") return null;
+    return ISO639_3_TO_1[code] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // server/redis.ts
 import { Redis } from "@upstash/redis";
 import { EventEmitter } from "node:events";
@@ -2017,10 +2062,20 @@ async function getAuthUser(req) {
     });
     return {
       ...user,
-      avatar: user.profileImageUrl
+      avatar: user.profileImageUrl,
+      lastContentLang: user.lastContentLang ?? null
     };
   } catch {
     return null;
+  }
+}
+async function syncUserLastContentLang(userId, rawText) {
+  try {
+    const lang = detectContentLang(rawText);
+    if (!lang) return;
+    await db.update(users).set({ lastContentLang: lang, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(users.id, userId));
+  } catch (e) {
+    console.warn("syncUserLastContentLang skipped:", e);
   }
 }
 function isAdminRole(role) {
@@ -2351,6 +2406,7 @@ async function registerRoutes(app2) {
       avatar: user.profileImageUrl,
       role: user.role,
       bio: user.bio,
+      lastContentLang: user.lastContentLang ?? null,
       stripeConnectId: user.stripeConnectId ?? null,
       payoutTermsAgreedAt: payoutTermsAt ? new Date(payoutTermsAt).toISOString() : null,
       spotifyUrl: user.spotifyUrl ?? null,
@@ -2565,6 +2621,10 @@ async function registerRoutes(app2) {
       ...pinnedJson !== void 0 && { pinnedCommunityIds: pinnedJson },
       updatedAt: /* @__PURE__ */ new Date()
     }).where(eq2(users.id, user.id)).returning();
+    const profileTextForLang = (newBio || "").trim() || newName;
+    await syncUserLastContentLang(user.id, profileTextForLang);
+    const detectedLang = detectContentLang(profileTextForLang);
+    const lastContentLangOut = detectedLang ?? updated.lastContentLang ?? null;
     let outPinned = [];
     if (updated.pinnedCommunityIds) {
       try {
@@ -2582,6 +2642,7 @@ async function registerRoutes(app2) {
       avatar: updated.profileImageUrl,
       role: updated.role,
       bio: updated.bio,
+      lastContentLang: lastContentLangOut,
       payoutTermsAgreedAt: payoutTermsOut ? new Date(payoutTermsOut).toISOString() : null,
       spotifyUrl: updated.spotifyUrl ?? null,
       appleMusicUrl: updated.appleMusicUrl ?? null,
@@ -3328,6 +3389,7 @@ async function registerRoutes(app2) {
       authorUserId: user.id,
       body: body.trim()
     }).returning();
+    await syncUserLastContentLang(user.id, body.trim());
     res.status(201).json(row);
   });
   app2.get("/api/communities/:id/admin/jukebox-queue", async (req, res) => {
@@ -4921,6 +4983,7 @@ async function registerRoutes(app2) {
           lastMessagePreview: text2.trim().slice(0, 200),
           updatedAt: /* @__PURE__ */ new Date()
         }).where(eq2(dmThreads.id, rawId));
+        await syncUserLastContentLang(me.id, text2.trim());
         return res.json({
           id: msg2.id,
           sender: "me",
@@ -4939,6 +5002,7 @@ async function registerRoutes(app2) {
       isRead: true
     }).returning();
     await db.update(dmMessages).set({ lastMessage: text2.trim(), unread: 0 }).where(eq2(dmMessages.id, legacyDmId));
+    await syncUserLastContentLang(me.id, text2.trim());
     res.json({
       ...msg,
       createdAt: (msg.createdAt ?? /* @__PURE__ */ new Date()).toISOString(),
@@ -5096,7 +5160,7 @@ data: ${data}
     });
   });
   function normalizeStreamVisibility(v) {
-    if (v === "followers" || v === "community") return v;
+    if (v === "followers" || v === "community" || v === "paid") return v;
     return "public";
   }
   async function canViewerAccessLiveStream(srow, viewer) {
@@ -5116,6 +5180,11 @@ data: ${data}
       if (!viewer) return false;
       const [m] = await db.select({ id: communityMembers.id }).from(communityMembers).where(and2(eq2(communityMembers.userId, viewer.id), eq2(communityMembers.communityId, cid)));
       return !!m;
+    }
+    if (vis === "paid") {
+      if (!viewer) return false;
+      const [access] = await db.select({ id: streamPaidAccess.id }).from(streamPaidAccess).where(and2(eq2(streamPaidAccess.streamId, srow.id), eq2(streamPaidAccess.viewerUserId, viewer.id))).limit(1);
+      return !!access;
     }
     return true;
   }
@@ -5143,9 +5212,16 @@ data: ${data}
     }
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
-    const { name, title, visibility: visIn, restrictedCommunityId: rcIn } = req.body ?? {};
+    const {
+      name,
+      title,
+      visibility: visIn,
+      restrictedCommunityId: rcIn,
+      ticketPrice: ticketPriceIn
+    } = req.body ?? {};
     const visibility = normalizeStreamVisibility(visIn);
     let restrictedCommunityId = null;
+    let ticketPrice = null;
     if (visibility === "community") {
       const cid = typeof rcIn === "number" && Number.isFinite(rcIn) ? rcIn : parseInt(String(rcIn ?? ""), 10);
       if (!Number.isFinite(cid)) {
@@ -5156,6 +5232,13 @@ data: ${data}
         return res.status(403).json({ error: "\u9078\u629E\u3057\u305F\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306E\u30E1\u30F3\u30D0\u30FC\u3067\u306F\u3042\u308A\u307E\u305B\u3093" });
       }
       restrictedCommunityId = cid;
+    }
+    if (visibility === "paid") {
+      const p = typeof ticketPriceIn === "number" && Number.isFinite(ticketPriceIn) ? ticketPriceIn : parseInt(String(ticketPriceIn ?? ""), 10);
+      if (!Number.isFinite(p) || p <= 0) {
+        return res.status(400).json({ error: "ticketPrice is required for paid streams" });
+      }
+      ticketPrice = p;
     }
     try {
       const displayTitle = typeof title === "string" && title.trim() || typeof name === "string" && name.trim() || "";
@@ -5212,6 +5295,7 @@ data: ${data}
         isLive: false,
         whipUrl: whipPublish || null,
         visibility,
+        ticketPrice: visibility === "paid" ? ticketPrice : null,
         restrictedCommunityId: visibility === "community" ? restrictedCommunityId : null
       }).returning();
       res.json({
@@ -5259,8 +5343,8 @@ data: ${data}
         viewers: srow.currentViewers,
         currentViewers: srow.currentViewers,
         category: "live",
-        fee: "Free",
-        price: null,
+        fee: vis === "paid" ? "Paid" : "Free",
+        price: vis === "paid" ? srow.ticketPrice ?? null : null,
         whepUrl: playbackOk ? srow.webRtcUrl : null,
         whipUrl: playbackOk ? srow.whipUrl ?? srow.webRtcUrl : null,
         isActive: srow.isLive,
@@ -5269,6 +5353,7 @@ data: ${data}
         timeAgo: srow.isLive ? "LIVE" : "Offline",
         visibility: vis,
         streamAccessDenied,
+        streamAccessDeniedReason: streamAccessDenied && vis === "paid" ? "ticket_required" : void 0,
         hostUserId: hid ?? null,
         isFollowingHost: viewer && hid != null && viewer.id !== hid ? isFollowingHost : false
       });
@@ -5337,6 +5422,14 @@ data: ${data}
       const viewer = await getAuthUser(req);
       const allowed = await canViewerAccessLiveStream(srow, viewer);
       if (!allowed) {
+        const vis = srow.visibility ?? "public";
+        if (vis === "paid") {
+          return res.status(402).json({
+            error: "Tickets required to watch this stream",
+            code: "STREAM_TICKET_REQUIRED",
+            required: srow.ticketPrice ?? 0
+          });
+        }
         return res.status(403).json({
           error: "\u3053\u306E\u914D\u4FE1\u3092\u8996\u8074\u3059\u308B\u6A29\u9650\u304C\u3042\u308A\u307E\u305B\u3093",
           code: "STREAM_ACCESS_DENIED"
@@ -5350,6 +5443,82 @@ data: ${data}
     const next = Math.max(0, live.viewers + 1);
     await db.update(liveStreams).set({ viewers: next }).where(eq2(liveStreams.id, id));
     return res.json({ viewerCount: next, currentViewers: next });
+  });
+  app2.post("/api/stream/:id/join-paid", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const id = paramNum(req, "id");
+    const [srow] = await db.select().from(streams).where(eq2(streams.id, id));
+    if (!srow) return res.status(404).json({ error: "Not found" });
+    if ((srow.visibility ?? "public") !== "paid") {
+      return res.status(400).json({ error: "Stream is not paid" });
+    }
+    const ticketPrice = srow.ticketPrice ?? 0;
+    if (!Number.isInteger(ticketPrice) || ticketPrice <= 0) {
+      return res.status(400).json({ error: "Invalid paid stream ticket price" });
+    }
+    const hostUserId = srow.hostUserId;
+    if (!hostUserId) return res.status(400).json({ error: "Stream host is missing" });
+    try {
+      let currentViewers = srow.currentViewers;
+      await db.transaction(async (tx) => {
+        const existingAccess = await tx.select({ id: streamPaidAccess.id }).from(streamPaidAccess).where(and2(eq2(streamPaidAccess.streamId, id), eq2(streamPaidAccess.viewerUserId, user.id))).limit(1);
+        if (existingAccess.length > 0) {
+          const [updated2] = await tx.update(streams).set({ currentViewers: sql3`${streams.currentViewers} + 1` }).where(eq2(streams.id, id)).returning();
+          currentViewers = updated2.currentViewers;
+          return;
+        }
+        const userId = String(user.id);
+        const balRows = await tx.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
+        const currentBalance = balRows[0]?.balance ?? 0;
+        if (currentBalance < ticketPrice) {
+          const err = new Error("INSUFFICIENT_TICKETS");
+          err.meta = { balance: currentBalance, required: ticketPrice };
+          throw err;
+        }
+        const newBalance = currentBalance - ticketPrice;
+        if (balRows.length === 0) {
+          await tx.insert(ticketBalances).values({ userId, balance: newBalance });
+        } else {
+          await tx.update(ticketBalances).set({ balance: newBalance, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
+        }
+        const [spendTx] = await tx.insert(ticketTransactions).values({
+          userId,
+          amount: -ticketPrice,
+          type: "spend_session",
+          referenceId: `live:${id}`,
+          description: `Paid live access for stream ${id}`
+        }).returning({ id: ticketTransactions.id });
+        await tx.insert(streamPaidAccess).values({
+          streamId: id,
+          viewerUserId: user.id,
+          ticketAmount: ticketPrice,
+          ticketTransactionId: spendTx.id
+        });
+        const walletId = await getOrCreateUserWallet(hostUserId);
+        await recordRevenue(
+          walletId,
+          hostUserId,
+          null,
+          ticketPrice,
+          "paid_live",
+          String(spendTx.id)
+        );
+        const [updated] = await tx.update(streams).set({ currentViewers: sql3`${streams.currentViewers} + 1` }).where(eq2(streams.id, id)).returning();
+        currentViewers = updated.currentViewers;
+      });
+      return res.json({ ok: true, currentViewers });
+    } catch (e) {
+      if (e?.message === "INSUFFICIENT_TICKETS") {
+        const meta = e?.meta ?? {};
+        return res.status(402).json({
+          error: "Insufficient tickets",
+          balance: meta.balance ?? 0,
+          required: meta.required ?? ticketPrice
+        });
+      }
+      return res.status(500).json({ error: e?.message ?? "Failed to join paid stream" });
+    }
   });
   app2.post("/api/stream/:id/leave", async (req, res) => {
     const id = paramNum(req, "id");

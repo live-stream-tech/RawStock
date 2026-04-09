@@ -26,17 +26,24 @@ export function liveApiBase(): string {
   return getApiUrl().replace(/\/+$/, "");
 }
 
-export type LiveStreamVisibility = "public" | "followers" | "community";
+export type LiveStreamVisibility = "public" | "followers" | "community" | "paid";
 
 export async function apiCreateLiveStream(
   title: string,
-  opts?: { visibility?: LiveStreamVisibility; restrictedCommunityId?: number },
+  opts?: {
+    visibility?: LiveStreamVisibility;
+    restrictedCommunityId?: number;
+    ticketPrice?: number;
+  },
 ): Promise<{ id: number; whipUrl: string }> {
   const API_BASE = liveApiBase();
   const visibility = opts?.visibility ?? "public";
   const body: Record<string, unknown> = { title, visibility };
   if (visibility === "community" && opts?.restrictedCommunityId != null) {
     body.restrictedCommunityId = opts.restrictedCommunityId;
+  }
+  if (visibility === "paid" && opts?.ticketPrice != null) {
+    body.ticketPrice = opts.ticketPrice;
   }
   const createRes = await fetch(`${API_BASE}/api/stream/create`, {
     method: "POST",

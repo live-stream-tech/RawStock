@@ -60,6 +60,7 @@ type LiveStream = {
   isLive?: boolean;
   /** API: true when access requirements are not met (no playback URL). */
   streamAccessDenied?: boolean;
+  streamAccessDeniedReason?: "ticket_required" | string;
   visibility?: string;
   hostUserId?: number | null;
   /** Whether current user already follows the host (excluding self). */
@@ -153,6 +154,7 @@ export default function LiveStreamScreen() {
 
   const stream = apiStream ?? DEMO_LIVE_STREAMS[streamId];
   const streamAccessDenied = apiStream?.streamAccessDenied === true;
+  const paidTicketRequired = apiStream?.streamAccessDeniedReason === "ticket_required";
   const hostUserId = apiStream?.hostUserId ?? null;
   const showFollowControl = hostUserId != null && user?.id !== hostUserId;
 
@@ -181,6 +183,43 @@ export default function LiveStreamScreen() {
       void viewerApiFetch(`/api/stream/${streamId}/leave`, { method: "POST" });
     };
   }, [streamId, streamMetaFetched, streamAccessDenied]);
+
+  const unlockPaidStreamMutation = useMutation({
+    mutationFn: async () => {
+      if (!requireAuth("watch paid stream")) throw new Error("AUTH_REQUIRED");
+      const res = await viewerApiFetch(`/api/stream/${streamId}/join-paid`, { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err: Error & { status?: number; required?: number; balance?: number } = new Error(
+          (body as { error?: string }).error ?? "Failed to unlock paid stream",
+        );
+        err.status = res.status;
+        err.required = (body as { required?: number }).required;
+        err.balance = (body as { balance?: number }).balance;
+        throw err;
+      }
+      return body;
+    },
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["stream-viewer", streamId] });
+      await qc.invalidateQueries({ queryKey: ["/api/tickets/balance"] });
+    },
+    onError: (e: Error & { status?: number; required?: number; balance?: number }) => {
+      if (e.message === "AUTH_REQUIRED") return;
+      if (e.status === 402) {
+        Alert.alert(
+          "Not Enough Tickets",
+          `You need 🎟${(e.required ?? 0).toLocaleString()} to watch this stream.`,
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Get Tickets", onPress: () => router.push("/tickets") },
+          ],
+        );
+        return;
+      }
+      Alert.alert("Paid Stream", e.message);
+    },
+  });
 
   const { data: chat = [] } = useQuery<ChatMsg[]>({
     queryKey: [`/api/live-streams/${streamId}/chat`],
@@ -401,8 +440,23 @@ export default function LiveStreamScreen() {
                   ? "Please sign in and follow the streamer."
                   : apiStream?.visibility === "community"
                     ? "Please sign in and join the required community."
+                    : apiStream?.visibility === "paid"
+                      ? "This is a paid stream. Unlock with tickets to watch."
                     : "Please meet the requirements and try again."}
               </Text>
+              {paidTicketRequired ? (
+                <Pressable
+                  style={{ marginTop: 16, backgroundColor: C.orange, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8 }}
+                  disabled={unlockPaidStreamMutation.isPending}
+                  onPress={() => unlockPaidStreamMutation.mutate()}
+                >
+                  <Text style={{ color: "#000", fontSize: 13, fontWeight: "800" }}>
+                    {unlockPaidStreamMutation.isPending
+                      ? "Unlocking..."
+                      : `Unlock for 🎟${(apiStream?.price ?? 0).toLocaleString()}`}
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
           )}
           <View style={styles.playerDimmer} />

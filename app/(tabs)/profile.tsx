@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
 import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/layout";
@@ -232,6 +233,7 @@ export default function ProfileScreen() {
   const [editBio, setEditBio] = useState("");
   const [editAvatar, setEditAvatar] = useState("");
   const [profileSaving, setProfileSaving] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
 
   // Role / creator registration state
   const { data: roleStatus, refetch: refetchRoles } = useQuery<{ isEditor: boolean; isMentor: boolean } | null>({
@@ -335,6 +337,101 @@ export default function ProfileScreen() {
       Alert.alert("Save Failed", e.message ?? "Something went wrong");
     } finally {
       setProfileSaving(false);
+    }
+  }
+
+  async function uploadAvatarFileWeb(file: File): Promise<string> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(new URL("/api/upload-url", getApiUrl()).toString(), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        fileName: file.name,
+        contentType: file.type || "application/octet-stream",
+      }),
+    });
+    if (!res.ok) throw new Error("Failed to get upload URL");
+    const { uploadUrl, url } = (await res.json()) as { uploadUrl: string; url: string };
+    const putRes = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    });
+    if (!putRes.ok) throw new Error("Failed to upload avatar");
+    return url;
+  }
+
+  async function uploadAvatarNative(uri: string, fileName: string, mimeType: string): Promise<string> {
+    const resp = await apiRequest("POST", "/api/upload-url", {
+      fileName,
+      contentType: mimeType,
+    });
+    const { uploadUrl, url } = (await resp.json()) as { uploadUrl: string; url: string };
+    const blob = await (await fetch(uri)).blob();
+    const putRes = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": mimeType },
+      body: blob,
+    });
+    if (!putRes.ok) throw new Error("Failed to upload avatar");
+    return url;
+  }
+
+  async function pickAvatarImage() {
+    if (avatarUploading) return;
+    try {
+      setAvatarUploading(true);
+      if (Platform.OS === "web") {
+        await new Promise<void>((resolve, reject) => {
+          const input = document.createElement("input");
+          input.type = "file";
+          input.accept = "image/*";
+          input.onchange = async (e: Event) => {
+            try {
+              const target = e.target as HTMLInputElement;
+              const file = target.files?.[0];
+              if (!file) {
+                resolve();
+                return;
+              }
+              const uploadedUrl = await uploadAvatarFileWeb(file);
+              setEditAvatar(uploadedUrl);
+              resolve();
+            } catch (err) {
+              reject(err);
+            }
+          };
+          input.click();
+        });
+        return;
+      }
+
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permission Required", "Allow media library access to choose an avatar.");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        quality: 0.8,
+        allowsEditing: true,
+        aspect: [1, 1],
+      });
+      if (result.canceled || result.assets.length === 0) return;
+      const asset = result.assets[0];
+      const mime = asset.mimeType || "image/jpeg";
+      const ext = mime.includes("png") ? "png" : mime.includes("webp") ? "webp" : "jpg";
+      const uploadedUrl = await uploadAvatarNative(
+        asset.uri,
+        `avatar_${Date.now()}.${ext}`,
+        mime,
+      );
+      setEditAvatar(uploadedUrl);
+    } catch (e: any) {
+      Alert.alert("Upload Failed", e?.message ?? "Could not upload avatar image.");
+    } finally {
+      setAvatarUploading(false);
     }
   }
 
@@ -1127,19 +1224,21 @@ export default function ProfileScreen() {
               />
             </View>
 
-            <Text style={styles.profileFieldLabel}>Avatar Image URL (optional)</Text>
-            <View style={styles.profileInputWrap}>
-              <Ionicons name="image-outline" size={16} color={C.textMuted} />
-              <TextInput
-                style={styles.profileInput}
-                value={editAvatar}
-                onChangeText={setEditAvatar}
-                placeholder="https://..."
-                placeholderTextColor={C.textMuted}
-                autoCapitalize="none"
-                keyboardType="url"
-              />
-            </View>
+            <Text style={styles.profileFieldLabel}>Avatar Image</Text>
+            <Pressable
+              style={[styles.avatarPickerBtn, avatarUploading && { opacity: 0.6 }]}
+              onPress={pickAvatarImage}
+              disabled={avatarUploading}
+            >
+              {avatarUploading ? (
+                <ActivityIndicator color={C.accent} size="small" />
+              ) : (
+                <Ionicons name="images-outline" size={16} color={C.accent} />
+              )}
+              <Text style={styles.avatarPickerBtnText}>
+                {avatarUploading ? "Uploading..." : "Choose and upload image"}
+              </Text>
+            </Pressable>
             {editAvatar ? (
               <Image source={{ uri: editAvatar }} style={styles.avatarPreview} contentFit="cover" />
             ) : null}
@@ -1951,5 +2050,22 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: C.accent,
     alignSelf: "center",
+  },
+  avatarPickerBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: C.surface2,
+    borderRadius: 3,
+    borderWidth: 1,
+    borderColor: C.border,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+  },
+  avatarPickerBtnText: {
+    color: C.accent,
+    fontSize: 13,
+    fontWeight: "700",
   },
 });
