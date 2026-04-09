@@ -12,7 +12,6 @@ import {
   StyleSheet,
   Platform,
   Alert,
-  Linking,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -124,6 +123,17 @@ export default function MentorBookScreen() {
       });
       const data = await res.json();
       if (!res.ok) {
+        if (res.status === 402) {
+          Alert.alert(
+            "チケットが足りません",
+            "チケット購入画面へ移動しますか？",
+            [
+              { text: "キャンセル", style: "cancel" },
+              { text: "購入する", onPress: () => router.push("/tickets") },
+            ],
+          );
+          return;
+        }
         if (data.error === "creator_not_connected") {
           Alert.alert("Booking Unavailable", "This creator has not completed their payout setup yet");
         } else {
@@ -131,12 +141,10 @@ export default function MentorBookScreen() {
         }
         return;
       }
-      if (data.checkoutUrl) {
-        if (Platform.OS === "web") {
-          window.location.href = data.checkoutUrl;
-        } else {
-          Linking.openURL(data.checkoutUrl);
-        }
+      if (data?.ok && data?.bookingId) {
+        router.push(`/mentor-room/${data.bookingId}`);
+      } else {
+        Alert.alert("Error", "Booking completed but response was invalid");
       }
     } catch (e: any) {
       Alert.alert("Error", e.message);
