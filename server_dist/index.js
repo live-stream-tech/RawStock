@@ -5542,6 +5542,124 @@ data: ${data}
     await db.delete(jukeboxQueue).where(eq2(jukeboxQueue.id, itemId));
     res.json({ ok: true });
   });
+  app2.get("/api/mentor/session/:id", async (req, res) => {
+    const id = paramNum(req, "id");
+    if (!id) return res.status(400).json({ error: "invalid_session_id" });
+    const [session] = await db.select().from(mentorSessions).where(and2(eq2(mentorSessions.id, id), eq2(mentorSessions.isActive, true)));
+    if (!session) return res.status(404).json({ error: "session_not_found" });
+    return res.json({
+      ...session,
+      userId: session.creatorId
+    });
+  });
+  app2.get("/api/availability/:userId", async (req, res) => {
+    const userId = paramNum(req, "userId");
+    if (!userId) return res.status(400).json({ error: "invalid_user_id" });
+    const rows = await db.select().from(liverAvailability).where(eq2(liverAvailability.liverId, userId)).orderBy(asc2(liverAvailability.date), asc2(liverAvailability.startTime));
+    return res.json(rows);
+  });
+  app2.post("/api/mentor/bookings", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const { sessionId, slotId, scheduledAt } = req.body;
+    const sid = typeof sessionId === "number" && Number.isFinite(sessionId) ? sessionId : parseInt(String(sessionId ?? ""), 10);
+    if (!sid) return res.status(400).json({ error: "session_not_found" });
+    if (!scheduledAt) return res.status(400).json({ error: "scheduled_at_required" });
+    const [sessionRow] = await db.select().from(mentorSessions).where(and2(eq2(mentorSessions.id, sid), eq2(mentorSessions.isActive, true)));
+    if (!sessionRow) return res.status(404).json({ error: "session_not_found" });
+    const parsedPrice = Number(sessionRow.price);
+    if (!Number.isInteger(parsedPrice) || parsedPrice <= 0) {
+      return res.status(400).json({ error: "invalid_session_price" });
+    }
+    let parsedSlotId = null;
+    if (slotId !== void 0 && slotId !== null && String(slotId).trim() !== "") {
+      parsedSlotId = typeof slotId === "number" && Number.isFinite(slotId) ? slotId : parseInt(String(slotId), 10);
+      if (!parsedSlotId || !Number.isFinite(parsedSlotId)) {
+        return res.status(400).json({ error: "invalid_slot_id" });
+      }
+      const [slot] = await db.select().from(liverAvailability).where(and2(eq2(liverAvailability.id, parsedSlotId), eq2(liverAvailability.liverId, sessionRow.creatorId)));
+      if (!slot) return res.status(404).json({ error: "slot_not_found" });
+      if (slot.bookedSlots >= slot.maxSlots) return res.status(409).json({ error: "slot_full" });
+    }
+    try {
+      let bookingId = 0;
+      await db.transaction(async (tx) => {
+        const userId = String(user.id);
+        const balRows = await tx.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
+        const currentBalance = balRows[0]?.balance ?? 0;
+        if (currentBalance < parsedPrice) {
+          const err = new Error("INSUFFICIENT_TICKETS");
+          err.meta = { balance: currentBalance, required: parsedPrice };
+          throw err;
+        }
+        if (parsedSlotId != null) {
+          const slotRows = await tx.update(liverAvailability).set({ bookedSlots: sql3`${liverAvailability.bookedSlots} + 1` }).where(
+            and2(
+              eq2(liverAvailability.id, parsedSlotId),
+              eq2(liverAvailability.liverId, sessionRow.creatorId),
+              sql3`${liverAvailability.bookedSlots} < ${liverAvailability.maxSlots}`
+            )
+          ).returning({ id: liverAvailability.id });
+          if (slotRows.length === 0) {
+            throw new Error("SLOT_FULL");
+          }
+        }
+        const newBalance = currentBalance - parsedPrice;
+        if (balRows.length === 0) {
+          await tx.insert(ticketBalances).values({ userId, balance: newBalance });
+        } else {
+          await tx.update(ticketBalances).set({ balance: newBalance, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
+        }
+        const [booking] = await tx.insert(mentorBookings).values({
+          sessionId: sid,
+          userId: `user-${user.id}`,
+          userName: user.displayName,
+          userAvatar: user.profileImageUrl ?? null,
+          scheduledAt: new Date(scheduledAt),
+          price: parsedPrice,
+          // session.price = ticket count
+          status: "paid",
+          queuePosition: 0,
+          agreedToTerms: true,
+          agreedAt: /* @__PURE__ */ new Date(),
+          refundable: false
+        }).returning({ id: mentorBookings.id });
+        bookingId = booking.id;
+        const [spendTx] = await tx.insert(ticketTransactions).values({
+          userId,
+          amount: -parsedPrice,
+          type: "spend_session",
+          referenceId: String(bookingId),
+          description: `Mentor session booking ${sid}`
+        }).returning({ id: ticketTransactions.id });
+        const walletId = await getOrCreateUserWallet(sessionRow.creatorId, tx);
+        const [creatorRow] = await tx.select().from(creators).where(eq2(creators.userId, sessionRow.creatorId)).limit(1);
+        await recordRevenue(
+          walletId,
+          sessionRow.creatorId,
+          creatorRow?.id ?? null,
+          parsedPrice,
+          "mentor",
+          String(spendTx.id),
+          tx
+        );
+      });
+      return res.json({ ok: true, bookingId });
+    } catch (e) {
+      if (e?.message === "INSUFFICIENT_TICKETS") {
+        const meta = e?.meta ?? {};
+        return res.status(402).json({
+          error: "Insufficient tickets",
+          balance: meta.balance ?? 0,
+          required: meta.required ?? parsedPrice
+        });
+      }
+      if (e?.message === "SLOT_FULL") {
+        return res.status(409).json({ error: "slot_full" });
+      }
+      return res.status(500).json({ error: e.message ?? "booking_create_failed" });
+    }
+  });
   app2.get("/api/mentor/publishable-key", async (_req, res) => {
     try {
       const key = await getStripePublishableKey();
@@ -5627,17 +5745,51 @@ data: ${data}
       }
       const [booking] = await db.select().from(mentorBookings).where(eq2(mentorBookings.stripeSessionId, sessionId));
       if (!booking) return res.status(404).json({ error: "Booking not found" });
+      if (booking.status === "paid") return res.json({ ok: true, booking });
+      const metadata = session.metadata ?? {};
+      const slotIdRaw = metadata.slotId;
+      const slotId = slotIdRaw && slotIdRaw.trim() ? parseInt(slotIdRaw, 10) : NaN;
+      let mentorSessionForBooking = null;
+      if (booking.sessionId != null) {
+        const [mentorSession] = await db.select().from(mentorSessions).where(eq2(mentorSessions.id, booking.sessionId));
+        mentorSessionForBooking = mentorSession ?? null;
+      }
+      if (booking.sessionId != null && Number.isFinite(slotId) && slotId > 0) {
+        const creatorId = mentorSessionForBooking?.creatorId;
+        if (!creatorId) return res.status(404).json({ error: "session_not_found" });
+        const updatedSlots = await db.update(liverAvailability).set({ bookedSlots: sql3`${liverAvailability.bookedSlots} + 1` }).where(
+          and2(
+            eq2(liverAvailability.id, slotId),
+            eq2(liverAvailability.liverId, creatorId),
+            sql3`${liverAvailability.bookedSlots} < ${liverAvailability.maxSlots}`
+          )
+        ).returning();
+        if (updatedSlots.length === 0) {
+          return res.status(409).json({ error: "slot_full" });
+        }
+      }
       await db.update(mentorBookings).set({
         status: "paid",
         stripePaymentIntentId: session.payment_intent
       }).where(eq2(mentorBookings.stripeSessionId, sessionId));
-      const [stream] = await db.select().from(liveStreams).where(eq2(liveStreams.id, booking.streamId));
-      if (stream) {
-        const [creatorUser] = await db.select().from(users).where(eq2(users.displayName, stream.creator));
-        if (creatorUser) {
-          const walletId = await getOrCreateUserWallet(creatorUser.id);
-          const [creatorRow] = await db.select().from(creators).where(eq2(creators.name, stream.creator));
-          await recordRevenue(walletId, creatorUser.id, creatorRow?.id ?? null, booking.price, "mentor", String(booking.id));
+      if (booking.sessionId != null) {
+        if (mentorSessionForBooking) {
+          const [creatorUser] = await db.select().from(users).where(eq2(users.id, mentorSessionForBooking.creatorId));
+          if (creatorUser) {
+            const walletId = await getOrCreateUserWallet(creatorUser.id);
+            const [creatorRow] = await db.select().from(creators).where(eq2(creators.name, creatorUser.displayName));
+            await recordRevenue(walletId, creatorUser.id, creatorRow?.id ?? null, booking.price, "mentor", String(booking.id));
+          }
+        }
+      } else {
+        const [stream] = await db.select().from(liveStreams).where(eq2(liveStreams.id, booking.streamId));
+        if (stream) {
+          const [creatorUser] = await db.select().from(users).where(eq2(users.displayName, stream.creator));
+          if (creatorUser) {
+            const walletId = await getOrCreateUserWallet(creatorUser.id);
+            const [creatorRow] = await db.select().from(creators).where(eq2(creators.name, stream.creator));
+            await recordRevenue(walletId, creatorUser.id, creatorRow?.id ?? null, booking.price, "mentor", String(booking.id));
+          }
         }
       }
       res.json({ ok: true, booking });
