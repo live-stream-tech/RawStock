@@ -7958,14 +7958,59 @@ import { createProxyMiddleware } from "http-proxy-middleware";
 
 // lib/brand.ts
 var DEFAULT_RAWSTOCK_LOGO_URL = "https://d2xsxph8kpxj0f.cloudfront.net/310519663449879480/M2pBP9b9EdXaS65j3mPhNW/RawStock_logo_3fd8a263.webp";
+var DEFAULT_HERO_VIDEO_URL = "https://assets.mixkit.co/videos/preview/mixkit-people-dancing-at-a-concert-1754-large.mp4";
+var DEFAULT_HERO_POSTER_URL = "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=1920&q=80";
 var RAWSTOCK_LOGO_URL = typeof process !== "undefined" && process.env.PUBLIC_LOGO_URL?.trim() || DEFAULT_RAWSTOCK_LOGO_URL;
+var RAWSTOCK_HERO_VIDEO_URL = typeof process !== "undefined" && process.env.PUBLIC_HERO_VIDEO_URL?.trim() || DEFAULT_HERO_VIDEO_URL;
+var RAWSTOCK_HERO_POSTER_URL = typeof process !== "undefined" && process.env.PUBLIC_HERO_POSTER_URL?.trim() || DEFAULT_HERO_POSTER_URL;
+var RAWSTOCK_LP_DEMO_VIDEO_URL = typeof process !== "undefined" && process.env.PUBLIC_LP_DEMO_VIDEO_URL?.trim() || RAWSTOCK_HERO_VIDEO_URL;
+var RAWSTOCK_LP_STEP_IMG_SHOOT = process.env.PUBLIC_LP_STEP_SHOOT_IMG?.trim() || "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800&q=80";
+var RAWSTOCK_LP_STEP_IMG_EDIT = process.env.PUBLIC_LP_STEP_EDIT_IMG?.trim() || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&q=80";
+var RAWSTOCK_LP_STEP_IMG_SELL = process.env.PUBLIC_LP_STEP_SELL_IMG?.trim() || "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=800&q=80";
+var RAWSTOCK_LP_STEP_IMG_PROMO = process.env.PUBLIC_LP_STEP_PROMO_IMG?.trim() || "https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?w=800&q=80";
+var RAWSTOCK_LP_FEATURE_IMG_JUKE = process.env.PUBLIC_LP_FEATURE_JUKE_IMG?.trim() || "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=960&q=80";
+var RAWSTOCK_LP_FEATURE_IMG_AI = process.env.PUBLIC_LP_FEATURE_AI_IMG?.trim() || "https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?w=960&q=80";
+var RAWSTOCK_LP_FEATURE_IMG_DISTRICT = process.env.PUBLIC_LP_FEATURE_DISTRICT_IMG?.trim() || "https://images.unsplash.com/photo-1524368535928-5b5e00ddc76b?w=960&q=80";
+var RAWSTOCK_LP_FEATURE_IMG_LIVE = process.env.PUBLIC_LP_FEATURE_LIVE_IMG?.trim() || "https://images.unsplash.com/photo-1540039155733-5bb30b53aa88?w=960&q=80";
+var RAWSTOCK_LP_FEATURE_IMG_GLOBAL = process.env.PUBLIC_LP_FEATURE_GLOBAL_IMG?.trim() || "https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=960&q=80";
 var RAWSTOCK_LOGO_URL_PLACEHOLDER = "RAWSTOCK_LOGO_URL_PLACEHOLDER";
+var RAWSTOCK_HERO_VIDEO_URL_PLACEHOLDER = "RAWSTOCK_HERO_VIDEO_URL_PLACEHOLDER";
+var RAWSTOCK_HERO_POSTER_URL_PLACEHOLDER = "RAWSTOCK_HERO_POSTER_URL_PLACEHOLDER";
+var RAWSTOCK_LP_DEMO_VIDEO_URL_PLACEHOLDER = "RAWSTOCK_LP_DEMO_VIDEO_URL_PLACEHOLDER";
+var LP_CANONICAL_URL_PLACEHOLDER = "LP_CANONICAL_URL_PLACEHOLDER";
+var RAWSTOCK_LP_STEP_IMG_SHOOT_PLACEHOLDER = "RAWSTOCK_LP_STEP_IMG_SHOOT_PLACEHOLDER";
+var RAWSTOCK_LP_STEP_IMG_EDIT_PLACEHOLDER = "RAWSTOCK_LP_STEP_IMG_EDIT_PLACEHOLDER";
+var RAWSTOCK_LP_STEP_IMG_SELL_PLACEHOLDER = "RAWSTOCK_LP_STEP_IMG_SELL_PLACEHOLDER";
+var RAWSTOCK_LP_STEP_IMG_PROMO_PLACEHOLDER = "RAWSTOCK_LP_STEP_IMG_PROMO_PLACEHOLDER";
+var RAWSTOCK_LP_FEATURE_IMG_JUKE_PLACEHOLDER = "RAWSTOCK_LP_FEATURE_IMG_JUKE_PLACEHOLDER";
+var RAWSTOCK_LP_FEATURE_IMG_AI_PLACEHOLDER = "RAWSTOCK_LP_FEATURE_IMG_AI_PLACEHOLDER";
+var RAWSTOCK_LP_FEATURE_IMG_DISTRICT_PLACEHOLDER = "RAWSTOCK_LP_FEATURE_IMG_DISTRICT_PLACEHOLDER";
+var RAWSTOCK_LP_FEATURE_IMG_LIVE_PLACEHOLDER = "RAWSTOCK_LP_FEATURE_IMG_LIVE_PLACEHOLDER";
+var RAWSTOCK_LP_FEATURE_IMG_GLOBAL_PLACEHOLDER = "RAWSTOCK_LP_FEATURE_IMG_GLOBAL_PLACEHOLDER";
 
 // server/index.ts
 var app = express2();
 var log2 = console.log;
-function injectRawstockLogo(html) {
-  return html.split(RAWSTOCK_LOGO_URL_PLACEHOLDER).join(RAWSTOCK_LOGO_URL);
+function injectLpMarketingHtml(html, canonicalUrl) {
+  let out = html.split(RAWSTOCK_LOGO_URL_PLACEHOLDER).join(RAWSTOCK_LOGO_URL).split(RAWSTOCK_HERO_VIDEO_URL_PLACEHOLDER).join(RAWSTOCK_HERO_VIDEO_URL).split(RAWSTOCK_HERO_POSTER_URL_PLACEHOLDER).join(RAWSTOCK_HERO_POSTER_URL).split(RAWSTOCK_LP_DEMO_VIDEO_URL_PLACEHOLDER).join(RAWSTOCK_LP_DEMO_VIDEO_URL).split(LP_CANONICAL_URL_PLACEHOLDER).join(canonicalUrl).split(RAWSTOCK_LP_STEP_IMG_SHOOT_PLACEHOLDER).join(RAWSTOCK_LP_STEP_IMG_SHOOT).split(RAWSTOCK_LP_STEP_IMG_EDIT_PLACEHOLDER).join(RAWSTOCK_LP_STEP_IMG_EDIT).split(RAWSTOCK_LP_STEP_IMG_SELL_PLACEHOLDER).join(RAWSTOCK_LP_STEP_IMG_SELL).split(RAWSTOCK_LP_STEP_IMG_PROMO_PLACEHOLDER).join(RAWSTOCK_LP_STEP_IMG_PROMO).split(RAWSTOCK_LP_FEATURE_IMG_JUKE_PLACEHOLDER).join(RAWSTOCK_LP_FEATURE_IMG_JUKE).split(RAWSTOCK_LP_FEATURE_IMG_AI_PLACEHOLDER).join(RAWSTOCK_LP_FEATURE_IMG_AI).split(RAWSTOCK_LP_FEATURE_IMG_DISTRICT_PLACEHOLDER).join(RAWSTOCK_LP_FEATURE_IMG_DISTRICT).split(RAWSTOCK_LP_FEATURE_IMG_LIVE_PLACEHOLDER).join(RAWSTOCK_LP_FEATURE_IMG_LIVE).split(RAWSTOCK_LP_FEATURE_IMG_GLOBAL_PLACEHOLDER).join(RAWSTOCK_LP_FEATURE_IMG_GLOBAL);
+  const weglotKey = process.env.WEGLOT_API_KEY?.trim();
+  if (weglotKey) {
+    out = out.replace(
+      "<!--WEGLOT_INJECT-->",
+      `<script type="text/javascript" src="https://cdn.weglot.com/weglot.min.js"></script><script>Weglot.initialize({ api_key: ${JSON.stringify(weglotKey)} });</script>`
+    );
+  } else {
+    out = out.replace("<!--WEGLOT_INJECT-->", "");
+  }
+  return out;
+}
+function canonicalPageUrlFromReq(req, pathname) {
+  const forwardedProto = req.header("x-forwarded-proto");
+  const protocol = forwardedProto || req.protocol || "https";
+  const forwardedHost = req.header("x-forwarded-host");
+  const host = forwardedHost || req.get("host") || "localhost";
+  const path2 = pathname.startsWith("/") ? pathname : `/${pathname}`;
+  return `${protocol}://${host}${path2}`;
 }
 app.get("/healthcheck", (_req, res) => res.status(200).send("OK"));
 app.get("/api/healthcheck", (_req, res) => res.status(200).send("OK"));
@@ -7988,12 +8033,15 @@ function serveExpoManifest(platform, res) {
 function configureExpoAndLanding(app2) {
   const isDev = process.env.NODE_ENV === "development";
   log2("Serving static Expo files with dynamic manifest routing");
-  app2.get("/lp", (_req, res) => {
+  app2.get("/lp", (req, res) => {
     const raw = fs.readFileSync(
       path.resolve(process.cwd(), "server/templates/landing-page.html"),
       "utf-8"
     );
-    const html = injectRawstockLogo(raw);
+    const html = injectLpMarketingHtml(
+      raw,
+      canonicalPageUrlFromReq(req, "/lp")
+    );
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.status(200).send(html);
   });
@@ -8001,22 +8049,28 @@ function configureExpoAndLanding(app2) {
     process.cwd(),
     "public/lp-standalone.html"
   );
-  app2.get("/lp-standalone.html", (_req, res) => {
+  app2.get("/lp-standalone.html", (req, res) => {
     if (!fs.existsSync(lpStandalonePath)) {
       return res.status(404).send("lp-standalone.html not found");
     }
     const raw = fs.readFileSync(lpStandalonePath, "utf-8");
-    const html = injectRawstockLogo(raw);
+    const html = injectLpMarketingHtml(
+      raw,
+      canonicalPageUrlFromReq(req, "/lp-standalone.html")
+    );
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.status(200).send(html);
   });
   const teamzPath = path.resolve(process.cwd(), "public/teamz.html");
-  app2.get("/teamz", (_req, res) => {
+  app2.get("/teamz", (req, res) => {
     if (!fs.existsSync(teamzPath)) {
       return res.status(404).send("teamz.html not found");
     }
     const raw = fs.readFileSync(teamzPath, "utf-8");
-    const html = injectRawstockLogo(raw);
+    const html = injectLpMarketingHtml(
+      raw,
+      canonicalPageUrlFromReq(req, "/teamz")
+    );
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.status(200).send(html);
   });
