@@ -12,9 +12,17 @@ import {
 import * as fs from "fs";
 import * as path from "path";
 import { createProxyMiddleware } from "http-proxy-middleware";
+import {
+  RAWSTOCK_LOGO_URL,
+  RAWSTOCK_LOGO_URL_PLACEHOLDER,
+} from "../lib/brand";
 
 const app = express();
 const log = console.log;
+
+function injectRawstockLogo(html: string): string {
+  return html.split(RAWSTOCK_LOGO_URL_PLACEHOLDER).join(RAWSTOCK_LOGO_URL);
+}
 
 app.get("/healthcheck", (_req, res) => res.status(200).send("OK"));
 app.get("/api/healthcheck", (_req, res) => res.status(200).send("OK"));
@@ -89,7 +97,25 @@ function configureExpoAndLanding(app: express.Application) {
 
   // Serve /lp route with landing page HTML
   app.get("/lp", (_req: Request, res: Response) => {
-    const html = fs.readFileSync(path.resolve(process.cwd(), "server/templates/landing-page.html"), "utf-8");
+    const raw = fs.readFileSync(
+      path.resolve(process.cwd(), "server/templates/landing-page.html"),
+      "utf-8",
+    );
+    const html = injectRawstockLogo(raw);
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.status(200).send(html);
+  });
+
+  const lpStandalonePath = path.resolve(
+    process.cwd(),
+    "public/lp-standalone.html",
+  );
+  app.get("/lp-standalone.html", (_req: Request, res: Response) => {
+    if (!fs.existsSync(lpStandalonePath)) {
+      return res.status(404).send("lp-standalone.html not found");
+    }
+    const raw = fs.readFileSync(lpStandalonePath, "utf-8");
+    const html = injectRawstockLogo(raw);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.status(200).send(html);
   });
@@ -99,7 +125,8 @@ function configureExpoAndLanding(app: express.Application) {
     if (!fs.existsSync(teamzPath)) {
       return res.status(404).send("teamz.html not found");
     }
-    const html = fs.readFileSync(teamzPath, "utf-8");
+    const raw = fs.readFileSync(teamzPath, "utf-8");
+    const html = injectRawstockLogo(raw);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.status(200).send(html);
   });
@@ -115,8 +142,12 @@ function configureExpoAndLanding(app: express.Application) {
       return next();
     }
 
-    // Skip Expo manifest for /lp and /teamz
-    if (req.path === "/lp" || req.path === "/teamz") {
+    // Skip Expo manifest for LP / static marketing HTML
+    if (
+      req.path === "/lp" ||
+      req.path === "/teamz" ||
+      req.path === "/lp-standalone.html"
+    ) {
       return next();
     }
 

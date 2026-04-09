@@ -238,8 +238,89 @@
       font-size: 18px;
       color: #bbb;
       max-width: 600px;
-      margin-bottom: 40px;
+      margin-bottom: 28px;
       line-height: 1.8;
+    }
+
+    .story-pitch {
+      margin: 0 0 32px;
+      padding: 24px 28px;
+      border: 1px solid #333;
+      background: rgba(0, 0, 0, 0.35);
+      max-width: 640px;
+    }
+
+    .story-pitch-lead {
+      color: #e0e0e0;
+      font-size: 17px;
+      margin-bottom: 14px;
+      line-height: 1.65;
+    }
+
+    .story-pitch-problems {
+      color: #aaa;
+      margin: 8px 0 16px 20px;
+      line-height: 1.7;
+    }
+
+    .story-pitch-promise {
+      color: #00ffa3;
+      font-weight: 700;
+      font-size: 18px;
+      margin-bottom: 22px;
+      line-height: 1.5;
+    }
+
+    .story-pillar {
+      margin-bottom: 20px;
+    }
+
+    .story-pillar:last-child {
+      margin-bottom: 0;
+    }
+
+    .story-pillar h3 {
+      font-family: "Barlow Condensed", sans-serif;
+      font-size: 17px;
+      color: #fff;
+      margin-bottom: 8px;
+      letter-spacing: 0.04em;
+      text-transform: none;
+    }
+
+    .story-pillar p {
+      color: #999;
+      font-size: 15px;
+      line-height: 1.75;
+      margin-bottom: 8px;
+    }
+
+    .story-pitch a {
+      color: #00ffa3;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+
+    .story-pitch a:hover {
+      color: #fff;
+    }
+
+    html[lang="ja"] .story-pitch-lead {
+      font-size: 16px;
+    }
+
+    html[lang="ja"] .story-pitch-promise {
+      font-size: 17px;
+    }
+
+    html[lang="ja"] .story-pillar h3 {
+      font-family: "Noto Sans JP", sans-serif;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+    }
+
+    html[lang="ja"] .story-pillar p {
+      font-size: 15px;
     }
 
     h2 {
@@ -572,7 +653,7 @@
   </div>
 
   <header class="container">
-    <div class="logo"><img src="/assets/logo-200x70-v2.png" alt="RawStock" /></div>
+    <div class="logo"><img src="RAWSTOCK_LOGO_URL_PLACEHOLDER" alt="RawStock" /></div>
     <nav>
       <a href="#features"><span class="only-en">Features</span><span class="only-ja">特徴</span></a>
       <a href="#revenue"><span class="only-en">Revenue</span><span class="only-ja">収益モデル</span></a>
@@ -603,6 +684,40 @@
         </span>
       </span>
     </p>
+
+    <div class="story-pitch">
+      <p class="story-pitch-lead only-en">Ever leave a show thinking, <em>this shouldn't end the second the lights go up</em>? In practice, editing is a slog, monetization is split across tools, and fan relationships scatter.</p>
+      <p class="story-pitch-lead only-ja">ライブのあの瞬間、「このまま終わるのはもったいない」と思ったことは？</p>
+      <p class="only-ja" style="color:#aaa;margin-bottom:8px;">でも現実は、</p>
+      <ul class="story-pitch-problems only-ja">
+        <li>編集が大変</li>
+        <li>収益化が分断されている</li>
+        <li>ファンとの関係もバラバラ</li>
+      </ul>
+      <p class="story-pitch-promise only-en">RawStock brings capture, sales, and community into one lane.</p>
+      <p class="story-pitch-promise only-ja">RawStockは、それを一つにします。</p>
+
+      <div class="story-pillar">
+        <h3 class="only-en">🥉 Experience (what matters most)</h3>
+        <h3 class="only-ja">🥉 体験（ここが一番大事）</h3>
+        <p class="only-en">Upload footage, set your price, sell and share — your shortest path is up → price → ship. (The full four-step loop is in <strong>How it works</strong> below.) Fans use <strong>tickets</strong> for purchases, paid live access, and gifts — see <a href="#tickets">Tickets</a> for line items.</p>
+        <p class="only-ja">使い方はシンプル。(1) ライブ映像や動画をアップ (2) 価格を設定 (3) そのまま販売・共有。<strong>撮影→編集→販売の全体像は下の「ご利用の流れ」</strong>で補足します。</p>
+        <p class="only-ja">ファンはチケットで、<strong>動画購入・有料ライブ・ギフト</strong>などをまとめて体験できます。消費の細目は<a href="#tickets">チケット</a>をご確認ください。</p>
+      </div>
+      <div class="story-pillar">
+        <h3 class="only-en">💰 Revenue (the edge)</h3>
+        <h3 class="only-ja">💰 収益（強み）</h3>
+        <p class="only-en">Creator-side splits are the default; collaborators and communities participate through the rules you set. Exact percentages live in <a href="#revenue">Revenue</a> — this block stays short on purpose.</p>
+        <p class="only-ja">クリエイター側への還元を軸に、共同制作者やコミュニティにも<strong>仕組みに沿って分配</strong>されます。<strong>数値の内訳は下の「収益モデル」</strong>にまとめています。</p>
+      </div>
+      <div class="story-pillar">
+        <h3 class="only-en">🤖 AI as support</h3>
+        <h3 class="only-ja">🤖 AI（&ldquo;補助&rdquo;として）</h3>
+        <p class="only-en"><strong>AI Edit Assistant</strong> helps you productize footage without getting stuck in the edit cave. Ticket pricing is under <a href="#features">Features</a>.</p>
+        <p class="only-ja"><strong>AI編集アシスタント</strong>で、素材をそのまま商品化しやすくします。チケット数の詳細は<a href="#features">特徴（AI編集）</a>を参照してください。</p>
+      </div>
+    </div>
+
     <div class="cta-buttons">
       <a href="/auth/login" class="btn"><span class="only-en">Try it now</span><span class="only-ja">無料で始める</span></a>
       <a href="/api/auth/google" class="btn btn-secondary"><span class="only-en">Sign in with Google</span><span class="only-ja">Googleで登録・ログイン</span></a>

@@ -1,8 +1,32 @@
 import React from "react";
 import { Platform, Text, View } from "react-native";
 
-/* LPはスタンドアロンHTMLをiframeで表示（親アプリのスタイル干渉を回避） */
-const LP_IFRAME_SRC = "/lp-standalone.html";
+/** Express serves this with logo URL injected from lib/brand (see server/index.ts). */
+function lpStandaloneSrcForWeb(): string {
+  if (typeof window === "undefined") {
+    return "/lp-standalone.html";
+  }
+  const env =
+    process.env.EXPO_PUBLIC_DOMAIN?.trim() ||
+    process.env.EXPO_PUBLIC_API_URL?.trim();
+  if (env) {
+    try {
+      const withScheme = /^https?:\/\//i.test(env)
+        ? env
+        : env.includes("localhost") || env.startsWith("127.")
+          ? `http://${env}`
+          : `https://${env}`;
+      const origin = new URL(withScheme).origin;
+      return `${origin}/lp-standalone.html`;
+    } catch {
+      /* fall through */
+    }
+  }
+  if (process.env.NODE_ENV !== "production") {
+    return "http://localhost:5000/lp-standalone.html";
+  }
+  return `${window.location.origin}/lp-standalone.html`;
+}
 
 export function RawstockLpContent() {
   if (Platform.OS !== "web") {
@@ -17,7 +41,7 @@ export function RawstockLpContent() {
 
   return (
     <iframe
-      src={LP_IFRAME_SRC}
+      src={lpStandaloneSrcForWeb()}
       title="RawStock LP"
       style={{
         position: "fixed",

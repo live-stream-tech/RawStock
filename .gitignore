@@ -45,6 +45,9 @@ yarn-error.*
 # Replit internal dirs (may contain secrets)
 .config/
 
+# Cursor IDE (local debug logs, MCP cache, etc.)
+.cursor/
+
 # Generated media (too large for git)
 attached_assets/generated_videos/
 attached_assets/generated_images/
