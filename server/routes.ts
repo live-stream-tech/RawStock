@@ -75,6 +75,7 @@ import { dslToTemplated } from "./lib/dslToTemplated";
 import { createTemplatedRender } from "./lib/templatedClient";
 import { createSignedUploadUrl } from "./r2";
 import { moderateContent } from "./moderation";
+import { detectContentLang } from "./langFromText";
 import { publishJukeboxEvent, redis, jukeboxChannel, subscribeJukeboxEvents } from "./redis";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
@@ -192,9 +193,24 @@ async function getAuthUser(req: Request): Promise<{
     return {
       ...user,
       avatar: user.profileImageUrl,
+      lastContentLang: user.lastContentLang ?? null,
     };
   } catch {
     return null;
+  }
+}
+
+/** 検知できたときだけ users.last_content_lang を更新。失敗しても例外は投げない。 */
+async function syncUserLastContentLang(userId: number, rawText: string): Promise<void> {
+  try {
+    const lang = detectContentLang(rawText);
+    if (!lang) return;
+    await db
+      .update(users)
+      .set({ lastContentLang: lang, updatedAt: new Date() } as Partial<typeof users.$inferInsert>)
+      .where(eq(users.id, userId));
+  } catch (e) {
+    console.warn("syncUserLastContentLang skipped:", e);
   }
 }
 
@@ -628,6 +644,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       avatar: user.profileImageUrl,
       role: user.role,
       bio: user.bio,
+      lastContentLang: user.lastContentLang ?? null,
       stripeConnectId: user.stripeConnectId ?? null,
       payoutTermsAgreedAt: payoutTermsAt ? new Date(payoutTermsAt).toISOString() : null,
       spotifyUrl: (user as any).spotifyUrl ?? null,
@@ -909,6 +926,11 @@ export async function registerRoutes(app: Express): Promise<void> {
       } as Partial<typeof users.$inferInsert>)
       .where(eq(users.id, user.id))
       .returning();
+    const profileTextForLang = (newBio || "").trim() || newName;
+    await syncUserLastContentLang(user.id, profileTextForLang);
+    const detectedLang = detectContentLang(profileTextForLang);
+    const lastContentLangOut =
+      detectedLang ?? (updated as { lastContentLang?: string | null }).lastContentLang ?? null;
     let outPinned: number[] = [];
     if ((updated as any).pinnedCommunityIds) {
       try {
@@ -925,6 +947,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       avatar: updated.profileImageUrl,
       role: updated.role,
       bio: updated.bio,
+      lastContentLang: lastContentLangOut,
       payoutTermsAgreedAt: payoutTermsOut ? new Date(payoutTermsOut).toISOString() : null,
       spotifyUrl: updated.spotifyUrl ?? null,
       appleMusicUrl: updated.appleMusicUrl ?? null,
@@ -1920,6 +1943,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         body: body.trim(),
       } as typeof communityThreadPosts.$inferInsert)
       .returning();
+    await syncUserLastContentLang(user.id, body.trim());
     res.status(201).json(row);
   });
 
@@ -4171,6 +4195,7 @@ export async function registerRoutes(app: Express): Promise<void> {
             updatedAt: new Date(),
           } as Partial<typeof dmThreads.$inferInsert>)
           .where(eq(dmThreads.id, rawId));
+        await syncUserLastContentLang(me.id, text.trim());
         return res.json({
           id: msg.id,
           sender: "me",
@@ -4195,6 +4220,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       .update(dmMessages)
       .set({ lastMessage: text.trim(), unread: 0 } as Partial<typeof dmMessages.$inferInsert>)
       .where(eq(dmMessages.id, legacyDmId));
+    await syncUserLastContentLang(me.id, text.trim());
     res.json({
       ...msg,
       createdAt: (msg.createdAt ?? new Date()).toISOString(),

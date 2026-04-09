@@ -63,6 +63,7 @@
     "expo-system-ui": "~55.0.9",
     "expo-web-browser": "~55.0.9",
     "express": "^5.2.1",
+    "franc": "^6.2.0",
     "http-proxy-middleware": "^3.0.5",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.577.0",

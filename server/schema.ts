@@ -521,6 +521,8 @@ export const users = pgTable("users", {
   welcomeDmSentAt: timestamp("welcome_dm_sent_at"),
   /** 運営DM（Operations Team）を初めて開いた日時。未設定かつ welcome 済みなら一覧に未読バッジ */
   operationsDmOpenedAt: timestamp("operations_dm_opened_at"),
+  // migrations/0014_users_last_content_lang.sql — franc による直近コンテンツ言語（ISO 639-1、例: ja, en）
+  lastContentLang: text("last_content_lang"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
