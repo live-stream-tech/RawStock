@@ -38,7 +38,7 @@ const DEEPAR_LICENSE_KEY =
     : "";
 
 function parseRouteVisibility(v: string | undefined): LiveStreamVisibility {
-  if (v === "followers" || v === "community") return v;
+  if (v === "followers" || v === "community" || v === "paid") return v;
   return "public";
 }
 
@@ -67,13 +67,17 @@ export default function BroadcastScreen() {
 
 function BroadcastWeb() {
   const t = getBroadcastStrings(isBroadcastJapaneseUi());
-  const params = useLocalSearchParams<{ visibility?: string; communityId?: string }>();
+  const params = useLocalSearchParams<{ visibility?: string; communityId?: string; ticketPrice?: string }>();
   const routeVisibility = parseRouteVisibility(
     typeof params.visibility === "string" ? params.visibility : undefined,
   );
   const routeCommunityId =
     typeof params.communityId === "string" && params.communityId.trim() !== ""
       ? parseInt(params.communityId, 10)
+      : NaN;
+  const routeTicketPrice =
+    typeof params.ticketPrice === "string" && params.ticketPrice.trim() !== ""
+      ? parseInt(params.ticketPrice, 10)
       : NaN;
 
   const videoRef = useRef<any>(null);
@@ -248,6 +252,10 @@ function BroadcastWeb() {
         restrictedCommunityId:
           routeVisibility === "community" && Number.isFinite(routeCommunityId)
             ? routeCommunityId
+            : undefined,
+        ticketPrice:
+          routeVisibility === "paid" && Number.isFinite(routeTicketPrice)
+            ? routeTicketPrice
             : undefined,
       });
       createdStreamId = id;

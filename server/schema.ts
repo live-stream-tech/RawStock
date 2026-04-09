@@ -287,8 +287,20 @@ export const streams = pgTable("streams", {
   whipUrl: text("whip_url"),
   /** public | followers | community */
   visibility: text("visibility").notNull().default("public"),
+  /** visibility=paid のときのチケット価格（1 ticket = $0.01） */
+  ticketPrice: integer("ticket_price"),
   /** visibility=community のとき、視聴に必要なコミュニティ */
   restrictedCommunityId: integer("restricted_community_id"),
+});
+
+/** 有料ライブ視聴の購入レコード（stream ごとに 1ユーザー 1件） */
+export const streamPaidAccess = pgTable("stream_paid_access", {
+  id: serial("id").primaryKey(),
+  streamId: integer("stream_id").notNull(),
+  viewerUserId: integer("viewer_user_id").notNull(),
+  ticketAmount: integer("ticket_amount").notNull(),
+  ticketTransactionId: integer("ticket_transaction_id"),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 export const creators = pgTable("creators", {

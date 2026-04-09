@@ -50,6 +50,7 @@ import {
   jukeboxRequestCounts,
   ticketBalances,
   ticketTransactions,
+  streamPaidAccess,
   TICKET_PACKS,
   bannerAds,
   dailyLogins,
@@ -4430,10 +4431,10 @@ export async function registerRoutes(app: Express): Promise<void> {
     });
   });
 
-  type StreamVisibility = "public" | "followers" | "community";
+  type StreamVisibility = "public" | "followers" | "community" | "paid";
 
   function normalizeStreamVisibility(v: unknown): StreamVisibility {
-    if (v === "followers" || v === "community") return v;
+    if (v === "followers" || v === "community" || v === "paid") return v;
     return "public";
   }
 
@@ -4463,6 +4464,15 @@ export async function registerRoutes(app: Express): Promise<void> {
         .from(communityMembers)
         .where(and(eq(communityMembers.userId, viewer.id), eq(communityMembers.communityId, cid)));
       return !!m;
+    }
+    if (vis === "paid") {
+      if (!viewer) return false;
+      const [access] = await db
+        .select({ id: streamPaidAccess.id })
+        .from(streamPaidAccess)
+        .where(and(eq(streamPaidAccess.streamId, srow.id), eq(streamPaidAccess.viewerUserId, viewer.id)))
+        .limit(1);
+      return !!access;
     }
     return true;
   }
@@ -4495,14 +4505,22 @@ export async function registerRoutes(app: Express): Promise<void> {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "未認証です" });
 
-    const { name, title, visibility: visIn, restrictedCommunityId: rcIn } = (req.body ?? {}) as {
+    const {
+      name,
+      title,
+      visibility: visIn,
+      restrictedCommunityId: rcIn,
+      ticketPrice: ticketPriceIn,
+    } = (req.body ?? {}) as {
       name?: string;
       title?: string;
       visibility?: unknown;
       restrictedCommunityId?: unknown;
+      ticketPrice?: unknown;
     };
     const visibility = normalizeStreamVisibility(visIn);
     let restrictedCommunityId: number | null = null;
+    let ticketPrice: number | null = null;
     if (visibility === "community") {
       const cid =
         typeof rcIn === "number" && Number.isFinite(rcIn)
@@ -4519,6 +4537,16 @@ export async function registerRoutes(app: Express): Promise<void> {
         return res.status(403).json({ error: "選択したコミュニティのメンバーではありません" });
       }
       restrictedCommunityId = cid;
+    }
+    if (visibility === "paid") {
+      const p =
+        typeof ticketPriceIn === "number" && Number.isFinite(ticketPriceIn)
+          ? ticketPriceIn
+          : parseInt(String(ticketPriceIn ?? ""), 10);
+      if (!Number.isFinite(p) || p <= 0) {
+        return res.status(400).json({ error: "ticketPrice is required for paid streams" });
+      }
+      ticketPrice = p;
     }
 
     try {
@@ -4602,6 +4630,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           isLive: false,
           whipUrl: whipPublish || null,
           visibility,
+          ticketPrice: visibility === "paid" ? ticketPrice : null,
           restrictedCommunityId: visibility === "community" ? restrictedCommunityId : null,
         } as typeof streams.$inferInsert)
         .returning();
@@ -4657,8 +4686,8 @@ export async function registerRoutes(app: Express): Promise<void> {
         viewers: srow.currentViewers,
         currentViewers: srow.currentViewers,
         category: "live",
-        fee: "Free",
-        price: null,
+        fee: vis === "paid" ? "Paid" : "Free",
+        price: vis === "paid" ? (srow.ticketPrice ?? null) : null,
         whepUrl: playbackOk ? srow.webRtcUrl : null,
         whipUrl: playbackOk ? (srow.whipUrl ?? srow.webRtcUrl) : null,
         isActive: srow.isLive,
@@ -4667,6 +4696,8 @@ export async function registerRoutes(app: Express): Promise<void> {
         timeAgo: srow.isLive ? "LIVE" : "Offline",
         visibility: vis,
         streamAccessDenied,
+        streamAccessDeniedReason:
+          streamAccessDenied && vis === "paid" ? "ticket_required" : undefined,
         hostUserId: hid ?? null,
         isFollowingHost: viewer && hid != null && viewer.id !== hid ? isFollowingHost : false,
       });
@@ -4750,6 +4781,14 @@ export async function registerRoutes(app: Express): Promise<void> {
       const viewer = await getAuthUser(req);
       const allowed = await canViewerAccessLiveStream(srow, viewer);
       if (!allowed) {
+        const vis = (srow.visibility ?? "public") as StreamVisibility;
+        if (vis === "paid") {
+          return res.status(402).json({
+            error: "Tickets required to watch this stream",
+            code: "STREAM_TICKET_REQUIRED",
+            required: srow.ticketPrice ?? 0,
+          });
+        }
         return res.status(403).json({
           error: "この配信を視聴する権限がありません",
           code: "STREAM_ACCESS_DENIED",
@@ -4770,6 +4809,108 @@ export async function registerRoutes(app: Express): Promise<void> {
       .set({ viewers: next } as Partial<typeof liveStreams.$inferInsert>)
       .where(eq(liveStreams.id, id));
     return res.json({ viewerCount: next, currentViewers: next });
+  });
+
+  /** 有料配信の視聴権をチケットで購入して参加 */
+  app.post("/api/stream/:id/join-paid", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const id = paramNum(req, "id");
+    const [srow] = await db.select().from(streams).where(eq(streams.id, id));
+    if (!srow) return res.status(404).json({ error: "Not found" });
+    if ((srow.visibility ?? "public") !== "paid") {
+      return res.status(400).json({ error: "Stream is not paid" });
+    }
+    const ticketPrice = srow.ticketPrice ?? 0;
+    if (!Number.isInteger(ticketPrice) || ticketPrice <= 0) {
+      return res.status(400).json({ error: "Invalid paid stream ticket price" });
+    }
+    const hostUserId = srow.hostUserId;
+    if (!hostUserId) return res.status(400).json({ error: "Stream host is missing" });
+
+    try {
+      let currentViewers = srow.currentViewers;
+      await db.transaction(async (tx) => {
+        const existingAccess = await tx
+          .select({ id: streamPaidAccess.id })
+          .from(streamPaidAccess)
+          .where(and(eq(streamPaidAccess.streamId, id), eq(streamPaidAccess.viewerUserId, user.id)))
+          .limit(1);
+        if (existingAccess.length > 0) {
+          const [updated] = await tx
+            .update(streams)
+            .set({ currentViewers: sql`${streams.currentViewers} + 1` } as any)
+            .where(eq(streams.id, id))
+            .returning();
+          currentViewers = updated.currentViewers;
+          return;
+        }
+
+        const userId = String(user.id);
+        const balRows = await tx.select().from(ticketBalances).where(eq(ticketBalances.userId, userId)).limit(1);
+        const currentBalance = balRows[0]?.balance ?? 0;
+        if (currentBalance < ticketPrice) {
+          const err = new Error("INSUFFICIENT_TICKETS");
+          (err as any).meta = { balance: currentBalance, required: ticketPrice };
+          throw err;
+        }
+        const newBalance = currentBalance - ticketPrice;
+        if (balRows.length === 0) {
+          await tx.insert(ticketBalances).values({ userId, balance: newBalance });
+        } else {
+          await tx
+            .update(ticketBalances)
+            .set({ balance: newBalance, updatedAt: new Date() })
+            .where(eq(ticketBalances.userId, userId));
+        }
+
+        const [spendTx] = await tx
+          .insert(ticketTransactions)
+          .values({
+            userId,
+            amount: -ticketPrice,
+            type: "spend_session",
+            referenceId: `live:${id}`,
+            description: `Paid live access for stream ${id}`,
+          })
+          .returning({ id: ticketTransactions.id });
+
+        await tx.insert(streamPaidAccess).values({
+          streamId: id,
+          viewerUserId: user.id,
+          ticketAmount: ticketPrice,
+          ticketTransactionId: spendTx.id,
+        } as typeof streamPaidAccess.$inferInsert);
+
+        const walletId = await getOrCreateUserWallet(hostUserId);
+        await recordRevenue(
+          walletId,
+          hostUserId,
+          null,
+          ticketPrice,
+          "paid_live",
+          String(spendTx.id),
+        );
+
+        const [updated] = await tx
+          .update(streams)
+          .set({ currentViewers: sql`${streams.currentViewers} + 1` } as any)
+          .where(eq(streams.id, id))
+          .returning();
+        currentViewers = updated.currentViewers;
+      });
+      return res.json({ ok: true, currentViewers });
+    } catch (e: any) {
+      if (e?.message === "INSUFFICIENT_TICKETS") {
+        const meta = e?.meta ?? {};
+        return res.status(402).json({
+          error: "Insufficient tickets",
+          balance: meta.balance ?? 0,
+          required: meta.required ?? ticketPrice,
+        });
+      }
+      return res.status(500).json({ error: e?.message ?? "Failed to join paid stream" });
+    }
   });
 
   /** 視聴者退出 */
