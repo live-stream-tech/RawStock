@@ -49,3 +49,6 @@ yarn-error.*
 attached_assets/generated_videos/
 attached_assets/generated_images/
 attached_assets/stock_images/
+
+# Cursor editor
+.cursor/
