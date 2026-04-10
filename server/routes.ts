@@ -84,7 +84,7 @@ import bcrypt from "bcryptjs";
 
 const JWT_SECRET = process.env.SESSION_SECRET ?? "livestage-dev-secret";
 const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID ?? "";
-const CLOUDFLARE_STREAM_TOKEN = process.env.CLOUDFLARE_STREAM_TOKEN ?? "";
+const CLOUDFLARE_STREAM_TOKEN = process.env.CLOUDFLARE_API_TOKEN ?? process.env.CLOUDFLARE_STREAM_TOKEN ?? "";
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
 
 /** Cloudflare client/v4 の errors 配列を 1 行に（デバッグ・ユーザー向け detail 用） */
