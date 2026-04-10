@@ -1249,7 +1249,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       response_type: "code",
       client_id: GOOGLE_CLIENT_ID,
       redirect_uri: GOOGLE_CALLBACK_URL,
-      scope: "openid email profile https://www.googleapis.com/auth/youtube.readonly",
+      scope: "openid email profile",
       state: GOOGLE_STATE,
       access_type: "offline",
       prompt: "consent",
