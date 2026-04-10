@@ -1249,7 +1249,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       response_type: "code",
       client_id: GOOGLE_CLIENT_ID,
       redirect_uri: GOOGLE_CALLBACK_URL,
-      scope: "openid email profile https://www.googleapis.com/auth/youtube.readonly",
+      scope: "openid email profile",
       state: GOOGLE_STATE,
       access_type: "offline",
       prompt: "consent",
@@ -3552,6 +3552,18 @@ export async function registerRoutes(app: Express): Promise<void> {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "未認証です" });
 
+    const hasAccessKey = Boolean(process.env.R2_ACCESS_KEY_ID?.trim());
+    const hasSecret = Boolean(process.env.R2_SECRET_ACCESS_KEY?.trim());
+    const hasEndpoint = Boolean(process.env.R2_ENDPOINT?.trim());
+    const hasBucket = Boolean(process.env.R2_BUCKET_NAME?.trim());
+    console.log("[upload-url] r2_env", {
+      hasAccessKey,
+      hasSecret,
+      hasEndpoint,
+      hasBucket,
+      userId: user.id,
+    });
+
     const { fileName, contentType } = req.body as {
       fileName?: string;
       contentType?: string;
@@ -3566,9 +3578,20 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     try {
       const { uploadUrl, publicUrl } = await createSignedUploadUrl(key, contentType);
+      console.log("[upload-url] presign_ok", {
+        keyLen: key.length,
+        keyPrefix: key.slice(0, 56),
+        contentType,
+      });
       res.json({ uploadUrl, key, url: publicUrl });
     } catch (e) {
-      console.error("Create signed upload URL error:", e);
+      console.error("[upload-url] presign_failed", {
+        hasAccessKey,
+        hasSecret,
+        hasEndpoint,
+        hasBucket,
+        err: e,
+      });
       res.status(500).json({ error: "署名付きURLの発行に失敗しました" });
     }
   });
@@ -4543,6 +4566,48 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
     return true;
   }
+
+  // ── Cloudflare Stream 接続テスト（直接トークン指定） ────────────────
+  app.post("/api/debug/cf-stream-test", async (req: Request, res: Response) => {
+    const { token, accountId, liveInputId } = req.body as {
+      token?: string;
+      accountId?: string;
+      liveInputId?: string;
+    };
+    const testToken = token ?? CLOUDFLARE_STREAM_TOKEN;
+    const testAccountId = accountId ?? CLOUDFLARE_ACCOUNT_ID;
+    const testLiveInputId = liveInputId ?? "3e77a8086bdf3e67ea8af0bd764b350b";
+
+    if (!testToken || !testAccountId) {
+      return res.status(400).json({
+        ok: false,
+        error: "token and accountId are required (pass in body or set env vars)",
+      });
+    }
+
+    const cfUrl = `https://api.cloudflare.com/client/v4/accounts/${testAccountId}/stream/live_inputs/${testLiveInputId}`;
+    try {
+      const cfRes = await fetch(cfUrl, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${testToken}`,
+          "Content-Type": "application/json",
+        },
+      });
+      const cfData = await cfRes.json() as Record<string, unknown>;
+      return res.json({
+        ok: cfRes.ok,
+        status: cfRes.status,
+        cfUrl,
+        tokenPrefix: testToken.slice(0, 8) + "…",
+        accountId: testAccountId,
+        liveInputId: testLiveInputId,
+        cfResponse: cfData,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ ok: false, error: err.message, cfUrl });
+    }
+  });
 
   // ── Cloudflare Stream Live Input 作成 ───────────────────────────────
   app.post("/api/stream/create", async (req: Request, res: Response) => {
