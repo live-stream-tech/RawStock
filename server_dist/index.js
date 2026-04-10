@@ -2887,7 +2887,7 @@ async function registerRoutes(app2) {
       response_type: "code",
       client_id: GOOGLE_CLIENT_ID,
       redirect_uri: GOOGLE_CALLBACK_URL,
-      scope: "openid email profile https://www.googleapis.com/auth/youtube.readonly",
+      scope: "openid email profile",
       state: GOOGLE_STATE,
       access_type: "offline",
       prompt: "consent"
@@ -4575,6 +4575,17 @@ async function registerRoutes(app2) {
     });
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    const hasAccessKey = Boolean(process.env.R2_ACCESS_KEY_ID?.trim());
+    const hasSecret = Boolean(process.env.R2_SECRET_ACCESS_KEY?.trim());
+    const hasEndpoint = Boolean(process.env.R2_ENDPOINT?.trim());
+    const hasBucket = Boolean(process.env.R2_BUCKET_NAME?.trim());
+    console.log("[upload-url] r2_env", {
+      hasAccessKey,
+      hasSecret,
+      hasEndpoint,
+      hasBucket,
+      userId: user.id
+    });
     const { fileName, contentType } = req.body;
     if (!fileName || !contentType) {
       return res.status(400).json({ error: "fileName \u3068 contentType \u306F\u5FC5\u9808\u3067\u3059" });
@@ -4583,9 +4594,20 @@ async function registerRoutes(app2) {
     const key = `rawstock_${Date.now()}_${safeName}`;
     try {
       const { uploadUrl, publicUrl } = await createSignedUploadUrl(key, contentType);
+      console.log("[upload-url] presign_ok", {
+        keyLen: key.length,
+        keyPrefix: key.slice(0, 56),
+        contentType
+      });
       res.json({ uploadUrl, key, url: publicUrl });
     } catch (e) {
-      console.error("Create signed upload URL error:", e);
+      console.error("[upload-url] presign_failed", {
+        hasAccessKey,
+        hasSecret,
+        hasEndpoint,
+        hasBucket,
+        err: e
+      });
       res.status(500).json({ error: "\u7F72\u540D\u4ED8\u304DURL\u306E\u767A\u884C\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
     }
   });
@@ -5235,6 +5257,40 @@ data: ${data}
     }
     return true;
   }
+  app2.post("/api/debug/cf-stream-test", async (req, res) => {
+    const { token, accountId, liveInputId } = req.body;
+    const testToken = token ?? CLOUDFLARE_STREAM_TOKEN;
+    const testAccountId = accountId ?? CLOUDFLARE_ACCOUNT_ID;
+    const testLiveInputId = liveInputId ?? "3e77a8086bdf3e67ea8af0bd764b350b";
+    if (!testToken || !testAccountId) {
+      return res.status(400).json({
+        ok: false,
+        error: "token and accountId are required (pass in body or set env vars)"
+      });
+    }
+    const cfUrl = `https://api.cloudflare.com/client/v4/accounts/${testAccountId}/stream/live_inputs/${testLiveInputId}`;
+    try {
+      const cfRes = await fetch(cfUrl, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${testToken}`,
+          "Content-Type": "application/json"
+        }
+      });
+      const cfData = await cfRes.json();
+      return res.json({
+        ok: cfRes.ok,
+        status: cfRes.status,
+        cfUrl,
+        tokenPrefix: testToken.slice(0, 8) + "\u2026",
+        accountId: testAccountId,
+        liveInputId: testLiveInputId,
+        cfResponse: cfData
+      });
+    } catch (err) {
+      return res.status(500).json({ ok: false, error: err.message, cfUrl });
+    }
+  });
   app2.post("/api/stream/create", async (req, res) => {
     debugIngestServer({
       sessionId: "88cb7d",
