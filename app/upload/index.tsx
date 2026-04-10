@@ -30,6 +30,8 @@ import { webScrollStyle } from "@/constants/layout";
 type MediaItem = { id: string; uri: string; type: "image" | "video"; size?: number; durationSec?: number };
 type Community = { id: number; name: string; thumbnail: string };
 
+const UPLOAD_LOG = "[upload]";
+
 export default function DailyUploadScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
@@ -87,6 +89,7 @@ export default function DailyUploadScreen() {
     if (file.size > maxBytes) {
       throw new Error(`File must be under ${DAILY_POST_LIMITS.maxFileSizeMB}MB`);
     }
+    console.log(`${UPLOAD_LOG} step:daily_web_presign_request`, { name: file.name, size: file.size });
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     try {
       const token = await AsyncStorage.getItem("auth_token");
@@ -100,32 +103,52 @@ export default function DailyUploadScreen() {
         contentType: file.type || "application/octet-stream",
       }),
     });
-    if (!res.ok) throw new Error("Failed to get upload URL");
+    if (!res.ok) {
+      console.error(`${UPLOAD_LOG} step:daily_web_presign_failed`, res.status);
+      throw new Error("Failed to get upload URL");
+    }
     const { uploadUrl, url } = await res.json();
+    console.log(`${UPLOAD_LOG} step:daily_web_r2_put_start`);
     const putRes = await fetch(uploadUrl, {
       method: "PUT",
       headers: { "Content-Type": file.type || "application/octet-stream" },
       body: file,
     });
-    if (!putRes.ok) throw new Error("Failed to upload file");
+    if (!putRes.ok) {
+      const hint = await putRes.text().catch(() => "");
+      console.error(`${UPLOAD_LOG} step:daily_web_r2_put_failed`, putRes.status, hint.slice(0, 300));
+      throw new Error(`Storage upload failed (${putRes.status})`);
+    }
+    console.log(`${UPLOAD_LOG} step:daily_web_r2_put_ok`);
     return url as string;
   }
 
   async function uploadFileToR2Native(uri: string, name: string, mime: string) {
+    console.log(`${UPLOAD_LOG} step:daily_native_presign_request`, { name, mime });
     const resp = await apiRequest("POST", "/api/upload-url", {
       fileName: name,
       contentType: mime,
     });
     const { uploadUrl, url } = await resp.json();
+    console.log(`${UPLOAD_LOG} step:daily_native_presign_ok`);
+    console.log(`${UPLOAD_LOG} step:daily_native_blob_fetch_start`);
     const blob = await (await fetch(uri)).blob();
+    console.log(`${UPLOAD_LOG} step:daily_native_blob_fetch_ok`, { size: blob.size });
     if (blob.size > DAILY_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
       throw new Error(`File must be under ${DAILY_POST_LIMITS.maxFileSizeMB}MB`);
     }
-    await fetch(uploadUrl, {
+    console.log(`${UPLOAD_LOG} step:daily_native_r2_put_start`);
+    const putRes = await fetch(uploadUrl, {
       method: "PUT",
       headers: { "Content-Type": mime },
       body: blob,
     });
+    if (!putRes.ok) {
+      const hint = await putRes.text().catch(() => "");
+      console.error(`${UPLOAD_LOG} step:daily_native_r2_put_failed`, putRes.status, hint.slice(0, 300));
+      throw new Error(`Storage upload failed (${putRes.status})`);
+    }
+    console.log(`${UPLOAD_LOG} step:daily_native_r2_put_ok`);
     return url as string;
   }
 
@@ -250,9 +273,16 @@ export default function DailyUploadScreen() {
   }
 
   async function ensureHttpsUrl(uri: string, type: "image" | "video"): Promise<string> {
-    if (!uri.startsWith("blob:")) return uri;
+    if (!uri.startsWith("blob:")) {
+      console.log(`${UPLOAD_LOG} step:daily_submit_blob_skip`, { type, alreadyHttps: true });
+      return uri;
+    }
+    console.log(`${UPLOAD_LOG} step:daily_submit_blob_presign`, { type });
     const res = await fetch(uri);
-    if (!res.ok) throw new Error("Failed to load file");
+    if (!res.ok) {
+      console.error(`${UPLOAD_LOG} step:daily_submit_blob_read_failed`, res.status);
+      throw new Error("Failed to load file");
+    }
     const blob = await res.blob();
     if (blob.size > DAILY_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
       throw new Error(`File must be under ${DAILY_POST_LIMITS.maxFileSizeMB}MB`);
@@ -264,12 +294,18 @@ export default function DailyUploadScreen() {
       contentType,
     });
     const { uploadUrl, url } = await resp.json();
+    console.log(`${UPLOAD_LOG} step:daily_submit_r2_put_start`, { type });
     const putRes = await fetch(uploadUrl, {
       method: "PUT",
       headers: { "Content-Type": contentType },
       body: blob,
     });
-    if (!putRes.ok) throw new Error("Upload failed");
+    if (!putRes.ok) {
+      const hint = await putRes.text().catch(() => "");
+      console.error(`${UPLOAD_LOG} step:daily_submit_r2_put_failed`, type, putRes.status, hint.slice(0, 300));
+      throw new Error(`Storage upload failed (${putRes.status})`);
+    }
+    console.log(`${UPLOAD_LOG} step:daily_submit_r2_put_ok`, { type });
     return url as string;
   }
 
@@ -310,6 +346,7 @@ export default function DailyUploadScreen() {
     }
     setUploading(true);
     try {
+      console.log(`${UPLOAD_LOG} step:daily_submit_start`, { hasMedia: mediaItems.length > 0 });
       const communityName = selectedCommunity?.name ?? "";
       const creatorName = user?.name ?? user?.displayName ?? "Creator";
       const firstImage = mediaItems.find((m) => m.type === "image");
@@ -321,20 +358,33 @@ export default function DailyUploadScreen() {
       if (thumbUrl.startsWith("blob:") && firstImage) {
         try {
           thumbUrl = await ensureHttpsUrl(firstImage.uri, "image");
-        } catch (e) {
-          thumbUrl = selectedCommunity?.thumbnail ?? "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&h=400&fit=crop";
+        } catch (e: any) {
+          console.error(`${UPLOAD_LOG} step:daily_submit_thumbnail_upload_failed`, e);
+          Alert.alert(
+            "Upload failed",
+            e?.message ?? "Could not upload your image. Check your connection and try again.",
+          );
+          return;
         }
       }
       let videoUrlToSend: string | null = null;
       if (firstVideo?.uri) {
         try {
+          console.log(`${UPLOAD_LOG} step:daily_submit_video_prepare`);
           videoUrlToSend = firstVideo.uri.startsWith("blob:")
             ? await ensureHttpsUrl(firstVideo.uri, "video")
             : firstVideo.uri;
-        } catch (e) {
-          console.error("video upload failed:", e);
+          console.log(`${UPLOAD_LOG} step:daily_submit_video_ok`);
+        } catch (e: any) {
+          console.error(`${UPLOAD_LOG} step:daily_submit_video_failed`, e);
+          Alert.alert(
+            "Upload failed",
+            e?.message ?? "Could not upload your video. Check your connection and try again.",
+          );
+          return;
         }
       }
+      console.log(`${UPLOAD_LOG} step:daily_submit_api_videos`);
       const avatarUrl =
         user?.avatar ??
         user?.profileImageUrl ??
