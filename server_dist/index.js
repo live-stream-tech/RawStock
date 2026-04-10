@@ -1993,7 +1993,7 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 var JWT_SECRET = process.env.SESSION_SECRET ?? "livestage-dev-secret";
 var CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID ?? "";
-var CLOUDFLARE_STREAM_TOKEN = process.env.CLOUDFLARE_STREAM_TOKEN ?? "";
+var CLOUDFLARE_STREAM_TOKEN = process.env.CLOUDFLARE_API_TOKEN ?? process.env.CLOUDFLARE_STREAM_TOKEN ?? "";
 var ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
 function formatCloudflareApiErrors(errors) {
   if (errors == null) return "";

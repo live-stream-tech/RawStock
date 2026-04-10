@@ -78,8 +78,8 @@ async function apiFetch(path: string, options?: RequestInit) {
     timestamp: Date.now(),
   });
   const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
     ...options,
+    headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
   });
 
   // 一部のケースでレスポンスが JSON にならないことがあるため、まずテキストとして受ける
