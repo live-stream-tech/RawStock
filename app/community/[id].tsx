@@ -1068,12 +1068,28 @@ export default function CommunityDetailScreen() {
                 <Text style={styles.creatorBannerSub}>Earn 90% of every sale. Your raw content, professionally packaged.</Text>
               </View>
               <View style={styles.creatorBannerBtns}>
-                <Pressable style={styles.creatorBtnPrimary} onPress={() => router.push("/find-editor" as any)}>
-                  <Text style={styles.creatorBtnPrimaryText}>Hire a Creator</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Hire a Creator"
+                  style={({ pressed }) => [styles.creatorBtn, pressed && styles.creatorBtnGlow]}
+                  onPress={() => router.push("/find-editor" as any)}
+                >
+                  {({ pressed }) => (
+                    <Text style={[styles.creatorBtnLabel, pressed && styles.creatorBtnLabelGlow]}>Hire a Creator</Text>
+                  )}
                 </Pressable>
-                <Pressable style={styles.creatorBtnSecondary} onPress={() => router.push("/ai-edit" as any)}>
-                  <Ionicons name="sparkles-outline" size={12} color={C.accent} />
-                  <Text style={styles.creatorBtnSecondaryText}>AI Edit</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="AI Edit"
+                  style={({ pressed }) => [styles.creatorBtn, styles.creatorBtnRow, pressed && styles.creatorBtnGlow]}
+                  onPress={() => router.push("/ai-edit" as any)}
+                >
+                  {({ pressed }) => (
+                    <>
+                      <Ionicons name="sparkles-outline" size={12} color={pressed ? "#fff" : C.textMuted} />
+                      <Text style={[styles.creatorBtnLabel, pressed && styles.creatorBtnLabelGlow]}>AI Edit</Text>
+                    </>
+                  )}
                 </Pressable>
               </View>
             </View>
@@ -2067,26 +2083,23 @@ const styles = StyleSheet.create({
   creatorBannerTitle: { color: C.text, fontSize: 13, fontWeight: "800", lineHeight: 18 },
   creatorBannerSub: { color: C.textSec, fontSize: 11, lineHeight: 16 },
   creatorBannerBtns: { flexDirection: "row", gap: 8 },
-  creatorBtnPrimary: {
-    flex: 1,
-    backgroundColor: C.accent,
-    borderRadius: 7,
-    paddingVertical: 9,
-    alignItems: "center",
-  },
-  creatorBtnPrimaryText: { color: "#fff", fontSize: 12, fontWeight: "800" },
-  creatorBtnSecondary: {
+  creatorBtn: {
     flex: 1,
     borderWidth: 1.5,
-    borderColor: C.accent,
+    borderColor: "rgba(0,255,204,0.28)",
     borderRadius: 7,
     paddingVertical: 9,
     alignItems: "center",
-    flexDirection: "row",
     justifyContent: "center",
-    gap: 5,
+    backgroundColor: "rgba(0,255,204,0.06)",
   },
-  creatorBtnSecondaryText: { color: C.accent, fontSize: 12, fontWeight: "800" },
+  creatorBtnRow: { flexDirection: "row", gap: 5 },
+  creatorBtnGlow: {
+    backgroundColor: C.accent,
+    borderColor: C.accent,
+  },
+  creatorBtnLabel: { color: C.textSec, fontSize: 12, fontWeight: "800" },
+  creatorBtnLabelGlow: { color: "#fff" },
   postCard: {
     borderTopWidth: 1,
     borderTopColor: C.border,
