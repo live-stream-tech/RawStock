@@ -87,6 +87,23 @@ const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID ?? "";
 const CLOUDFLARE_STREAM_TOKEN = process.env.CLOUDFLARE_API_TOKEN ?? process.env.CLOUDFLARE_STREAM_TOKEN ?? "";
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
 
+/**
+ * Google OAuth 完了後のリダイレクト先オリジン（末尾スラッシュなし）。
+ * FRONTEND_URL を優先。未設定時は Vercel プレビュー用に VERCEL_URL、それもなければ本番。
+ * Google Cloud の「承認済みのリダイレクト URI」に
+ * `${origin}/api/auth/google-callback` を登録すること。
+ */
+function resolvePublicAppOrigin(): string {
+  const fromEnv = process.env.FRONTEND_URL?.trim().replace(/\/$/, "");
+  if (fromEnv) return fromEnv;
+  const vercel = process.env.VERCEL_URL?.trim();
+  if (vercel) {
+    const host = vercel.replace(/^https?:\/\//, "").replace(/\/$/, "");
+    return `https://${host}`;
+  }
+  return "https://rawstock.live";
+}
+
 /** Cloudflare client/v4 の errors 配列を 1 行に（デバッグ・ユーザー向け detail 用） */
 function formatCloudflareApiErrors(errors: unknown): string {
   if (errors == null) return "";
@@ -1223,8 +1240,8 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json({ ok: true });
   });
 
-  // ── Base URL ──────────────────────────────────────────────────────
-  const BASE_URL = "https://rawstock.live";
+  // ── Base URL (must match Google OAuth redirect URI registration)
+  const BASE_URL = resolvePublicAppOrigin();
 
   // ── Google OAuth ──────────────────────────────────────────────────
   const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? "";
@@ -1237,6 +1254,8 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json({
       google: {
         configured: !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && GOOGLE_CALLBACK_URL),
+        callbackUrl: GOOGLE_CALLBACK_URL,
+        publicOrigin: BASE_URL,
       },
     });
   });

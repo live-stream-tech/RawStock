@@ -1995,6 +1995,16 @@ var JWT_SECRET = process.env.SESSION_SECRET ?? "livestage-dev-secret";
 var CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID ?? "";
 var CLOUDFLARE_STREAM_TOKEN = process.env.CLOUDFLARE_API_TOKEN ?? process.env.CLOUDFLARE_STREAM_TOKEN ?? "";
 var ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
+function resolvePublicAppOrigin() {
+  const fromEnv = process.env.FRONTEND_URL?.trim().replace(/\/$/, "");
+  if (fromEnv) return fromEnv;
+  const vercel = process.env.VERCEL_URL?.trim();
+  if (vercel) {
+    const host = vercel.replace(/^https?:\/\//, "").replace(/\/$/, "");
+    return `https://${host}`;
+  }
+  return "https://rawstock.live";
+}
 function formatCloudflareApiErrors(errors) {
   if (errors == null) return "";
   if (Array.isArray(errors)) {
@@ -2866,7 +2876,7 @@ async function registerRoutes(app2) {
     await db.delete(userFollows).where(and2(eq2(userFollows.followerId, me.id), eq2(userFollows.followingId, targetId)));
     res.json({ ok: true });
   });
-  const BASE_URL = "https://rawstock.live";
+  const BASE_URL = resolvePublicAppOrigin();
   const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? "";
   const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET ?? "";
   const GOOGLE_CALLBACK_URL = `${BASE_URL}/api/auth/google-callback`;
@@ -2875,7 +2885,9 @@ async function registerRoutes(app2) {
   app2.get("/api/auth/status", (_req, res) => {
     res.json({
       google: {
-        configured: !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && GOOGLE_CALLBACK_URL)
+        configured: !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && GOOGLE_CALLBACK_URL),
+        callbackUrl: GOOGLE_CALLBACK_URL,
+        publicOrigin: BASE_URL
       }
     });
   });
