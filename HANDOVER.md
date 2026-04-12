@@ -21,7 +21,7 @@
 | レイヤー | 技術 |
 |--------|------|
 | フロントエンド | Expo Router (React Native Web / PWA) |
-| バックエンド | Express + TypeScript (port 5000) |
+| バックエンド | Express + TypeScript（ローカル既定 **5001**；本番はホストの `PORT`。macOS の 5000 は AirPlay と競合しやすい） |
 | DB | PostgreSQL + Drizzle ORM（接続先: DATABASE_URL） |
 | 認証 | JWT (90日) + Google OAuth |
 | ファイルストレージ | Cloudflare R2 |
@@ -63,7 +63,7 @@
 | `SESSION_SECRET` | JWT署名 | 任意の長いランダム文字列 |
 | `GOOGLE_CLIENT_ID` | Google OAuth | GCP Console で取得 |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth | GCP Console で取得 |
-| `FRONTEND_URL` | CORS許可オリジン | `https://rawstock.live` |
+| `FRONTEND_URL` | CORS 許可オリジン + **Google OAuth 完了後のリダイレクト先オリジン** | 本番: `https://rawstock.live`（末尾スラッシュなし） |
 | `EXPO_PUBLIC_DOMAIN` | クライアント用ドメイン | `rawstock.live` |
 | `CLOUDFLARE_ACCOUNT_ID` | CF アカウントID | `3e77a8086bdf3e67ea8af0bd764b350b` |
 | `CLOUDFLARE_STREAM_TOKEN` | Cloudflare Stream API | Account→Stream→Edit 権限必須 |
@@ -130,16 +130,18 @@
 |------|------|
 | Cloudflare Stream 403 エラー | `CLOUDFLARE_STREAM_TOKEN` に Account→Stream→Edit 権限があることは確認済み。本番動作未確認。 |
 | DATABASE_URL の外部アクセス | Vercel からアクセス可能かどうか要確認。Replit内部DBの場合は Neon/Supabase 等への移行が必要。 |
-| Google OAuth コールバックURL | GCP Console の Authorized redirect URIs に `https://rawstock.live/api/auth/google/callback` を追加が必要 |
+| Google OAuth コールバックURL | GCP の Authorized redirect URIs は **実際のオリジン**と完全一致。本番は `https://rawstock.live/api/auth/google-callback`（ハイフンあり）。サーバーは `FRONTEND_URL`（無ければ `VERCEL_URL`）を OAuth の戻り先に使用 |
 
 ---
 
 ## Google OAuth 設定（Vercel移行後に更新が必要）
 
-GCP Console → API & Services → OAuth 2.0 Client IDs → Authorized redirect URIs に追加:
+GCP Console → API & Services → OAuth 2.0 Client IDs → Authorized redirect URIs に追加（パスは **`google-callback`**）:
 ```
-https://rawstock.live/api/auth/google/callback
+https://rawstock.live/api/auth/google-callback
 ```
+
+プレビュー URL やローカルで試す場合は、そのオリジン用に **別エントリ**を追加する（例: `http://localhost:5001/api/auth/google-callback` と `.env` の `FRONTEND_URL` を一致させる）。
 
 ---
 
