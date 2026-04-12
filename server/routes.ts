@@ -215,7 +215,7 @@ async function getAuthUser(req: Request): Promise<{
 /** 検知できたときだけ users.last_content_lang を更新。失敗しても例外は投げない。 */
 async function syncUserLastContentLang(userId: number, rawText: string): Promise<void> {
   try {
-    const lang = detectContentLang(rawText);
+    const lang = await detectContentLang(rawText);
     if (!lang) return;
     await db
       .update(users)
@@ -980,7 +980,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       .returning();
     const profileTextForLang = (newBio || "").trim() || newName;
     await syncUserLastContentLang(user.id, profileTextForLang);
-    const detectedLang = detectContentLang(profileTextForLang);
+    const detectedLang = await detectContentLang(profileTextForLang);
     const lastContentLangOut =
       detectedLang ?? (updated as { lastContentLang?: string | null }).lastContentLang ?? null;
     let outPinned: number[] = [];

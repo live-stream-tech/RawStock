@@ -1863,7 +1863,6 @@ async function moderateContent(text2) {
 }
 
 // server/langFromText.ts
-import { franc } from "franc";
 var MIN_LENGTH = 10;
 var ISO639_3_TO_1 = {
   jpn: "ja",
@@ -1882,10 +1881,11 @@ var ISO639_3_TO_1 = {
   rus: "ru",
   arb: "ar"
 };
-function detectContentLang(text2) {
+async function detectContentLang(text2) {
   try {
     const t = text2.trim();
     if (t.length < MIN_LENGTH) return null;
+    const { franc } = await import("franc");
     const code = franc(t);
     if (code === "und") return null;
     return ISO639_3_TO_1[code] ?? null;
@@ -2091,7 +2091,7 @@ async function getAuthUser(req) {
 }
 async function syncUserLastContentLang(userId, rawText) {
   try {
-    const lang = detectContentLang(rawText);
+    const lang = await detectContentLang(rawText);
     if (!lang) return;
     await db.update(users).set({ lastContentLang: lang, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(users.id, userId));
   } catch (e) {
@@ -2675,7 +2675,7 @@ async function registerRoutes(app2) {
     }).where(eq2(users.id, user.id)).returning();
     const profileTextForLang = (newBio || "").trim() || newName;
     await syncUserLastContentLang(user.id, profileTextForLang);
-    const detectedLang = detectContentLang(profileTextForLang);
+    const detectedLang = await detectContentLang(profileTextForLang);
     const lastContentLangOut = detectedLang ?? updated.lastContentLang ?? null;
     let outPinned = [];
     if (updated.pinnedCommunityIds) {
