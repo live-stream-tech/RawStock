@@ -240,7 +240,8 @@ function configureExpoAndLanding(app: express.Application) {
   });
 
   if (isDev) {
-    const expoDevPort = parseInt(process.env.EXPO_PORT || "8080", 10);
+    // Metro のデフォルトは環境により 8081 になりやすい（8080 占有時など）。`EXPO_PORT` で上書き可。
+    const expoDevPort = parseInt(process.env.EXPO_PORT || "8081", 10);
     log(`Dev mode: proxying web requests to Expo dev server on port ${expoDevPort}`);
 
     const expoProxy = createProxyMiddleware({

@@ -4,7 +4,7 @@
 RawStock is the underground music marketplace (Expo React Native Web / PWA) that connects artists, editors, and fans with flat 90% creator payouts. No coins/tokens — all transactions are direct Stripe credit card (JPY). Three pillars: Artists (Live), Editors (AI-Assisted), Fans (Community). Buildathon focus: "Editor x AI Assist" feature for 3-5x faster video production. Web browser only (no Expo Go). Replit Agent 4 Buildathon, March 2026.
 
 ## Architecture
-- **Frontend**: Expo Router (file-based routing), Web browser only (port 8080)
+- **Frontend**: Expo Router (file-based routing), Web browser only (Metro default often port 8081)
 - **Backend**: Express + TypeScript (port 5001 by default, proxies to Expo)
 - **Database**: Replit PostgreSQL + Drizzle ORM
 - **State Management**: AsyncStorage + React Context
@@ -14,8 +14,8 @@ RawStock is the underground music marketplace (Expo React Native Web / PWA) that
 ## Replit Environment
 - **Workflows**: 
   - `Start Backend`: `npm run server:dev` (port 5001, webview)
-  - `Start Frontend`: `npx expo start --web --port 8080 --localhost` (port 8080, console)
-- **Proxy**: Expo binds to IPv6 `::1` only, so backend proxy target is `http://[::1]:8080` (`EXPO_PORT` env var, default 8080)
+  - `Start Frontend`: `npm run dev` (Metro; default port often 8081)
+  - **Proxy**: backend targets `http://[::1]:$EXPO_PORT` (`EXPO_PORT` env var, default 8081)
 - **SSR**: `public/index.html` renamed to `.bak` so Metro performs SSR HTML rendering
 - **Environment variables**: `DATABASE_URL`, `SESSION_SECRET` set in Replit Secrets
 - **Dynamic URLs**: All OAuth callbacks and redirects use `REPLIT_DOMAINS` / `REPLIT_DEV_DOMAIN` dynamically — no hardcoded Vercel URLs

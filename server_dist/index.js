@@ -8160,7 +8160,7 @@ function configureExpoAndLanding(app2) {
     next();
   });
   if (isDev) {
-    const expoDevPort = parseInt(process.env.EXPO_PORT || "8080", 10);
+    const expoDevPort = parseInt(process.env.EXPO_PORT || "8081", 10);
     log2(`Dev mode: proxying web requests to Expo dev server on port ${expoDevPort}`);
     const expoProxy = createProxyMiddleware({
       target: `http://[::1]:${expoDevPort}`,
