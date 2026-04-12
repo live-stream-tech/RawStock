@@ -1575,12 +1575,12 @@ const styles = StyleSheet.create({
   creatorBtn: {
     flex: 1,
     borderWidth: 1.5,
-    borderColor: "rgba(0,255,204,0.28)",
+    borderColor: "rgba(160, 156, 148, 0.35)",
     borderRadius: 7,
     paddingVertical: 9,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(0,255,204,0.06)",
+    backgroundColor: "rgba(255, 255, 255, 0.04)",
   },
   creatorBtnRow: { flexDirection: "row", gap: 5 },
   creatorBtnGlow: {
