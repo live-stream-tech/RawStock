@@ -1,0 +1,62 @@
+Cloudflare Stream の認証エラーです。コードでどの環境変数を使っているか確認します。
+
+画面のエラーは Cloudflare Stream の Live Input 作成 API が 403（認可失敗） になっている状態です。メッセージどおり 「Stream 用の権限を持つ API トークン」と正しいアカウント ID が必要で、R2 専用トークンでは Stream API は通りません。
+
+このリポジトリでの注意点（重要）
+サーバーでは Stream 用に使うトークンが次のように読まれています。
+
+
+routes.ts
+Lines 86-87
+const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID ?? "";
+const CLOUDFLARE_STREAM_TOKEN = process.env.CLOUDFLARE_API_TOKEN ?? process.env.CLOUDFLARE_STREAM_TOKEN ?? "";
+CLOUDFLARE_API_TOKEN が設定されていると、そちらが常に優先され、CLOUDUDFLARE_STREAM_TOKEN は使われません。
+アップロード用に R2 だけの権限のトークンを CLOUDFLARE_API_TOKEN に入れていると、ライブ作成でも同じトークンが使われて、この Authorization Failure になりやすいです。
+
+対処の考え方
+Cloudflare ダッシュボードで、Account → Stream → Edit（または Stream の書き込み相当）を含む API トークンを新規作成する。
+CLOUDFLARE_ACCOUNT_ID を、その Stream が属するアカウント ID に合わせる。
+運用を分けるなら例えば次のどちらか。
+A: R2 と Stream の両方を含む1つのカスタムトークンを CLOUDFLARE_API_TOKEN に置く（可能なら）。
+B: Stream 専用トークンを CLOUDFLARE_STREAM_TOKEN にだけ置き、CLOUDFLARE_API_TOKEN を Stream に使わない（R2 は別名の環境変数で扱うなど。現状コードでは R2 側も CLOUDFLARE_API_TOKEN を参照している可能性があるので、そこは設定を揃える必要あり）。
+UI に出ている「CLOUDFLARE_STREAM_TOKEN を設定」とコードの「CLOUDFLARE_API_TOKEN 優先」が食い違っているので、まず Replit / Vercel の Secrets で CLOUDFLARE_API_TOKEN に何が入っているかを確認するのが近道です。
+
+まとめ
+エラー内容は トークンの権限不足または Stream 用ではないトークンが原因として整合的です。
+特に CLOUDFLARE_API_TOKEN が R2 用だけだと、このコードではライブでもそれが使われて失敗しやすいです。
+Agent モードに切り替えてもらえれば、「R2 と Stream で環境変数を分ける」ようなコード変更の案もリポジトリ全体を見て具体化できます。
+
+どうしたらいい？
+
+このプロジェクトでは R2 は R2_ACCESS_KEY_ID など別変数で、CLOUDFLARE_API_TOKEN はほぼ「Stream 用」だけに使われています（server/routes.ts で Stream クライアントに渡る値の元になっている）。
+
+なのでやることはシンプルです。
+
+1. Cloudflare でトークンを作る
+Cloudflare ダッシュボード → My Profile → API Tokens
+Create Token → Create Custom Token（またはテンプレからカスタム）
+権限に Account → Stream → Edit（または Stream の書き込みに相当するもの）を付与
+アカウントは Stream を使っている同じアカウントに限定
+作成後、表示される トークン文字列をコピー（あとで見れないので注意）
+2. デプロイ先の環境変数を直す（Replit / Vercel など）
+CLOUDFLARE_ACCOUNT_ID
+
+ダッシュボード右サイドの Account ID（Stream と同じアカウント）
+トークンは次のどちらかに統一する（重要）
+
+CLOUDFLARE_API_TOKEN に、さきほどの Stream 用トークンを入れる
+または CLOUDFLARE_API_TOKEN を削除／空にして、CLOUDFLARE_STREAM_TOKEN だけに同じトークンを入れる
+コードは CLOUDFLARE_API_TOKEN が優先なので、古い・権限のない値が CLOUDFLARE_API_TOKEN に残っていると、CLOUDFLARE_STREAM_TOKEN だけ直しても効きません。
+まず Secrets に CLOUDFLARE_API_TOKEN があるか確認し、Stream に使えないトークンなら 上書きか削除してください。
+
+3. サーバー再起動
+環境変数は起動時に読み込まれるので、Replit の Repl を再起動や、Vercel なら 再デプロイなど、プロセスを立ち上げ直す必要があります（フロントだけの変更とは別）。
+
+4. 再テスト
+もう一度 Go live から Live Input 作成を試す。
+
+よくあるつまずき
+
+R2 用の S3 互換キーだけ入れていて、API Token（Bearer）を Stream 用に作っていない → Stream 用の API Token が別途必要。
+CLOUDFLARE_API_TOKEN が以前の弱いトークンのまま → 上記どおり上書き or 削除。
+これでほとんど解消します。まだダメなら、Secrets に CLOUDFLARE_API_TOKEN と CLOUDFLARE_STREAM_TOKEN の「名前だけ」（値は伏せて）どちらが設定されているか教えてもらえれば、次の切り分けができます。

@@ -20,6 +20,9 @@
   },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/[...path]" },
-    { "source": "/teamz", "destination": "/teamz.html" }
+    { "source": "/lp", "destination": "/api/[...path]" },
+    { "source": "/lp-standalone.html", "destination": "/api/[...path]" },
+    { "source": "/teamz", "destination": "/api/[...path]" },
+    { "source": "/healthcheck", "destination": "/api/[...path]" }
   ]
 }
