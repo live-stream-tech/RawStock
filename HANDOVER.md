@@ -55,27 +55,49 @@
 
 ---
 
-## 環境変数一覧（Vercel に設定が必要なもの全て）
+## 環境変数一覧
+
+**下表は「本番でコア機能を動かすための主な変数」**です。**変数名はコードと一致**しています。  
+ただしリポジトリ全体では **これ以外にも `process.env` を参照する変数**があるため、「Vercel に必要なものはこの表だけで完結」とは言えません（任意・機能用は次節）。
+
+### コア（本番でほぼ必須）
 
 | 変数名 | 用途 | 備考 |
 |--------|------|------|
-| `DATABASE_URL` | PostgreSQL 接続 | 外部アクセス可能なNeon等が必要 |
-| `SESSION_SECRET` | JWT署名 | 任意の長いランダム文字列 |
-| `GOOGLE_CLIENT_ID` | Google OAuth | GCP Console で取得 |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth | GCP Console で取得 |
-| `FRONTEND_URL` | CORS 許可オリジン + **Google OAuth 完了後のリダイレクト先オリジン** | 本番: `https://rawstock.live`（末尾スラッシュなし） |
-| `EXPO_PUBLIC_DOMAIN` | クライアント用ドメイン | `rawstock.live` |
-| `CLOUDFLARE_ACCOUNT_ID` | CF アカウントID | `3e77a8086bdf3e67ea8af0bd764b350b` |
-| `CLOUDFLARE_STREAM_TOKEN` | Cloudflare Stream API | Account→Stream→Edit 権限必須 |
-| `R2_ACCESS_KEY_ID` | R2 ストレージ | |
-| `R2_SECRET_ACCESS_KEY` | R2 ストレージ | |
-| `R2_BUCKET_NAME` | R2 バケット名 | `rawstock-assets` |
-| `R2_ENDPOINT` | R2 エンドポイント | |
-| `UPSTASH_REDIS_REST_URL` | Redis (SSEキャッシュ) | |
-| `UPSTASH_REDIS_REST_TOKEN` | Redis (SSEキャッシュ) | |
-| `STRIPE_SECRET_KEY` | Stripe 決済 | 本番キー使用中 |
-| `STRIPE_PUBLISHABLE_KEY` | Stripe 決済 | 本番キー使用中 |
-| `YOUTUBE_API_KEY` | YouTube API | |
+| `DATABASE_URL` | PostgreSQL 接続 | 外部から到達可能な URL（Neon 等） |
+| `SESSION_SECRET` | JWT 署名 | 長いランダム文字列 |
+| `GOOGLE_CLIENT_ID` | Google OAuth | GCP で取得 |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth | GCP で取得 |
+| `FRONTEND_URL` | CORS + **OAuth 完了後のリダイレクト先オリジン** | 例: `https://rawstock.live`（末尾スラッシュなし） |
+| `EXPO_PUBLIC_DOMAIN` | クライアントの API ベース URL（ビルド時に埋め込み） | 例: `https://rawstock.live`（`https` 付き推奨） |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare アカウント ID | ダッシュボードで確認（公開ドキュメントに生値を書かないこと） |
+| `CLOUDFLARE_STREAM_TOKEN` | Stream API | Account→Stream→Edit 相当のトークン。未設定時は **`CLOUDFLARE_API_TOKEN`** をフォールバック参照 |
+| `R2_ACCESS_KEY_ID` | R2 | |
+| `R2_SECRET_ACCESS_KEY` | R2 | |
+| `R2_BUCKET_NAME` | R2 | 例: `rawstock-assets` |
+| `R2_ENDPOINT` | R2 | |
+| `UPSTASH_REDIS_REST_URL` | Upstash Redis | SSE 等 |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis | |
+| `STRIPE_SECRET_KEY` | Stripe | |
+| `STRIPE_PUBLISHABLE_KEY` | Stripe | クライアント公開可 |
+| `YOUTUBE_API_KEY` | YouTube Data API | Jukebox 検索等 |
+
+### 任意・機能用（未設定だと該当機能だけ劣化／503）
+
+| 変数名 | 用途 |
+|--------|------|
+| `ANTHROPIC_API_KEY` | 通報の AI モデレーション（`server/moderation.ts` 等） |
+| `TEMPLATED_API_KEY` | AI Edit の外部レンダー（Templated.io） |
+| `TEMPLATED_WEBHOOK_BASE_URL` | Templated の完了 webhook のコールバック先オリジン（未設定時は `FRONTEND_URL` 等） |
+| `ADMIN_EMAIL` | 管理者メール（特定の管理系挙動） |
+| `WEGLOT_API_KEY` | サイト翻訳（設定時のみ有効） |
+| `EXPO_PUBLIC_DEEPAR_KEY` | DeepAR（配信背景ぼかし等） |
+| `EXPO_PUBLIC_API_URL` | ネイティブで API オリジンを上書きする場合 |
+| `PUBLIC_LOGO_URL` / `PUBLIC_HERO_*` / `PUBLIC_LP_*` / `PUBLIC_FEATURE_*` | LP・ブランド画像の上書き（`lib/brand.ts`） |
+
+Vercel では **`VERCEL_URL` が自動注入**され、OAuth のフォールバックに使われます（手動設定不要）。
+
+詳細はリポジトリの **`.env.example`** が一次情報に近いです。
 
 ---
 
@@ -84,7 +106,7 @@
 1. Vercel → New Project → GitHub から `live-stream-tech/RawStock` をインポート
 2. Framework Preset: **Other**（Python/Next.js ではない）
 3. Build Command / Output Dir: `vercel.json` に設定済みのため自動読み込み
-4. **Environment Variables** に上記の全変数を設定
+4. **Environment Variables** に **コア表**の変数を設定（必要に応じて任意節・`.env.example` も）
 5. Deploy ボタンを押す
 6. `rawstock.live` のドメインを Vercel プロジェクトに追加（Connect to environment → Production）
 7. Vercel のドメイン画面が「Valid Configuration」になることを確認
@@ -158,7 +180,7 @@ https://rawstock.live/api/auth/google-callback
 - 本番キー使用中（USD建て）
 - Ticket通貨: 🎟 1 ticket = $0.01
 - 収益分配: クリエイター90% / プラットフォーム10%
-- Stripe Webhook: `/api/stripe/webhook` エンドポイント
+- 決済フローは主に **Stripe Checkout セッション作成 → 成功 URL から戻る → API で `session_id` を検証**する形（`server/routes.ts` 内の Checkout / confirm 系）。**専用の `POST /api/stripe/webhook`（Stripe Signing secret）ルートは現状のコードベースには無い** — Webhook 運用が必要なら別途実装・ドキュメント化が必要。
 
 ---
 
