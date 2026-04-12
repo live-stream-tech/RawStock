@@ -23,7 +23,7 @@ function lpStandaloneSrcForWeb(): string {
     }
   }
   if (process.env.NODE_ENV !== "production") {
-    return "http://localhost:5000/lp-standalone.html";
+    return "http://localhost:5001/lp-standalone.html";
   }
   return `${window.location.origin}/lp-standalone.html`;
 }

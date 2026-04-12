@@ -5,7 +5,7 @@ RawStock is the underground music marketplace (Expo React Native Web / PWA) that
 
 ## Architecture
 - **Frontend**: Expo Router (file-based routing), Web browser only (port 8080)
-- **Backend**: Express + TypeScript (port 5000, proxies to Expo)
+- **Backend**: Express + TypeScript (port 5001 by default, proxies to Expo)
 - **Database**: Replit PostgreSQL + Drizzle ORM
 - **State Management**: AsyncStorage + React Context
 - **Data Fetching**: @tanstack/react-query
@@ -13,7 +13,7 @@ RawStock is the underground music marketplace (Expo React Native Web / PWA) that
 
 ## Replit Environment
 - **Workflows**: 
-  - `Start Backend`: `npm run server:dev` (port 5000, webview)
+  - `Start Backend`: `npm run server:dev` (port 5001, webview)
   - `Start Frontend`: `npx expo start --web --port 8080 --localhost` (port 8080, console)
 - **Proxy**: Expo binds to IPv6 `::1` only, so backend proxy target is `http://[::1]:8080` (`EXPO_PORT` env var, default 8080)
 - **SSR**: `public/index.html` renamed to `.bak` so Metro performs SSR HTML rendering

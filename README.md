@@ -134,7 +134,7 @@ Mobile **WHIP live broadcast** and **mentor-room WebRTC** are not enabled in-app
 │                                                      │
 │  ┌──────────┐    proxy     ┌──────────────────────┐ │
 │  │ Express  │◄────────────►│ Expo Metro Dev       │ │
-│  │ :5000    │              │ :8080                │ │
+│  │ :5001    │              │ :8080                │ │
 │  │          │              │ (React Native Web)   │ │
 │  │ REST API │              └──────────────────────┘ │
 │  │ SSE      │                                        │
@@ -221,10 +221,10 @@ Run paid lessons and sell technique breakdowns as premium content. Same 90/10 sp
 
 Two workflows on Replit:
 
-1. **Start Backend** — `npm run server:dev` (Express API on port 5000)
+1. **Start Backend** — `npm run server:dev` (Express API on port 5001 by default; macOS AirPlay uses 5000)
 2. **Start Frontend** — `npx expo start --web --port 8080 --localhost` (Expo Metro)
 
-Express proxies all non-API requests to the Expo dev server, providing a unified experience on port 5000.
+Express proxies all non-API requests to the Expo dev server, providing a unified experience on the API port (default 5001).
 
 ---
 

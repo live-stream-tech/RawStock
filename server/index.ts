@@ -304,7 +304,8 @@ function configureExpoAndLanding(app: express.Application) {
 
   setupErrorHandler(app);
 
-  const port = parseInt(process.env.PORT || "5000", 10);
+  // Default 5001: macOS AirPlay Receiver often binds :5000 (Control Center).
+  const port = parseInt(process.env.PORT || "5001", 10);
   const server = createServer(app);
   server.listen(
     {

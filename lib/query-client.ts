@@ -4,7 +4,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { debugIngestLocal } from "@/lib/debugIngest";
 
 /**
- * Gets the base URL for the Express API server (e.g., "http://localhost:5000")
+ * Gets the base URL for the Express API server (e.g., "http://localhost:5001")
  * @returns {string} The API base URL
  */
 export function getApiUrl(): string {
@@ -44,12 +44,12 @@ export function getApiUrl(): string {
   }
 
   // Native 開発環境向けのフォールバック
-  // サーバーのデフォルトポート (server/index.ts) は 5000
+  // サーバーのデフォルトポート (server/index.ts) は 5001（macOS の :5000 は AirPlay と競合しやすい）
   if (process.env.NODE_ENV !== "production") {
     console.warn(
-      "[getApiUrl] EXPO_PUBLIC_DOMAIN が未設定のため、開発用に http://localhost:5000/ を使用します。",
+      "[getApiUrl] EXPO_PUBLIC_DOMAIN が未設定のため、開発用に http://localhost:5001/ を使用します。",
     );
-    resolved = "http://localhost:5000/";
+    resolved = "http://localhost:5001/";
     source = "localhost-dev";
     debugIngestLocal({
       sessionId: "88cb7d",

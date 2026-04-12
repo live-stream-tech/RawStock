@@ -8204,7 +8204,7 @@ function configureExpoAndLanding(app2) {
   configureExpoAndLanding(app);
   await registerRoutes(app);
   setupErrorHandler(app);
-  const port = parseInt(process.env.PORT || "5000", 10);
+  const port = parseInt(process.env.PORT || "5001", 10);
   const server = createServer(app);
   server.listen(
     {
