@@ -69,7 +69,7 @@
 | `GOOGLE_CLIENT_ID` | Google OAuth | GCP で取得 |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth | GCP で取得 |
 | `FRONTEND_URL` | CORS + **OAuth 完了後のリダイレクト先オリジン** | 例: `https://rawstock.live`（末尾スラッシュなし） |
-| `EXPO_PUBLIC_DOMAIN` | クライアントの API ベース URL（ビルド時に埋め込み） | 例: `https://rawstock.live`（`https` 付き推奨） |
+| `EXPO_PUBLIC_DOMAIN` | クライアントの API ベース URL（ビルド時に埋め込み） | `https://rawstock.live` または `rawstock.live`（**スキーム省略時は本番向けに https と解釈**される。旧コードは http になり混合コンテンツでログイン失敗し得た） |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare アカウント ID | ダッシュボードで確認（公開ドキュメントに生値を書かないこと） |
 | `CLOUDFLARE_STREAM_TOKEN` | Stream API | Account→Stream→Edit 相当のトークン。未設定時は **`CLOUDFLARE_API_TOKEN`** をフォールバック参照 |
 | `R2_ACCESS_KEY_ID` | R2 | |

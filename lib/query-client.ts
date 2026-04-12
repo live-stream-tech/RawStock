@@ -13,7 +13,20 @@ export function getApiUrl(): string {
   let resolved = "";
 
   if (host) {
-    const normalized = host.startsWith("http") ? host : `http://${host}`;
+    const trimmed = host.trim();
+    let normalized: string;
+    if (/^https?:\/\//i.test(trimmed)) {
+      normalized = trimmed;
+    } else {
+      const h = trimmed.replace(/^\/\//, "");
+      const isLocalHost =
+        h.startsWith("localhost") ||
+        h.startsWith("127.0.0.1") ||
+        /^192\.168\.\d+\.\d+/.test(h) ||
+        /^10\.\d+\.\d+\.\d+/.test(h);
+      // 本番ドメインのみのとき http にすると、https ページからの fetch が混合コンテンツでブロックされる
+      normalized = isLocalHost ? `http://${h}` : `https://${h}`;
+    }
     resolved = new URL(normalized).origin + "/";
     source = "env";
     debugIngestLocal({
