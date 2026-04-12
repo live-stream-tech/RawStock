@@ -8163,7 +8163,8 @@ function configureExpoAndLanding(app2) {
     const expoDevPort = parseInt(process.env.EXPO_PORT || "8081", 10);
     log2(`Dev mode: proxying web requests to Expo dev server on port ${expoDevPort}`);
     const expoProxy = createProxyMiddleware({
-      target: `http://[::1]:${expoDevPort}`,
+      // Metro は 127.0.0.1 のみ LISTEN することが多く、::1 へプロキシすると 502 になる
+      target: `http://127.0.0.1:${expoDevPort}`,
       changeOrigin: true,
       ws: true,
       on: {

@@ -15,7 +15,7 @@ RawStock is the underground music marketplace (Expo React Native Web / PWA) that
 - **Workflows**: 
   - `Start Backend`: `npm run server:dev` (port 5001, webview)
   - `Start Frontend`: `npm run dev` (Metro; default port often 8081)
-  - **Proxy**: backend targets `http://[::1]:$EXPO_PORT` (`EXPO_PORT` env var, default 8081)
+  - **Proxy**: backend targets `http://127.0.0.1:$EXPO_PORT` (`EXPO_PORT` env var, default 8081)
 - **SSR**: `public/index.html` renamed to `.bak` so Metro performs SSR HTML rendering
 - **Environment variables**: `DATABASE_URL`, `SESSION_SECRET` set in Replit Secrets
 - **Dynamic URLs**: All OAuth callbacks and redirects use `REPLIT_DOMAINS` / `REPLIT_DEV_DOMAIN` dynamically — no hardcoded Vercel URLs
