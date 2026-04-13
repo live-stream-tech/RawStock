@@ -250,11 +250,24 @@ export default function DailyUploadScreen() {
     }
     const contentType = res.headers.get("content-type") || (type === "image" ? "image/jpeg" : "video/mp4");
     const ext = type === "image" ? "jpg" : "mp4";
-    const resp = await apiRequest("POST", "/api/upload-url", {
-      fileName: `upload.${ext}`,
-      contentType,
+    // Use native fetch + localStorage token directly to avoid expo/fetch header issues on web
+    let authToken: string | null = null;
+    if (typeof window !== "undefined") {
+      try { authToken = window.localStorage?.getItem("auth_token") ?? null; } catch {}
+    }
+    const presignHeaders: Record<string, string> = { "Content-Type": "application/json" };
+    if (authToken) presignHeaders["Authorization"] = `Bearer ${authToken}`;
+    const presignRes = await fetch(new URL("/api/upload-url", getApiUrl()).toString(), {
+      method: "POST",
+      headers: presignHeaders,
+      body: JSON.stringify({ fileName: `upload.${ext}`, contentType }),
     });
-    const { uploadUrl, url } = await resp.json();
+    if (!presignRes.ok) {
+      const errText = await presignRes.text().catch(() => "");
+      console.error(`${UPLOAD_LOG} step:daily_submit_presign_failed`, presignRes.status, errText.slice(0, 200));
+      throw new ApiError(presignRes.status, errText || `Upload URL failed (${presignRes.status})`);
+    }
+    const { uploadUrl, url } = await presignRes.json();
     console.log(`${UPLOAD_LOG} step:daily_submit_r2_put_start`, { type });
     const putRes = await fetch(uploadUrl, {
       method: "PUT",
