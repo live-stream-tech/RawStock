@@ -59,6 +59,7 @@
 
 - **`EADDRINUSE`（5000）**: シェルや別ツールが `PORT=5000` を付けていると Express が 5000 を掴みにいく。`.env` に **`PORT=5001`** を置き、`server:dev` は **`DOTENV_CONFIG_OVERRIDE=true`** で起動するため通常は `.env` が優先される。
 - **`EADDRINUSE`（5001）**: すでに別プロセスが API をListenしている。`lsof -i :5001` で PID を確認し、終了するか別ポートに変更する。
+- **Google ログイン後、`http://localhost:8081/api/auth/google-callback?...` が真っ黒**: `FRONTEND_URL` が 8081 のとき、Google は **Metro（8081）** に戻すが、**`/api` は Express（5001）** にしかない。対処: **`FRONTEND_URL` と `EXPO_PUBLIC_DOMAIN` を `http://localhost:5001` にし、ブラウザでは `http://localhost:5001` を開く**（`npm run web` は別ターミナルで起動したまま）。GCP に **`http://localhost:5001/api/auth/google-callback`**（と必要なら `127.0.0.1:5001`）を登録する。
 
 ---
 
@@ -76,7 +77,7 @@
 | `GOOGLE_CLIENT_ID` | Google OAuth | GCP で取得 |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth | GCP で取得 |
 | `FRONTEND_URL` | CORS + **OAuth 完了後のリダイレクト先オリジン** | 例: `https://rawstock.live`（末尾スラッシュなし） |
-| `EXPO_PUBLIC_DOMAIN` | **公開アプリのオリジン**（ビルド時埋め込み） | `getApiUrl()` が `EXPO_PUBLIC_API_URL` 未設定時に API ベースとして解釈する。`getPublicWebOrigin()` が Stripe の戻り先オリジンに使う（ローカルは `http://localhost:8081` 等でも可。**裸ホストは本番向け https**、ローカル系は http）。 |
+| `EXPO_PUBLIC_DOMAIN` | **公開アプリのオリジン**（ビルド時埋め込み） | `getApiUrl()` が `EXPO_PUBLIC_API_URL` 未設定時に API ベースとして解釈する。`getPublicWebOrigin()` が Stripe の戻り先オリジンに使う。ローカル Web で **Google OAuth まで試すなら `http://localhost:5001`（Express 入口）** を推奨。8081 直＋`FRONTEND_URL=8081` はコールバックが Metro に当たり画面が真っ黒になりやすい。 |
 | `EXPO_PUBLIC_API_URL` | **API サーバー専用オリジン**（任意・ローカル Web 推奨） | 設定時は `getApiUrl()` がこちらを最優先。Metro（:8081）を `EXPO_PUBLIC_DOMAIN` にしているときに Express（:5001）へ向ける用途。 |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare アカウント ID | ダッシュボードで確認（公開ドキュメントに生値を書かないこと） |
 | `CLOUDFLARE_STREAM_TOKEN` | Stream API | Account→Stream→Edit 相当のトークン。未設定時は **`CLOUDFLARE_API_TOKEN`** をフォールバック参照 |
@@ -225,6 +226,21 @@ http://127.0.0.1:8080
 **`.env`（および Vercel）の `GOOGLE_CLIENT_ID`** が、上記を編集している **同一の OAuth クライアント**の Client ID であること。照合: **`GET /api/auth/status`** の `google.clientId` と GCP 画面の値。
 
 「ブランディング」の承認済みドメイン（例: `rawstock.live`）は同意画面用であり、**ローカル用リダイレクト URI の代替にはならない**（リダイレクト URI はクライアント設定で登録する）。
+
+#### Vercel Preview（方針 B1: 本番オリジンに揃える）
+
+プレビューデプロイで静的ビルドが **`EXPO_PUBLIC_DOMAIN` 未設定**だと `getApiUrl()` が本番で失敗し得る。方針 B1 では **Preview でも** `FRONTEND_URL` と `EXPO_PUBLIC_DOMAIN` を **`https://rawstock.live`** に揃え、API・OAuth のベースを本番と同じにする（プレビュー URL 上で Google ログインまで試す場合は別途 GCP にそのホストのリダイレクト URI が必要＝方針 B2）。
+
+CLI 例（**Git ブランチごと**に Preview 用変数が要ることがある）:
+
+```bash
+npx vercel env add FRONTEND_URL preview <ブランチ名> --value "https://rawstock.live" -y
+npx vercel env add EXPO_PUBLIC_DOMAIN preview <ブランチ名> --value "https://rawstock.live" -y
+```
+
+新しい feature ブランチで初めて Preview を切るときは、上記が未設定なら **ダッシュボードの Environment Variables** で同じ値を Preview（該当ブランチ）に追加する。
+
+**手動 E2E（プラン完了条件）:** シークレットウィンドウで `https://rawstock.live` から Google ログインし、コールバックまでエラーなく完了すること。ローカル検証時は `curl -s http://127.0.0.1:5001/api/auth/status` の `google.callbackUrl` が GCP の承認済みリダイレクト URI と一致していること。
 
 ---
 

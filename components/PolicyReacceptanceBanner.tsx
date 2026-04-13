@@ -5,7 +5,7 @@ import { C } from "@/constants/colors";
 import { useAuth } from "@/lib/auth";
 
 /**
- * 条項・プライバシー版が constants/legalVersions より古い場合に表示。
+ * Shown when the user's accepted Terms / Privacy versions are older than `constants/legalVersions`.
  */
 export function PolicyReacceptanceBanner() {
   const { user, acceptPolicies } = useAuth();
@@ -26,9 +26,9 @@ export function PolicyReacceptanceBanner() {
 
   return (
     <View style={styles.wrap} accessibilityRole="alert">
-      <Text style={styles.title}>利用規約またはプライバシーポリシーが更新されています</Text>
+      <Text style={styles.title}>Our Terms of Service or Privacy Policy has been updated</Text>
       <Text style={styles.body}>
-        続ける前に内容をご確認のうえ、同意してください。詳細は Terms / Privacy をご覧ください。
+        Please read the updated documents and agree before you continue. See Terms / Privacy for details.
       </Text>
       <View style={styles.row}>
         <Pressable onPress={() => router.push("/terms")} style={styles.linkBtn}>
@@ -46,7 +46,7 @@ export function PolicyReacceptanceBanner() {
         {busy ? (
           <ActivityIndicator color="#050505" />
         ) : (
-          <Text style={styles.acceptText}>確認したうえで同意する</Text>
+          <Text style={styles.acceptText}>I have read and agree</Text>
         )}
       </Pressable>
     </View>

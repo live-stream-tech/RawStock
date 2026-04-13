@@ -21,10 +21,11 @@ if (!useRedis) {
   console.warn("[Redis] UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN is not set. Using in-memory event bus for SSE.");
 }
 
-export const redis = new Redis({
-  url: UPSTASH_REDIS_REST_URL || "https://placeholder.upstash.io",
-  token: UPSTASH_REDIS_REST_TOKEN || "placeholder",
-});
+// Only construct the Redis client when credentials are present.
+// @upstash/redis v1.34+ throws UrlError on construction if the URL is invalid.
+export const redis: Redis = useRedis
+  ? new Redis({ url: UPSTASH_REDIS_REST_URL, token: UPSTASH_REDIS_REST_TOKEN })
+  : (null as unknown as Redis);
 
 const eventBus = new EventEmitter();
 eventBus.setMaxListeners(200);
