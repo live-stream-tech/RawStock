@@ -915,6 +915,12 @@ export default function JukeboxScreen() {
             { text: "Get Tickets", onPress: () => router.push("/tickets") },
           ]
         );
+      } else if (err instanceof ApiError && err.status === 401) {
+        Alert.alert(
+          "Login required",
+          "Your login may have expired. Please sign in again and retry.",
+          [{ text: "OK", onPress: () => router.push("/auth/login") }]
+        );
       } else {
         Alert.alert("Error", "Failed to add to queue. Please try again.");
       }

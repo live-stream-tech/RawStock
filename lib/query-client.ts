@@ -118,6 +118,26 @@ export class ApiError extends Error {
   }
 }
 
+async function readAuthToken(): Promise<string | null> {
+  try {
+    const token = await AsyncStorage.getItem("auth_token");
+    if (token) return token;
+  } catch {
+    // ignore AsyncStorage read errors
+  }
+
+  if (typeof window !== "undefined") {
+    try {
+      const token = window.localStorage?.getItem("auth_token");
+      if (token) return token;
+    } catch {
+      // ignore localStorage read errors
+    }
+  }
+
+  return null;
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
@@ -135,13 +155,9 @@ export async function apiRequest(
 
   const headers: Record<string, string> = {};
   if (data) headers["Content-Type"] = "application/json";
-  try {
-    const token = await AsyncStorage.getItem("auth_token");
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-  } catch {
-    // ignore token fetch errors
+  const token = await readAuthToken();
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
   }
 
   const res = await fetch(url.toString(), {
@@ -165,13 +181,9 @@ export const getQueryFn: <T>(options: {
     const url = new URL(queryKey.join("/") as string, baseUrl);
 
     const headers: Record<string, string> = {};
-    try {
-      const token = await AsyncStorage.getItem("auth_token");
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-    } catch {
-      // ignore token fetch errors
+    const token = await readAuthToken();
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
     }
 
     const res = await fetch(url.toString(), {

@@ -65,6 +65,15 @@ const AuthContext = createContext<AuthCtx>({
 
 const TOKEN_KEY = "auth_token";
 
+function readWebTokenFromLocalStorage(): string | null {
+  if (Platform.OS !== "web" || typeof window === "undefined") return null;
+  try {
+    return window.localStorage?.getItem(TOKEN_KEY) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function apiFetch(path: string, options?: RequestInit) {
   const base = getApiUrl();
   const url = new URL(path, base).toString();
@@ -150,12 +159,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     AsyncStorage.getItem(TOKEN_KEY).then(async (t) => {
-      if (t) {
+      const tokenFromStorage = t ?? readWebTokenFromLocalStorage();
+      if (!t && tokenFromStorage) {
+        await AsyncStorage.setItem(TOKEN_KEY, tokenFromStorage);
+      }
+      if (tokenFromStorage) {
         try {
           const me = await apiFetch("/api/auth/me", {
-            headers: { Authorization: `Bearer ${t}` },
+            headers: { Authorization: `Bearer ${tokenFromStorage}` },
           });
-          setToken(t);
+          setToken(tokenFromStorage);
           setUser(normalizeMe(me));
         } catch (e: unknown) {
           // 401/403 など認証エラーのみトークンを削除。
@@ -164,10 +177,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const isAuthError = status === 401 || status === 403;
           if (isAuthError) {
             await AsyncStorage.removeItem(TOKEN_KEY);
+            if (Platform.OS === "web" && typeof window !== "undefined") {
+              try { window.localStorage?.removeItem(TOKEN_KEY); } catch {}
+            }
           } else {
             // ネットワークエラー時: トークンだけ保持してローディングを終わらせる。
             // GlobalAuthGate は token があれば保護ページへのリダイレクトをしない。
-            setToken(t);
+            setToken(tokenFromStorage);
           }
         }
       }
@@ -180,6 +196,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       headers: { Authorization: `Bearer ${t}` },
     });
     await AsyncStorage.setItem(TOKEN_KEY, t);
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      try { window.localStorage?.setItem(TOKEN_KEY, t); } catch {}
+    }
     setToken(t);
     if (Platform.OS === "web" && typeof window !== "undefined" && window.sessionStorage?.getItem("rawstock_policy_ack") === "1") {
       try {
@@ -201,6 +220,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     await AsyncStorage.removeItem(TOKEN_KEY);
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      try { window.localStorage?.removeItem(TOKEN_KEY); } catch {}
+    }
     setToken(null);
     setUser(null);
     // ログアウト後は常にログイン画面へ戻す
