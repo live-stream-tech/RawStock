@@ -1,11 +1,81 @@
 import { Tabs } from "expo-router";
 import { Platform, StyleSheet, View } from "react-native";
 import React from "react";
+import type { ComponentProps } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { PlatformPressable } from "@react-navigation/elements";
 import { WEB_TAB_BAR_CONTENT_HEIGHT } from "@/constants/layout";
 import { C } from "@/constants/colors";
 import { MetallicLine } from "@/components/MetallicLine";
+
+type TabBarIconProps = { color: string; size: number; focused: boolean };
+
+const MypageTabBarButton = React.forwardRef<
+  React.ComponentRef<typeof PlatformPressable>,
+  ComponentProps<typeof PlatformPressable>
+>(function MypageTabBarButton(props, ref) {
+  const { children, onPressIn, onPressOut, onHoverIn, onHoverOut, style, ...rest } = props;
+  const [pressed, setPressed] = React.useState(false);
+  const [hovered, setHovered] = React.useState(false);
+  const glow = pressed || hovered;
+
+  return (
+    <PlatformPressable
+      ref={ref}
+      {...rest}
+      style={style}
+      onPressIn={(e) => {
+        setPressed(true);
+        onPressIn?.(e);
+      }}
+      onPressOut={(e) => {
+        setPressed(false);
+        onPressOut?.(e);
+      }}
+      onHoverIn={(e) => {
+        if (Platform.OS === "web") setHovered(true);
+        onHoverIn?.(e);
+      }}
+      onHoverOut={(e) => {
+        if (Platform.OS === "web") setHovered(false);
+        onHoverOut?.(e);
+      }}
+    >
+      <View
+        style={[
+          tabStyles.mypageGlowWrap,
+          glow && tabStyles.mypageGlowWrapActive,
+          glow && Platform.OS === "android" ? { elevation: 12 } : null,
+        ]}
+        pointerEvents="box-none"
+      >
+        {children}
+      </View>
+    </PlatformPressable>
+  );
+});
+
+const tabStyles = StyleSheet.create({
+  mypageGlowWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 48,
+    minHeight: 32,
+    borderRadius: 20,
+  },
+  mypageGlowWrapActive: {
+    shadowColor: C.accent,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.95,
+    shadowRadius: 14,
+    ...(Platform.OS === "web"
+      ? {
+          boxShadow: `0 0 20px 8px rgba(0, 255, 204, 0.5)`,
+        }
+      : {}),
+  },
+});
 
 export default function TabLayout() {
   const isWeb = Platform.OS === "web";
@@ -54,7 +124,7 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "Top",
-          tabBarIcon: ({ color, size, focused }) => (
+          tabBarIcon: ({ color, size, focused }: TabBarIconProps) => (
             <Ionicons name={focused ? "flame" : "flame-outline"} size={size} color={color} />
           ),
         }}
@@ -63,7 +133,7 @@ export default function TabLayout() {
         name="community"
         options={{
           title: "Districts",
-          tabBarIcon: ({ color, size, focused }) => (
+          tabBarIcon: ({ color, size, focused }: TabBarIconProps) => (
             <Ionicons name={focused ? "map" : "map-outline"} size={size} color={color} />
           ),
         }}
@@ -72,7 +142,7 @@ export default function TabLayout() {
         name="live"
         options={{
           title: "Live Cast",
-          tabBarIcon: ({ color, size, focused }) => (
+          tabBarIcon: ({ color, size, focused }: TabBarIconProps) => (
             <Ionicons name={focused ? "headset" : "headset-outline"} size={size} color={color} />
           ),
         }}
@@ -87,7 +157,12 @@ export default function TabLayout() {
         name="profile"
         options={{
           title: "Mypage",
-          tabBarIcon: ({ color, size }) => <Ionicons name="finger-print" size={size} color={color} />,
+          tabBarIcon: ({ color, size }: Pick<TabBarIconProps, "color" | "size">) => (
+            <Ionicons name="finger-print" size={size} color={color} />
+          ),
+          tabBarButton: (props: ComponentProps<typeof PlatformPressable>) => (
+            <MypageTabBarButton {...props} />
+          ),
         }}
       />
     </Tabs>

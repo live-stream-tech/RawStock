@@ -3,15 +3,67 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { debugIngestLocal } from "@/lib/debugIngest";
 
+const DEFAULT_DEV_API_PORT = "5001";
+
+function normalizeApiBaseUrl(input: string): string {
+  const t = input.trim().replace(/\/+$/, "");
+  if (!t) return "";
+  if (/^https?:\/\//i.test(t)) {
+    return new URL(t).origin + "/";
+  }
+  const hostPart = t.replace(/^\/\//, "");
+  const isLocalHost =
+    hostPart.startsWith("localhost") ||
+    hostPart.startsWith("127.0.0.1") ||
+    /^192\.168\.\d+\.\d+/.test(hostPart) ||
+    /^10\.\d+\.\d+\.\d+/.test(hostPart);
+  const proto = isLocalHost ? "http" : "https";
+  return new URL(`${proto}://${hostPart}`).origin + "/";
+}
+
+/** Expo / Metro の Web 開発サーバーでは API が別ポートのため window.origin を API にしない */
+function isExpoOrMetroWebBundlerOrigin(url: URL): boolean {
+  const h = url.hostname.toLowerCase();
+  if (h !== "localhost" && h !== "127.0.0.1") return false;
+  const port = url.port || (url.protocol === "https:" ? "443" : "80");
+  const n = Number(port);
+  if (n === 8081 || n === 8082) return true;
+  if (n >= 19000 && n <= 19100) return true;
+  return false;
+}
+
 /**
  * Gets the base URL for the Express API server (e.g., "http://localhost:5001")
  * @returns {string} The API base URL
  */
 export function getApiUrl(): string {
-  const host = process.env.EXPO_PUBLIC_DOMAIN;
-  let source: "env" | "window" | "localhost-dev" | "error" = "error";
+  const explicitApi = process.env.EXPO_PUBLIC_API_URL?.trim();
+  let source:
+    | "env-api-url"
+    | "env"
+    | "env-metro-override"
+    | "window"
+    | "metro-fallback"
+    | "localhost-dev"
+    | "error" = "error";
   let resolved = "";
 
+  if (explicitApi) {
+    resolved = normalizeApiBaseUrl(explicitApi);
+    source = "env-api-url";
+    debugIngestLocal({
+      sessionId: "88cb7d",
+      runId: "initial",
+      hypothesisId: "H1",
+      location: "lib/query-client.ts:getApiUrl",
+      message: "Resolved API base URL",
+      data: { source, resolved },
+      timestamp: Date.now(),
+    });
+    return resolved;
+  }
+
+  const host = process.env.EXPO_PUBLIC_DOMAIN;
   if (host) {
     const trimmed = host.trim();
     let normalized: string;
@@ -28,7 +80,15 @@ export function getApiUrl(): string {
       normalized = isLocalHost ? `http://${h}` : `https://${h}`;
     }
     resolved = new URL(normalized).origin + "/";
-    source = "env";
+    if (isExpoOrMetroWebBundlerOrigin(new URL(resolved))) {
+      resolved = `http://127.0.0.1:${DEFAULT_DEV_API_PORT}/`;
+      source = "env-metro-override";
+      console.warn(
+        `[getApiUrl] EXPO_PUBLIC_DOMAIN が Metro/Expo の URL (${trimmed}) のため、API ベースは ${resolved} に切り替えました。別ポートなら EXPO_PUBLIC_API_URL を明示してください。`,
+      );
+    } else {
+      source = "env";
+    }
     debugIngestLocal({
       sessionId: "88cb7d",
       runId: "initial",
@@ -42,8 +102,17 @@ export function getApiUrl(): string {
   }
 
   if (typeof window !== "undefined" && window.location?.origin) {
-    resolved = window.location.origin + "/";
-    source = "window";
+    const originUrl = new URL(window.location.origin);
+    if (isExpoOrMetroWebBundlerOrigin(originUrl)) {
+      resolved = `http://127.0.0.1:${DEFAULT_DEV_API_PORT}/`;
+      source = "metro-fallback";
+      console.warn(
+        `[getApiUrl] Web が Metro/Expo 開発サーバー (${window.location.origin}) のため、API は ${resolved} を使います。別ポートの場合は EXPO_PUBLIC_API_URL を設定してください。`,
+      );
+    } else {
+      resolved = window.location.origin + "/";
+      source = "window";
+    }
     debugIngestLocal({
       sessionId: "88cb7d",
       runId: "initial",
@@ -62,7 +131,7 @@ export function getApiUrl(): string {
     console.warn(
       "[getApiUrl] EXPO_PUBLIC_DOMAIN が未設定のため、開発用に http://localhost:5001/ を使用します。",
     );
-    resolved = "http://localhost:5001/";
+    resolved = `http://127.0.0.1:${DEFAULT_DEV_API_PORT}/`;
     source = "localhost-dev";
     debugIngestLocal({
       sessionId: "88cb7d",
