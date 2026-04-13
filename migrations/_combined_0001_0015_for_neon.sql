@@ -1,5 +1,5 @@
 -- =============================================================================
--- 0001 〜 0016 を 1 本にまとめた SQL（Neon の SQL Editor へそのまま貼り付け可）
+-- 0001 〜 0017 を 1 本にまとめた SQL（Neon の SQL Editor へそのまま貼り付け可）
 -- 前提: migrations/0000_lean_slayback.sql をすでに適用済みであること
 -- =============================================================================
 --
@@ -11,10 +11,33 @@
 -- （mentor_sessions は 0006 で IF NOT EXISTS 作成されます。）
 --
 -- 【ai_edit_jobs について】
--- 0003・0004 は ai_edit_jobs への ALTER です。0000 にテーブルが無い場合は先に
--- テーブル作成が必要です（例: npm run db:push で schema に合わせる）。
+-- 0003・0004 は ai_edit_jobs への ALTER です。テーブルが無い DB では下の CREATE を先に実行する。
 --
 -- =============================================================================
+
+-- ========== 0017_ai_edit_jobs_if_missing.sql（0003 より前）==========
+CREATE TABLE IF NOT EXISTS "ai_edit_jobs" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL,
+  "video_url" text DEFAULT '' NOT NULL,
+  "prompt" text NOT NULL,
+  "status" text DEFAULT 'pending' NOT NULL,
+  "result" text,
+  "plan_minutes" integer,
+  "video_urls" text,
+  "logo_url" text,
+  "telop" text,
+  "target_audience" text,
+  "tone" text,
+  "revision_count" integer DEFAULT 0 NOT NULL,
+  "ticket_cost" integer,
+  "video_spec" text,
+  "templated_render_id" text,
+  "delivered_url" text,
+  "delivered_at" timestamp,
+  "created_at" timestamp DEFAULT now(),
+  "updated_at" timestamp DEFAULT now()
+);
 
 -- ========== 0001_polite_sally_floyd.sql（CREATE は 0005 と競合するためスキップ）==========
 -- CREATE TABLE "mentor_bookings" ( ... );
