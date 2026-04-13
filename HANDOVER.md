@@ -69,7 +69,8 @@
 | `GOOGLE_CLIENT_ID` | Google OAuth | GCP で取得 |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth | GCP で取得 |
 | `FRONTEND_URL` | CORS + **OAuth 完了後のリダイレクト先オリジン** | 例: `https://rawstock.live`（末尾スラッシュなし） |
-| `EXPO_PUBLIC_DOMAIN` | クライアントの API ベース URL（ビルド時に埋め込み） | `https://rawstock.live` または `rawstock.live`（**スキーム省略時は本番向けに https と解釈**される。旧コードは http になり混合コンテンツでログイン失敗し得た） |
+| `EXPO_PUBLIC_DOMAIN` | **公開アプリのオリジン**（ビルド時埋め込み） | `getApiUrl()` が `EXPO_PUBLIC_API_URL` 未設定時に API ベースとして解釈する。`getPublicWebOrigin()` が Stripe の戻り先オリジンに使う（ローカルは `http://localhost:8081` 等でも可。**裸ホストは本番向け https**、ローカル系は http）。 |
+| `EXPO_PUBLIC_API_URL` | **API サーバー専用オリジン**（任意・ローカル Web 推奨） | 設定時は `getApiUrl()` がこちらを最優先。Metro（:8081）を `EXPO_PUBLIC_DOMAIN` にしているときに Express（:5001）へ向ける用途。 |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare アカウント ID | ダッシュボードで確認（公開ドキュメントに生値を書かないこと） |
 | `CLOUDFLARE_STREAM_TOKEN` | Stream API | Account→Stream→Edit 相当のトークン。未設定時は **`CLOUDFLARE_API_TOKEN`** をフォールバック参照 |
 | `R2_ACCESS_KEY_ID` | R2 | |
@@ -92,7 +93,6 @@
 | `ADMIN_EMAIL` | 管理者メール（特定の管理系挙動） |
 | `WEGLOT_API_KEY` | サイト翻訳（設定時のみ有効） |
 | `EXPO_PUBLIC_DEEPAR_KEY` | DeepAR（配信背景ぼかし等） |
-| `EXPO_PUBLIC_API_URL` | ネイティブで API オリジンを上書きする場合 |
 | `PUBLIC_LOGO_URL` / `PUBLIC_HERO_*` / `PUBLIC_LP_*` / `PUBLIC_FEATURE_*` | LP・ブランド画像の上書き（`lib/brand.ts`） |
 
 Vercel では **`VERCEL_URL` が自動注入**され、OAuth のフォールバックに使われます（手動設定不要）。

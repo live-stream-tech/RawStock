@@ -23,6 +23,7 @@ import { useAuth } from "@/lib/auth";
 import { usePlayingVideo } from "@/lib/playing-video-context";
 import { useJukeboxPulse } from "@/lib/useJukeboxPulse";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
+import { CreatorPromoBanner } from "@/components/CreatorPromoBanner";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 const IS_LARGE_WEB = Platform.OS === "web" && SCREEN_W > 768;
@@ -405,38 +406,7 @@ export default function HomeScreen() {
         {/* ── Paid Hero ── */}
         <PaidHeroSection videos={paidVideos} isDemo={usingDemoPaid} />
 
-        {/* ── Creator Banner ── */}
-        <View style={styles.creatorBanner}>
-          <View style={styles.creatorBannerText}>
-            <Text style={styles.creatorBannerTitle}>Get your live footage edited and published.</Text>
-            <Text style={styles.creatorBannerSub}>Earn 90% of every sale. Your raw content, professionally packaged.</Text>
-          </View>
-          <View style={styles.creatorBannerBtns}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Hire a Creator"
-              style={({ pressed }) => [styles.creatorBtn, pressed && styles.creatorBtnGlow]}
-              onPress={() => router.push("/find-editor" as any)}
-            >
-              {({ pressed }) => (
-                <Text style={[styles.creatorBtnLabel, pressed && styles.creatorBtnLabelGlow]}>Hire a Creator</Text>
-              )}
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="AI Edit"
-              style={({ pressed }) => [styles.creatorBtn, styles.creatorBtnRow, pressed && styles.creatorBtnGlow]}
-              onPress={() => router.push("/ai-edit" as any)}
-            >
-              {({ pressed }) => (
-                <>
-                  <Ionicons name="sparkles-outline" size={12} color={pressed ? "#fff" : C.textMuted} />
-                  <Text style={[styles.creatorBtnLabel, pressed && styles.creatorBtnLabelGlow]}>AI Edit</Text>
-                </>
-              )}
-            </Pressable>
-          </View>
-        </View>
+        <CreatorPromoBanner />
 
         {/* ── Jukebox Banner ── */}
         <Pressable
@@ -577,41 +547,6 @@ const styles = StyleSheet.create({
   },
 
   scroll: { flex: 1 },
-
-  // Creator Banner
-  creatorBanner: {
-    marginHorizontal: 16,
-    marginTop: 14,
-    marginBottom: 0,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    borderWidth: 1.5,
-    borderColor: C.accent,
-    backgroundColor: "rgba(108,92,231,0.07)",
-    gap: 12,
-  },
-  creatorBannerText: { gap: 4 },
-  creatorBannerTitle: { color: C.text, fontSize: 13, fontWeight: "800", lineHeight: 18 },
-  creatorBannerSub: { color: C.textSec, fontSize: 11, lineHeight: 16 },
-  creatorBannerBtns: { flexDirection: "row", gap: 8 },
-  creatorBtn: {
-    flex: 1,
-    borderWidth: 1.5,
-    borderColor: "rgba(160, 156, 148, 0.35)",
-    borderRadius: 7,
-    paddingVertical: 9,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.04)",
-  },
-  creatorBtnRow: { flexDirection: "row", gap: 5 },
-  creatorBtnGlow: {
-    backgroundColor: C.accent,
-    borderColor: C.accent,
-  },
-  creatorBtnLabel: { color: C.textSec, fontSize: 12, fontWeight: "800" },
-  creatorBtnLabelGlow: { color: "#fff" },
 
   // Jukebox Banner
   jukeBanner: {

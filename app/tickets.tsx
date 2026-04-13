@@ -16,7 +16,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
-import { apiRequest, getApiUrl } from "@/lib/query-client";
+import { apiRequest } from "@/lib/query-client";
+import { getPublicWebOrigin } from "@/lib/publicWebOrigin";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
 import { MIN_PURCHASE_TICKETS, PRICE_PER_TICKET_USD } from "@/constants/tickets";
@@ -78,23 +79,9 @@ export default function TicketsScreen() {
     }
     setLoadingCheckout(true);
     try {
-      // Derive origin from EXPO_PUBLIC_DOMAIN when available (production), then
-      // fall back to window.location.origin on web, or the API base URL on native.
-      let origin: string;
-      const domain = process.env.EXPO_PUBLIC_DOMAIN;
-      if (domain) {
-        // Normalise: strip protocol prefix if already present, then add https://
-        const bare = domain.replace(/^https?:\/\//, "").replace(/\/$/, "");
-        origin = `https://${bare}`;
-      } else if (Platform.OS === "web") {
-        origin = window.location.origin;
-      } else {
-        origin = new URL("/", getApiUrl()).origin;
-      }
-
       const response = await apiRequest("POST", "/api/tickets/create-checkout", {
         tickets: parsedTickets,
-        origin,
+        origin: getPublicWebOrigin(),
       });
       const checkout = (await response.json()) as { url?: string };
       if (checkout.url) {
