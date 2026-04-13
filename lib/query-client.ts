@@ -54,7 +54,7 @@ function resolveFromExpoPublicDomain(): { url: string; source: string } | null {
   const resolved = new URL(normalized).origin + "/";
   if (isMetroBundlerOrigin(new URL(resolved))) {
     console.warn(
-      `[getApiUrl] EXPO_PUBLIC_DOMAIN が Metro/Expo の URL (${raw}) のため、API ベースは ${DEV_API_FALLBACK} に切り替えました。別ポートなら EXPO_PUBLIC_API_URL を設定してください。`,
+      `[getApiUrl] EXPO_PUBLIC_DOMAIN is a Metro/Expo URL (${raw}); using API base ${DEV_API_FALLBACK}. Set EXPO_PUBLIC_API_URL if your API runs on another port.`,
     );
     return { url: DEV_API_FALLBACK, source: "env-metro-override" };
   }
@@ -66,7 +66,7 @@ function resolveFromWindow(): { url: string; source: string } | null {
   const originUrl = new URL(window.location.origin);
   if (isMetroBundlerOrigin(originUrl)) {
     console.warn(
-      `[getApiUrl] Web が Metro/Expo 開発サーバー (${window.location.origin}) のため、API は ${DEV_API_FALLBACK} を使います。別ポートの場合は EXPO_PUBLIC_API_URL を設定してください。`,
+      `[getApiUrl] Web is on the Metro/Expo dev server (${window.location.origin}); using API ${DEV_API_FALLBACK}. Set EXPO_PUBLIC_API_URL if the API is elsewhere.`,
     );
     return { url: DEV_API_FALLBACK, source: "metro-fallback" };
   }
@@ -89,9 +89,7 @@ export function getApiUrl(): string {
   if (fromWindow) return fromWindow.url;
 
   if (process.env.NODE_ENV !== "production") {
-    console.warn(
-      `[getApiUrl] EXPO_PUBLIC_DOMAIN が未設定のため、開発用に ${DEV_API_FALLBACK} を使用します。`,
-    );
+    console.warn(`[getApiUrl] EXPO_PUBLIC_DOMAIN is unset; using dev fallback ${DEV_API_FALLBACK}.`);
     return DEV_API_FALLBACK;
   }
 

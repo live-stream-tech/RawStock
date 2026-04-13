@@ -47,7 +47,7 @@ function buildPulse(data: JukeboxActiveSessionsResponse | undefined): JukeboxPul
     return {
       mode: "request_open",
       labelLine: "REQUEST OPEN",
-      trackLine: "あなたの選曲を待っています",
+      trackLine: "Waiting for your pick",
       targetCommunityId: row.communityId,
     };
   }

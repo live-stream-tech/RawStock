@@ -103,7 +103,7 @@ async function apiFetch(path: string, options?: RequestInit) {
       timestamp: Date.now(),
     });
     const err: Error & { status?: number; code?: unknown; body?: string } = new Error(
-      data?.error ?? "エラーが発生しました",
+      data?.error ?? "Something went wrong",
     );
     err.status = res.status;
     err.code = data?.code;

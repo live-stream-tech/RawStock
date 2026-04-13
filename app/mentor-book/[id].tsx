@@ -125,11 +125,11 @@ export default function MentorBookScreen() {
       if (!res.ok) {
         if (res.status === 402) {
           Alert.alert(
-            "チケットが足りません",
-            "チケット購入画面へ移動しますか？",
+            "Not enough tickets",
+            "Go to the ticket purchase screen?",
             [
-              { text: "キャンセル", style: "cancel" },
-              { text: "購入する", onPress: () => router.push("/tickets") },
+              { text: "Cancel", style: "cancel" },
+              { text: "Buy tickets", onPress: () => router.push("/tickets") },
             ],
           );
           return;

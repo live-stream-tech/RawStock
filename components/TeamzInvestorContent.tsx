@@ -8,7 +8,7 @@ export function TeamzInvestorContent() {
     return (
       <View style={{ flex: 1, padding: 24, justifyContent: "center", alignItems: "center", backgroundColor: "#07090f" }}>
         <Text style={{ color: "#fff", textAlign: "center" }}>
-          このページはWebブラウザでご覧ください。
+          Please open this page in a web browser.
         </Text>
       </View>
     );

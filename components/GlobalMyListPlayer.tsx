@@ -207,7 +207,7 @@ export function GlobalMyListPlayer() {
                 {playing.title}
               </Text>
               <Text style={styles.barSubtitle} numberOfLines={1}>
-                タップして再生ページへ
+                Tap to open the video page
               </Text>
             </Pressable>
 

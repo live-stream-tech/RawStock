@@ -88,7 +88,7 @@ const CLOUDFLARE_STREAM_TOKEN = process.env.CLOUDFLARE_STREAM_TOKEN ?? process.e
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
 
 /**
- * Google OAuth 完了後のリダイレクト先オリジン（末尾スラッシュなし）。
+ * Google OAuth 完了後のリダイレクト先オリジン（末尾スラッシュなし)。
  * FRONTEND_URL を優先。未設定時は Vercel プレビュー用に VERCEL_URL、それもなければ本番。
  * Google Cloud の「承認済みのリダイレクト URI」に
  * `${origin}/api/auth/google-callback` を登録すること。
@@ -104,7 +104,7 @@ function resolvePublicAppOrigin(): string {
   return "https://rawstock.live";
 }
 
-/** Cloudflare client/v4 の errors 配列を 1 行に（デバッグ・ユーザー向け detail 用） */
+/** Cloudflare client/v4 の errors 配列を 1 行に（デバッグ・ユーザー向け detail 用) */
 function formatCloudflareApiErrors(errors: unknown): string {
   if (errors == null) return "";
   if (Array.isArray(errors)) {
@@ -126,7 +126,7 @@ function makeToken(userId: number) {
   return jwt.sign({ sub: userId }, JWT_SECRET, { expiresIn: "90d" });
 }
 
-/** req.params / req.query を string に正規化（Express は string | string[]） */
+/** req.params / req.query を string に正規化（Express は string | string[]) */
 function paramStr(req: Request, key: string): string {
   const v = req.params[key];
   return Array.isArray(v) ? v[0] ?? "" : (v ?? "");
@@ -136,24 +136,24 @@ function paramNum(req: Request, key: string): number {
 }
 
 function formatTimeAgo(d: Date | string | null | undefined): string {
-  if (!d) return "たった今";
+  if (!d) return "Just now";
   const date = typeof d === "string" ? new Date(d) : d;
-  if (isNaN(date.getTime())) return "たった今";
+  if (isNaN(date.getTime())) return "Just now";
   const diffMs = Date.now() - date.getTime();
   const diffSec = Math.floor(diffMs / 1000);
   const diffMin = Math.floor(diffSec / 60);
   const diffHour = Math.floor(diffMin / 60);
   const diffDay = Math.floor(diffHour / 24);
-  if (diffSec < 60) return "たった今";
-  if (diffMin < 60) return `${diffMin}分前`;
-  if (diffHour < 24) return `${diffHour}時間前`;
-  if (diffDay < 7) return `${diffDay}日前`;
-  if (diffDay < 30) return `${Math.floor(diffDay / 7)}週間前`;
-  if (diffDay < 365) return `${Math.floor(diffDay / 30)}ヶ月前`;
-  return `${Math.floor(diffDay / 365)}年前`;
+  if (diffSec < 60) return "Just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffHour < 24) return `${diffHour}h ago`;
+  if (diffDay < 7) return `${diffDay}d ago`;
+  if (diffDay < 30) return `${Math.floor(diffDay / 7)}w ago`;
+  if (diffDay < 365) return `${Math.floor(diffDay / 30)}mo ago`;
+  return `${Math.floor(diffDay / 365)}y ago`;
 }
 
-/** req.query の値を string に正規化（Express の ParsedQs を string に統一） */
+/** req.query の値を string に正規化（Express の ParsedQs を string に統一) */
 function queryStr(req: Request, key: string): string {
   const v = req.query[key];
   if (Array.isArray(v)) return typeof v[0] === "string" ? v[0] : "";
@@ -226,7 +226,7 @@ async function syncUserLastContentLang(userId: number, rawText: string): Promise
   }
 }
 
-/** GET /api/auth/me 等: 条項・プライバシー同意状態（constants/legalVersions と突合） */
+/** GET /api/auth/me 等: 条項・プライバシー同意状態（constants/legalVersions と突合) */
 function policyFieldsForApi(u: {
   termsAcceptedVersion?: string | null;
   termsAcceptedAt?: Date | null;
@@ -350,12 +350,12 @@ function formatDmThreadTime(d: Date | null | undefined): string {
   if (Number.isNaN(t)) return "";
   const ms = Date.now() - t;
   const m = Math.floor(ms / 60000);
-  if (m < 1) return "たった今";
-  if (m < 60) return `${m}分前`;
+  if (m < 1) return "Just now";
+  if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h}時間前`;
+  if (h < 24) return `${h}h ago`;
   const days = Math.floor(h / 24);
-  if (days < 7) return `${days}日前`;
+  if (days < 7) return `${days}d ago`;
   const dt = new Date(t);
   return `${dt.getMonth() + 1}/${dt.getDate()}`;
 }
@@ -534,7 +534,7 @@ async function upsertCreatorMonthlyRevenue(
     .where(eq(creatorMonthlyScores.id, existing.id));
 }
 
-/** 収益を transactions に type: 'REVENUE' で記録（月末ランク集計用） */
+/** 収益を transactions に type: 'REVENUE' で記録（月末ランク集計用) */
 async function recordRevenue(
   walletId: number,
   userId: number,
@@ -571,7 +571,7 @@ async function recordRevenue(
   await executor.insert(earnings).values({
     userId: `user-${userId}`,
     type: source,
-    title: source === "tip" ? "投げ銭収益" : "有料配信収益",
+    title: source === "tip" ? "Tip revenue" : "Paid live revenue",
     amount,
     revenueShare: Math.round(backRate * 100),
     netAmount,
@@ -655,7 +655,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   // ── Auth ──────────────────────────────────────────────
   app.get("/api/auth/me", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const [u] = await db.select({
       pinnedCommunityIds: users.pinnedCommunityIds,
     }).from(users).where(eq(users.id, user.id));
@@ -692,10 +692,10 @@ export async function registerRoutes(app: Express): Promise<void> {
     });
   });
 
-  /** 現行の Terms / Privacy 版への同意を記録（条項更新後の再同意用） */
+  /** 現行の Terms / Privacy 版への同意を記録（条項更新後の再同意用) */
   app.post("/api/auth/accept-policies", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const { acceptTerms, acceptPrivacy } = req.body as { acceptTerms?: boolean; acceptPrivacy?: boolean };
     const doTerms = acceptTerms !== false;
     const doPrivacy = acceptPrivacy !== false;
@@ -716,10 +716,10 @@ export async function registerRoutes(app: Express): Promise<void> {
     });
   });
 
-  // ── Stripe Connect（出金先連携）────────────────────────────────────────
+  // ── Stripe Connect（出金先連携)────────────────────────────────────────
   app.post("/api/connect/payout-terms-agree", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const now = new Date();
     await db
       .update(users)
@@ -730,7 +730,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.post("/api/connect/onboard", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     const [ptRow] = await db
       .select({ payoutTermsAgreedAt: users.payoutTermsAgreedAt })
@@ -739,7 +739,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (!ptRow?.payoutTermsAgreedAt) {
       return res.status(400).json({
         error:
-          "クリエイター向け払い出し条項に同意してください。Payout Settings で内容を確認し、同意のうえ Stripe を連携してください。",
+          "Please accept the creator payout terms. Review them in Payout Settings, then connect Stripe after agreeing.",
       });
     }
 
@@ -759,13 +759,13 @@ export async function registerRoutes(app: Express): Promise<void> {
       res.json({ url, accountId });
     } catch (e: any) {
       console.error("Connect onboard error:", e);
-      res.status(500).json({ error: e.message ?? "Stripe Connect の準備に失敗しました" });
+      res.status(500).json({ error: e.message ?? "Failed to prepare Stripe Connect" });
     }
   });
 
   app.get("/api/connect/status", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     if (!user.stripeConnectId) {
       return res.json({ connected: false, stripeConnectId: null, chargesEnabled: false });
@@ -780,7 +780,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     });
   });
 
-  // ── バナー広告：決済・分配（人数×5セント×日数、最低$100）────────────────────
+  // ── バナー広告：決済・分配（人数×5セント×日数、最低$100)────────────────────
   const BANNER_MIN_AMOUNT = 10_000;
   const BANNER_RATE_MODERATOR = 0.2;
   const BANNER_RATE_ADMIN = 0.2;
@@ -789,7 +789,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.post("/api/banner/checkout", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     const { people, days } = req.body as { people?: number; days?: number };
     const p = Math.max(1, Number(people) || 1);
@@ -804,20 +804,20 @@ export async function registerRoutes(app: Express): Promise<void> {
       res.json({ clientSecret, paymentIntentId, amountUSD });
     } catch (e: any) {
       console.error("Banner checkout error:", e);
-      res.status(500).json({ error: e.message ?? "決済の準備に失敗しました" });
+      res.status(500).json({ error: e.message ?? "Failed to prepare payment" });
     }
   });
 
   app.post("/api/banner/confirm", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     const { paymentIntentId } = req.body as { paymentIntentId?: string };
-    if (!paymentIntentId) return res.status(400).json({ error: "paymentIntentId が必要です" });
+    if (!paymentIntentId) return res.status(400).json({ error: "paymentIntentId is required" });
 
     const status = await getPaymentIntentStatus(paymentIntentId);
     if (status !== "succeeded") {
-      return res.status(400).json({ error: "決済が完了していません" });
+      return res.status(400).json({ error: "Payment has not completed" });
     }
 
     const stripe = await getUncachableStripeClient();
@@ -840,13 +840,13 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json({ ok: true, amountUSD, split: { moderator: amountMod, admin: amountAdmin, eventReserve: amountEvent, platform: amountPlatform } });
   });
 
-  // コミュニティ広告バナー用 Stripe Checkout（3日間 $100）
+  // コミュニティ広告バナー用 Stripe Checkout（3日間 $100)
   const BANNER_CHECKOUT_DAYS = 3;
   const BANNER_CHECKOUT_AMOUNT_USD = 10_000;
 
   app.post("/api/banner/checkout-session", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     try {
       const stripe = await getUncachableStripeClient();
@@ -860,8 +860,8 @@ export async function registerRoutes(app: Express): Promise<void> {
               currency: "usd",
               unit_amount: BANNER_CHECKOUT_AMOUNT_USD,
               product_data: {
-                name: "コミュニティ広告バナー（3日間）",
-                description: `コミュニティページの広告バナー枠 3日間出稿（$${(BANNER_CHECKOUT_AMOUNT_USD / 100).toFixed(2)}）`,
+                name: "Community ad banner (3 days)",
+                description: `Community page ad banner slot, 3-day run ($${(BANNER_CHECKOUT_AMOUNT_USD / 100).toFixed(2)})`,
               },
             },
             quantity: 1,
@@ -880,20 +880,20 @@ export async function registerRoutes(app: Express): Promise<void> {
       res.json({ checkoutUrl: session.url });
     } catch (e: any) {
       console.error("Banner checkout session error:", e);
-      res.status(500).json({ error: e.message ?? "決済の準備に失敗しました" });
+      res.status(500).json({ error: e.message ?? "Failed to prepare payment" });
     }
   });
 
   app.post("/api/banner/confirm-session", async (req: Request, res: Response) => {
     const { sessionId } = req.body as { sessionId?: string };
-    if (!sessionId) return res.status(400).json({ error: "sessionId が必要です" });
+    if (!sessionId) return res.status(400).json({ error: "sessionId is required" });
 
     try {
       const stripe = await getUncachableStripeClient();
       const session = await stripe.checkout.sessions.retrieve(sessionId);
 
       if (session.payment_status !== "paid") {
-        return res.status(400).json({ error: "決済が完了していません" });
+        return res.status(400).json({ error: "Payment has not completed" });
       }
 
       const amountUSD = session.amount_total ?? BANNER_CHECKOUT_AMOUNT_USD;
@@ -919,7 +919,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       });
     } catch (e: any) {
       console.error("Banner confirm-session error:", e);
-      res.status(500).json({ error: e.message ?? "決済の確認に失敗しました" });
+      res.status(500).json({ error: e.message ?? "Failed to confirm payment" });
     }
   });
 
@@ -934,7 +934,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       timestamp: Date.now(),
     });
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const { name, displayName, bio, avatar, profileImageUrl, spotifyUrl, appleMusicUrl, bandcampUrl, instagramUrl, youtubeUrl, xUrl, phoneNumber, pinnedCommunityIds } = req.body as {
       name?: string;
       displayName?: string;
@@ -1012,14 +1012,14 @@ export async function registerRoutes(app: Express): Promise<void> {
     });
   });
 
-  /** アカウント削除（コミュニティを管理している場合は不可） */
+  /** アカウント削除（コミュニティを管理している場合は不可) */
   app.delete("/api/auth/account", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     const [owned] = await db.select().from(communities).where(eq(communities.ownerId, user.id)).limit(1);
     if (owned) {
-      return res.status(400).json({ error: "管理しているコミュニティがあるため削除できません。先にコミュニティを削除してください。" });
+      return res.status(400).json({ error: "You cannot delete your account while you manage a community. Delete the community first." });
     }
 
     try {
@@ -1033,14 +1033,14 @@ export async function registerRoutes(app: Express): Promise<void> {
       res.json({ ok: true });
     } catch (e) {
       console.error("Account deletion error:", e);
-      res.status(500).json({ error: "アカウントの削除に失敗しました" });
+      res.status(500).json({ error: "Failed to delete account" });
     }
   });
 
-  /** 投稿者名からユーザー or ライバーのプロフィールIDを取得（認証不要） */
+  /** 投稿者名からユーザー or ライバーのプロフィールIDを取得（認証不要) */
   app.get("/api/profile/by-name/:name", async (req: Request, res: Response) => {
     const name = decodeURIComponent((req.params as { name: string }).name || "");
-    if (!name.trim()) return res.status(400).json({ error: "名前を指定してください" });
+    if (!name.trim()) return res.status(400).json({ error: "Please provide a name" });
     const [u] = await db.select({ id: users.id }).from(users).where(eq(users.displayName, name));
     if (u) return res.json({ type: "user", id: u.id });
     const [c] = await db.select({ id: creators.id }).from(creators).where(eq(creators.name, name));
@@ -1048,7 +1048,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     return res.status(404).json({ error: "Not found" });
   });
 
-  /** 他ユーザーの公開プロフィール取得（認証不要） */
+  /** 他ユーザーの公開プロフィール取得（認証不要) */
   app.get("/api/users/:id", async (req: Request, res: Response) => {
     const id = paramNum(req, "id");
     const [u] = await db.select({
@@ -1116,10 +1116,10 @@ export async function registerRoutes(app: Express): Promise<void> {
     });
   });
 
-  /** ログイン中ユーザーが :id をフォローしているか（要認証） */
+  /** ログイン中ユーザーが :id をフォローしているか（要認証) */
   app.get("/api/users/:id/follow-status", async (req: Request, res: Response) => {
     const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "未認証です" });
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const targetId = paramNum(req, "id");
     if (!targetId) return res.status(400).json({ error: "Invalid id" });
     const [row] = await db
@@ -1129,7 +1129,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json({ isFollowing: !!row });
   });
 
-  /** 公開: ユーザーのアクティブなメンターセッション商品（mentor_sessions） */
+  /** 公開: ユーザーのアクティブなメンターセッション商品（mentor_sessions) */
   app.get("/api/users/:id/mentor-sessions", async (req: Request, res: Response) => {
     const uid = paramNum(req, "id");
     if (!uid) return res.status(400).json({ error: "Invalid id" });
@@ -1164,7 +1164,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json(rows);
   });
 
-  /** フォロワー一覧（認証不要） */
+  /** フォロワー一覧（認証不要) */
   app.get("/api/users/:id/followers", async (req: Request, res: Response) => {
     const targetId = paramNum(req, "id");
     if (!targetId) return res.status(400).json({ error: "Invalid id" });
@@ -1189,7 +1189,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     );
   });
 
-  /** フォロー中一覧（認証不要） */
+  /** フォロー中一覧（認証不要) */
   app.get("/api/users/:id/following", async (req: Request, res: Response) => {
     const targetId = paramNum(req, "id");
     if (!targetId) return res.status(400).json({ error: "Invalid id" });
@@ -1216,10 +1216,10 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.post("/api/users/:id/follow", async (req: Request, res: Response) => {
     const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "未認証です" });
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const targetId = paramNum(req, "id");
     if (!targetId) return res.status(400).json({ error: "Invalid id" });
-    if (targetId === me.id) return res.status(400).json({ error: "自分自身はフォローできません" });
+    if (targetId === me.id) return res.status(400).json({ error: "You cannot follow yourself" });
     const [exists] = await db.select({ id: users.id }).from(users).where(eq(users.id, targetId));
     if (!exists) return res.status(404).json({ error: "Not found" });
     await db
@@ -1231,7 +1231,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.delete("/api/users/:id/follow", async (req: Request, res: Response) => {
     const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "未認証です" });
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const targetId = paramNum(req, "id");
     if (!targetId) return res.status(400).json({ error: "Invalid id" });
     await db
@@ -1377,10 +1377,10 @@ export async function registerRoutes(app: Express): Promise<void> {
   app.get("/api/youtube/search", async (req: Request, res: Response) => {
     const q = queryStr(req, "q").trim();
     if (!q) {
-      return res.status(400).json({ error: "検索キーワードを入力してください" });
+      return res.status(400).json({ error: "Please enter a search query" });
     }
     if (!YOUTUBE_API_KEY) {
-      return res.status(500).json({ error: "YouTube API キーが設定されていません" });
+      return res.status(500).json({ error: "YouTube API key is not configured" });
     }
     try {
       const params = new URLSearchParams({
@@ -1394,7 +1394,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       if (!ytRes.ok) {
         const text = await ytRes.text();
         console.error("YouTube search error:", ytRes.status, text);
-        return res.status(502).json({ error: "YouTube 検索に失敗しました" });
+        return res.status(502).json({ error: "YouTube search failed" });
       }
       const json = (await ytRes.json()) as {
         items?: { id?: { videoId?: string }; snippet?: { title?: string; thumbnails?: { default?: { url?: string }; medium?: { url?: string }; high?: { url?: string } } } }[];
@@ -1412,7 +1412,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         })
         .filter(Boolean) as { videoId: string; title: string; thumbnail: string }[];
 
-      // videos.list で実際の動画時間（ISO 8601 duration）を取得
+      // videos.list で実際の動画時間（ISO 8601 duration)を取得
       const videoIds = baseResults.map((r) => r.videoId).join(",");
       let durationMap: Record<string, number> = {};
       if (videoIds) {
@@ -1448,11 +1448,11 @@ export async function registerRoutes(app: Express): Promise<void> {
       res.json(results);
     } catch (e: any) {
       console.error("YouTube search exception:", e);
-      res.status(500).json({ error: "YouTube 検索でエラーが発生しました" });
+      res.status(500).json({ error: "An error occurred during YouTube search" });
     }
   });
 
-  /** ユーザーの Google アクセストークンを取得（必要ならリフレッシュ） */
+  /** ユーザーの Google アクセストークンを取得（必要ならリフレッシュ) */
   async function getGoogleAccessToken(userId: number): Promise<string | null> {
     const [u] = await db.select().from(users).where(eq(users.id, userId));
     if (!u || !(u as any).googleRefreshToken) return null;
@@ -1494,14 +1494,14 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
   }
 
-  // ── YouTube プレイリスト（Google ログインユーザー向け）────────────────────────
+  // ── YouTube プレイリスト（Google ログインユーザー向け)────────────────────────
   app.get("/api/youtube/playlists", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const accessToken = await getGoogleAccessToken(user.id);
     if (!accessToken) {
       return res.status(403).json({
-        error: "YouTube プレイリストを利用するには Google でログインしてください",
+        error: "Sign in with Google to use YouTube playlists",
         needsGoogleLogin: true,
       });
     }
@@ -1518,7 +1518,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       if (!ytRes.ok) {
         const text = await ytRes.text();
         console.error("YouTube playlists error:", ytRes.status, text);
-        return res.status(502).json({ error: "プレイリストの取得に失敗しました" });
+        return res.status(502).json({ error: "Failed to fetch the playlist" });
       }
       const json = (await ytRes.json()) as {
         items?: { id?: string; snippet?: { title?: string; thumbnails?: { default?: { url?: string }; medium?: { url?: string } } } }[];
@@ -1535,22 +1535,22 @@ export async function registerRoutes(app: Express): Promise<void> {
       res.json(items);
     } catch (e: any) {
       console.error("YouTube playlists exception:", e);
-      res.status(500).json({ error: "プレイリストの取得でエラーが発生しました" });
+      res.status(500).json({ error: "An error occurred while fetching the playlist" });
     }
   });
 
   app.get("/api/youtube/playlists/:playlistId/items", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const accessToken = await getGoogleAccessToken(user.id);
     if (!accessToken) {
       return res.status(403).json({
-        error: "YouTube プレイリストを利用するには Google でログインしてください",
+        error: "Sign in with Google to use YouTube playlists",
         needsGoogleLogin: true,
       });
     }
     const playlistId = paramStr(req, "playlistId");
-    if (!playlistId) return res.status(400).json({ error: "プレイリストIDが必要です" });
+    if (!playlistId) return res.status(400).json({ error: "playlistId is required" });
     try {
       const params = new URLSearchParams({
         part: "snippet,contentDetails",
@@ -1564,7 +1564,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       if (!ytRes.ok) {
         const text = await ytRes.text();
         console.error("YouTube playlistItems error:", ytRes.status, text);
-        return res.status(502).json({ error: "プレイリストの取得に失敗しました" });
+        return res.status(502).json({ error: "Failed to fetch the playlist" });
       }
       const json = (await ytRes.json()) as {
         items?: {
@@ -1613,18 +1613,18 @@ export async function registerRoutes(app: Express): Promise<void> {
       res.json(items);
     } catch (e: any) {
       console.error("YouTube playlistItems exception:", e);
-      res.status(500).json({ error: "プレイリストの取得でエラーが発生しました" });
+      res.status(500).json({ error: "An error occurred while fetching the playlist" });
     }
   });
 
   // ── Communities ───────────────────────────────────────────────────
   /** genreId で絞り込み: pop, rock, hiphop, edm, ai → category に含まれるかでフィルタ */
   const GENRE_TO_CATEGORY: Record<string, string[]> = {
-    pop: ["Pop", "ポップ", "J-Pop", "K-Pop", "音楽"],
-    rock: ["Rock", "ロック", "バンド"],
-    hiphop: ["Hip-Hop", "HipHop", "ヒップホップ", "Rap", "ラップ"],
-    edm: ["EDM", "Electronic", "エレクトロ", "DJ"],
-    ai: ["AI", "AI音楽", "Generative"],
+    pop: ["Pop", "J-Pop", "K-Pop", "Music", "Vocal"],
+    rock: ["Rock", "Band", "Guitar"],
+    hiphop: ["Hip-Hop", "HipHop", "Rap", "Trap"],
+    edm: ["EDM", "Electronic", "House", "DJ"],
+    ai: ["AI", "Generative", "Suno", "Instrumental"],
   };
   app.get("/api/communities", async (req: Request, res: Response) => {
     const genreId = queryStr(req, "genre");
@@ -1641,7 +1641,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   /** 現在ログイン中ユーザーが参加しているコミュニティ一覧 */
   app.get("/api/communities/me", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     const memberships = await db
       .select({ communityId: communityMembers.communityId })
@@ -1680,7 +1680,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json(rows);
   });
 
-  /** コミュニティに登録しているクリエイター一覧（動画編集者 + ライバー/クリエイター） */
+  /** コミュニティに登録しているクリエイター一覧（動画編集者 + ライバー/クリエイター) */
   app.get("/api/communities/:id/creators", async (req: Request, res: Response) => {
     const communityId = paramNum(req, "id");
     const [community] = await db.select().from(communities).where(eq(communities.id, communityId));
@@ -1730,17 +1730,17 @@ export async function registerRoutes(app: Express): Promise<void> {
     });
   });
 
-  /** コミュニティの管理人・モデレーター設定（管理人または本人のみ） */
+  /** コミュニティの管理人・モデレーター設定（管理人または本人のみ) */
   app.patch("/api/communities/:id/staff", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     const communityId = paramNum(req, "id");
     const [community] = await db.select().from(communities).where(eq(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
 
     const isAdmin = community.adminId === user.id;
-    if (!isAdmin) return res.status(403).json({ error: "管理人のみ設定できます" });
+    if (!isAdmin) return res.status(403).json({ error: "Only the community owner can change this" });
 
     const { adminId, moderatorIds } = req.body as { adminId?: number | null; moderatorIds?: number[] };
     if (adminId !== undefined) {
@@ -1761,7 +1761,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json(updated);
   });
 
-  /** コミュニティメンバー一覧（管理人・モデレーター選択用） */
+  /** コミュニティメンバー一覧（管理人・モデレーター選択用) */
   app.get("/api/communities/:id/members", async (req: Request, res: Response) => {
     const communityId = paramNum(req, "id");
     const [community] = await db.select().from(communities).where(eq(communities.id, communityId));
@@ -1801,10 +1801,10 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json({ isMember: rows.length > 0 });
   });
 
-  /** コミュニティに参加（フォロー時などに呼ぶ） */
+  /** コミュニティに参加（フォロー時などに呼ぶ) */
   app.post("/api/communities/:id/join", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     const communityId = paramNum(req, "id");
     const [community] = await db.select().from(communities).where(eq(communities.id, communityId));
@@ -1837,7 +1837,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.status(201).json({ ok: true });
   });
 
-  // ── コミュニティ掲示板（スレッド形式） ─────────────────────────────────
+  // ── コミュニティ掲示板（スレッド形式) ─────────────────────────────────
   app.get("/api/communities/:id/threads", async (req: Request, res: Response) => {
     const communityId = paramNum(req, "id");
     const [community] = await db.select().from(communities).where(eq(communities.id, communityId));
@@ -1870,14 +1870,14 @@ export async function registerRoutes(app: Express): Promise<void> {
       rows.map((r, i) => ({
         ...r,
         postCount: postCounts[i],
-        author: authorMap.get(r.authorUserId) ?? { displayName: "不明", profileImageUrl: null },
+        author: authorMap.get(r.authorUserId) ?? { displayName: "Unknown", profileImageUrl: null },
       }))
     );
   });
 
   app.post("/api/communities/:id/threads", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const [community] = await db.select().from(communities).where(eq(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
@@ -1885,14 +1885,14 @@ export async function registerRoutes(app: Express): Promise<void> {
       .select()
       .from(communityMembers)
       .where(and(eq(communityMembers.communityId, communityId), eq(communityMembers.userId, user.id)));
-    if (memberRows.length === 0) return res.status(403).json({ error: "コミュニティに参加してください" });
+    if (memberRows.length === 0) return res.status(403).json({ error: "Join the community first" });
     const { title, body } = req.body as { title?: string; body?: string };
-    if (!title || !title.trim()) return res.status(400).json({ error: "タイトルを入力してください" });
-    // コンテンツモデレーション（タイトル＋本文を結合してチェック）
+    if (!title || !title.trim()) return res.status(400).json({ error: "Please enter a title" });
+    // コンテンツモデレーション（タイトル＋本文を結合してチェック)
     const combinedText = [title, body].filter(Boolean).join(" ");
     const modResult = await moderateContent(combinedText);
     if (!modResult.allowed) {
-      return res.status(400).json({ error: modResult.reason ?? "不適切なコンテンツが含まれています" });
+      return res.status(400).json({ error: modResult.reason ?? "This content is not allowed" });
     }
     const [row] = await db
       .insert(communityThreads)
@@ -1924,18 +1924,18 @@ export async function registerRoutes(app: Express): Promise<void> {
     const authorMap = new Map(authorRows.map((a) => [a.id, a]));
     res.json({
       ...thread,
-      author: authorMap.get(thread.authorUserId) ?? { displayName: "不明", profileImageUrl: null },
+      author: authorMap.get(thread.authorUserId) ?? { displayName: "Unknown", profileImageUrl: null },
       posts: posts.map((p) => ({
         ...p,
-        author: authorMap.get(p.authorUserId) ?? { displayName: "不明", profileImageUrl: null },
+        author: authorMap.get(p.authorUserId) ?? { displayName: "Unknown", profileImageUrl: null },
       })),
     });
   });
 
-  /** スレッド削除（管理人・モデレーター） */
+  /** スレッド削除（管理人・モデレーター) */
   app.delete("/api/communities/:id/threads/:threadId", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const threadId = paramNum(req, "threadId");
     const [community] = await db.select().from(communities).where(eq(communities.id, communityId));
@@ -1943,7 +1943,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const isAdmin = community.adminId === user.id;
     const [modRow] = await db.select().from(communityModerators).where(and(eq(communityModerators.communityId, communityId), eq(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "管理人またはモデレーターのみ削除できます" });
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can delete this" });
     const [thread] = await db.select().from(communityThreads).where(and(eq(communityThreads.communityId, communityId), eq(communityThreads.id, threadId)));
     if (!thread) return res.status(404).json({ message: "Not found" });
     await db.delete(communityThreadPosts).where(eq(communityThreadPosts.threadId, threadId));
@@ -1951,10 +1951,10 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json({ ok: true });
   });
 
-  /** スレッド返信削除（管理人・モデレーター） */
+  /** スレッド返信削除（管理人・モデレーター) */
   app.delete("/api/communities/:id/threads/:threadId/posts/:postId", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const threadId = paramNum(req, "threadId");
     const postId = paramNum(req, "postId");
@@ -1963,7 +1963,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const isAdmin = community.adminId === user.id;
     const [modRow] = await db.select().from(communityModerators).where(and(eq(communityModerators.communityId, communityId), eq(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "管理人またはモデレーターのみ削除できます" });
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can delete this" });
     const [thread] = await db.select().from(communityThreads).where(and(eq(communityThreads.communityId, communityId), eq(communityThreads.id, threadId)));
     if (!thread) return res.status(404).json({ message: "Not found" });
     await db.delete(communityThreadPosts).where(and(eq(communityThreadPosts.threadId, threadId), eq(communityThreadPosts.id, postId)));
@@ -1972,7 +1972,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.post("/api/communities/:id/threads/:threadId/posts", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const threadId = paramNum(req, "threadId");
     const [thread] = await db
@@ -1984,13 +1984,13 @@ export async function registerRoutes(app: Express): Promise<void> {
       .select()
       .from(communityMembers)
       .where(and(eq(communityMembers.communityId, communityId), eq(communityMembers.userId, user.id)));
-    if (memberRows.length === 0) return res.status(403).json({ error: "コミュニティに参加してください" });
+    if (memberRows.length === 0) return res.status(403).json({ error: "Join the community first" });
     const { body } = req.body as { body?: string };
-    if (!body || !body.trim()) return res.status(400).json({ error: "本文を入力してください" });
+    if (!body || !body.trim()) return res.status(400).json({ error: "Please enter body text" });
     // コンテンツモデレーション
     const modResult = await moderateContent(body);
     if (!modResult.allowed) {
-      return res.status(400).json({ error: modResult.reason ?? "不適切なコンテンツが含まれています" });
+      return res.status(400).json({ error: modResult.reason ?? "This content is not allowed" });
     }
     const [row] = await db
       .insert(communityThreadPosts)
@@ -2007,21 +2007,21 @@ export async function registerRoutes(app: Express): Promise<void> {
   /** コミュニティ管理者: ジュークボックスキュー一覧・削除 */
   app.get("/api/communities/:id/admin/jukebox-queue", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const [community] = await db.select().from(communities).where(eq(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
     const [modRow] = await db.select().from(communityModerators).where(and(eq(communityModerators.communityId, communityId), eq(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "管理人またはモデレーターのみアクセス可能です" });
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can access this" });
     const rows = await db.select().from(jukeboxQueue).where(eq(jukeboxQueue.communityId, communityId)).orderBy(asc(jukeboxQueue.position));
     res.json(rows);
   });
 
   app.delete("/api/communities/:id/admin/jukebox-queue/:itemId", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const itemId = paramNum(req, "itemId");
     const [community] = await db.select().from(communities).where(eq(communities.id, communityId));
@@ -2029,24 +2029,24 @@ export async function registerRoutes(app: Express): Promise<void> {
     const isAdmin = community.adminId === user.id;
     const [modRow] = await db.select().from(communityModerators).where(and(eq(communityModerators.communityId, communityId), eq(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "管理人またはモデレーターのみ操作可能です" });
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can perform this action" });
     const [item] = await db.select().from(jukeboxQueue).where(and(eq(jukeboxQueue.communityId, communityId), eq(jukeboxQueue.id, itemId)));
     if (!item) return res.status(404).json({ message: "Not found" });
     await db.delete(jukeboxQueue).where(eq(jukeboxQueue.id, itemId));
     res.json({ ok: true });
   });
 
-  /** コミュニティ管理者: 承認済み広告一覧（スケジュール用） */
+  /** コミュニティ管理者: 承認済み広告一覧（スケジュール用) */
   app.get("/api/communities/:id/admin/ads", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const [community] = await db.select().from(communities).where(eq(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
     const [modRow] = await db.select().from(communityModerators).where(and(eq(communityModerators.communityId, communityId), eq(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "管理人またはモデレーターのみアクセス可能です" });
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can access this" });
 
     const rows = await db
       .select()
@@ -2059,14 +2059,14 @@ export async function registerRoutes(app: Express): Promise<void> {
   /** コミュニティ管理者: 該当コミュニティの通報一覧 */
   app.get("/api/communities/:id/admin/reports", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const [community] = await db.select().from(communities).where(eq(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
     const [modRow] = await db.select().from(communityModerators).where(and(eq(communityModerators.communityId, communityId), eq(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "管理人またはモデレーターのみアクセス可能です" });
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can access this" });
 
     const videoIdsInCommunity = await db.select({ id: videos.id }).from(videos).where(eq(videos.communityId, communityId));
     const vidSet = new Set(videoIdsInCommunity.map((v) => v.id));
@@ -2092,7 +2092,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   /** コミュニティ管理者: 通報を非表示にする */
   app.patch("/api/communities/:id/admin/reports/:reportId/hide", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const reportId = paramNum(req, "reportId");
     const [community] = await db.select().from(communities).where(eq(communities.id, communityId));
@@ -2100,10 +2100,10 @@ export async function registerRoutes(app: Express): Promise<void> {
     const isAdmin = community.adminId === user.id;
     const [modRow] = await db.select().from(communityModerators).where(and(eq(communityModerators.communityId, communityId), eq(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "管理人またはモデレーターのみ操作可能です" });
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can perform this action" });
 
     const [report] = await db.select().from(reports).where(eq(reports.id, reportId));
-    if (!report) return res.status(404).json({ error: "通報が見つかりません" });
+    if (!report) return res.status(404).json({ error: "Report not found" });
     const vidSet = new Set((await db.select({ id: videos.id }).from(videos).where(eq(videos.communityId, communityId))).map((v) => v.id));
     const byName = await db.select({ id: videos.id }).from(videos).where(eq(videos.community, community.name));
     byName.forEach((v) => vidSet.add(v.id));
@@ -2116,7 +2116,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         allowed = !!v && (v.communityId === communityId || v.community === community.name);
       }
     }
-    if (!allowed) return res.status(403).json({ error: "この通報はこのコミュニティに属していません" });
+    if (!allowed) return res.status(403).json({ error: "This report does not belong to this community" });
 
     if (report.contentType === "video") {
       await db.update(videos).set({ hidden: true } as Partial<typeof videos.$inferInsert>).where(eq(videos.id, report.contentId));
@@ -2130,7 +2130,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   /** コミュニティ管理者: 通報を問題なしとしてクローズ */
   app.patch("/api/communities/:id/admin/reports/:reportId/dismiss", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const reportId = paramNum(req, "reportId");
     const [community] = await db.select().from(communities).where(eq(communities.id, communityId));
@@ -2138,10 +2138,10 @@ export async function registerRoutes(app: Express): Promise<void> {
     const isAdmin = community.adminId === user.id;
     const [modRow] = await db.select().from(communityModerators).where(and(eq(communityModerators.communityId, communityId), eq(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "管理人またはモデレーターのみ操作可能です" });
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can perform this action" });
 
     const [report] = await db.select().from(reports).where(eq(reports.id, reportId));
-    if (!report) return res.status(404).json({ error: "通報が見つかりません" });
+    if (!report) return res.status(404).json({ error: "Report not found" });
     const vidSet = new Set((await db.select({ id: videos.id }).from(videos).where(eq(videos.communityId, communityId))).map((v) => v.id));
     const byName = await db.select({ id: videos.id }).from(videos).where(eq(videos.community, community.name));
     byName.forEach((v) => vidSet.add(v.id));
@@ -2154,7 +2154,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         allowed = !!v && (v.communityId === communityId || v.community === community.name);
       }
     }
-    if (!allowed) return res.status(403).json({ error: "この通報はこのコミュニティに属していません" });
+    if (!allowed) return res.status(403).json({ error: "This report does not belong to this community" });
 
     await db.update(reports).set({ status: "reviewed" } as Partial<typeof reports.$inferInsert>).where(eq(reports.id, reportId));
     res.json({ ok: true });
@@ -2189,7 +2189,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.post("/api/communities/:id/polls", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const [community] = await db.select().from(communities).where(eq(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
@@ -2197,12 +2197,12 @@ export async function registerRoutes(app: Express): Promise<void> {
       .select()
       .from(communityMembers)
       .where(and(eq(communityMembers.communityId, communityId), eq(communityMembers.userId, user.id)));
-    if (memberRows.length === 0) return res.status(403).json({ error: "コミュニティに参加してください" });
+    if (memberRows.length === 0) return res.status(403).json({ error: "Join the community first" });
     const { question, options } = req.body as { question?: string; options?: string[] };
-    if (!question || !question.trim()) return res.status(400).json({ error: "質問を入力してください" });
-    if (!options || !Array.isArray(options) || options.length < 2) return res.status(400).json({ error: "選択肢を2つ以上入力してください" });
+    if (!question || !question.trim()) return res.status(400).json({ error: "Please enter a question" });
+    if (!options || !Array.isArray(options) || options.length < 2) return res.status(400).json({ error: "Provide at least two options" });
     const validOpts = options.filter((o: string) => o && String(o).trim()).slice(0, 10);
-    if (validOpts.length < 2) return res.status(400).json({ error: "選択肢を2つ以上入力してください" });
+    if (validOpts.length < 2) return res.status(400).json({ error: "Provide at least two options" });
     const [poll] = await db
       .insert(communityPolls)
       .values({
@@ -2223,22 +2223,22 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.post("/api/communities/:id/polls/:pollId/vote", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const pollId = paramNum(req, "pollId");
     const { optionId } = req.body as { optionId?: number };
-    if (!optionId) return res.status(400).json({ error: "optionId を指定してください" });
+    if (!optionId) return res.status(400).json({ error: "optionId is required" });
     const [poll] = await db.select().from(communityPolls).where(and(eq(communityPolls.communityId, communityId), eq(communityPolls.id, pollId)));
     if (!poll) return res.status(404).json({ message: "Not found" });
     const [opt] = await db.select().from(communityPollOptions).where(and(eq(communityPollOptions.pollId, pollId), eq(communityPollOptions.id, optionId)));
-    if (!opt) return res.status(404).json({ message: "選択肢が見つかりません" });
+    if (!opt) return res.status(404).json({ message: "Option not found" });
     const memberRows = await db
       .select()
       .from(communityMembers)
       .where(and(eq(communityMembers.communityId, communityId), eq(communityMembers.userId, user.id)));
-    if (memberRows.length === 0) return res.status(403).json({ error: "コミュニティに参加してください" });
+    if (memberRows.length === 0) return res.status(403).json({ error: "Join the community first" });
     const existing = await db.select().from(communityPollVotes).where(and(eq(communityPollVotes.pollId, pollId), eq(communityPollVotes.userId, user.id)));
-    if (existing.length > 0) return res.status(400).json({ error: "すでに投票済みです" });
+    if (existing.length > 0) return res.status(400).json({ error: "You have already voted" });
     await db.insert(communityPollVotes).values({
       pollId,
       optionId,
@@ -2354,10 +2354,10 @@ export async function registerRoutes(app: Express): Promise<void> {
     };
 
     if (!title || !description || !priceType) {
-      return res.status(400).json({ error: "必須項目を入力してください" });
+      return res.status(400).json({ error: "Please fill in all required fields" });
     }
     if (priceType !== "per_minute" && priceType !== "revenue_share") {
-      return res.status(400).json({ error: "不正な料金形式です" });
+      return res.status(400).json({ error: "Invalid pricing type" });
     }
 
     const [editor] = await db.select().from(videoEditors).where(eq(videoEditors.id, editorId));
@@ -2366,7 +2366,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
 
     if (editor.priceType !== "both" && editor.priceType !== priceType) {
-      return res.status(400).json({ error: "この編集者は選択した料金形式に対応していません" });
+      return res.status(400).json({ error: "This editor does not support the selected pricing type" });
     }
 
     const user = await getAuthUser(req);
@@ -2387,15 +2387,15 @@ export async function registerRoutes(app: Express): Promise<void> {
       } as typeof videoEditRequests.$inferInsert)
       .returning();
 
-    // 通知テーブルに編集者向けの通知を追加（エディタIDはタイトル/本文に含める）
+    // 通知テーブルに編集者向けの通知を追加（エディタIDはタイトル/本文に含める)
     await db.insert(notifications).values({
       type: "editor_request",
-      title: `${requestUserName} から編集依頼`,
-      body: `${title}（編集者ID: ${editorId}）`,
+      title: `Edit request from ${requestUserName}`,
+      body: `${title} (editor ID: ${editorId})`,
       amount: budget ?? null,
       avatar: editor.avatar ?? null,
       thumbnail: null,
-      timeAgo: "たった今",
+      timeAgo: "Just now",
     } as typeof notifications.$inferInsert);
 
     res.status(201).json(requestRow);
@@ -2407,7 +2407,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     const taken = await db.select().from(videoEditors).where(eq(videoEditors.userId, user.id)).limit(1);
     if (taken.length > 0) {
-      return res.status(409).json({ error: "既に動画編集者として登録済みです" });
+      return res.status(409).json({ error: "Already registered as a video editor" });
     }
 
     const body = req.body as {
@@ -2423,10 +2423,10 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     const communityId = body.communityId;
     if (communityId == null || !Number.isFinite(communityId)) {
-      return res.status(400).json({ error: "communityId が必要です" });
+      return res.status(400).json({ error: "communityId is required" });
     }
     const [comm] = await db.select({ id: communities.id }).from(communities).where(eq(communities.id, communityId));
-    if (!comm) return res.status(400).json({ error: "コミュニティが見つかりません" });
+    if (!comm) return res.status(400).json({ error: "Community not found" });
 
     const pricingRow = {
       priceType: String(body.priceType ?? ""),
@@ -2474,7 +2474,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const id = paramNum(req, "id");
     const [editor] = await db.select().from(videoEditors).where(eq(videoEditors.id, id));
     if (!editor) return res.status(404).json({ error: "Not found" });
-    if (editor.userId !== user.id) return res.status(403).json({ error: "編集できません" });
+    if (editor.userId !== user.id) return res.status(403).json({ error: "You cannot edit this" });
 
     const body = req.body as {
       bio?: string;
@@ -2489,7 +2489,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     const communityId = body.communityId ?? editor.communityId;
     const [comm] = await db.select({ id: communities.id }).from(communities).where(eq(communities.id, communityId));
-    if (!comm) return res.status(400).json({ error: "コミュニティが見つかりません" });
+    if (!comm) return res.status(400).json({ error: "Community not found" });
 
     const pricingRow = {
       priceType: String(body.priceType ?? editor.priceType),
@@ -2532,7 +2532,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.post("/api/communities", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
 
     const { name, description, bannerUrl, iconUrl, categories } = req.body as {
       name?: string;
@@ -2558,11 +2558,11 @@ export async function registerRoutes(app: Express): Promise<void> {
         : [];
 
     if (!trimmedName || !trimmedDescription || categoryList.length === 0) {
-      return res.status(400).json({ error: "名前・説明・カテゴリを入力してください" });
+      return res.status(400).json({ error: "Please enter name, description, and category" });
     }
 
     if (trimmedDescription.length < 10) {
-      return res.status(400).json({ error: "説明文は10文字以上で入力してください" });
+      return res.status(400).json({ error: "Description must be at least 10 characters" });
     }
 
     try {
@@ -2595,20 +2595,20 @@ export async function registerRoutes(app: Express): Promise<void> {
       });
     } catch (e) {
       console.error("Create community error:", e);
-      res.status(500).json({ error: "コミュニティの作成に失敗しました" });
+      res.status(500).json({ error: "Failed to create community" });
     }
   });
 
-  /** コミュニティ削除（作成者のみ） */
+  /** コミュニティ削除（作成者のみ) */
   app.delete("/api/communities/:id", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
 
     const communityId = paramNum(req, "id");
     const [community] = await db.select().from(communities).where(eq(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     if (community.ownerId !== user.id) {
-      return res.status(403).json({ error: "コミュニティの削除は作成者のみ可能です" });
+      return res.status(403).json({ error: "Only the creator can delete this community" });
     }
 
     try {
@@ -2639,11 +2639,11 @@ export async function registerRoutes(app: Express): Promise<void> {
       res.json({ ok: true });
     } catch (e) {
       console.error("Community deletion error:", e);
-      res.status(500).json({ error: "コミュニティの削除に失敗しました" });
+      res.status(500).json({ error: "Failed to delete community" });
     }
   });
 
-  // ── Community Ads（広告申し込み・審査）────────────────────────────────
+  // ── Community Ads（広告申し込み・審査)────────────────────────────────
   const MIN_AD_AMOUNT = 7_000;
   const DAILY_RATE_PER_MEMBER = 5; // community ad: $0.05/day (cents)
   const GENRE_DAILY_RATE_PER_MEMBER = 3; // genre ad: $0.03/day (cents)
@@ -2652,9 +2652,9 @@ export async function registerRoutes(app: Express): Promise<void> {
   // 広告料金・最短日数計算API
   app.get("/api/community-ads/pricing", async (req: Request, res: Response) => {
     const cid = Number(queryStr(req, "communityId")) || 0;
-    if (!cid) return res.status(400).json({ error: "communityIdが必要です" });
+    if (!cid) return res.status(400).json({ error: "communityId is required" });
     const [community] = await db.select().from(communities).where(eq(communities.id, cid));
-    if (!community) return res.status(404).json({ error: "コミュニティが見つかりません" });
+    if (!community) return res.status(404).json({ error: "Community not found" });
     const memberCount = community.members;
     const dailyRate = memberCount * DAILY_RATE_PER_MEMBER;
     const minDays = dailyRate > 0 ? Math.ceil(MIN_AD_AMOUNT / dailyRate) : 0;
@@ -2672,7 +2672,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const cid = Number(queryStr(req, "communityId")) || 0;
     const start = queryStr(req, "start");
     const end = queryStr(req, "end");
-    if (!cid || !start || !end) return res.status(400).json({ error: "communityId, start, endが必要です" });
+    if (!cid || !start || !end) return res.status(400).json({ error: "communityId, start, and end are required" });
     // 指定期間と重複する承認済み広告を検索
     const conflicts = await db
       .select({ id: communityAds.id, startDate: communityAds.startDate, endDate: communityAds.endDate })
@@ -2704,7 +2704,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     };
     const cid = Number(bodyCommunityId) || 0;
     const [community] = await db.select().from(communities).where(eq(communities.id, cid));
-    if (!community) return res.status(404).json({ error: "コミュニティが見つかりません" });
+    if (!community) return res.status(404).json({ error: "Community not found" });
 
     const company = (companyName ?? "").trim();
     const contact = (contactName ?? "").trim();
@@ -2714,10 +2714,10 @@ export async function registerRoutes(app: Express): Promise<void> {
     const start = (startDate ?? "").trim();
     const end = (endDate ?? "").trim();
     if (!company || !contact || !em || !banner || !start || !end) {
-      return res.status(400).json({ error: "会社名・担当者名・メール・バナーURL・掲載期間を入力してください" });
+      return res.status(400).json({ error: "Please enter company name, contact name, email, banner URL, and run dates" });
     }
     if (!agreedToTerms) {
-      return res.status(400).json({ error: "料金規約への同意が必要です" });
+      return res.status(400).json({ error: "You must accept the advertising rate terms" });
     }
 
     // 予約時点のメンバー数で料金を固定
@@ -2726,7 +2726,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const startD = new Date(start);
     const endD = new Date(end);
     if (isNaN(startD.getTime()) || isNaN(endD.getTime()) || endD < startD) {
-      return res.status(400).json({ error: "掲載期間の日付が不正です" });
+      return res.status(400).json({ error: "Invalid ad run dates" });
     }
     const days = Math.ceil((endD.getTime() - startD.getTime()) / (24 * 60 * 60 * 1000)) + 1;
     const totalAmount = days * dailyRate;
@@ -2736,7 +2736,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const maxEnd = new Date();
     maxEnd.setMonth(maxEnd.getMonth() + MAX_MONTHS_AHEAD);
     if (endD > maxEnd) {
-      return res.status(400).json({ error: `掲載終了日は${MAX_MONTHS_AHEAD}ヶ月以内で指定してください` });
+      return res.status(400).json({ error: `End date must be within ${MAX_MONTHS_AHEAD} months` });
     }
     // 重複チェック
     const conflicts = await db
@@ -2750,7 +2750,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         )
       );
     if (conflicts.length > 0) {
-      return res.status(409).json({ error: "指定期間は既に予約済みです。別の日程を選んでください。" });
+      return res.status(409).json({ error: "That period is already booked. Please choose different dates." });
     }
 
     const [row] = await db
@@ -2777,11 +2777,11 @@ export async function registerRoutes(app: Express): Promise<void> {
   // 収益分配設定取得API
   app.get("/api/community-ads/revenue-settings/:communityId", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const cid = paramNum(req, "communityId");
     const [community] = await db.select().from(communities).where(eq(communities.id, cid));
-    if (!community) return res.status(404).json({ error: "コミュニティが見つかりません" });
-    if (community.adminId !== user.id) return res.status(403).json({ error: "管理人のみ設定できます" });
+    if (!community) return res.status(404).json({ error: "Community not found" });
+    if (community.adminId !== user.id) return res.status(403).json({ error: "Only the community owner can change this" });
     // モデレーター一覧と分配比率を返す
     const mods = await db
       .select({ userId: communityModerators.userId, displayName: users.displayName, profileImageUrl: users.profileImageUrl })
@@ -2811,19 +2811,19 @@ export async function registerRoutes(app: Express): Promise<void> {
   // 収益分配設定更新API
   app.patch("/api/community-ads/revenue-settings/:communityId", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const cid = paramNum(req, "communityId");
     const [community] = await db.select().from(communities).where(eq(communities.id, cid));
-    if (!community) return res.status(404).json({ error: "コミュニティが見つかりません" });
-    if (community.adminId !== user.id) return res.status(403).json({ error: "管理人のみ設定できます" });
+    if (!community) return res.status(404).json({ error: "Community not found" });
+    if (community.adminId !== user.id) return res.status(403).json({ error: "Only the community owner can change this" });
     const { distribution } = req.body as { distribution?: Record<string, number> };
     if (!distribution || typeof distribution !== "object") {
-      return res.status(400).json({ error: "distributionオブジェクトが必要です" });
+      return res.status(400).json({ error: "distribution object is required" });
     }
     // 合計100%検証
     const total = Object.values(distribution).reduce((s, v) => s + Number(v), 0);
     if (Math.abs(total - 100) > 1) {
-      return res.status(400).json({ error: `分配比率の合計は100%にしてください（現在: ${total}%）` });
+      return res.status(400).json({ error: `Distribution must total 100% (currently ${total}%)` });
     }
     await db.update(communities)
       .set({ revenueDistribution: JSON.stringify(distribution) } as Partial<typeof communities.$inferInsert>)
@@ -2831,10 +2831,10 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json({ ok: true });
   });
 
-  // ジャンル管理人自動就任バッチAPI（毎月実行想定・手動トリガーも可）
+  // ジャンル管理人自動就任バッチAPI（毎月実行想定・手動トリガーも可)
   app.post("/api/genre-owners/assign", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user || user.role !== "ADMIN") return res.status(403).json({ error: "管理者のみ実行できます" });
+    if (!user || user.role !== "ADMIN") return res.status(403).json({ error: "Only admins can run this" });
     // 全ジャンルを取得し、各ジャンル内最大メンバー数コミュニティの管理人を就任させる
     const allCommunities = await db
       .select({ id: communities.id, category: communities.category, members: communities.members, adminId: communities.adminId })
@@ -2870,7 +2870,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     app.get("/api/community-ads/review", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
 
     const ownedRows = await db.select({ id: communities.id }).from(communities).where(eq(communities.adminId, user.id));
     const modRows = await db
@@ -2902,40 +2902,40 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.patch("/api/community-ads/:id/moderator-approve", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const id = paramNum(req, "id");
     const [ad] = await db.select().from(communityAds).where(eq(communityAds.id, id));
-    if (!ad) return res.status(404).json({ error: "申し込みが見つかりません" });
-    if (ad.status !== "pending") return res.status(400).json({ error: "この申し込みは既に処理済みです" });
+    if (!ad) return res.status(404).json({ error: "Application not found" });
+    if (ad.status !== "pending") return res.status(400).json({ error: "This application has already been processed" });
     const [mod] = await db
       .select()
       .from(communityModerators)
       .where(and(eq(communityModerators.communityId, ad.communityId), eq(communityModerators.userId, user.id)));
-    if (!mod) return res.status(403).json({ error: "このコミュニティのモデレーターのみ承認できます" });
+    if (!mod) return res.status(403).json({ error: "Only moderators of this community can approve this" });
     await db.update(communityAds).set({ status: "moderator_approved", approvedByModerator: user.id } as Partial<typeof communityAds.$inferInsert>).where(eq(communityAds.id, id));
     res.json({ ok: true });
   });
 
   app.patch("/api/community-ads/:id/approve", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const id = paramNum(req, "id");
     const [ad] = await db.select().from(communityAds).where(eq(communityAds.id, id));
-    if (!ad) return res.status(404).json({ error: "申し込みが見つかりません" });
-    if (ad.status !== "moderator_approved") return res.status(400).json({ error: "モデレーター承認後に管理人が承認できます" });
+    if (!ad) return res.status(404).json({ error: "Application not found" });
+    if (ad.status !== "moderator_approved") return res.status(400).json({ error: "The owner can approve after moderator approval" });
     const [community] = await db.select().from(communities).where(eq(communities.id, ad.communityId));
-    if (!community || community.adminId !== user.id) return res.status(403).json({ error: "管理人のみ最終承認できます" });
+    if (!community || community.adminId !== user.id) return res.status(403).json({ error: "Only the owner can give final approval" });
     await db.update(communityAds).set({ status: "approved", approvedByOwner: user.id } as Partial<typeof communityAds.$inferInsert>).where(eq(communityAds.id, id));
     res.json({ ok: true });
   });
 
   app.patch("/api/community-ads/:id/reject", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const id = paramNum(req, "id");
     const [ad] = await db.select().from(communityAds).where(eq(communityAds.id, id));
-    if (!ad) return res.status(404).json({ error: "申し込みが見つかりません" });
-    if (ad.status === "approved" || ad.status === "rejected") return res.status(400).json({ error: "既に処理済みです" });
+    if (!ad) return res.status(404).json({ error: "Application not found" });
+    if (ad.status === "approved" || ad.status === "rejected") return res.status(400).json({ error: "Already processed" });
     const [community] = await db.select().from(communities).where(eq(communities.id, ad.communityId));
     const [mod] = await db
       .select()
@@ -2943,17 +2943,17 @@ export async function registerRoutes(app: Express): Promise<void> {
       .where(and(eq(communityModerators.communityId, ad.communityId), eq(communityModerators.userId, user.id)));
     const isOwner = community?.adminId === user.id;
     const isMod = !!mod;
-    if (!isOwner && !isMod) return res.status(403).json({ error: "管理人またはモデレーターのみ却下できます" });
+    if (!isOwner && !isMod) return res.status(403).json({ error: "Only owners or moderators can reject" });
     await db.update(communityAds).set({ status: "rejected" } as Partial<typeof communityAds.$inferInsert>).where(eq(communityAds.id, id));
     res.json({ ok: true });
   });
 
-  // ── Reports（通報・Claude API判定）────────────────────────────────────
+  // ── Reports（通報・Claude API判定)────────────────────────────────────
   const REPORT_REASONS = ["spam", "harassment", "inappropriate", "other"] as const;
 
   app.post("/api/reports", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
 
     const { contentType, contentId, reason } = req.body as {
       contentType?: string;
@@ -2963,17 +2963,17 @@ export async function registerRoutes(app: Express): Promise<void> {
     const cid = Number(contentId) || 0;
     const type = contentType === "comment" ? "comment" : contentType === "video" ? "video" : null;
     if (!type || !cid || !reason || !REPORT_REASONS.includes(reason as any)) {
-      return res.status(400).json({ error: "contentType(video/comment), contentId, reason(spam/harassment/inappropriate/other)を指定してください" });
+      return res.status(400).json({ error: "Provide contentType (video/comment), contentId, and reason (spam/harassment/inappropriate/other)" });
     }
 
     let contentText: string;
     if (type === "video") {
       const [video] = await db.select().from(videos).where(eq(videos.id, cid));
-      if (!video) return res.status(404).json({ error: "対象が見つかりません" });
+      if (!video) return res.status(404).json({ error: "Target not found" });
       contentText = video.title ?? "";
     } else {
       const [comment] = await db.select().from(videoComments).where(eq(videoComments.id, cid));
-      if (!comment) return res.status(404).json({ error: "対象が見つかりません" });
+      if (!comment) return res.status(404).json({ error: "Target not found" });
       contentText = comment.text ?? "";
     }
 
@@ -3003,11 +3003,11 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.status(201).json(report);
   });
 
-  // ── Concerts（公演）──────────────────────────────────────────────────
+  // ── Concerts（公演)──────────────────────────────────────────────────
 
   app.post("/api/concerts", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     const {
       title,
@@ -3038,7 +3038,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     };
 
     if (!title || !venueName || !venueAddress || !concertDate) {
-      return res.status(400).json({ error: "必須項目が不足しています" });
+      return res.status(400).json({ error: "Required items are missing" });
     }
 
     const shares = [
@@ -3048,11 +3048,11 @@ export async function registerRoutes(app: Express): Promise<void> {
       Number(venueShare ?? 0),
     ];
     if (shares.some((s) => s < 0)) {
-      return res.status(400).json({ error: "分配比率は0以上で指定してください" });
+      return res.status(400).json({ error: "Distribution ratios must be 0 or greater" });
     }
     const sum = shares.reduce((a, b) => a + b, 0);
     if (sum !== 100) {
-      return res.status(400).json({ error: "分配比率の合計は100%にしてください" });
+      return res.status(400).json({ error: "Distribution must total 100%" });
     }
 
     const [row] = await db
@@ -3089,17 +3089,17 @@ export async function registerRoutes(app: Express): Promise<void> {
   app.get("/api/concerts/:id", async (req: Request, res: Response) => {
     const id = paramNum(req, "id");
     const [row] = await db.select().from(concerts).where(eq(concerts.id, id));
-    if (!row) return res.status(404).json({ error: "公演が見つかりません" });
+    if (!row) return res.status(404).json({ error: "Show not found" });
     res.json(row);
   });
 
   app.post("/api/concerts/:id/staff-request", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     const concertId = paramNum(req, "id");
     const [concert] = await db.select().from(concerts).where(eq(concerts.id, concertId));
-    if (!concert) return res.status(404).json({ error: "公演が見つかりません" });
+    if (!concert) return res.status(404).json({ error: "Show not found" });
 
     // 既に申請済みかチェック
     const existing = await db
@@ -3107,7 +3107,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       .from(concertStaff)
       .where(and(eq(concertStaff.concertId, concertId), eq(concertStaff.staffUserId, user.id)));
     if (existing.length > 0) {
-      return res.status(400).json({ error: "すでに申請済みです" });
+      return res.status(400).json({ error: "Already applied" });
     }
 
     const [row] = await db
@@ -3125,13 +3125,13 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.get("/api/concerts/:id/staff-requests", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     const concertId = paramNum(req, "id");
     const [concert] = await db.select().from(concerts).where(eq(concerts.id, concertId));
-    if (!concert) return res.status(404).json({ error: "公演が見つかりません" });
+    if (!concert) return res.status(404).json({ error: "Show not found" });
     if (concert.artistUserId !== user.id) {
-      return res.status(403).json({ error: "アーティストのみ申請一覧を閲覧できます" });
+      return res.status(403).json({ error: "Only the artist can view applications" });
     }
 
     const rows = await db
@@ -3153,22 +3153,22 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.patch("/api/concerts/:id/staff/:staffId/approve", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     const concertId = paramNum(req, "id");
     const staffId = paramNum(req, "staffId");
 
     const [concert] = await db.select().from(concerts).where(eq(concerts.id, concertId));
-    if (!concert) return res.status(404).json({ error: "公演が見つかりません" });
+    if (!concert) return res.status(404).json({ error: "Show not found" });
     if (concert.artistUserId !== user.id) {
-      return res.status(403).json({ error: "アーティストのみ承認できます" });
+      return res.status(403).json({ error: "Only the artist can approve" });
     }
 
     const [staff] = await db
       .select()
       .from(concertStaff)
       .where(and(eq(concertStaff.id, staffId), eq(concertStaff.concertId, concertId)));
-    if (!staff) return res.status(404).json({ error: "申請が見つかりません" });
+    if (!staff) return res.status(404).json({ error: "Request not found" });
 
     const [updated] = await db
       .update(concertStaff)
@@ -3181,22 +3181,22 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.patch("/api/concerts/:id/staff/:staffId/reject", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     const concertId = paramNum(req, "id");
     const staffId = paramNum(req, "staffId");
 
     const [concert] = await db.select().from(concerts).where(eq(concerts.id, concertId));
-    if (!concert) return res.status(404).json({ error: "公演が見つかりません" });
+    if (!concert) return res.status(404).json({ error: "Show not found" });
     if (concert.artistUserId !== user.id) {
-      return res.status(403).json({ error: "アーティストのみ却下できます" });
+      return res.status(403).json({ error: "Only the artist can reject" });
     }
 
     const [staff] = await db
       .select()
       .from(concertStaff)
       .where(and(eq(concertStaff.id, staffId), eq(concertStaff.concertId, concertId)));
-    if (!staff) return res.status(404).json({ error: "申請が見つかりません" });
+    if (!staff) return res.status(404).json({ error: "Request not found" });
 
     const [updated] = await db
       .update(concertStaff)
@@ -3207,13 +3207,13 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json(updated);
   });
 
-  // ── Genre Ads（ジャンルページ広告）───────────────────────────────────────
+  // ── Genre Ads（ジャンルページ広告)───────────────────────────────────────
   const GENRE_MIN_AMOUNT = 7_000;
   const GENRE_MAX_MONTHS_AHEAD = 3;
 
   app.post("/api/genre-ads", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
 
     const { genreId, companyName, contactName, email, bannerUrl, startDate, endDate } = req.body as {
       genreId?: string;
@@ -3227,25 +3227,25 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     const gid = (genreId ?? "").trim();
     if (!gid || !GENRE_TO_CATEGORY[gid]) {
-      return res.status(400).json({ error: "genreId が不正です" });
+      return res.status(400).json({ error: "Invalid genreId" });
     }
     if (!companyName || !contactName || !email || !bannerUrl || !startDate || !endDate) {
-      return res.status(400).json({ error: "必須項目が不足しています" });
+      return res.status(400).json({ error: "Required items are missing" });
     }
 
     const start = new Date(startDate);
     const end = new Date(endDate);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-      return res.status(400).json({ error: "日付の形式が不正です（YYYY-MM-DD）" });
+      return res.status(400).json({ error: "Invalid date format (YYYY-MM-DD)" });
     }
     if (end < start) {
-      return res.status(400).json({ error: "終了日は開始日以降にしてください" });
+      return res.status(400).json({ error: "End date must be on or after start date" });
     }
     const now = new Date();
     const maxEnd = new Date(now);
     maxEnd.setMonth(maxEnd.getMonth() + GENRE_MAX_MONTHS_AHEAD);
     if (end > maxEnd) {
-      return res.status(400).json({ error: `掲載終了日は${GENRE_MAX_MONTHS_AHEAD}ヶ月以内で指定してください` });
+      return res.status(400).json({ error: `End date must be within ${GENRE_MAX_MONTHS_AHEAD} months` });
     }
 
     const cats = GENRE_TO_CATEGORY[gid];
@@ -3290,7 +3290,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   /** ジャンル管理人向け: 自分が担当するジャンルの審査待ち一覧 */
   app.get("/api/genre-ads/review", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
 
     const ownerRows = await db.select().from(genreOwners).where(eq(genreOwners.ownerUserId, user.id));
     if (ownerRows.length === 0) return res.json([]);
@@ -3307,14 +3307,14 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.patch("/api/genre-ads/:id/approve", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const id = paramNum(req, "id");
 
     const [ad] = await db.select().from(genreAds).where(eq(genreAds.id, id));
-    if (!ad) return res.status(404).json({ error: "申し込みが見つかりません" });
+    if (!ad) return res.status(404).json({ error: "Application not found" });
 
     const [owner] = await db.select().from(genreOwners).where(and(eq(genreOwners.genreId, ad.genreId), eq(genreOwners.ownerUserId, user.id)));
-    if (!owner) return res.status(403).json({ error: "このジャンルの管理人ではありません" });
+    if (!owner) return res.status(403).json({ error: "You are not the genre manager" });
 
     await db.update(genreAds).set({ status: "approved" } as Partial<typeof genreAds.$inferInsert>).where(eq(genreAds.id, id));
     res.json({ ok: true });
@@ -3322,14 +3322,14 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.patch("/api/genre-ads/:id/reject", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインしてください" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const id = paramNum(req, "id");
 
     const [ad] = await db.select().from(genreAds).where(eq(genreAds.id, id));
-    if (!ad) return res.status(404).json({ error: "申し込みが見つかりません" });
+    if (!ad) return res.status(404).json({ error: "Application not found" });
 
     const [owner] = await db.select().from(genreOwners).where(and(eq(genreOwners.genreId, ad.genreId), eq(genreOwners.ownerUserId, user.id)));
-    if (!owner) return res.status(403).json({ error: "このジャンルの管理人ではありません" });
+    if (!owner) return res.status(403).json({ error: "You are not the genre manager" });
 
     await db.update(genreAds).set({ status: "rejected" } as Partial<typeof genreAds.$inferInsert>).where(eq(genreAds.id, id));
     res.json({ ok: true });
@@ -3380,14 +3380,14 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json(rows);
   });
 
-  /** 管理者向け: 通報されたコンテンツを非表示にする（動画 or コメント） */
+  /** 管理者向け: 通報されたコンテンツを非表示にする（動画 or コメント) */
   app.patch("/api/admin/reports/:id/hide", async (req: Request, res: Response) => {
     const user = await getAdminUserOrReject(req, res);
     if (!user) return;
 
     const id = paramNum(req, "id");
     const [report] = await db.select().from(reports).where(eq(reports.id, id));
-    if (!report) return res.status(404).json({ error: "通報が見つかりません" });
+    if (!report) return res.status(404).json({ error: "Report not found" });
 
     if (report.contentType === "video") {
       await db.update(videos).set({ hidden: true } as Partial<typeof videos.$inferInsert>).where(eq(videos.id, report.contentId));
@@ -3399,14 +3399,14 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json({ ok: true });
   });
 
-  /** 管理者向け: 問題なしとしてクローズ（ステータスを reviewed に） */
+  /** 管理者向け: 問題なしとしてクローズ（ステータスを reviewed に) */
   app.patch("/api/admin/reports/:id/dismiss", async (req: Request, res: Response) => {
     const user = await getAdminUserOrReject(req, res);
     if (!user) return;
 
     const id = paramNum(req, "id");
     const [report] = await db.select().from(reports).where(eq(reports.id, id));
-    if (!report) return res.status(404).json({ error: "通報が見つかりません" });
+    if (!report) return res.status(404).json({ error: "Report not found" });
 
     await db.update(reports).set({ status: "reviewed" } as Partial<typeof reports.$inferInsert>).where(eq(reports.id, id));
     res.json({ ok: true });
@@ -3571,7 +3571,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       timestamp: Date.now(),
     });
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     const hasAccessKey = Boolean(process.env.R2_ACCESS_KEY_ID?.trim());
     const hasSecret = Boolean(process.env.R2_SECRET_ACCESS_KEY?.trim());
@@ -3591,7 +3591,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     };
 
     if (!fileName || !contentType) {
-      return res.status(400).json({ error: "fileName と contentType は必須です" });
+      return res.status(400).json({ error: "fileName and contentType are required" });
     }
 
     const safeName = String(fileName).replace(/[^a-zA-Z0-9_.-]/g, "_");
@@ -3613,7 +3613,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         hasBucket,
         err: e,
       });
-      res.status(500).json({ error: "署名付きURLの発行に失敗しました" });
+      res.status(500).json({ error: "Failed to issue signed URL" });
     }
   });
 
@@ -3626,7 +3626,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       .from(videos)
       .where(and(eq(videos.isRanked, false), eq(videos.hidden, false)))
       .orderBy(desc(videos.createdAt));
-    // visibility=community の投稿のみ一覧に表示（既存データは visibility 未設定時も表示）
+    // visibility=community の投稿のみ一覧に表示（既存データは visibility 未設定時も表示)
     rows = rows.filter((r) => (r as any).visibility !== "draft" && (r as any).visibility !== "my_page_only");
     const names = Array.from(new Set(rows.map((r) => r.creator)));
     const userMap = new Map<string, number>();
@@ -3650,7 +3650,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.get("/api/videos/my", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const rows = await db
       .select()
       .from(videos)
@@ -3669,10 +3669,10 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json(rows);
   });
 
-  /** マイリスト: 保存済み動画一覧（:id より前に定義すること） */
+  /** マイリスト: 保存済み動画一覧（:id より前に定義すること) */
   app.get("/api/videos/saved", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     const rows = await db
       .select({
@@ -3690,7 +3690,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       .orderBy(desc(savedVideos.createdAt));
     const timeAgoList = rows.map((r) => ({
       ...r,
-      timeAgo: r.createdAt ? formatTimeAgo(r.createdAt) : "たった今",
+      timeAgo: r.createdAt ? formatTimeAgo(r.createdAt) : "Just now",
     }));
     res.json(timeAgoList);
   });
@@ -3712,7 +3712,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json({ ...row, timeAgo, creatorType, creatorId });
   });
 
-  /** 動画コメント一覧（非表示コメントは除外） */
+  /** 動画コメント一覧（非表示コメントは除外) */
   app.get("/api/videos/:id/comments", async (req: Request, res: Response) => {
     const videoId = paramNum(req, "id");
     const rows = await db
@@ -3732,14 +3732,14 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json(rows);
   });
 
-  /** コメント投稿（ログイン必須） */
+  /** コメント投稿（ログイン必須) */
   app.post("/api/videos/:id/comments", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     const videoId = paramNum(req, "id");
     const text = (req.body as { text?: string }).text?.trim();
-    if (!text) return res.status(400).json({ error: "コメント本文は必須です" });
+    if (!text) return res.status(400).json({ error: "Comment text is required" });
 
     const [row] = await db
       .insert(videoComments)
@@ -3750,7 +3750,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.post("/api/videos", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     const { title, community, communityId, duration, price, thumbnail, description, concertId, visibility, videoUrl, youtubeId, postType, complianceAcknowledged } = req.body as {
       title?: string;
@@ -3770,18 +3770,18 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     if (complianceAcknowledged !== true) {
       return res.status(400).json({
-        message: "投稿前にコミュニティガイドラインと権利に関する確認が必要です",
+        message: "Confirm community guidelines and rights before posting",
         code: "COMPLIANCE_ACK_REQUIRED",
       });
     }
 
     if (!title || !duration || !thumbnail) {
-      return res.status(400).json({ message: "必須フィールドが不足しています" });
+      return res.status(400).json({ message: "Required fields are missing" });
     }
 
     const vis = visibility === "draft" ? "draft" : visibility === "my_page_only" ? "my_page_only" : "community";
     if (vis === "community" && (!community || !community.trim())) {
-      return res.status(400).json({ message: "コミュニティ公開時は community を指定してください" });
+      return res.status(400).json({ message: "Specify community when posting to a community" });
     }
 
     const [row] = await db
@@ -3791,7 +3791,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         creator: user.displayName,
         community: community?.trim() ?? "",
         views: 0,
-        timeAgo: "たった今",
+        timeAgo: "Just now",
         duration,
         price: price ?? null,
         thumbnail,
@@ -3813,16 +3813,16 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.status(201).json(row);
   });
 
-  /** 自分の投稿の編集（タイトル・公開範囲） */
+  /** 自分の投稿の編集（タイトル・公開範囲) */
   app.patch("/api/videos/:id", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     const id = paramNum(req, "id");
     const [video] = await db.select().from(videos).where(eq(videos.id, id));
     if (!video) return res.status(404).json({ message: "Not found" });
     const isOwner = (video as any).userId === user.id || video.creator === user.displayName;
-    if (!isOwner) return res.status(403).json({ error: "編集権限がありません" });
+    if (!isOwner) return res.status(403).json({ error: "You do not have permission to edit" });
 
     const { title, visibility, communityId, community } = req.body as {
       title?: string;
@@ -3834,7 +3834,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const updates: Record<string, unknown> = {};
     if (title !== undefined) {
       const newTitle = title?.trim();
-      if (!newTitle) return res.status(400).json({ error: "タイトルは必須です" });
+      if (!newTitle) return res.status(400).json({ error: "Title is required" });
       updates.title = newTitle;
     }
     if (visibility !== undefined) {
@@ -3855,16 +3855,16 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json(updated);
   });
 
-  /** 自分の投稿の削除（コメントも合わせて削除） */
+  /** 自分の投稿の削除（コメントも合わせて削除) */
   app.delete("/api/videos/:id", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     const id = paramNum(req, "id");
     const [video] = await db.select().from(videos).where(eq(videos.id, id));
     if (!video) return res.status(404).json({ message: "Not found" });
     const isOwner = (video as any).userId === user.id || video.creator === user.displayName;
-    if (!isOwner) return res.status(403).json({ error: "削除権限がありません" });
+    if (!isOwner) return res.status(403).json({ error: "You do not have permission to delete" });
 
     await db.delete(videoComments).where(eq(videoComments.videoId, id));
     await db.delete(videos).where(eq(videos.id, id));
@@ -3874,7 +3874,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   /** マイリスト: 動画を保存 */
   app.post("/api/videos/:id/save", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     const videoId = paramNum(req, "id");
     const [video] = await db.select().from(videos).where(eq(videos.id, videoId));
@@ -3890,7 +3890,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         .insert(savedVideos)
         .values({ userId: user.id, videoId } as typeof savedVideos.$inferInsert);
     } catch {
-      // 既に保存済み（UNIQUE制約）の場合は無視
+      // 既に保存済み（UNIQUE制約)の場合は無視
     }
     res.json({ ok: true });
   });
@@ -3898,7 +3898,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   /** マイリスト: 動画の保存を解除 */
   app.delete("/api/videos/:id/save", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     const videoId = paramNum(req, "id");
     await db
@@ -3920,7 +3920,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json({ saved: !!row });
   });
 
-  /** 公開プロフィール用: ユーザーの公開投稿一覧（my_page_only 以上） */
+  /** 公開プロフィール用: ユーザーの公開投稿一覧（my_page_only 以上) */
   app.get("/api/users/:id/posts", async (req: Request, res: Response) => {
     const userId = paramNum(req, "id");
     const [targetUser] = await db.select({ id: users.id, displayName: users.displayName }).from(users).where(eq(users.id, userId));
@@ -3971,7 +3971,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const id = paramNum(req, "id");
     const [session] = await db.select().from(bookingSessions).where(eq(bookingSessions.id, id));
     if (!session) return res.status(404).json({ message: "Not found" });
-    if (session.spotsLeft <= 0) return res.status(400).json({ message: "満席です" });
+    if (session.spotsLeft <= 0) return res.status(400).json({ message: "Fully booked" });
     const [updated] = await db
       .update(bookingSessions)
       .set({ spotsLeft: session.spotsLeft - 1 } as Partial<typeof bookingSessions.$inferInsert>)
@@ -3980,10 +3980,10 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json(updated);
   });
 
-  // ── DM（dm_threads: ユーザー間スレッド）──────────────────────────────
+  // ── DM（dm_threads: ユーザー間スレッド)──────────────────────────────
   app.post("/api/dm/open", async (req: Request, res: Response) => {
     const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "未認証です" });
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const raw = (req.body as { peerUserId?: unknown })?.peerUserId;
     const peer =
       typeof raw === "number" && Number.isFinite(raw)
@@ -3992,11 +3992,11 @@ export async function registerRoutes(app: Express): Promise<void> {
           ? parseInt(raw, 10)
           : NaN;
     if (!Number.isFinite(peer) || peer < 1) {
-      return res.status(400).json({ error: "peerUserId が必要です" });
+      return res.status(400).json({ error: "peerUserId is required" });
     }
-    if (peer === me.id) return res.status(400).json({ error: "自分自身とは DM できません" });
+    if (peer === me.id) return res.status(400).json({ error: "You cannot DM yourself" });
     const [peerUser] = await db.select({ id: users.id }).from(users).where(eq(users.id, peer));
-    if (!peerUser) return res.status(404).json({ error: "ユーザーが見つかりません" });
+    if (!peerUser) return res.status(404).json({ error: "User not found" });
     const u1 = Math.min(me.id, peer);
     const u2 = Math.max(me.id, peer);
     let [th] = await db
@@ -4161,25 +4161,25 @@ export async function registerRoutes(app: Express): Promise<void> {
   app.post("/api/live-streams/:id/chat", async (req: Request, res: Response) => {
     const id = paramNum(req, "id");
     const { username, avatar, message, isGift, giftAmount } = req.body;
-    // ギフトメッセージはモデレーション対象外（金額のみ）、通常メッセージはモデレーション実施
+    // ギフトメッセージはモデレーション対象外（金額のみ)、通常メッセージはモデレーション実施
     if (!isGift && message) {
       const modResult = await moderateContent(message);
       if (!modResult.allowed) {
-        return res.status(400).json({ error: modResult.reason ?? "不適切なコンテンツが含まれています" });
+        return res.status(400).json({ error: modResult.reason ?? "This content is not allowed" });
       }
     }
     const [msg] = await db.insert(liveStreamChat).values({
-      streamId: id, username: username ?? "あなた", avatar, message,
+      streamId: id, username: username ?? "You", avatar, message,
       isGift: isGift ?? false, giftAmount: giftAmount ?? null,
     } as typeof liveStreamChat.$inferInsert).returning();
     res.json(msg);
   });
 
-  // ── DM 会話（:id = dm_threads.id。レガシー dm_messages.id は下でフォールバック） ──
+  // ── DM 会話（:id = dm_threads.id。レガシー dm_messages.id は下でフォールバック) ──
   app.get("/api/dm-messages/:id/peer", async (req: Request, res: Response) => {
     const rawId = paramNum(req, "id");
     const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "未認証です" });
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const legacyDmId = rawId < 0 ? -rawId : rawId;
     if (rawId > 0) {
       const [th] = await db
@@ -4214,7 +4214,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   app.get("/api/dm-messages/:id/conversation", async (req: Request, res: Response) => {
     const rawId = paramNum(req, "id");
     const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "未認証です" });
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const legacyDmId = rawId < 0 ? -rawId : rawId;
     if (rawId > 0) {
       const [th] = await db
@@ -4254,9 +4254,9 @@ export async function registerRoutes(app: Express): Promise<void> {
     const rawId = paramNum(req, "id");
     const legacyDmId = rawId < 0 ? -rawId : rawId;
     const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "未認証です" });
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const text = typeof (req.body as { text?: unknown })?.text === "string" ? (req.body as { text: string }).text : "";
-    if (!text.trim()) return res.status(400).json({ error: "メッセージを入力してください" });
+    if (!text.trim()) return res.status(400).json({ error: "Please enter a message" });
     if (rawId > 0) {
       const [th] = await db
         .select()
@@ -4314,7 +4314,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   // ── Jukebox ───────────────────────────────────────────────────────
-  /** トップバナー用: 再生中・待機中のコミュニティ一覧（:communityId より先に定義） */
+  /** トップバナー用: 再生中・待機中のコミュニティ一覧（:communityId より先に定義) */
   app.get("/api/jukebox/active-sessions", async (_req: Request, res: Response) => {
     const playingRows = await db
       .select({
@@ -4394,7 +4394,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         }
         const next = queue.find((q) => !q.isPlayed && q.id !== currentItem?.id);
         if (next) {
-          // 次に再生する曲は isPlayed にしない（キュー表示で消えないようにする）
+          // 次に再生する曲は isPlayed にしない（キュー表示で消えないようにする)
           queueModified = true;
 
           const watchers = Math.floor(Math.random() * 80) + 20;
@@ -4473,7 +4473,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       );
     }
 
-    // youtubeId がなくても UI 用に state を返す（サムネ・タイトル表示のため）
+    // youtubeId がなくても UI 用に state を返す（サムネ・タイトル表示のため)
     const effectiveState =
       state && state.isPlaying && (state.currentVideoTitle || state.currentVideoYoutubeId)
         ? state
@@ -4588,7 +4588,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     return true;
   }
 
-  // ── Cloudflare Stream 接続テスト（直接トークン指定） ────────────────
+  // ── Cloudflare Stream 接続テスト（直接トークン指定) ────────────────
   app.post("/api/debug/cf-stream-test", async (req: Request, res: Response) => {
     const { token, accountId, liveInputId } = req.body as {
       token?: string;
@@ -4650,7 +4650,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
 
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     const {
       name,
@@ -4674,14 +4674,14 @@ export async function registerRoutes(app: Express): Promise<void> {
           ? rcIn
           : parseInt(String(rcIn ?? ""), 10);
       if (!Number.isFinite(cid)) {
-        return res.status(400).json({ error: "コミュニティ限定配信では restrictedCommunityId が必要です" });
+        return res.status(400).json({ error: "restrictedCommunityId is required for community-only streams" });
       }
       const [mem] = await db
         .select({ id: communityMembers.id })
         .from(communityMembers)
         .where(and(eq(communityMembers.userId, user.id), eq(communityMembers.communityId, cid)));
       if (!mem) {
-        return res.status(403).json({ error: "選択したコミュニティのメンバーではありません" });
+        return res.status(403).json({ error: "You are not a member of the selected community" });
       }
       restrictedCommunityId = cid;
     }
@@ -4795,7 +4795,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
   });
 
-  /** 配信セッション状態 + 視聴者数（broadcast ポーリング / 視聴ページ） */
+  /** 配信セッション状態 + 視聴者数（broadcast ポーリング / 視聴ページ) */
   app.get("/api/stream/:id", async (req: Request, res: Response) => {
     const id = paramNum(req, "id");
     if (!id) return res.status(400).json({ error: "Invalid id" });
@@ -4874,7 +4874,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     });
   });
 
-  /** 配信開始: is_live + started_at、視聴者カウントリセット（ホストのみ） */
+  /** 配信開始: is_live + started_at、視聴者カウントリセット（ホストのみ) */
   app.post("/api/stream/:id/start", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -4898,7 +4898,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json(updated);
   });
 
-  /** 配信終了（ホストのみ） */
+  /** 配信終了（ホストのみ) */
   app.post("/api/stream/:id/end", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -4937,7 +4937,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           });
         }
         return res.status(403).json({
-          error: "この配信を視聴する権限がありません",
+          error: "You are not allowed to watch this stream",
           code: "STREAM_ACCESS_DENIED",
         });
       }
@@ -5097,11 +5097,11 @@ export async function registerRoutes(app: Express): Promise<void> {
       videoThumbnail,
       videoDurationSecs: videoDurationSecs ?? 0,
       youtubeId: youtubeId ?? null,
-      addedBy: addedBy ?? "あなた", addedByAvatar, position: nextPos, isPlayed: false,
+      addedBy: addedBy ?? "You", addedByAvatar, position: nextPos, isPlayed: false,
     } as typeof jukeboxQueue.$inferInsert).returning();
 
-    // 未再生の曲が1つもない場合（新しいセッション）は自動で再生を開始する
-    // ただし、既に再生中の曲がある場合は割り込み再生しない（キュー末尾に追加するだけ）
+    // 未再生の曲が1つもない場合（新しいセッション)は自動で再生を開始する
+    // ただし、既に再生中の曲がある場合は割り込み再生しない（キュー末尾に追加するだけ)
     const [stateRow] = await db.select().from(jukeboxState).where(eq(jukeboxState.communityId, communityId));
     const isCurrentlyPlaying = !!(stateRow?.isPlaying && (stateRow.currentVideoId != null || stateRow.currentVideoYoutubeId));
     const hasUnplayed = existing.some((q) => !q.isPlayed);
@@ -5164,7 +5164,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       .where(and(eq(jukeboxQueue.communityId, communityId), eq(jukeboxQueue.isPlayed, false)))
       .orderBy(asc(jukeboxQueue.position));
 
-    // 再生中の曲を特定し isPlayed にマーク（同じ曲が「次」として選ばれるのを防ぐ）
+    // 再生中の曲を特定し isPlayed にマーク（同じ曲が「次」として選ばれるのを防ぐ)
     let currentItemId: number | null = null;
     if (stateRaw?.currentVideoId != null || stateRaw?.currentVideoYoutubeId) {
       const currentItem = queue.find(
@@ -5180,7 +5180,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     const next = queue.find((q) => !q.isPlayed && q.id !== currentItemId);
     if (next) {
-      // 次に再生する曲は isPlayed にしない（再生完了時にマークする）。キュー表示で消えないようにする
+      // 次に再生する曲は isPlayed にしない（再生完了時にマークする)。キュー表示で消えないようにする
       const watchers = Math.floor(Math.random() * 80) + 20;
       await db
         .insert(jukeboxState)
@@ -5242,12 +5242,12 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   // クライアント側で getDuration() で取得した実際の動画長で currentVideoDurationSecs を更新
-  // videoDurationSecs が 0 または未設定の場合にのみ呼ばれる（全クライアントからの重複更新を防ぐ）
+  // videoDurationSecs が 0 または未設定の場合にのみ呼ばれる（全クライアントからの重複更新を防ぐ)
   app.patch("/api/jukebox/:communityId/duration", async (req: Request, res: Response) => {
     const communityId = paramNum(req, "communityId");
     const { durationSecs } = req.body;
     if (!durationSecs || typeof durationSecs !== "number" || durationSecs <= 0) {
-      return res.status(400).json({ error: "durationSecs は正の数値である必要があります" });
+      return res.status(400).json({ error: "durationSecs must be a positive number" });
     }
     // 現在の状態を取得し、videoDurationSecs が 0 の場合のみ更新
     const [current] = await db
@@ -5269,14 +5269,14 @@ export async function registerRoutes(app: Express): Promise<void> {
   app.post("/api/jukebox/:communityId/chat", async (req: Request, res: Response) => {
     const communityId = paramNum(req, "communityId");
     const { username, avatar, message } = req.body;
-    if (!message || !message.trim()) return res.status(400).json({ error: "メッセージを入力してください" });
+    if (!message || !message.trim()) return res.status(400).json({ error: "Please enter a message" });
     // コンテンツモデレーション
     const modResult = await moderateContent(message);
     if (!modResult.allowed) {
-      return res.status(400).json({ error: modResult.reason ?? "不適切なコンテンツが含まれています" });
+      return res.status(400).json({ error: modResult.reason ?? "This content is not allowed" });
     }
     const [msg] = await db.insert(jukeboxChat).values({
-      communityId, username: username ?? "あなた", avatar, message,
+      communityId, username: username ?? "You", avatar, message,
     } as typeof jukeboxChat.$inferInsert).returning();
 
     // Redis に chat イベントを publish
@@ -5351,7 +5351,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     return res.json(rows);
   });
 
-  /** 互換: mentor-book/[id].tsx 用予約作成（チケット即時消費） */
+  /** 互換: mentor-book/[id].tsx 用予約作成（チケット即時消費) */
   app.post("/api/mentor/bookings", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -5546,8 +5546,8 @@ export async function registerRoutes(app: Express): Promise<void> {
       const queuePos = Number(total) + 1;
 
       const [stream] = await db.select().from(liveStreams).where(eq(liveStreams.id, streamId));
-      const streamTitle = stream?.title ?? "ツーショット撮影";
-      const creatorName = stream?.creator ?? "クリエイター";
+      const streamTitle = stream?.title ?? "Two-shot photo session";
+      const creatorName = stream?.creator ?? "Creator";
 
       const baseUrl = "https://rawstock.live";
 
@@ -5559,8 +5559,8 @@ export async function registerRoutes(app: Express): Promise<void> {
               currency: "jpy",
               unit_amount: price,
               product_data: {
-                name: `ツーショット撮影 with ${creatorName}`,
-                description: `${streamTitle} | 整理番号${queuePos}番`,
+                name: `Two-shot photo session with ${creatorName}`,
+                description: `${streamTitle} | Queue #${queuePos}`,
               },
             },
             quantity: 1,
@@ -5634,7 +5634,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         mentorSessionForBooking = mentorSession ?? null;
       }
 
-      // 新モデル(sessionId) + slot指定時は、決済確認時に枠を確保する（競合対策）
+      // 新モデル(sessionId) + slot指定時は、決済確認時に枠を確保する（競合対策)
       if (booking.sessionId != null && Number.isFinite(slotId) && slotId > 0) {
         const creatorId = mentorSessionForBooking?.creatorId;
         if (!creatorId) return res.status(404).json({ error: "session_not_found" });
@@ -5662,7 +5662,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         } as Partial<typeof mentorBookings.$inferInsert>)
         .where(eq(mentorBookings.stripeSessionId, sessionId));
 
-      // 共通スコア集計用：REVENUE を transactions に記録（ライバー＝配信者に紐づくウォレット）
+      // 共通スコア集計用：REVENUE を transactions に記録（ライバー＝配信者に紐づくウォレット)
       if (booking.sessionId != null) {
         if (mentorSessionForBooking) {
           const [creatorUser] = await db.select().from(users).where(eq(users.id, mentorSessionForBooking.creatorId));
@@ -5716,14 +5716,14 @@ export async function registerRoutes(app: Express): Promise<void> {
       .set({
         status: "cancelled",
         cancelledAt: new Date(),
-        cancelReason: reason ?? "ユーザーキャンセル",
+        cancelReason: reason ?? "User cancelled",
         refundable: !isSelfCancel,
       } as Partial<typeof mentorBookings.$inferInsert>)
       .where(eq(mentorBookings.id, bookingId));
     res.json({ ok: true });
   });
 
-  // ── Mentor Sessions（セッション商品 CRUD）─────────────────────────────────────
+  // ── Mentor Sessions（セッション商品 CRUD)─────────────────────────────────────
 
   /** クリエイター自身のセッション商品一覧 */
   app.get("/api/mentor/my-sessions", async (req: Request, res: Response) => {
@@ -5783,7 +5783,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json(row);
   });
 
-  /** セッション商品を非表示（物理削除しない） */
+  /** セッション商品を非表示（物理削除しない) */
   app.delete("/api/mentor/sessions/:id", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -5827,7 +5827,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json(result);
   });
 
-  /** クリエイター：セッション開始（Cloudflare Stream WHIP発行） */
+  /** クリエイター：セッション開始（Cloudflare Stream WHIP発行) */
   app.post("/api/mentor/bookings/:bookingId/start", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -5872,7 +5872,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json({ whipUrl, whepUrl });
   });
 
-  /** ユーザー：セッション参加（WHEP URL取得） */
+  /** ユーザー：セッション参加（WHEP URL取得) */
   app.get("/api/mentor/bookings/:bookingId/join", async (req: Request, res: Response) => {
     const bookingId = paramNum(req, "bookingId");
     const [booking] = await db.select().from(mentorBookings).where(eq(mentorBookings.id, bookingId));
@@ -5889,7 +5889,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const [booking] = await db.select().from(mentorBookings).where(eq(mentorBookings.id, bookingId));
     if (!booking) return res.status(404).json({ error: "Booking not found" });
 
-    // Cloudflare Stream のライブ入力を削除（任意）
+    // Cloudflare Stream のライブ入力を削除（任意)
     if (booking.cfStreamUid && CLOUDFLARE_ACCOUNT_ID && CLOUDFLARE_STREAM_TOKEN) {
       await fetch(
         `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/stream/live_inputs/${booking.cfStreamUid}`,
@@ -5908,16 +5908,16 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json({ ok: true });
   });
 
-  // ── 収益記録（投げ銭・有料ライブ・個別セッション → type: REVENUE、月末ランク集計用）
+  // ── 収益記録（投げ銭・有料ライブ・個別セッション → type: REVENUE、月末ランク集計用)
   app.post("/api/revenue/record", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインが必要です" });
+    if (!user) return res.status(401).json({ error: "Sign-in required" });
 
     const { amount, source, referenceId } = req.body as { amount?: number; source?: string; referenceId?: string };
-    if (!amount || amount <= 0) return res.status(400).json({ error: "amount は正の数で指定してください" });
+    if (!amount || amount <= 0) return res.status(400).json({ error: "amount must be a positive number" });
     const src = (source ?? "tip") as RevenueSource; // tip | paid_live | mentor
     if (!["tip", "paid_live", "mentor"].includes(src)) {
-      return res.status(400).json({ error: "source は tip / paid_live / mentor のいずれかを指定してください" });
+      return res.status(400).json({ error: "source must be tip, paid_live, or mentor" });
     }
 
     const walletId = await getOrCreateUserWallet(user.id);
@@ -5926,10 +5926,10 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.status(201).json({ ok: true, amount, source: src });
   });
 
-  // ── Revenue（ログイン必須）──────────────────────────────────────────
+  // ── Revenue（ログイン必須)──────────────────────────────────────────
   app.get("/api/revenue/summary", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインが必要です" });
+    if (!user) return res.status(401).json({ error: "Sign-in required" });
     const userId = `user-${user.id}`;
     const earningRows = await db.select().from(earnings).where(eq(earnings.userId, userId));
     const withdrawalRows = await db.select().from(withdrawals).where(eq(withdrawals.userId, userId));
@@ -5948,7 +5948,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const monthly: { month: string; amount: number }[] = [];
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const label = `${d.getMonth() + 1}月`;
+      const label = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       const monthTotal = earningRows
         .filter((e) => {
           const ed = new Date(e.createdAt!);
@@ -5963,7 +5963,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.get("/api/revenue/earnings", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインが必要です" });
+    if (!user) return res.status(401).json({ error: "Sign-in required" });
     const userId = `user-${user.id}`;
     const rows = await db
       .select()
@@ -5973,12 +5973,12 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json(rows);
   });
 
-  /** 月末ランク集計用クエリの雛形（バッチの土台）。?month=YYYY-MM で指定月の REVENUE 合計ランキングを返す */
+  /** 月末ランク集計用クエリの雛形（バッチの土台)。?month=YYYY-MM で指定月の REVENUE 合計ランキングを返す */
   app.get("/api/revenue/monthly-rank", async (req: Request, res: Response) => {
     const month = (req.query.month as string) ?? "";
     const match = /^(\d{4})-(\d{2})$/.exec(month);
     if (!match) {
-      return res.status(400).json({ error: "month は YYYY-MM 形式で指定してください" });
+      return res.status(400).json({ error: "month must be in YYYY-MM format" });
     }
     const kind = queryStr(req, "kind") || "overall";
     if (queryStr(req, "refresh") === "1") {
@@ -5994,7 +5994,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.get("/api/revenue/withdrawals", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインが必要です" });
+    if (!user) return res.status(401).json({ error: "Sign-in required" });
     const userId = `user-${user.id}`;
     const rows = await db
       .select()
@@ -6072,7 +6072,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   // ── Announcements ───────────────────────────────────────────────────
   app.get("/api/announcements", async (_req: Request, res: Response) => {
-    // 現在日時が startAt〜endAt の範囲内のもののみ取得（endAt が NULL の場合は無期限）
+    // 現在日時が startAt〜endAt の範囲内のもののみ取得（endAt が NULL の場合は無期限)
     const rows = await db
       .select()
       .from(announcements)
@@ -6139,10 +6139,10 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.get("/api/livers/me/level-progress", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインが必要です" });
+    if (!user) return res.status(401).json({ error: "Sign-in required" });
     const [creator] = await db.select().from(creators).where(eq(creators.name, user.displayName));
     if (!creator) {
-      return res.status(404).json({ error: "配信者登録が必要です" });
+      return res.status(404).json({ error: "Creator registration required" });
     }
     const month = queryStr(req, "month") || getYearMonth();
     await ensureDefaultLevelThresholds();
@@ -6177,9 +6177,9 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.post("/api/livers/me/streams/record", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "ログインが必要です" });
+    if (!user) return res.status(401).json({ error: "Sign-in required" });
     const [creator] = await db.select().from(creators).where(eq(creators.name, user.displayName));
-    if (!creator) return res.status(404).json({ error: "配信者登録が必要です" });
+    if (!creator) return res.status(404).json({ error: "Creator registration required" });
     const month = getYearMonth();
     const [score] = await db
       .select()
@@ -6211,7 +6211,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   // ── Profile Roles (Creator / Mentor session liver) ────────────────────────
   app.get("/api/profile/roles", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     const rows = await db.select().from(creators).where(eq(creators.name, user.displayName));
     const isEditor = rows.some((r) => r.category === "editor");
@@ -6222,15 +6222,15 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.post("/api/profile/register-role", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
 
     const { role } = req.body as { role?: "editor" | "mentor" };
     if (role !== "editor" && role !== "mentor") {
-      return res.status(400).json({ error: "role は editor か mentor を指定してください" });
+      return res.status(400).json({ error: "role must be editor or mentor" });
     }
 
     const category = role === "editor" ? "editor" : "mentor";
-    const communityLabel = role === "editor" ? "動画編集クリエイター" : "メンターセッションクリエイター";
+    const communityLabel = role === "editor" ? "Video editor" : "Mentor session creator";
 
     const existing = await db
       .select()
@@ -6284,7 +6284,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   app.post("/api/livers/:id/reviews", async (req: Request, res: Response) => {
     const id = paramNum(req, "id");
     const { userId, userName, userAvatar, satisfactionScore, streamCountScore, attendanceScore, comment, sessionDate } = req.body;
-    if (!userName || !comment) return res.status(400).json({ error: "必須項目を入力してください" });
+    if (!userName || !comment) return res.status(400).json({ error: "Please fill in all required fields" });
     const overall = ((satisfactionScore ?? 5) + (streamCountScore ?? 5) + (attendanceScore ?? 5)) / 3;
     const [row] = await db.insert(liverReviews).values({
       liverId: id,
@@ -6322,7 +6322,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   app.post("/api/livers/:id/availability", async (req: Request, res: Response) => {
     const id = paramNum(req, "id");
     const { date, startTime, endTime, maxSlots, note } = req.body;
-    if (!date || !startTime || !endTime) return res.status(400).json({ error: "日付と時間を入力してください" });
+    if (!date || !startTime || !endTime) return res.status(400).json({ error: "Please enter date and time" });
     const [row] = await db.insert(liverAvailability).values({
       liverId: id,
       date,
@@ -6345,45 +6345,45 @@ export async function registerRoutes(app: Express): Promise<void> {
   app.post("/api/seed", async (_req: Request, res: Response) => {
     // ユーザーはLINEログインでのみ作成。メール/パスワードのシードは廃止。
 
-    // Seed dm_messages（DM一覧用）-------------------------------------------
+    // Seed dm_messages（DM一覧用)-------------------------------------------
     const existingDm = await db.select().from(dmMessages);
     if (existingDm.length === 0) {
       await db.insert(dmMessages).values([
-        { name: "桜花アリス", avatar: "https://images.unsplash.com/photo-1521119989659-a83eee488004?w=100&h=100&fit=crop", lastMessage: "ありがとうございます！次の配信もよろしくお願いします", time: "たった今", unread: 2, online: true, sortOrder: 1 },
-        { name: "エミリー先生", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop", lastMessage: "次のレッスンは3/2の19:00からです。お楽しみに！", time: "5分前", unread: 1, online: true, sortOrder: 2 },
-        { name: "星空りん", avatar: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=100&h=100&fit=crop", lastMessage: "鑑定の結果をDMでお送りしますね", time: "12分前", unread: 0, online: false, sortOrder: 3 },
-        { name: "心理士 みく", avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop", lastMessage: "お気持ちを聞かせていただいてありがとうございます", time: "1時間前", unread: 0, online: true, sortOrder: 4 },
-        { name: "料理家 はるか", avatar: "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=100&h=100&fit=crop", lastMessage: "レシピを送りました！ぜひ作ってみてください🍳", time: "3時間前", unread: 0, online: false, sortOrder: 5 },
-        { name: "ライフコーチ けんじ", avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop", lastMessage: "目標設定シートを確認しました。素晴らしい進捗です！", time: "昨日", unread: 0, online: false, sortOrder: 6 },
-        { name: "ヨガ講師 なな", avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&h=100&fit=crop", lastMessage: "明日のクラスもお待ちしています", time: "昨日", unread: 0, online: false, sortOrder: 7 },
-        { name: "地下アイドル界隈", avatar: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=100&h=100&fit=crop", lastMessage: "【お知らせ】本日21:00からライブ配信があります", time: "2日前", unread: 0, online: false, sortOrder: 8 },
+        { name: "Alice Oka", avatar: "https://images.unsplash.com/photo-1521119989659-a83eee488004?w=100&h=100&fit=crop", lastMessage: "Thanks! Looking forward to your next stream.", time: "Just now", unread: 2, online: true, sortOrder: 1 },
+        { name: "Emily Sensei", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop", lastMessage: "Next lesson is Mar 2 at 7:00 PM. See you then!", time: "5m ago", unread: 1, online: true, sortOrder: 2 },
+        { name: "Rin Hoshizora", avatar: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=100&h=100&fit=crop", lastMessage: "I'll send your reading results in DM.", time: "12m ago", unread: 0, online: false, sortOrder: 3 },
+        { name: "Miku, Psychologist", avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop", lastMessage: "Thank you for sharing how you feel.", time: "1h ago", unread: 0, online: true, sortOrder: 4 },
+        { name: "Haruka, Chef", avatar: "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=100&h=100&fit=crop", lastMessage: "Sent the recipe—hope you try it! 🍳", time: "3h ago", unread: 0, online: false, sortOrder: 5 },
+        { name: "Kenji, Life Coach", avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop", lastMessage: "Reviewed your goals sheet—great progress!", time: "Yesterday", unread: 0, online: false, sortOrder: 6 },
+        { name: "Nana, Yoga Instructor", avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&h=100&fit=crop", lastMessage: "Hope to see you in class tomorrow.", time: "Yesterday", unread: 0, online: false, sortOrder: 7 },
+        { name: "Underground Idols", avatar: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=100&h=100&fit=crop", lastMessage: "[Notice] Live stream tonight at 9:00 PM.", time: "2d ago", unread: 0, online: false, sortOrder: 8 },
       ] as unknown as typeof dmMessages.$inferInsert[]);
     }
 
-    // Seed announcements（お知らせ・募集）-------------------------------------
+    // Seed announcements（お知らせ・募集)-------------------------------------
     const existingAnnouncements = await db.select().from(announcements);
     if (existingAnnouncements.length === 0) {
       await db.insert(announcements).values({
-        title: "ライブ配信・技術コントリビュータ募集",
+        title: "Live streaming & technical contributors wanted",
         body:
-          "ネイティブ WebRTC（WHIP）や遠隔セッション同期など、実装・研究に協力いただける方を募集しています。方針の詳細はリポジトリの docs/LIVE_NATIVE_AND_FILTERS.md をご参照ください。",
+          "We are looking for contributors to help with native WebRTC (WHIP), remote session sync, and related implementation work. See docs/LIVE_NATIVE_AND_FILTERS.md in the repository for details.",
         type: "recruiting",
         isPinned: true,
       } as typeof announcements.$inferInsert);
     }
 
-    // Seed communities（creators の community 名と一致）------------------------
+    // Seed communities（creators の community 名と一致)------------------------
     const communityData = [
-      { name: "地下アイドル界隈", category: "idol" },
-      { name: "お笑い芸人界隈", category: "idol" },
-      { name: "キャバ嬢・ホスト界隈", category: "idol" },
-      { name: "JK日常界隈", category: "idol" },
-      { name: "アイドル部", category: "idol" },
-      { name: "英会話クラブ", category: "english" },
-      { name: "占いサロン", category: "fortune" },
-      { name: "フィットネス部", category: "coaching" },
-      { name: "カウンセリングルーム", category: "counselor" },
-      { name: "料理教室", category: "cooking" },
+      { name: "Underground Idols", category: "idol" },
+      { name: "Comedy Circle", category: "idol" },
+      { name: "Nightlife Hosts", category: "idol" },
+      { name: "Daily Vlog Circle", category: "idol" },
+      { name: "Idol Club", category: "idol" },
+      { name: "English Club", category: "english" },
+      { name: "Fortune Salon", category: "fortune" },
+      { name: "Fitness Club", category: "coaching" },
+      { name: "Counseling Room", category: "counselor" },
+      { name: "Cooking School", category: "cooking" },
     ];
     const existingComm = await db.select().from(communities);
     const existingCommNames = new Set(existingComm.map((c: { name: string }) => c.name));
@@ -6410,8 +6410,8 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     const demoCreators = [
       {
-        name: "星空みゆ",
-        community: "地下アイドル界隈",
+        name: "Miyu Hoshizora",
+        community: "Underground Idols",
         avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop",
         rank: 1,
         heatScore: 1090.1,
@@ -6422,12 +6422,12 @@ export async function registerRoutes(app: Express): Promise<void> {
         revenueShare: 80,
         satisfactionScore: 4.5,
         attendanceRate: 4.3,
-        bio: "地下アイドル界隈のトップランカー。歌とダンスで毎回視聴者を魅了する実力派ライバー。",
+        bio: "Top-ranked in Underground Idols. Singer-dancer who wins over viewers every stream.",
         category: "idol",
       },
       {
-        name: "コンビ芸人「ダブルパンチ」",
-        community: "お笑い芸人界隈",
+        name: "Comedy duo \"Double Punch\"",
+        community: "Comedy Circle",
         avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop",
         rank: 2,
         heatScore: 923.5,
@@ -6438,12 +6438,12 @@ export async function registerRoutes(app: Express): Promise<void> {
         revenueShare: 80,
         satisfactionScore: 4.2,
         attendanceRate: 4.1,
-        bio: "お笑いコンビとして活動中。ライブ配信でも息の合ったトークで笑いを届けます。",
+        bio: "Comedy duo delivering sharp, in-sync banter on every live stream.",
         category: "idol",
       },
       {
-        name: "麗華 -REIKA-",
-        community: "キャバ嬢・ホスト界隈",
+        name: "REIKA",
+        community: "Nightlife Hosts",
         avatar: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=100&h=100&fit=crop",
         rank: 3,
         heatScore: 1414,
@@ -6454,12 +6454,12 @@ export async function registerRoutes(app: Express): Promise<void> {
         revenueShare: 80,
         satisfactionScore: 4.6,
         attendanceRate: 4.8,
-        bio: "キャバ嬢×ライバーとして大人気。トーク力と美貌で多くのファンを獲得。",
+        bio: "Host-style streamer with strong talk skills and a loyal fan base.",
         category: "idol",
       },
       {
-        name: "まいまい17歳",
-        community: "JK日常界隈",
+        name: "Maimai, 17",
+        community: "Daily Vlog Circle",
         avatar: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=100&h=100&fit=crop",
         rank: 4,
         heatScore: 865.7,
@@ -6470,12 +6470,12 @@ export async function registerRoutes(app: Express): Promise<void> {
         revenueShare: 80,
         satisfactionScore: 4.3,
         attendanceRate: 4.5,
-        bio: "JKのリアルな日常を発信中。素朴で親しみやすいキャラが人気の秘密。",
+        bio: "Daily-life vlogs with a down-to-earth, approachable vibe.",
         category: "idol",
       },
       {
-        name: "桜井 みなみ",
-        community: "アイドル部",
+        name: "Minami Sakurai",
+        community: "Idol Club",
         avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&h=150&fit=crop",
         rank: 1,
         heatScore: 4.8,
@@ -6486,12 +6486,12 @@ export async function registerRoutes(app: Express): Promise<void> {
         revenueShare: 80,
         satisfactionScore: 4.9,
         attendanceRate: 4.7,
-        bio: "毎日元気に配信中！みんなと一緒に楽しい時間を過ごしたいです♪",
+        bio: "Streaming daily—here for fun times with everyone.",
         category: "idol",
       },
       {
-        name: "田中 ゆうき",
-        community: "英会話クラブ",
+        name: "Yuuki Tanaka",
+        community: "English Club",
         avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop",
         rank: 2,
         heatScore: 4.6,
@@ -6502,12 +6502,12 @@ export async function registerRoutes(app: Express): Promise<void> {
         revenueShare: 80,
         satisfactionScore: 4.7,
         attendanceRate: 4.5,
-        bio: "TOEIC 990点取得。ビジネス英語から日常会話まで丁寧に教えます！",
+        bio: "TOEIC 990. Teaches business English through everyday conversation.",
         category: "english",
       },
       {
-        name: "神崎 リナ",
-        community: "占いサロン",
+        name: "Rina Kanzaki",
+        community: "Fortune Salon",
         avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&h=150&fit=crop",
         rank: 3,
         heatScore: 4.5,
@@ -6518,12 +6518,12 @@ export async function registerRoutes(app: Express): Promise<void> {
         revenueShare: 80,
         satisfactionScore: 4.6,
         attendanceRate: 4.3,
-        bio: "タロット・西洋占星術・数秘術を組み合わせた独自のリーディングで、あなたの未来を照らします。",
+        bio: "Tarot, Western astrology, and numerology blended into one-of-a-kind readings.",
         category: "fortune",
       },
       {
-        name: "松本 こうた",
-        community: "フィットネス部",
+        name: "Kota Matsumoto",
+        community: "Fitness Club",
         avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop",
         rank: 4,
         heatScore: 4.3,
@@ -6534,12 +6534,12 @@ export async function registerRoutes(app: Express): Promise<void> {
         revenueShare: 80,
         satisfactionScore: 4.4,
         attendanceRate: 4.8,
-        bio: "元プロサッカー選手。ダイエット・筋トレ・メンタルコーチングを専門とするパーソナルトレーナー。",
+        bio: "Ex-pro soccer player. Personal trainer focused on diet, strength, and mindset.",
         category: "coaching",
       },
       {
-        name: "伊藤 さやか",
-        community: "カウンセリングルーム",
+        name: "Sayaka Ito",
+        community: "Counseling Room",
         avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&h=150&fit=crop",
         rank: 5,
         heatScore: 4.7,
@@ -6550,12 +6550,12 @@ export async function registerRoutes(app: Express): Promise<void> {
         revenueShare: 80,
         satisfactionScore: 4.8,
         attendanceRate: 4.9,
-        bio: "臨床心理士・公認心理師。悩みを抱えた方の話を丁寧に聴き、一緒に解決策を探します。",
+        bio: "Clinical psychologist. Listens carefully and works with you on next steps.",
         category: "counselor",
       },
       {
-        name: "中村 あおい",
-        community: "料理教室",
+        name: "Aoi Nakamura",
+        community: "Cooking School",
         avatar: "https://images.unsplash.com/photo-1502767089025-6572583495b9?w=150&h=150&fit=crop",
         rank: 6,
         heatScore: 4.4,
@@ -6566,7 +6566,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         revenueShare: 80,
         satisfactionScore: 4.5,
         attendanceRate: 4.6,
-        bio: "フランス料理学校卒業。家庭で本格的なレシピを楽しく学べる料理教室を開催中。",
+        bio: "Trained in France. Fun, approachable cooking classes for serious home recipes.",
         category: "cooking",
       },
     ];
@@ -6586,24 +6586,24 @@ export async function registerRoutes(app: Express): Promise<void> {
         const dateStr = dt.toISOString().slice(0, 10);
         availData.push({ liverId: c.id, date: dateStr, startTime: "19:00", endTime: "21:00", maxSlots: 3, bookedSlots: Math.floor(Math.random() * 2), note: "" });
         if (d % 2 === 0) {
-          availData.push({ liverId: c.id, date: dateStr, startTime: "13:00", endTime: "15:00", maxSlots: 2, bookedSlots: 0, note: "午後の部" });
+          availData.push({ liverId: c.id, date: dateStr, startTime: "13:00", endTime: "15:00", maxSlots: 2, bookedSlots: 0, note: "Afternoon slot" });
         }
       }
     }
     await db.insert(liverAvailability).values(availData);
 
     const reviewAuthors = [
-      { name: "ゆき", avatar: "https://images.unsplash.com/photo-1552374196-c4e7ffc6e126?w=80&h=80&fit=crop" },
-      { name: "たかし", avatar: "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=80&h=80&fit=crop" },
-      { name: "はるか", avatar: "https://images.unsplash.com/photo-1554151228-14d9def656e4?w=80&h=80&fit=crop" },
-      { name: "けんじ", avatar: "https://images.unsplash.com/photo-1560250097-0b93528c311a?w=80&h=80&fit=crop" },
+      { name: "Yuki", avatar: "https://images.unsplash.com/photo-1552374196-c4e7ffc6e126?w=80&h=80&fit=crop" },
+      { name: "Takashi", avatar: "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=80&h=80&fit=crop" },
+      { name: "Haruka", avatar: "https://images.unsplash.com/photo-1554151228-14d9def656e4?w=80&h=80&fit=crop" },
+      { name: "Kenji", avatar: "https://images.unsplash.com/photo-1560250097-0b93528c311a?w=80&h=80&fit=crop" },
     ];
     const comments = [
-      "とても楽しい時間でした！また予約したいです。",
-      "丁寧な対応で大満足です。スケジュール通りに進んでくれました。",
-      "素晴らしい配信でした。また参加したいと思います！",
-      "期待以上の内容でした。毎回来るのが楽しみです。",
-      "時間を守ってくれて信頼できます。次回も予約します！",
+      "Had a great time—would book again!",
+      "Very thoughtful and stayed on schedule.",
+      "Amazing stream. I want to join the next one too!",
+      "Exceeded expectations. I look forward to every session.",
+      "Reliable and on time. I'll book again!",
     ];
     const reviewData: { liverId: number; userId: string; userName: string; userAvatar: string; satisfactionScore: number; streamCountScore: number; attendanceScore: number; overallScore: number; comment: string; sessionDate: string }[] = [];
     for (const c of insertedCreators) {
@@ -6637,38 +6637,38 @@ export async function registerRoutes(app: Express): Promise<void> {
         const dt = new Date(today);
         dt.setDate(today.getDate() + i + 1);
         const categories = ["idol", "english", "fortune", "coaching", "counselor"];
-        const labels = ["アイドル", "英会話", "占い", "コーチング", "カウンセラー"];
+        const labels = ["Idol", "English", "Fortune", "Coaching", "Counselor"];
         const prices = [3000, 5000, 4000, 6000, 4500];
         const cat = categories[i % categories.length];
         return {
           creator: c.name,
           category: cat,
           categoryLabel: labels[i % labels.length],
-          title: `${c.name}との1対1セッション`,
+          title: `1:1 session with ${c.name}`,
           avatar: c.avatar,
           thumbnail: `https://images.unsplash.com/photo-151645036045${i}-9312f5e86fc7?w=400&h=250&fit=crop`,
           date: dt.toISOString().slice(0, 10),
           time: "19:00",
-          duration: "30分",
+          duration: "30 min",
           price: prices[i % prices.length],
           spotsTotal: 5,
           spotsLeft: 2 + i,
           rating: parseFloat((4.3 + Math.random() * 0.7).toFixed(1)),
           reviewCount: 10 + i * 5,
-          tag: i === 0 ? "人気" : null,
+          tag: i === 0 ? "Popular" : null,
         };
       });
       await db.insert(bookingSessions).values(bookingData);
     }
 
-    // Seed live_streams（デモ配信）--------------------------------------------
+    // Seed live_streams（デモ配信)--------------------------------------------
     const existingLive = await db.select().from(liveStreams);
     if (existingLive.length === 0) {
       await db.insert(liveStreams).values([
-        { title: "星空みゆ♪ 歌とダンスでお届け！", creator: "星空みゆ", community: "地下アイドル界隈", viewers: 1240, thumbnail: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=40&h=40&fit=crop", timeAgo: "配信予定", isLive: true },
-        { title: "麗華の夜トーク【本音で語るよ】", creator: "麗華 -REIKA-", community: "キャバ嬢・ホスト界隈", viewers: 890, thumbnail: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=40&h=40&fit=crop", timeAgo: "配信予定", isLive: true },
-        { title: "朝活！一緒にヨガしよう", creator: "松本 こうた", community: "フィットネス部", viewers: 420, thumbnail: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=40&h=40&fit=crop", timeAgo: "配信予定", isLive: true },
-        { title: "神崎リナ【深夜の占いタイム】", creator: "神崎 リナ", community: "占いサロン", viewers: 312, thumbnail: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=40&h=40&fit=crop", timeAgo: "配信予定", isLive: true },
+        { title: "Miyu Hoshizora — Song & dance live", creator: "Miyu Hoshizora", community: "Underground Idols", viewers: 1240, thumbnail: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=40&h=40&fit=crop", timeAgo: "Scheduled", isLive: true },
+        { title: "REIKA — Late-night honest talk", creator: "REIKA", community: "Nightlife Hosts", viewers: 890, thumbnail: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=40&h=40&fit=crop", timeAgo: "Scheduled", isLive: true },
+        { title: "Morning yoga — join in!", creator: "Kota Matsumoto", community: "Fitness Club", viewers: 420, thumbnail: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=40&h=40&fit=crop", timeAgo: "Scheduled", isLive: true },
+        { title: "Rina Kanzaki — Late-night readings", creator: "Rina Kanzaki", community: "Fortune Salon", viewers: 312, thumbnail: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=40&h=40&fit=crop", timeAgo: "Scheduled", isLive: true },
       ] as unknown as typeof liveStreams.$inferInsert[]);
     }
 
@@ -6676,7 +6676,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   app.post("/api/seed-editors", async (_req: Request, res: Response) => {
-    const [idolCommunity] = await db.select({ id: communities.id }).from(communities).where(eq(communities.name, "地下アイドル界隈"));
+    const [idolCommunity] = await db.select({ id: communities.id }).from(communities).where(eq(communities.name, "Underground Idols"));
     const defaultCommunityId = idolCommunity?.id ?? 1;
 
     let insertedBase = 0;
@@ -6686,9 +6686,9 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (existingStart.length < 5) {
       const demoEditors = [
         {
-          name: "映像編集マン",
+          name: "Video Edit Man",
           avatar: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150&h=150&fit=crop",
-          bio: "テロップ・カット・サムネまでワンストップで対応する動画編集クリエイター。",
+          bio: "One-stop editing: captions, cuts, and thumbnails.",
           communityId: defaultCommunityId,
           genres: "YouTube,Variety,Gaming",
           deliveryDays: 3,
@@ -6701,9 +6701,9 @@ export async function registerRoutes(app: Express): Promise<void> {
           isAvailable: true,
         },
         {
-          name: "シネマ編集スタジオ",
+          name: "Cinema Edit Studio",
           avatar: "https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=150&h=150&fit=crop",
-          bio: "映画風のシネマティックなMV制作が得意です。",
+          bio: "Cinematic MVs with a film-style look.",
           communityId: defaultCommunityId,
           genres: "MV,Artist,Cinematic",
           deliveryDays: 7,
@@ -6716,9 +6716,9 @@ export async function registerRoutes(app: Express): Promise<void> {
           isAvailable: false,
         },
         {
-          name: "ショート動画職人",
+          name: "Short-form Pro",
           avatar: "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=150&h=150&fit=crop",
-          bio: "TikTok・YouTubeショートの伸びる構成を提案します。",
+          bio: "Short-form hooks and structures built to perform on TikTok and YouTube Shorts.",
           communityId: defaultCommunityId,
           genres: "Short Video,Vertical,Social Media",
           deliveryDays: 2,
@@ -6731,9 +6731,9 @@ export async function registerRoutes(app: Express): Promise<void> {
           isAvailable: true,
         },
         {
-          name: "ゲーム実況エディター",
+          name: "Gaming Highlights Editor",
           avatar: "https://images.unsplash.com/photo-1533236897111-3e94666b2dde?w=150&h=150&fit=crop",
-          bio: "APEX/VALORANTなどFPS系実況の編集が中心です。",
+          bio: "FPS gameplay edits—Apex, Valorant, and similar titles.",
           communityId: defaultCommunityId,
           genres: "Gaming,Highlights",
           deliveryDays: 4,
@@ -6746,9 +6746,9 @@ export async function registerRoutes(app: Express): Promise<void> {
           isAvailable: false,
         },
         {
-          name: "教育チャンネル編集室",
+          name: "Edu Channel Edit Lab",
           avatar: "https://images.unsplash.com/photo-1525134479668-1bee5c7c6845?w=150&h=150&fit=crop",
-          bio: "ビジネス・教育系の分かりやすい図解動画を制作します。",
+          bio: "Clear explainer videos for business and education channels.",
           communityId: defaultCommunityId,
           genres: "Business,Education,Seminar",
           deliveryDays: 5,
@@ -6774,9 +6774,9 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (!hasBoth) {
       const bothDemo = [
         {
-          name: "フルフレックス編集所",
+          name: "Full-flex Edit House",
           avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop",
-          bio: "分単価でもレベニューシェアでもご相談に応じます。MV・ライブ切り抜き両方対応。",
+          bio: "Per-minute or revenue share—MVs and live highlight reels.",
           communityId: defaultCommunityId,
           genres: "MV,Highlights,Short Video",
           deliveryDays: 4,
@@ -6789,9 +6789,9 @@ export async function registerRoutes(app: Express): Promise<void> {
           isAvailable: true,
         },
         {
-          name: "ハイブリッド・クリップス",
+          name: "Hybrid Clips",
           avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop",
-          bio: "クリエイター取り分重視の案件も、固定レートも柔軟に。ゲーム・音楽幅広く。",
+          bio: "Flexible on creator-friendly rev-share or flat rates—gaming, music, and more.",
           communityId: defaultCommunityId,
           genres: "Gaming,Artist,Variety",
           deliveryDays: 3,
@@ -6925,7 +6925,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     return res.json({ success: true });
   });
 
-  /** POST /api/coins/use-revenue - 収益残高からコインに変換して消費（1コイン=$0.30） */
+  /** POST /api/coins/use-revenue - 収益残高からコインに変換して消費（1コイン=$0.30) */
   app.post("/api/coins/use-revenue", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -6935,7 +6935,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const today = new Date().toISOString().slice(0, 10);
     const COIN_PRICE_USD = 30;
 
-    // 収益残高確認（wallets テーブル）
+    // 収益残高確認（wallets テーブル)
     const walletRows = await db.select().from(wallets).where(eq(wallets.userId, user.id)).limit(1);
     const walletBalance = walletRows[0]?.balanceAvailable ?? 0;
     if (walletBalance < COIN_PRICE_USD) {
@@ -6945,7 +6945,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     // 収益残高を減らす
     await db.update(wallets).set({ balanceAvailable: walletBalance - COIN_PRICE_USD, updatedAt: new Date() }).where(eq(wallets.userId, user.id));
 
-    // コイントランザクション記録（収益→コイン変換）
+    // コイントランザクション記録（収益→コイン変換)
     await db.insert(coinTransactions).values({
       userId,
       amount: -1,
@@ -6977,7 +6977,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const { packageId, origin } = req.body as { packageId: string; origin: string };
 
-    // コインパッケージ定義（1コイン=$0.30）
+    // コインパッケージ定義（1コイン=$0.30)
     const COIN_PACKAGES: Record<string, { coins: number; priceUSD: number; label: string }> = {
       "pack-1": { coins: 1, priceUSD: 30, label: "1 Coin" },
       "pack-5": { coins: 5, priceUSD: 150, label: "5 Coins" },
@@ -7419,12 +7419,12 @@ export async function registerRoutes(app: Express): Promise<void> {
   // POST /api/platform-banners - create banner (admin only)
   app.post("/api/platform-banners", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
-    if (user.role !== "ADMIN") return res.status(403).json({ error: "管理者のみ操作できます" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    if (user.role !== "ADMIN") return res.status(403).json({ error: "Only admins can perform this action" });
     const { title, imageUrl, linkUrl, description, displayOrder } = req.body as {
       title?: string; imageUrl?: string; linkUrl?: string; description?: string; displayOrder?: number;
     };
-    if (!title) return res.status(400).json({ error: "title は必須です" });
+    if (!title) return res.status(400).json({ error: "title is required" });
     try {
       const [row] = await db.insert(bannerAds).values({
         title,
@@ -7443,8 +7443,8 @@ export async function registerRoutes(app: Express): Promise<void> {
   // PATCH /api/platform-banners/:id - update banner (admin only)
   app.patch("/api/platform-banners/:id", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
-    if (user.role !== "ADMIN") return res.status(403).json({ error: "管理者のみ操作できます" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    if (user.role !== "ADMIN") return res.status(403).json({ error: "Only admins can perform this action" });
     const id = paramNum(req, "id");
     const { title, imageUrl, linkUrl, description, isActive, displayOrder } = req.body as {
       title?: string; imageUrl?: string; linkUrl?: string; description?: string; isActive?: boolean; displayOrder?: number;
@@ -7468,8 +7468,8 @@ export async function registerRoutes(app: Express): Promise<void> {
   // DELETE /api/platform-banners/:id - delete banner (admin only)
   app.delete("/api/platform-banners/:id", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
-    if (user.role !== "ADMIN") return res.status(403).json({ error: "管理者のみ操作できます" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    if (user.role !== "ADMIN") return res.status(403).json({ error: "Only admins can perform this action" });
     const id = paramNum(req, "id");
     try {
       await db.delete(bannerAds).where(eq(bannerAds.id, id));
@@ -7483,7 +7483,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   // POST /api/daily-login - record today's login (idempotent)
   app.post("/api/daily-login", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "未認証です" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const today = new Date().toISOString().slice(0, 10);
     try {
       await db.insert(dailyLogins).values({ userId: user.id, date: today } as typeof dailyLogins.$inferInsert)
@@ -7675,7 +7675,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     });
   });
 
-  /** Templated webhook が叩く公開 URL のオリジン（末尾スラッシュなし） */
+  /** Templated webhook が叩く公開 URL のオリジン（末尾スラッシュなし) */
   function templatedPublicBaseUrl(): string {
     const u =
       process.env.TEMPLATED_WEBHOOK_BASE_URL?.trim() ||
@@ -7684,7 +7684,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     return u.replace(/\/$/, "");
   }
 
-  // POST /api/ai-edit/jobs/:id/render — Templated で MP4 レンダー開始（オーナーのみ）
+  // POST /api/ai-edit/jobs/:id/render — Templated で MP4 レンダー開始（オーナーのみ)
   app.post("/api/ai-edit/jobs/:id/render", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });

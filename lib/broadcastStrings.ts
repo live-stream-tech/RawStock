@@ -26,37 +26,7 @@ export type BroadcastCopy = {
   allowCameraFirst: string;
 };
 
-const JA: BroadcastCopy = {
-  alertTitleLive: "ライブ配信",
-  titleRequired: "配信タイトルを入力してください。",
-  cameraPermissionPWA:
-    "カメラとマイクの許可が必要です。PWA の場合は設定アプリから RawStock（Safari）のカメラ・マイクをオンにしてください。",
-  cameraPermissionShort: "カメラとマイクの許可が必要です。",
-  goLiveFailed: "配信を開始できませんでした。ネットワークとマイク・カメラを確認してください。",
-  endConfirmTitle: "配信を終了",
-  endConfirmMessage: "ライブ配信を終了しますか？",
-  endConfirmOk: "終了",
-  endCancel: "キャンセル",
-  nonWebTitle: "ブラウザまたは PWA で開いてください",
-  nonWebSub:
-    "ライブ配信は Web 版（ホーム画面に追加した RawStock や Chrome / Safari）のみ対応しています。",
-  nonWebBack: "戻る",
-  cameraErrorTitle: "カメラ・マイクが使えません",
-  cameraErrorSub: "設定でカメラとマイクを許可するか、下のボタンでもう一度お試しください。",
-  cameraRetry: "もう一度許可する",
-  pwaGateTitle: "PWA / モバイルでは先に許可が必要です",
-  pwaGateSub: "下のボタンをタップしてカメラとマイクをオンにしてください",
-  pwaGateBtn: "カメラ・マイクを許可",
-  readyLabel: "配信準備",
-  titlePlaceholder: "配信タイトル（必須）",
-  deeparTitle: "背景ぼかし（DeepAR）",
-  deeparSub: "オフにすると従来どおり生カメラのみです",
-  stopStream: "配信を終了",
-  goLive: "配信開始",
-  allowCameraFirst: "先にカメラを許可",
-};
-
-const EN: BroadcastCopy = {
+const COPY: BroadcastCopy = {
   alertTitleLive: "Live broadcast",
   titleRequired: "Enter a stream title.",
   cameraPermissionPWA:
@@ -85,6 +55,7 @@ const EN: BroadcastCopy = {
   allowCameraFirst: "Allow camera first",
 };
 
-export function getBroadcastStrings(japanese: boolean): BroadcastCopy {
-  return japanese ? JA : EN;
+/** Broadcast UI copy (English only). */
+export function getBroadcastStrings(_japanese?: boolean): BroadcastCopy {
+  return COPY;
 }

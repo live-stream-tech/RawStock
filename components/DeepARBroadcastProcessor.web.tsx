@@ -123,7 +123,7 @@ export const DeepARBroadcastProcessor = forwardRef<
         }
         const vTrack = cap.getVideoTracks()[0] ?? null;
         if (!vTrack) {
-          throw new Error("キャンバスから映像トラックを取得できませんでした。");
+          throw new Error("Could not get a video track from the canvas.");
         }
         captureVideoTrackRef.current = vTrack;
         const merged = mergeVideoWithAudio(cap, rawStream);
@@ -138,7 +138,7 @@ export const DeepARBroadcastProcessor = forwardRef<
             ? e.message
             : typeof e === "string"
               ? e
-              : "DeepAR の初期化に失敗しました。";
+              : "Failed to initialize DeepAR.";
         dispose();
         if (!cancelled) onErrorRef.current(msg);
       }

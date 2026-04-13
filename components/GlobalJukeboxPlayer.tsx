@@ -299,11 +299,11 @@ export function GlobalJukeboxPlayer() {
             onPress={() => router.push(`/jukebox/${communityId}`)}
           >
             <Text style={styles.barTitle} numberOfLines={1}>
-              {state.currentVideoTitle ?? "同時視聴中"}
+              {state.currentVideoTitle ?? "Watch party"}
             </Text>
             {addedBy ? (
               <Text style={styles.barSubtitle} numberOfLines={1}>
-                {addedBy} が選曲
+                {addedBy} picked this track
               </Text>
             ) : null}
           </Pressable>

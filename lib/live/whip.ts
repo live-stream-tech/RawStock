@@ -62,7 +62,7 @@ export async function connectWHIP(
     const raw = await res.text().catch(() => "");
     const hint = raw.replace(/\s+/g, " ").trim().slice(0, 240);
     throw new Error(
-      hint ? `WHIP error ${res.status}: ${hint}` : `WHIP error: ${res.status}（接続を確認してください）`,
+      hint ? `WHIP error ${res.status}: ${hint}` : `WHIP error: ${res.status} (check your connection)`,
     );
   }
   const answerSdp = await res.text();

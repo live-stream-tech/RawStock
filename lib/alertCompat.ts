@@ -23,7 +23,7 @@ export function alertDestructiveConfirm(
     return;
   }
   Alert.alert(title, message, [
-    { text: options?.cancelLabel ?? "キャンセル", style: "cancel" },
+    { text: options?.cancelLabel ?? "Cancel", style: "cancel" },
     {
       text: options?.confirmLabel ?? "OK",
       style: "destructive",
