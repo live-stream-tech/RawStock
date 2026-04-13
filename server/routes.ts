@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from "express";
-import { db } from "./db";
+import { db, type DbOrTx } from "./db";
 import {
   communities,
   communityModerators,
@@ -59,7 +59,22 @@ import {
   dmThreads,
   dmThreadMessages,
 } from "./schema";
-import { eq, asc, desc, count, sql, and, or, gte, lte, isNull, inArray, isNotNull, type SQL } from "drizzle-orm";
+import {
+  eq,
+  asc,
+  desc,
+  count,
+  sql,
+  and,
+  or,
+  gte,
+  lte,
+  isNull,
+  inArray,
+  isNotNull,
+  type InferSelectModel,
+  type SQL,
+} from "drizzle-orm";
 import {
   validateEditorPricing,
   parseTagsQueryParam,
@@ -219,7 +234,7 @@ async function syncUserLastContentLang(userId: number, rawText: string): Promise
     if (!lang) return;
     await db
       .update(users)
-      .set({ lastContentLang: lang, updatedAt: new Date() } as Partial<typeof users.$inferInsert>)
+      .set({ lastContentLang: lang, updatedAt: new Date() } as Partial<InferSelectModel<typeof users>>)
       .where(eq(users.id, userId));
   } catch (e) {
     console.warn("syncUserLastContentLang skipped:", e);
@@ -272,14 +287,14 @@ async function promoteAdminByEmail(target?: { id: number; email: string | null |
     if (normalized !== ADMIN_EMAIL) return;
     await db
       .update(users)
-      .set({ role: "ADMIN", updatedAt: new Date() } as Partial<typeof users.$inferInsert>)
+      .set({ role: "ADMIN", updatedAt: new Date() } as Partial<InferSelectModel<typeof users>>)
       .where(eq(users.id, target.id));
     return;
   }
 
   await db
     .update(users)
-    .set({ role: "ADMIN", updatedAt: new Date() } as Partial<typeof users.$inferInsert>)
+    .set({ role: "ADMIN", updatedAt: new Date() } as Partial<InferSelectModel<typeof users>>)
     .where(eq(users.email, ADMIN_EMAIL));
 }
 
@@ -365,7 +380,7 @@ async function sendWelcomeDmIfNeeded(userId: number): Promise<void> {
     await db.transaction(async (tx) => {
       const [claimed] = await tx
         .update(users)
-        .set({ welcomeDmSentAt: new Date(), updatedAt: new Date() } as Partial<typeof users.$inferInsert>)
+        .set({ welcomeDmSentAt: new Date(), updatedAt: new Date() } as Partial<InferSelectModel<typeof users>>)
         .where(and(eq(users.id, userId), isNull(users.welcomeDmSentAt)))
         .returning({ id: users.id });
 
@@ -397,7 +412,7 @@ async function sendWelcomeDmIfNeeded(userId: number): Promise<void> {
             time: "Just now",
             unread: (operationsDm.unread ?? 0) + 1,
             online: true,
-          } as Partial<typeof dmMessages.$inferInsert>)
+          } as Partial<InferSelectModel<typeof dmMessages>>)
           .where(eq(dmMessages.id, operationsDm.id))
           .returning();
         operationsDm = updatedDm ?? operationsDm;
@@ -433,7 +448,7 @@ async function getOrCreateSystemWallets(): Promise<Record<(typeof SYSTEM_WALLET_
 }
 
 /** ユーザー用ウォレットを取得。なければ作成する */
-async function getOrCreateUserWallet(userId: number, executor: typeof db = db): Promise<number> {
+async function getOrCreateUserWallet(userId: number, executor: DbOrTx = db): Promise<number> {
   const [w] = await executor.select().from(wallets).where(and(eq(wallets.userId, userId), isNull(wallets.kind)));
   if (w) return w.id;
   const [created] = await executor
@@ -467,7 +482,7 @@ function getPrevYearMonth(yearMonth: string): string {
   return getYearMonth(d);
 }
 
-async function ensureDefaultLevelThresholds(executor: typeof db = db) {
+async function ensureDefaultLevelThresholds(executor: DbOrTx = db) {
   const rows = await executor.select().from(creatorLevelThresholds).orderBy(asc(creatorLevelThresholds.level));
   if (rows.length > 0) return rows;
   await executor.insert(creatorLevelThresholds).values(
@@ -484,7 +499,7 @@ async function ensureDefaultLevelThresholds(executor: typeof db = db) {
 async function syncCreatorLevelFromMonthlyProgress(
   creatorId: number,
   yearMonth: string,
-  executor: typeof db = db,
+  executor: DbOrTx = db,
 ): Promise<number> {
   const thresholds = await ensureDefaultLevelThresholds(executor);
   const [score] = await executor
@@ -499,7 +514,7 @@ async function syncCreatorLevelFromMonthlyProgress(
   }, 1);
   await executor
     .update(creators)
-    .set({ currentLevel: achieved } as Partial<typeof creators.$inferInsert>)
+    .set({ currentLevel: achieved } as Partial<InferSelectModel<typeof creators>>)
     .where(eq(creators.id, creatorId));
   return achieved;
 }
@@ -509,7 +524,7 @@ async function upsertCreatorMonthlyRevenue(
   yearMonth: string,
   source: RevenueSource,
   grossAmount: number,
-  executor: typeof db = db,
+  executor: DbOrTx = db,
 ): Promise<void> {
   const [existing] = await executor
     .select()
@@ -530,7 +545,7 @@ async function upsertCreatorMonthlyRevenue(
       tipGross: source === "tip" ? existing.tipGross + grossAmount : existing.tipGross,
       paidLiveGross: source === "tip" ? existing.paidLiveGross : existing.paidLiveGross + grossAmount,
       updatedAt: new Date(),
-    } as Partial<typeof creatorMonthlyScores.$inferInsert>)
+    } as Partial<InferSelectModel<typeof creatorMonthlyScores>>)
     .where(eq(creatorMonthlyScores.id, existing.id));
 }
 
@@ -542,7 +557,7 @@ async function recordRevenue(
   amount: number,
   source: RevenueSource,
   referenceId: string | null,
-  executor: typeof db = db,
+  executor: DbOrTx = db,
 ) {
   const yearMonth = getYearMonth();
   let backRate = 0.9; // paid_live/mentor は常に 90%
@@ -585,12 +600,24 @@ async function recordRevenue(
         .set({
           revenue: creator.revenue + amount,
           revenueShare: Math.round(backRate * 100),
-        } as Partial<typeof creators.$inferInsert>)
+        } as Partial<InferSelectModel<typeof creators>>)
         .where(eq(creators.id, creatorId));
     }
     await upsertCreatorMonthlyRevenue(creatorId, yearMonth, source, amount, executor);
     await syncCreatorLevelFromMonthlyProgress(creatorId, yearMonth, executor);
   }
+}
+
+/** `mentor_sessions.creator_id` 等の users.id から creators 行を解決（creators.name ↔ users.displayName） */
+async function creatorRowForUserId(executor: DbOrTx, userId: number) {
+  const [u] = await executor
+    .select({ displayName: users.displayName })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (!u) return undefined;
+  const [row] = await executor.select().from(creators).where(eq(creators.name, u.displayName)).limit(1);
+  return row;
 }
 
 export async function registerRoutes(app: Express): Promise<void> {
@@ -700,7 +727,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const doTerms = acceptTerms !== false;
     const doPrivacy = acceptPrivacy !== false;
     const now = new Date();
-    const patch: Partial<typeof users.$inferInsert> = { updatedAt: now };
+    const patch: Partial<InferSelectModel<typeof users>> = { updatedAt: now };
     if (doTerms) {
       patch.termsAcceptedVersion = LEGAL_TERMS_VERSION;
       patch.termsAcceptedAt = now;
@@ -723,7 +750,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const now = new Date();
     await db
       .update(users)
-      .set({ payoutTermsAgreedAt: now, updatedAt: now } as Partial<typeof users.$inferInsert>)
+      .set({ payoutTermsAgreedAt: now, updatedAt: now } as Partial<InferSelectModel<typeof users>>)
       .where(eq(users.id, user.id));
     res.json({ ok: true, payoutTermsAgreedAt: now.toISOString() });
   });
@@ -752,7 +779,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       .stripeConnectId;
       if (!accountId) {
         accountId = await createConnectExpressAccount({ country: "JP" });
-        await db.update(users).set({ stripeConnectId: accountId, updatedAt: new Date() } as Partial<typeof users.$inferInsert>).where(eq(users.id, user.id));
+        await db.update(users).set({ stripeConnectId: accountId, updatedAt: new Date() } as Partial<InferSelectModel<typeof users>>).where(eq(users.id, user.id));
       }
 
       const url = await createConnectAccountLink({ accountId, returnUrl, refreshUrl });
@@ -975,7 +1002,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         ...(newPhone !== undefined && { phoneNumber: newPhone }),
         ...(pinnedJson !== undefined && { pinnedCommunityIds: pinnedJson }),
         updatedAt: new Date(),
-      } as Partial<typeof users.$inferInsert>)
+      } as Partial<InferSelectModel<typeof users>>)
       .where(eq(users.id, user.id))
       .returning();
     const profileTextForLang = (newBio || "").trim() || newName;
@@ -1027,7 +1054,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       await db.delete(communityModerators).where(eq(communityModerators.userId, user.id));
       await db.delete(communityPollVotes).where(eq(communityPollVotes.userId, user.id));
       await db.delete(communityVotes).where(eq(communityVotes.userId, user.id));
-      await db.update(videos).set({ userId: null } as Partial<typeof videos.$inferInsert>).where(eq(videos.userId, user.id));
+      await db.update(videos).set({ userId: null } as Partial<InferSelectModel<typeof videos>>).where(eq(videos.userId, user.id));
       await db.delete(videoComments).where(eq(videoComments.userId, user.id));
       await db.delete(users).where(eq(users.id, user.id));
       res.json({ ok: true });
@@ -1348,7 +1375,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           } as typeof users.$inferInsert)
           .returning();
       } else {
-        const nextValues: Partial<typeof users.$inferInsert> = {
+        const nextValues: Partial<InferSelectModel<typeof users>> = {
           displayName,
           profileImageUrl: avatar,
           updatedAt: new Date(),
@@ -1495,7 +1522,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           googleAccessToken: data.access_token,
           ...(newExpiresAt ? { googleTokenExpiresAt: newExpiresAt } : {}),
           updatedAt: new Date(),
-        } as Partial<typeof users.$inferInsert>)
+        } as Partial<InferSelectModel<typeof users>>)
         .where(eq(users.id, userId));
       return data.access_token;
     } catch {
@@ -1755,7 +1782,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (adminId !== undefined) {
       await db
         .update(communities)
-        .set({ adminId: adminId ?? null } as Partial<typeof communities.$inferInsert>)
+        .set({ adminId: adminId ?? null } as Partial<InferSelectModel<typeof communities>>)
         .where(eq(communities.id, communityId));
     }
     if (moderatorIds !== undefined && Array.isArray(moderatorIds)) {
@@ -1840,7 +1867,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (c) {
       await db
         .update(communities)
-        .set({ members: c.m + 1 } as Partial<typeof communities.$inferInsert>)
+        .set({ members: c.m + 1 } as Partial<InferSelectModel<typeof communities>>)
         .where(eq(communities.id, communityId));
     }
     res.status(201).json({ ok: true });
@@ -1900,7 +1927,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     // コンテンツモデレーション（タイトル＋本文を結合してチェック)
     const combinedText = [title, body].filter(Boolean).join(" ");
     const modResult = await moderateContent(combinedText);
-    if (!modResult.allowed) {
+    if (modResult.allowed === false) {
       return res.status(400).json({ error: modResult.reason ?? "This content is not allowed" });
     }
     const [row] = await db
@@ -1998,7 +2025,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (!body || !body.trim()) return res.status(400).json({ error: "Please enter body text" });
     // コンテンツモデレーション
     const modResult = await moderateContent(body);
-    if (!modResult.allowed) {
+    if (modResult.allowed === false) {
       return res.status(400).json({ error: modResult.reason ?? "This content is not allowed" });
     }
     const [row] = await db
@@ -2128,11 +2155,11 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (!allowed) return res.status(403).json({ error: "This report does not belong to this community" });
 
     if (report.contentType === "video") {
-      await db.update(videos).set({ hidden: true } as Partial<typeof videos.$inferInsert>).where(eq(videos.id, report.contentId));
+      await db.update(videos).set({ hidden: true } as Partial<InferSelectModel<typeof videos>>).where(eq(videos.id, report.contentId));
     } else if (report.contentType === "comment") {
-      await db.update(videoComments).set({ hidden: true } as Partial<typeof videoComments.$inferInsert>).where(eq(videoComments.id, report.contentId));
+      await db.update(videoComments).set({ hidden: true } as Partial<InferSelectModel<typeof videoComments>>).where(eq(videoComments.id, report.contentId));
     }
-    await db.update(reports).set({ status: "hidden" } as Partial<typeof reports.$inferInsert>).where(eq(reports.id, reportId));
+    await db.update(reports).set({ status: "hidden" } as Partial<InferSelectModel<typeof reports>>).where(eq(reports.id, reportId));
     res.json({ ok: true });
   });
 
@@ -2165,7 +2192,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
     if (!allowed) return res.status(403).json({ error: "This report does not belong to this community" });
 
-    await db.update(reports).set({ status: "reviewed" } as Partial<typeof reports.$inferInsert>).where(eq(reports.id, reportId));
+    await db.update(reports).set({ status: "reviewed" } as Partial<InferSelectModel<typeof reports>>).where(eq(reports.id, reportId));
     res.json({ ok: true });
   });
 
@@ -2443,7 +2470,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       revenueSharePercent: body.revenueSharePercent ?? null,
     };
     const pv = validateEditorPricing(pricingRow);
-    if (!pv.ok) return res.status(400).json({ error: pv.error });
+    if (pv.ok === false) return res.status(400).json({ error: pv.error });
 
     const styleTags = normalizeEditorStyleTagSlugs(
       Array.isArray(body.styleTags) ? body.styleTags.map((x) => String(x)) : [],
@@ -2507,7 +2534,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         body.revenueSharePercent !== undefined ? body.revenueSharePercent : editor.revenueSharePercent,
     };
     const pv = validateEditorPricing(pricingRow);
-    if (!pv.ok) return res.status(400).json({ error: pv.error });
+    if (pv.ok === false) return res.status(400).json({ error: pv.error });
 
     let styleTags: string[] = Array.isArray(editor.styleTags) ? [...editor.styleTags] : [];
     if (body.styleTags !== undefined) {
@@ -2643,7 +2670,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       await db.delete(jukeboxQueue).where(eq(jukeboxQueue.communityId, communityId));
       await db.delete(jukeboxState).where(eq(jukeboxState.communityId, communityId));
       await db.delete(videoEditors).where(eq(videoEditors.communityId, communityId));
-      await db.update(videos).set({ communityId: null } as Partial<typeof videos.$inferInsert>).where(eq(videos.communityId, communityId));
+      await db.update(videos).set({ communityId: null } as Partial<InferSelectModel<typeof videos>>).where(eq(videos.communityId, communityId));
       await db.delete(communities).where(eq(communities.id, communityId));
       res.json({ ok: true });
     } catch (e) {
@@ -2835,7 +2862,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       return res.status(400).json({ error: `Distribution must total 100% (currently ${total}%)` });
     }
     await db.update(communities)
-      .set({ revenueDistribution: JSON.stringify(distribution) } as Partial<typeof communities.$inferInsert>)
+      .set({ revenueDistribution: JSON.stringify(distribution) } as Partial<InferSelectModel<typeof communities>>)
       .where(eq(communities.id, cid));
     res.json({ ok: true });
   });
@@ -2863,7 +2890,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       const existing = await db.select().from(genreOwners).where(eq(genreOwners.genreId, genreId));
       if (existing.length > 0) {
         await db.update(genreOwners)
-          .set({ ownerUserId: topCommunity.adminId, assignedCommunityId: topCommunity.id, updatedAt: new Date() } as Partial<typeof genreOwners.$inferInsert>)
+          .set({ ownerUserId: topCommunity.adminId, assignedCommunityId: topCommunity.id, updatedAt: new Date() } as Partial<InferSelectModel<typeof genreOwners>>)
           .where(eq(genreOwners.genreId, genreId));
       } else {
         await db.insert(genreOwners).values({
@@ -2921,7 +2948,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       .from(communityModerators)
       .where(and(eq(communityModerators.communityId, ad.communityId), eq(communityModerators.userId, user.id)));
     if (!mod) return res.status(403).json({ error: "Only moderators of this community can approve this" });
-    await db.update(communityAds).set({ status: "moderator_approved", approvedByModerator: user.id } as Partial<typeof communityAds.$inferInsert>).where(eq(communityAds.id, id));
+    await db.update(communityAds).set({ status: "moderator_approved", approvedByModerator: user.id } as Partial<InferSelectModel<typeof communityAds>>).where(eq(communityAds.id, id));
     res.json({ ok: true });
   });
 
@@ -2934,7 +2961,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (ad.status !== "moderator_approved") return res.status(400).json({ error: "The owner can approve after moderator approval" });
     const [community] = await db.select().from(communities).where(eq(communities.id, ad.communityId));
     if (!community || community.adminId !== user.id) return res.status(403).json({ error: "Only the owner can give final approval" });
-    await db.update(communityAds).set({ status: "approved", approvedByOwner: user.id } as Partial<typeof communityAds.$inferInsert>).where(eq(communityAds.id, id));
+    await db.update(communityAds).set({ status: "approved", approvedByOwner: user.id } as Partial<InferSelectModel<typeof communityAds>>).where(eq(communityAds.id, id));
     res.json({ ok: true });
   });
 
@@ -2953,7 +2980,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const isOwner = community?.adminId === user.id;
     const isMod = !!mod;
     if (!isOwner && !isMod) return res.status(403).json({ error: "Only owners or moderators can reject" });
-    await db.update(communityAds).set({ status: "rejected" } as Partial<typeof communityAds.$inferInsert>).where(eq(communityAds.id, id));
+    await db.update(communityAds).set({ status: "rejected" } as Partial<InferSelectModel<typeof communityAds>>).where(eq(communityAds.id, id));
     res.json({ ok: true });
   });
 
@@ -3003,9 +3030,9 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     if (verdict === "clear_violation") {
       if (type === "video") {
-        await db.update(videos).set({ hidden: true } as Partial<typeof videos.$inferInsert>).where(eq(videos.id, cid));
+        await db.update(videos).set({ hidden: true } as Partial<InferSelectModel<typeof videos>>).where(eq(videos.id, cid));
       } else {
-        await db.update(videoComments).set({ hidden: true } as Partial<typeof videoComments.$inferInsert>).where(eq(videoComments.id, cid));
+        await db.update(videoComments).set({ hidden: true } as Partial<InferSelectModel<typeof videoComments>>).where(eq(videoComments.id, cid));
       }
     }
 
@@ -3181,7 +3208,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     const [updated] = await db
       .update(concertStaff)
-      .set({ status: "approved" } as Partial<typeof concertStaff.$inferInsert>)
+      .set({ status: "approved" } as Partial<InferSelectModel<typeof concertStaff>>)
       .where(eq(concertStaff.id, staffId))
       .returning();
 
@@ -3209,7 +3236,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     const [updated] = await db
       .update(concertStaff)
-      .set({ status: "rejected" } as Partial<typeof concertStaff.$inferInsert>)
+      .set({ status: "rejected" } as Partial<InferSelectModel<typeof concertStaff>>)
       .where(eq(concertStaff.id, staffId))
       .returning();
 
@@ -3325,7 +3352,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const [owner] = await db.select().from(genreOwners).where(and(eq(genreOwners.genreId, ad.genreId), eq(genreOwners.ownerUserId, user.id)));
     if (!owner) return res.status(403).json({ error: "You are not the genre manager" });
 
-    await db.update(genreAds).set({ status: "approved" } as Partial<typeof genreAds.$inferInsert>).where(eq(genreAds.id, id));
+    await db.update(genreAds).set({ status: "approved" } as Partial<InferSelectModel<typeof genreAds>>).where(eq(genreAds.id, id));
     res.json({ ok: true });
   });
 
@@ -3340,7 +3367,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const [owner] = await db.select().from(genreOwners).where(and(eq(genreOwners.genreId, ad.genreId), eq(genreOwners.ownerUserId, user.id)));
     if (!owner) return res.status(403).json({ error: "You are not the genre manager" });
 
-    await db.update(genreAds).set({ status: "rejected" } as Partial<typeof genreAds.$inferInsert>).where(eq(genreAds.id, id));
+    await db.update(genreAds).set({ status: "rejected" } as Partial<InferSelectModel<typeof genreAds>>).where(eq(genreAds.id, id));
     res.json({ ok: true });
   });
 
@@ -3399,12 +3426,12 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (!report) return res.status(404).json({ error: "Report not found" });
 
     if (report.contentType === "video") {
-      await db.update(videos).set({ hidden: true } as Partial<typeof videos.$inferInsert>).where(eq(videos.id, report.contentId));
+      await db.update(videos).set({ hidden: true } as Partial<InferSelectModel<typeof videos>>).where(eq(videos.id, report.contentId));
     } else if (report.contentType === "comment") {
-      await db.update(videoComments).set({ hidden: true } as Partial<typeof videoComments.$inferInsert>).where(eq(videoComments.id, report.contentId));
+      await db.update(videoComments).set({ hidden: true } as Partial<InferSelectModel<typeof videoComments>>).where(eq(videoComments.id, report.contentId));
     }
 
-    await db.update(reports).set({ status: "hidden" } as Partial<typeof reports.$inferInsert>).where(eq(reports.id, id));
+    await db.update(reports).set({ status: "hidden" } as Partial<InferSelectModel<typeof reports>>).where(eq(reports.id, id));
     res.json({ ok: true });
   });
 
@@ -3417,7 +3444,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const [report] = await db.select().from(reports).where(eq(reports.id, id));
     if (!report) return res.status(404).json({ error: "Report not found" });
 
-    await db.update(reports).set({ status: "reviewed" } as Partial<typeof reports.$inferInsert>).where(eq(reports.id, id));
+    await db.update(reports).set({ status: "reviewed" } as Partial<InferSelectModel<typeof reports>>).where(eq(reports.id, id));
     res.json({ ok: true });
   });
 
@@ -3472,7 +3499,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const role = typeof req.body?.role === "string" ? req.body.role.trim().toUpperCase() : undefined;
     const isBanned = typeof req.body?.isBanned === "boolean" ? req.body.isBanned : undefined;
 
-    const nextValues: Partial<typeof users.$inferInsert> = { updatedAt: new Date() };
+    const nextValues: Partial<InferSelectModel<typeof users>> = { updatedAt: new Date() };
     if (role !== undefined) {
       if (!["USER", "ADMIN"].includes(role)) {
         return res.status(400).json({ error: "role must be USER or ADMIN" });
@@ -3536,7 +3563,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       .update(videos)
       .set({
         hidden,
-      } as Partial<typeof videos.$inferInsert>)
+      } as Partial<InferSelectModel<typeof videos>>)
       .where(eq(videos.id, videoId))
       .returning({
         id: videos.id,
@@ -3858,7 +3885,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     const [updated] = await db
       .update(videos)
-      .set(updates as Partial<typeof videos.$inferInsert>)
+      .set(updates as Partial<InferSelectModel<typeof videos>>)
       .where(eq(videos.id, id))
       .returning();
     res.json(updated);
@@ -3983,7 +4010,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (session.spotsLeft <= 0) return res.status(400).json({ message: "Fully booked" });
     const [updated] = await db
       .update(bookingSessions)
-      .set({ spotsLeft: session.spotsLeft - 1 } as Partial<typeof bookingSessions.$inferInsert>)
+      .set({ spotsLeft: session.spotsLeft - 1 } as Partial<InferSelectModel<typeof bookingSessions>>)
       .where(eq(bookingSessions.id, id))
       .returning();
     res.json(updated);
@@ -4101,7 +4128,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
     const [updated] = await db
       .update(dmMessages)
-      .set({ unread: 0 } as Partial<typeof dmMessages.$inferInsert>)
+      .set({ unread: 0 } as Partial<InferSelectModel<typeof dmMessages>>)
       .where(eq(dmMessages.id, legacyDmId))
       .returning();
     if (me) {
@@ -4112,7 +4139,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       if (legacyMeta?.name === OPERATIONS_DM_NAME) {
         await db
           .update(users)
-          .set({ operationsDmOpenedAt: new Date(), updatedAt: new Date() } as Partial<typeof users.$inferInsert>)
+          .set({ operationsDmOpenedAt: new Date(), updatedAt: new Date() } as Partial<InferSelectModel<typeof users>>)
           .where(eq(users.id, me.id));
       }
     }
@@ -4137,7 +4164,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   app.post("/api/notifications/read-all", async (_req: Request, res: Response) => {
-    await db.update(notifications).set({ isRead: true } as Partial<typeof notifications.$inferInsert>);
+    await db.update(notifications).set({ isRead: true } as Partial<InferSelectModel<typeof notifications>>);
     res.json({ ok: true });
   });
 
@@ -4145,7 +4172,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const id = paramNum(req, "id");
     const [updated] = await db
       .update(notifications)
-      .set({ isRead: true } as Partial<typeof notifications.$inferInsert>)
+      .set({ isRead: true } as Partial<InferSelectModel<typeof notifications>>)
       .where(eq(notifications.id, id))
       .returning();
     res.json(updated);
@@ -4173,7 +4200,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     // ギフトメッセージはモデレーション対象外（金額のみ)、通常メッセージはモデレーション実施
     if (!isGift && message) {
       const modResult = await moderateContent(message);
-      if (!modResult.allowed) {
+      if (modResult.allowed === false) {
         return res.status(400).json({ error: modResult.reason ?? "This content is not allowed" });
       }
     }
@@ -4287,7 +4314,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           .set({
             lastMessagePreview: text.trim().slice(0, 200),
             updatedAt: new Date(),
-          } as Partial<typeof dmThreads.$inferInsert>)
+          } as Partial<InferSelectModel<typeof dmThreads>>)
           .where(eq(dmThreads.id, rawId));
         await syncUserLastContentLang(me.id, text.trim());
         return res.json({
@@ -4312,7 +4339,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       .returning();
     await db
       .update(dmMessages)
-      .set({ lastMessage: text.trim(), unread: 0 } as Partial<typeof dmMessages.$inferInsert>)
+      .set({ lastMessage: text.trim(), unread: 0 } as Partial<InferSelectModel<typeof dmMessages>>)
       .where(eq(dmMessages.id, legacyDmId));
     await syncUserLastContentLang(me.id, text.trim());
     res.json({
@@ -4398,7 +4425,7 @@ export async function registerRoutes(app: Express): Promise<void> {
             (state.currentVideoId != null && q.videoId === state.currentVideoId)
         );
         if (currentItem) {
-          await db.update(jukeboxQueue).set({ isPlayed: true } as Partial<typeof jukeboxQueue.$inferInsert>).where(eq(jukeboxQueue.id, currentItem.id));
+          await db.update(jukeboxQueue).set({ isPlayed: true } as Partial<InferSelectModel<typeof jukeboxQueue>>).where(eq(jukeboxQueue.id, currentItem.id));
           queueModified = true;
         }
         const next = queue.find((q) => !q.isPlayed && q.id !== currentItem?.id);
@@ -4431,7 +4458,7 @@ export async function registerRoutes(app: Express): Promise<void> {
                 startedAt: now,
                 isPlaying: true,
                 watchersCount: watchers,
-              } as Partial<typeof jukeboxState.$inferInsert>,
+              } as Partial<InferSelectModel<typeof jukeboxState>>,
             })
             .returning();
           state = updated;
@@ -4446,7 +4473,7 @@ export async function registerRoutes(app: Express): Promise<void> {
               currentVideoDurationSecs: 0,
               currentVideoYoutubeId: null,
               isPlaying: false,
-            } as Partial<typeof jukeboxState.$inferInsert>)
+            } as Partial<InferSelectModel<typeof jukeboxState>>)
             .where(eq(jukeboxState.communityId, communityId))
             .returning();
           state = updated;
@@ -4901,7 +4928,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         startedAt: now,
         endedAt: null,
         currentViewers: 0,
-      } as Partial<typeof streams.$inferInsert>)
+      } as Partial<InferSelectModel<typeof streams>>)
       .where(eq(streams.id, id))
       .returning();
     res.json(updated);
@@ -4923,7 +4950,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       .set({
         isLive: false,
         endedAt: now,
-      } as Partial<typeof streams.$inferInsert>)
+      } as Partial<InferSelectModel<typeof streams>>)
       .where(eq(streams.id, id))
       .returning();
     res.json(updated);
@@ -4952,7 +4979,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       }
       const [updated] = await db
         .update(streams)
-        .set({ currentViewers: sql`${streams.currentViewers} + 1` } as Partial<typeof streams.$inferInsert>)
+        .set({ currentViewers: sql`${streams.currentViewers} + 1` } as unknown as Partial<InferSelectModel<typeof streams>>)
         .where(eq(streams.id, id))
         .returning();
       return res.json({ viewerCount: updated.currentViewers, currentViewers: updated.currentViewers });
@@ -4962,7 +4989,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const next = Math.max(0, live.viewers + 1);
     await db
       .update(liveStreams)
-      .set({ viewers: next } as Partial<typeof liveStreams.$inferInsert>)
+      .set({ viewers: next } as Partial<InferSelectModel<typeof liveStreams>>)
       .where(eq(liveStreams.id, id));
     return res.json({ viewerCount: next, currentViewers: next });
   });
@@ -5077,7 +5104,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       const next = Math.max(0, srow.currentViewers - 1);
       const [updated] = await db
         .update(streams)
-        .set({ currentViewers: next } as Partial<typeof streams.$inferInsert>)
+        .set({ currentViewers: next } as Partial<InferSelectModel<typeof streams>>)
         .where(eq(streams.id, id))
         .returning();
       return res.json({ viewerCount: updated.currentViewers, currentViewers: updated.currentViewers });
@@ -5087,7 +5114,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const next = Math.max(0, live.viewers - 1);
     await db
       .update(liveStreams)
-      .set({ viewers: next } as Partial<typeof liveStreams.$inferInsert>)
+      .set({ viewers: next } as Partial<InferSelectModel<typeof liveStreams>>)
       .where(eq(liveStreams.id, id));
     return res.json({ viewerCount: next, currentViewers: next });
   });
@@ -5140,7 +5167,7 @@ export async function registerRoutes(app: Express): Promise<void> {
             startedAt: new Date(),
             isPlaying: true,
             watchersCount: watchers,
-          } as Partial<typeof jukeboxState.$inferInsert>,
+          } as Partial<InferSelectModel<typeof jukeboxState>>,
         });
     }
 
@@ -5183,7 +5210,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       );
       if (currentItem) {
         currentItemId = currentItem.id;
-        await db.update(jukeboxQueue).set({ isPlayed: true } as Partial<typeof jukeboxQueue.$inferInsert>).where(eq(jukeboxQueue.id, currentItem.id));
+        await db.update(jukeboxQueue).set({ isPlayed: true } as Partial<InferSelectModel<typeof jukeboxQueue>>).where(eq(jukeboxQueue.id, currentItem.id));
       }
     }
 
@@ -5215,7 +5242,7 @@ export async function registerRoutes(app: Express): Promise<void> {
             startedAt: new Date(),
             isPlaying: true,
             watchersCount: watchers,
-          } as Partial<typeof jukeboxState.$inferInsert>,
+          } as Partial<InferSelectModel<typeof jukeboxState>>,
         });
     } else {
       // 再生キューが空になった場合は再生状態をリセット
@@ -5228,7 +5255,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           currentVideoDurationSecs: 0,
           currentVideoYoutubeId: null,
           isPlaying: false,
-        } as Partial<typeof jukeboxState.$inferInsert>)
+        } as Partial<InferSelectModel<typeof jukeboxState>>)
         .where(eq(jukeboxState.communityId, communityId));
     }
     // Redis に state_update + queue_update イベントを publish
@@ -5281,7 +5308,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (!message || !message.trim()) return res.status(400).json({ error: "Please enter a message" });
     // コンテンツモデレーション
     const modResult = await moderateContent(message);
-    if (!modResult.allowed) {
+    if (modResult.allowed === false) {
       return res.status(400).json({ error: modResult.reason ?? "This content is not allowed" });
     }
     const [msg] = await db.insert(jukeboxChat).values({
@@ -5424,7 +5451,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         if (parsedSlotId != null) {
           const slotRows = await tx
             .update(liverAvailability)
-            .set({ bookedSlots: sql`${liverAvailability.bookedSlots} + 1` } as Partial<typeof liverAvailability.$inferInsert>)
+            .set({ bookedSlots: sql`${liverAvailability.bookedSlots} + 1` } as unknown as Partial<InferSelectModel<typeof liverAvailability>>)
             .where(
               and(
                 eq(liverAvailability.id, parsedSlotId),
@@ -5478,11 +5505,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           .returning({ id: ticketTransactions.id });
 
         const walletId = await getOrCreateUserWallet(sessionRow.creatorId, tx);
-        const [creatorRow] = await tx
-          .select()
-          .from(creators)
-          .where(eq(creators.userId, sessionRow.creatorId))
-          .limit(1);
+        const creatorRow = await creatorRowForUserId(tx, sessionRow.creatorId);
         await recordRevenue(
           walletId,
           sessionRow.creatorId,
@@ -5649,7 +5672,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         if (!creatorId) return res.status(404).json({ error: "session_not_found" });
         const updatedSlots = await db
           .update(liverAvailability)
-          .set({ bookedSlots: sql`${liverAvailability.bookedSlots} + 1` } as Partial<typeof liverAvailability.$inferInsert>)
+          .set({ bookedSlots: sql`${liverAvailability.bookedSlots} + 1` } as unknown as Partial<InferSelectModel<typeof liverAvailability>>)
           .where(
             and(
               eq(liverAvailability.id, slotId),
@@ -5668,7 +5691,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         .set({
           status: "paid",
           stripePaymentIntentId: session.payment_intent as string,
-        } as Partial<typeof mentorBookings.$inferInsert>)
+        } as Partial<InferSelectModel<typeof mentorBookings>>)
         .where(eq(mentorBookings.stripeSessionId, sessionId));
 
       // 共通スコア集計用：REVENUE を transactions に記録（ライバー＝配信者に紐づくウォレット)
@@ -5681,7 +5704,7 @@ export async function registerRoutes(app: Express): Promise<void> {
             await recordRevenue(walletId, creatorUser.id, creatorRow?.id ?? null, booking.price, "mentor", String(booking.id));
           }
         }
-      } else {
+      } else if (booking.streamId != null) {
         const [stream] = await db.select().from(liveStreams).where(eq(liveStreams.id, booking.streamId));
         if (stream) {
           const [creatorUser] = await db.select().from(users).where(eq(users.displayName, stream.creator));
@@ -5703,7 +5726,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const bookingId = paramNum(req, "bookingId");
     await db
       .update(mentorBookings)
-      .set({ status: "notified", notifiedAt: new Date() } as Partial<typeof mentorBookings.$inferInsert>)
+      .set({ status: "notified", notifiedAt: new Date() } as Partial<InferSelectModel<typeof mentorBookings>>)
       .where(eq(mentorBookings.id, bookingId));
     res.json({ ok: true });
   });
@@ -5712,7 +5735,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const bookingId = paramNum(req, "bookingId");
     await db
       .update(mentorBookings)
-      .set({ status: "completed", completedAt: new Date() } as Partial<typeof mentorBookings.$inferInsert>)
+      .set({ status: "completed", completedAt: new Date() } as Partial<InferSelectModel<typeof mentorBookings>>)
       .where(eq(mentorBookings.id, bookingId));
     res.json({ ok: true });
   });
@@ -5727,7 +5750,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         cancelledAt: new Date(),
         cancelReason: reason ?? "User cancelled",
         refundable: !isSelfCancel,
-      } as Partial<typeof mentorBookings.$inferInsert>)
+      } as Partial<InferSelectModel<typeof mentorBookings>>)
       .where(eq(mentorBookings.id, bookingId));
     res.json({ ok: true });
   });
@@ -5786,7 +5809,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         duration: duration ?? existing.duration,
         maxParticipants: maxParticipants ?? existing.maxParticipants,
         updatedAt: new Date(),
-      } as Partial<typeof mentorSessions.$inferInsert>)
+      } as Partial<InferSelectModel<typeof mentorSessions>>)
       .where(eq(mentorSessions.id, id))
       .returning();
     res.json(row);
@@ -5801,7 +5824,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (!existing || existing.creatorId !== user.id) return res.status(403).json({ error: "Forbidden" });
     await db
       .update(mentorSessions)
-      .set({ isActive: false, updatedAt: new Date() } as Partial<typeof mentorSessions.$inferInsert>)
+      .set({ isActive: false, updatedAt: new Date() } as Partial<InferSelectModel<typeof mentorSessions>>)
       .where(eq(mentorSessions.id, id));
     res.json({ ok: true });
   });
@@ -5875,7 +5898,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     await db
       .update(mentorBookings)
-      .set({ status: "in_progress", whipUrl, whepUrl, cfStreamUid: uid } as Partial<typeof mentorBookings.$inferInsert>)
+      .set({ status: "in_progress", whipUrl, whepUrl, cfStreamUid: uid } as Partial<InferSelectModel<typeof mentorBookings>>)
       .where(eq(mentorBookings.id, bookingId));
 
     res.json({ whipUrl, whepUrl });
@@ -5911,7 +5934,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     await db
       .update(mentorBookings)
-      .set({ status: "completed", completedAt: new Date() } as Partial<typeof mentorBookings.$inferInsert>)
+      .set({ status: "completed", completedAt: new Date() } as Partial<InferSelectModel<typeof mentorBookings>>)
       .where(eq(mentorBookings.id, bookingId));
 
     res.json({ ok: true });
@@ -6200,7 +6223,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         .set({
           streamCountMonthly: score.streamCountMonthly + 1,
           updatedAt: new Date(),
-        } as Partial<typeof creatorMonthlyScores.$inferInsert>)
+        } as Partial<InferSelectModel<typeof creatorMonthlyScores>>)
         .where(eq(creatorMonthlyScores.id, score.id));
     } else {
       await db.insert(creatorMonthlyScores).values({
@@ -6211,7 +6234,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
     await db
       .update(creators)
-      .set({ streamCount: creator.streamCount + 1 } as Partial<typeof creators.$inferInsert>)
+      .set({ streamCount: creator.streamCount + 1 } as Partial<InferSelectModel<typeof creators>>)
       .where(eq(creators.id, creator.id));
     const newLevel = await syncCreatorLevelFromMonthlyProgress(creator.id, month);
     res.status(201).json({ ok: true, month, currentLevel: newLevel });
@@ -6315,7 +6338,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       heatScore: parseFloat(avgOverall.toFixed(1)),
       satisfactionScore: parseFloat(avgSatisfaction.toFixed(1)),
       attendanceRate: parseFloat(avgAttendance.toFixed(1)),
-    } as Partial<typeof creators.$inferInsert>).where(eq(creators.id, id));
+    } as Partial<InferSelectModel<typeof creators>>).where(eq(creators.id, id));
     res.status(201).json(row);
   });
 
@@ -6772,7 +6795,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       ];
       for (const row of demoEditors) {
         const v = validateEditorPricing(row);
-        if (!v.ok) return res.status(500).json({ error: v.error });
+        if (v.ok === false) return res.status(500).json({ error: v.error });
       }
       await db.insert(videoEditors).values(demoEditors);
       insertedBase = demoEditors.length;
@@ -6815,7 +6838,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       ];
       for (const row of bothDemo) {
         const v = validateEditorPricing(row);
-        if (!v.ok) return res.status(500).json({ error: v.error });
+        if (v.ok === false) return res.status(500).json({ error: v.error });
       }
       await db.insert(videoEditors).values(bothDemo);
       insertedBoth = bothDemo.length;
@@ -7188,7 +7211,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           .returning({ id: ticketTransactions.id });
 
         const walletId = await getOrCreateUserWallet(creatorUserId, tx);
-        const [creatorRow] = await tx.select().from(creators).where(eq(creators.userId, creatorUserId)).limit(1);
+        const creatorRow = await creatorRowForUserId(tx, creatorUserId);
         await recordRevenue(
           walletId,
           creatorUserId,
@@ -7292,7 +7315,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         if (needsRevenueRecord) {
           const creatorUserId = Number(creatorId);
           const walletId = await getOrCreateUserWallet(creatorUserId, tx);
-          const [creatorRow] = await tx.select().from(creators).where(eq(creators.userId, creatorUserId)).limit(1);
+          const creatorRow = await creatorRowForUserId(tx, creatorUserId);
           const source: RevenueSource = type === "spend_tip" ? "tip" : "paid_live";
           await recordRevenue(walletId, creatorUserId, creatorRow?.id ?? null, amount, source, String(spendTx.id), tx);
         }
@@ -7459,7 +7482,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       title?: string; imageUrl?: string; linkUrl?: string; description?: string; isActive?: boolean; displayOrder?: number;
     };
     try {
-      const updates: Partial<typeof bannerAds.$inferInsert> = { updatedAt: new Date() };
+      const updates: Partial<InferSelectModel<typeof bannerAds>> = { updatedAt: new Date() };
       if (title !== undefined) updates.title = title;
       if (imageUrl !== undefined) updates.imageUrl = imageUrl;
       if (linkUrl !== undefined) updates.linkUrl = linkUrl;
@@ -7602,7 +7625,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       try {
         await db
           .update(aiEditJobs)
-          .set({ status: "processing", updatedAt: new Date() } as Partial<typeof aiEditJobs.$inferInsert>)
+          .set({ status: "processing", updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
           .where(eq(aiEditJobs.id, job.id));
 
         const editInput: EditJobInput = {
@@ -7622,13 +7645,13 @@ export async function registerRoutes(app: Express): Promise<void> {
             status: "completed",
             result: JSON.stringify(plan),
             updatedAt: new Date(),
-          } as Partial<typeof aiEditJobs.$inferInsert>)
+          } as Partial<InferSelectModel<typeof aiEditJobs>>)
           .where(eq(aiEditJobs.id, job.id));
       } catch (e) {
         console.error("[ai-edit] Processing failed:", e);
         await db
           .update(aiEditJobs)
-          .set({ status: "failed", updatedAt: new Date() } as Partial<typeof aiEditJobs.$inferInsert>)
+          .set({ status: "failed", updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
           .where(eq(aiEditJobs.id, job.id));
       }
     })();
@@ -7771,7 +7794,7 @@ export async function registerRoutes(app: Express): Promise<void> {
             }
           : {}),
         updatedAt: now,
-      } as Partial<typeof aiEditJobs.$inferInsert>)
+      } as Partial<InferSelectModel<typeof aiEditJobs>>)
       .where(eq(aiEditJobs.id, id));
 
     if (syncUrl) {
@@ -7782,7 +7805,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           title: "Your edited video is ready",
           body: `Your AI Edit job #${job.id}${job.planMinutes ? ` (${job.planMinutes}-min plan)` : ""} has been delivered. Tap to download.`,
           amount: null,
-          avatar: owner?.avatar ?? null,
+          avatar: owner?.profileImageUrl ?? null,
           thumbnail: null,
           timeAgo: "Just now",
         } as typeof notifications.$inferInsert);
@@ -7842,7 +7865,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         if (statusRaw === "failed" || statusRaw === "error") {
           await db
             .update(aiEditJobs)
-            .set({ status: "failed", updatedAt: new Date() } as Partial<typeof aiEditJobs.$inferInsert>)
+            .set({ status: "failed", updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
             .where(eq(aiEditJobs.id, jobId));
         }
         return res.status(200).json({ ok: true, ignored: true });
@@ -7861,7 +7884,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           deliveredUrl: url.trim(),
           deliveredAt: now,
           updatedAt: now,
-        } as Partial<typeof aiEditJobs.$inferInsert>)
+        } as Partial<InferSelectModel<typeof aiEditJobs>>)
         .where(eq(aiEditJobs.id, jobId));
 
       try {
@@ -7871,7 +7894,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           title: "Your edited video is ready",
           body: `Your AI Edit job #${job.id}${job.planMinutes ? ` (${job.planMinutes}-min plan)` : ""} has been delivered. Tap to download.`,
           amount: null,
-          avatar: owner?.avatar ?? null,
+          avatar: owner?.profileImageUrl ?? null,
           thumbnail: null,
           timeAgo: "Just now",
         } as typeof notifications.$inferInsert);
@@ -7905,7 +7928,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     await db
       .update(aiEditJobs)
-      .set({ status: "approved", updatedAt: new Date() } as Partial<typeof aiEditJobs.$inferInsert>)
+      .set({ status: "approved", updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
       .where(eq(aiEditJobs.id, id));
 
     res.json({ ok: true, id, status: "approved" });
@@ -7956,7 +7979,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const newRevisionCount = revisionCount + 1;
     await db
       .update(aiEditJobs)
-      .set({ status: "processing", revisionCount: newRevisionCount, updatedAt: new Date() } as Partial<typeof aiEditJobs.$inferInsert>)
+      .set({ status: "processing", revisionCount: newRevisionCount, updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
       .where(eq(aiEditJobs.id, id));
 
     // Re-generate EDL async
@@ -7981,13 +8004,13 @@ export async function registerRoutes(app: Express): Promise<void> {
         const plan = await generateEditPlan(reviseInput);
         await db
           .update(aiEditJobs)
-          .set({ status: "completed", result: JSON.stringify(plan), updatedAt: new Date() } as Partial<typeof aiEditJobs.$inferInsert>)
+          .set({ status: "completed", result: JSON.stringify(plan), updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
           .where(eq(aiEditJobs.id, id));
       } catch (e) {
         console.error("[ai-edit] Revision failed:", e);
         await db
           .update(aiEditJobs)
-          .set({ status: "failed", updatedAt: new Date() } as Partial<typeof aiEditJobs.$inferInsert>)
+          .set({ status: "failed", updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
           .where(eq(aiEditJobs.id, id));
       }
     })();
@@ -8027,7 +8050,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         deliveredUrl: deliveredUrl.trim(),
         deliveredAt: now,
         updatedAt: now,
-      } as Partial<typeof aiEditJobs.$inferInsert>)
+      } as Partial<InferSelectModel<typeof aiEditJobs>>)
       .where(eq(aiEditJobs.id, id));
 
     // Send an in-app notification to the job owner
@@ -8038,7 +8061,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         title: "Your edited video is ready",
         body: `Your AI Edit job #${job.id}${job.planMinutes ? ` (${job.planMinutes}-min plan)` : ""} has been delivered. Tap to download.`,
         amount: null,
-        avatar: owner?.avatar ?? null,
+        avatar: owner?.profileImageUrl ?? null,
         thumbnail: null,
         timeAgo: "Just now",
       } as typeof notifications.$inferInsert);
