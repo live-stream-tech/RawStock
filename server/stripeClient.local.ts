@@ -7,7 +7,7 @@ function requireStripe(): Stripe {
   if (!STRIPE_SECRET_KEY) {
     throw new Error("STRIPE_SECRET_KEY is not configured. Add it to your environment secrets.");
   }
-  return new Stripe(STRIPE_SECRET_KEY, { apiVersion: "2025-01-27.acacia" });
+  return new Stripe(STRIPE_SECRET_KEY, { apiVersion: "2026-02-25.clover" });
 }
 
 /** Returns a fresh Stripe client (uncached — safe for serverless/streaming). */

@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, lte, sql, type InferSelectModel } from "drizzle-orm";
 import { db } from "./db";
 import { creatorMonthlyScores, creators, liverReviews, transactions, users, wallets } from "./schema";
 
@@ -192,7 +192,7 @@ export async function runMonthlyCreatorAggregation(yearMonth: string): Promise<{
   for (const row of baseRows) {
     const nextStartRank = Math.min((overallSorted.find((r) => r.creatorId === row.creatorId)?.rank ?? n) + 2, n);
     const existing = scoreMap.get(row.creatorId);
-    const payload: Partial<typeof creatorMonthlyScores.$inferInsert> = {
+    const payload: Partial<InferSelectModel<typeof creatorMonthlyScores>> = {
       avgSatisfaction: row.avgSatisfaction,
       compositeScore: row.compositeScore,
       startRank: row.startRank,
