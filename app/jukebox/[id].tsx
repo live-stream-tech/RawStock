@@ -22,7 +22,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { C } from "@/constants/colors";
-import { apiRequest } from "@/lib/query-client";
+import { apiRequest, ApiError } from "@/lib/query-client";
 import { useAuth } from "@/lib/auth";
 import { Linking } from "react-native";
 import { getApiUrl } from "@/lib/query-client";
@@ -976,8 +976,18 @@ export default function JukeboxScreen() {
         durationSecs?: number;
       }[];
       setYtResults(data);
-    } catch (e: any) {
-      alert("YouTube search failed. Please try again later.");
+    } catch (e: unknown) {
+      let msg = "YouTube search failed. Please try again later.";
+      if (e instanceof ApiError) {
+        try {
+          const j = JSON.parse(e.body) as { error?: string };
+          if (j?.error) msg = j.error;
+          else msg = `YouTube search failed (${e.status}).`;
+        } catch {
+          msg = `YouTube search failed (${e.status}).`;
+        }
+      }
+      alert(msg);
     } finally {
       setYtSearching(false);
       setInteractionResumeNonce((n) => n + 1);

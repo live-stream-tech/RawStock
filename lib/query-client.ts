@@ -75,6 +75,11 @@ function resolveFromWindow(): { url: string; source: string } | null {
 
 /**
  * Express API のベース URL（末尾スラッシュ付き）
+ *
+ * デプロイ済み Web（Metro 以外）では `window.location` を優先する。
+ * ビルド時に焼き込んだ EXPO_PUBLIC_DOMAIN が本番とズレたままだと、
+ * プレビューやカスタム URL で API が別ホストに飛び、502 等になる。
+ * API を別ドメインに分ける場合は EXPO_PUBLIC_API_URL を必ず設定する。
  */
 export function getApiUrl(): string {
   const explicit = process.env.EXPO_PUBLIC_API_URL?.trim();
@@ -82,10 +87,14 @@ export function getApiUrl(): string {
     return normalizeExplicitApiBase(explicit);
   }
 
+  const fromWindow = resolveFromWindow();
+  if (fromWindow?.source === "window") {
+    return fromWindow.url;
+  }
+
   const fromDomain = resolveFromExpoPublicDomain();
   if (fromDomain) return fromDomain.url;
 
-  const fromWindow = resolveFromWindow();
   if (fromWindow) return fromWindow.url;
 
   if (process.env.NODE_ENV !== "production") {

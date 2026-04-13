@@ -1394,7 +1394,16 @@ export async function registerRoutes(app: Express): Promise<void> {
       if (!ytRes.ok) {
         const text = await ytRes.text();
         console.error("YouTube search error:", ytRes.status, text);
-        return res.status(502).json({ error: "YouTube search failed" });
+        let clientMessage = "YouTube search failed";
+        try {
+          const errJson = JSON.parse(text) as { error?: { message?: string } };
+          if (errJson?.error?.message) {
+            clientMessage = errJson.error.message;
+          }
+        } catch {
+          /* keep generic */
+        }
+        return res.status(502).json({ error: clientMessage });
       }
       const json = (await ytRes.json()) as {
         items?: { id?: { videoId?: string }; snippet?: { title?: string; thumbnails?: { default?: { url?: string }; medium?: { url?: string }; high?: { url?: string } } } }[];
