@@ -19,7 +19,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { apiRequest, ApiError, getApiUrl } from "@/lib/query-client";
 import { C } from "@/constants/colors";
 import { useAuth } from "@/lib/auth";
@@ -77,43 +76,13 @@ export default function WorkUploadScreen() {
   }
 
   function removeMedia(id: string) {
-    setMediaItems((prev) => prev.filter((m) => m.id !== id));
+    setMediaItems((prev) => {
+      const item = prev.find((m) => m.id === id);
+      if (item?.uri.startsWith("blob:")) URL.revokeObjectURL(item.uri);
+      return prev.filter((m) => m.id !== id);
+    });
   }
 
-  async function uploadFileToR2Web(file: File) {
-    console.log(`${UPLOAD_LOG} step:work_web_presign_request`, { name: file.name, size: file.size });
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    try {
-      const token = await AsyncStorage.getItem("auth_token");
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-    } catch {}
-    const res = await fetch(new URL("/api/upload-url", getApiUrl()).toString(), {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        fileName: file.name,
-        contentType: file.type || "application/octet-stream",
-      }),
-    });
-    if (!res.ok) {
-      console.error(`${UPLOAD_LOG} step:work_web_presign_failed`, res.status);
-      throw new Error("Failed to get upload URL");
-    }
-    const { uploadUrl, url } = await res.json();
-    console.log(`${UPLOAD_LOG} step:work_web_r2_put_start`);
-    const putRes = await fetch(uploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": file.type || "application/octet-stream" },
-      body: file,
-    });
-    if (!putRes.ok) {
-      const hint = await putRes.text().catch(() => "");
-      console.error(`${UPLOAD_LOG} step:work_web_r2_put_failed`, putRes.status, hint.slice(0, 300));
-      throw new Error(`Storage upload failed (${putRes.status})`);
-    }
-    console.log(`${UPLOAD_LOG} step:work_web_r2_put_ok`);
-    return url as string;
-  }
 
   async function uploadFileToR2Native(uri: string, name: string, mime: string) {
     console.log(`${UPLOAD_LOG} step:work_native_presign_request`, { name, mime });
@@ -147,20 +116,18 @@ export default function WorkUploadScreen() {
       const input = document.createElement("input");
       input.type = "file";
       input.accept = "image/*";
-      input.onchange = async (e: any) => {
+      input.onchange = (e: any) => {
         const file = e.target.files?.[0] as File | undefined;
         if (!file) return;
-        try {
-          setUploading(true);
-          const url = await uploadFileToR2Web(file);
-          addMedia(`img-${Date.now()}`, url, "image");
-        } catch (err: any) {
-          Alert.alert("Error", err?.message ?? "Failed to upload image");
-        } finally {
-          setUploading(false);
+        if (file.size > 50 * 1024 * 1024) {
+          Alert.alert("", "File must be under 50MB");
+          return;
         }
+        addMedia(`img-${Date.now()}`, URL.createObjectURL(file), "image");
       };
+      document.body.appendChild(input);
       input.click();
+      document.body.removeChild(input);
       return;
     }
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -195,20 +162,18 @@ export default function WorkUploadScreen() {
       const input = document.createElement("input");
       input.type = "file";
       input.accept = "video/*";
-      input.onchange = async (e: any) => {
+      input.onchange = (e: any) => {
         const file = e.target.files?.[0] as File | undefined;
         if (!file) return;
-        try {
-          setUploading(true);
-          const url = await uploadFileToR2Web(file);
-          addMedia(`vid-${Date.now()}`, url, "video");
-        } catch (err: any) {
-          Alert.alert("Error", err?.message ?? "Failed to upload video");
-        } finally {
-          setUploading(false);
+        if (file.size > 50 * 1024 * 1024) {
+          Alert.alert("", "File must be under 50MB");
+          return;
         }
+        addMedia(`vid-${Date.now()}`, URL.createObjectURL(file), "video");
       };
+      document.body.appendChild(input);
       input.click();
+      document.body.removeChild(input);
       return;
     }
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -265,13 +230,29 @@ export default function WorkUploadScreen() {
       throw new Error("Failed to load file");
     }
     const blob = await res.blob();
+    if (blob.size > 50 * 1024 * 1024) {
+      throw new Error("File must be under 50MB");
+    }
     const contentType = res.headers.get("content-type") || (type === "image" ? "image/jpeg" : "video/mp4");
     const ext = type === "image" ? "jpg" : "mp4";
-    const resp = await apiRequest("POST", "/api/upload-url", {
-      fileName: `upload.${ext}`,
-      contentType,
+    // Use native fetch + localStorage token directly to avoid expo/fetch header issues on web
+    let authToken: string | null = null;
+    if (typeof window !== "undefined") {
+      try { authToken = window.localStorage?.getItem("auth_token") ?? null; } catch {}
+    }
+    const presignHeaders: Record<string, string> = { "Content-Type": "application/json" };
+    if (authToken) presignHeaders["Authorization"] = `Bearer ${authToken}`;
+    const presignRes = await fetch(new URL("/api/upload-url", getApiUrl()).toString(), {
+      method: "POST",
+      headers: presignHeaders,
+      body: JSON.stringify({ fileName: `upload.${ext}`, contentType }),
     });
-    const { uploadUrl, url } = await resp.json();
+    if (!presignRes.ok) {
+      const errText = await presignRes.text().catch(() => "");
+      console.error(`${UPLOAD_LOG} step:work_submit_presign_failed`, presignRes.status, errText.slice(0, 200));
+      throw new ApiError(presignRes.status, errText || `Upload URL failed (${presignRes.status})`);
+    }
+    const { uploadUrl, url } = await presignRes.json();
     console.log(`${UPLOAD_LOG} step:work_submit_r2_put_start`, { type });
     const putRes = await fetch(uploadUrl, {
       method: "PUT",
