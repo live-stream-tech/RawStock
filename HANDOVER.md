@@ -55,6 +55,13 @@
 
 ---
 
+## ローカル API（`npm run server:dev`）とポート
+
+- **`EADDRINUSE`（5000）**: シェルや別ツールが `PORT=5000` を付けていると Express が 5000 を掴みにいく。`.env` に **`PORT=5001`** を置き、`server:dev` は **`DOTENV_CONFIG_OVERRIDE=true`** で起動するため通常は `.env` が優先される。
+- **`EADDRINUSE`（5001）**: すでに別プロセスが API をListenしている。`lsof -i :5001` で PID を確認し、終了するか別ポートに変更する。
+
+---
+
 ## 環境変数一覧
 
 **下表は「本番でコア機能を動かすための主な変数」**です。**変数名はコードと一致**しています。  
@@ -152,18 +159,72 @@ Vercel では **`VERCEL_URL` が自動注入**され、OAuth のフォールバ�
 |------|------|
 | Cloudflare Stream 403 エラー | `CLOUDFLARE_STREAM_TOKEN` に Account→Stream→Edit 権限があることは確認済み。本番動作未確認。 |
 | DATABASE_URL の外部アクセス | Vercel からアクセス可能かどうか要確認。Replit内部DBの場合は Neon/Supabase 等への移行が必要。 |
-| Google OAuth コールバックURL | GCP の Authorized redirect URIs は **実際のオリジン**と完全一致。本番は `https://rawstock.live/api/auth/google-callback`（ハイフンあり）。サーバーは `FRONTEND_URL`（無ければ `VERCEL_URL`）を OAuth の戻り先に使用 |
+| Google OAuth コールバックURL | 詳細は下節「Google OAuth」。`redirect_uri_mismatch` は GCP の URI と `FRONTEND_URL` 由来の `callbackUrl` の不一致が典型 |
 
 ---
 
-## Google OAuth 設定（Vercel移行後に更新が必要）
+## Google OAuth（`redirect_uri_mismatch` 予防・突き合わせ）
 
-GCP Console → API & Services → OAuth 2.0 Client IDs → Authorized redirect URIs に追加（パスは **`google-callback`**）:
+サーバーは [`server/routes.ts`](server/routes.ts) で **`GOOGLE_CALLBACK_URL = {FRONTEND_URL のオリジン}/api/auth/google-callback`**（パスは **`google-callback`** = ハイフン）を Google に送る。[公式の注意](https://developers.google.com/identity/protocols/oauth2/web-server?hl=ja#authorization-errors-redirect-uri-mismatch)どおり、GCP に登録した文字列と **完全一致**（`http`/`https`、`localhost`/`127.0.0.1`、末尾スラッシュ）が必要。
+
+### GCP（Google Cloud Console → Google Auth Platform または API とサービス → 認証情報 → 該当 **OAuth 2.0 クライアント ID**）
+
+**突き合わせ**: 実際に Google に送っている `redirect_uri` は **`GET /api/auth/status`** の `google.callbackUrl`。次の一覧は「よく使う組み合わせをすべて登録しておく」ためのコピペ用。パスは必ず **`/api/auth/google-callback`**（ハイフン付き）。
+
+#### 承認済みのリダイレクト URI（コピペ用・まとめて登録してよい）
+
+本番:
+
 ```
 https://rawstock.live/api/auth/google-callback
 ```
 
-プレビュー URL やローカルで試す場合は、そのオリジン用に **別エントリ**を追加する（例: `http://localhost:5001/api/auth/google-callback` と `.env` の `FRONTEND_URL` を一致させる）。
+ローカル（Expo Web の既定 8081。`localhost` と `127.0.0.1` は Google では別 URI）:
+
+```
+http://localhost:8081/api/auth/google-callback
+http://127.0.0.1:8081/api/auth/google-callback
+```
+
+ローカル（ポートが 8080 のとき。8080 占有時や `.replit` の Expo が 8080 の場合など）:
+
+```
+http://localhost:8080/api/auth/google-callback
+http://127.0.0.1:8080/api/auth/google-callback
+```
+
+ローカル（**`FRONTEND_URL` を API の 5001 に合わせる運用**のときだけ必要）:
+
+```
+http://localhost:5001/api/auth/google-callback
+http://127.0.0.1:5001/api/auth/google-callback
+```
+
+Vercel プレビュー（**ワイルドカード不可**。プレビューで Google ログインまで試すデプロイがあるなら、そのデプロイのオリジンごとに 1 行追加）:
+
+```
+https://<プレビューホスト>.vercel.app/api/auth/google-callback
+```
+
+（`<プレビューホスト>` は Deployments に表示されるホスト名に置き換える。）
+
+#### 承認済みの JavaScript 生成元（コピペ用・Web クライアントで空ならすべて追加推奨）
+
+```
+https://rawstock.live
+http://localhost:8081
+http://127.0.0.1:8081
+http://localhost:8080
+http://127.0.0.1:8080
+```
+
+（Vercel プレビューで試すなら `https://<プレビューホスト>.vercel.app` をパスなしで同様に追加。）
+
+#### クライアント ID の一致
+
+**`.env`（および Vercel）の `GOOGLE_CLIENT_ID`** が、上記を編集している **同一の OAuth クライアント**の Client ID であること。照合: **`GET /api/auth/status`** の `google.clientId` と GCP 画面の値。
+
+「ブランディング」の承認済みドメイン（例: `rawstock.live`）は同意画面用であり、**ローカル用リダイレクト URI の代替にはならない**（リダイレクト URI はクライアント設定で登録する）。
 
 ---
 

@@ -77,7 +77,7 @@ import { createSignedUploadUrl } from "./r2";
 import { moderateContent } from "./moderation";
 import { detectContentLang } from "./langFromText";
 import { debugIngestServer } from "./debugIngest";
-import { LEGAL_PRIVACY_VERSION, LEGAL_TERMS_VERSION } from "@/constants/legalVersions";
+import { LEGAL_PRIVACY_VERSION, LEGAL_TERMS_VERSION } from "../constants/legalVersions";
 import { publishJukeboxEvent, redis, jukeboxChannel, subscribeJukeboxEvents } from "./redis";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
@@ -1256,6 +1256,8 @@ export async function registerRoutes(app: Express): Promise<void> {
         configured: !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && GOOGLE_CALLBACK_URL),
         callbackUrl: GOOGLE_CALLBACK_URL,
         publicOrigin: BASE_URL,
+        /** Web クライアント ID は公開情報。`.env` の GOOGLE_CLIENT_ID が GCP のクライアントと一致するか照合用 */
+        clientId: GOOGLE_CLIENT_ID || null,
       },
     });
   });

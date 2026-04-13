@@ -10,7 +10,7 @@
     "dev": "npx expo start --localhost",
     "web": "npx expo start --web --localhost",
     "expo:dev": "npx expo start --localhost",
-    "server:dev": "NODE_ENV=development tsx server/index.ts",
+    "server:dev": "NODE_ENV=development DOTENV_CONFIG_OVERRIDE=true tsx server/index.ts",
     "expo:start:static:build": "npx expo start --no-dev --minify --localhost",
     "expo:static:build": "npx expo export",
     "server:build": "esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=server_dist",
