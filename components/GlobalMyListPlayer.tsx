@@ -138,8 +138,10 @@ export function GlobalMyListPlayer() {
 
   const hasYoutube = !!playing.youtubeId;
 
+  // 全画面の親 View は置かない（Web で box-none でも背面タブが死ぬことがある）。
+  // プレイヤー／オーバーレイ／ミニバーはそれぞれ必要な矩形だけを占める。
   return (
-    <View pointerEvents="box-none" style={[styles.root, StyleSheet.absoluteFill]}>
+    <>
       {/* 単一プレイヤー要素（常にマウント、位置のみ変更で音切れ防止） */}
       <View
         style={[
@@ -175,69 +177,70 @@ export function GlobalMyListPlayer() {
 
       {/* 動画ページ外: Spotify 風ミニプレイヤーバー */}
       {!isCurrentVideo && !dismissed && !isOnJukebox && (
-        <View style={[styles.bar, jukeboxIsActive && styles.barWithJukebox]}>
-          {/* プログレスバー（バー上部） */}
-          <View style={styles.barProgress} />
+        <View style={[styles.barWrap, jukeboxIsActive && styles.barWrapWithJukebox]}>
+          <View style={styles.bar}>
+            {/* プログレスバー（バー上部） */}
+            <View style={styles.barProgress} />
 
-          <View style={styles.barRow}>
-            {/* サムネイル */}
-            <Pressable
-              style={styles.barThumbWrap}
-              onPress={() => router.push(`/video/${playing.videoId}`)}
-            >
-              {playing.thumbnail ? (
-                <Image
-                  source={{ uri: playing.thumbnail }}
-                  style={styles.barThumb}
-                  contentFit="cover"
-                />
-              ) : (
-                <View style={[styles.barThumb, { backgroundColor: C.surface3, alignItems: "center", justifyContent: "center" }]}>
-                  <Ionicons name="play" size={16} color={C.accent} />
-                </View>
-              )}
-            </Pressable>
+            <View style={styles.barRow}>
+              {/* サムネイル */}
+              <Pressable
+                style={styles.barThumbWrap}
+                onPress={() => router.push(`/video/${playing.videoId}`)}
+              >
+                {playing.thumbnail ? (
+                  <Image
+                    source={{ uri: playing.thumbnail }}
+                    style={styles.barThumb}
+                    contentFit="cover"
+                  />
+                ) : (
+                  <View style={[styles.barThumb, { backgroundColor: C.surface3, alignItems: "center", justifyContent: "center" }]}>
+                    <Ionicons name="play" size={16} color={C.accent} />
+                  </View>
+                )}
+              </Pressable>
 
-            {/* タイトル */}
-            <Pressable
-              style={styles.barInfo}
-              onPress={() => router.push(`/video/${playing.videoId}`)}
-            >
-              <Text style={styles.barTitle} numberOfLines={1}>
-                {playing.title}
-              </Text>
-              <Text style={styles.barSubtitle} numberOfLines={1}>
-                Tap to open the video page
-              </Text>
-            </Pressable>
+              {/* タイトル */}
+              <Pressable
+                style={styles.barInfo}
+                onPress={() => router.push(`/video/${playing.videoId}`)}
+              >
+                <Text style={styles.barTitle} numberOfLines={1}>
+                  {playing.title}
+                </Text>
+                <Text style={styles.barSubtitle} numberOfLines={1}>
+                  Tap to open the video page
+                </Text>
+              </Pressable>
 
-            {/* 動画ページへ */}
-            <Pressable
-              style={styles.barIconBtn}
-              onPress={() => router.push(`/video/${playing.videoId}`)}
-            >
-              <Ionicons name="play-circle" size={22} color={C.accent} />
-            </Pressable>
+              {/* 動画ページへ */}
+              <Pressable
+                style={styles.barIconBtn}
+                onPress={() => router.push(`/video/${playing.videoId}`)}
+              >
+                <Ionicons name="play-circle" size={22} color={C.accent} />
+              </Pressable>
 
-            {/* 停止 */}
-            <Pressable
-              style={styles.barIconBtn}
-              onPress={() => {
-                stopPlaying();
-                setDismissed(true);
-              }}
-            >
-              <Ionicons name="close" size={18} color={C.textSec} />
-            </Pressable>
+              {/* 停止 */}
+              <Pressable
+                style={styles.barIconBtn}
+                onPress={() => {
+                  stopPlaying();
+                  setDismissed(true);
+                }}
+              >
+                <Ionicons name="close" size={18} color={C.textSec} />
+              </Pressable>
+            </View>
           </View>
         </View>
       )}
-    </View>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { position: "absolute", pointerEvents: "box-none" },
   playerShell: {
     position: "absolute",
     overflow: "hidden",
@@ -278,12 +281,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  // Spotify 風バースタイル
-  bar: {
+  barWrap: {
     position: "absolute",
     left: 8,
     right: 8,
     bottom: 68, // タブバーの上（60px + マージン8px）
+    zIndex: 1000,
+  },
+  barWrapWithJukebox: {
+    bottom: 136, // 68 + 64 (Jukeboxバーの高さ) + 4
+  },
+  // Spotify 風バースタイル
+  bar: {
     backgroundColor: "rgba(18,18,18,0.97)",
     borderRadius: 12,
     borderWidth: 1,
@@ -294,7 +303,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: -2 },
     elevation: 20,
     overflow: "hidden",
-    zIndex: 1000,
   },
   barProgress: {
     height: 2,
@@ -342,9 +350,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
-  },
-  // Jukeboxバーが表示中は上にスタック
-  barWithJukebox: {
-    bottom: 136, // 68 + 64 (Jukeboxバーの高さ) + 4
   },
 });

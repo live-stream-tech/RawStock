@@ -5,7 +5,6 @@ import {
   StyleSheet,
   Text,
   View,
-  Dimensions,
 } from "react-native";
 import { usePathname, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -64,24 +63,11 @@ function parseCommunityId(pathname: string | null): number | null {
   return null;
 }
 
-const CARD_W = 280;
-const CARD_H = 72;
-
-function useScreenSize() {
-  const [size, setSize] = useState(() => Dimensions.get("window"));
-  useEffect(() => {
-    const sub = Dimensions.addEventListener("change", ({ window }) => setSize(window));
-    return () => sub?.remove();
-  }, []);
-  return size;
-}
-
 // ============================================================
 // GlobalJukeboxPlayer
 // 役割: ミニプレイヤー UI のみ（音声再生は jukebox/[id].tsx の NowPlaying が担当）
 // ============================================================
 export function GlobalJukeboxPlayer() {
-  const { width: SCREEN_W, height: SCREEN_H } = useScreenSize();
   const pathname = usePathname();
   const { setJukeboxIsActive, setJukeboxCommunityId } = usePlayingVideo();
   const [communityId, setCommunityId] = useState<number | null>(() =>
@@ -271,9 +257,9 @@ export function GlobalJukeboxPlayer() {
     return null;
   }
 
-  // Spotify 風画面下部固定バー
+  // 全画面ラッパは使わない（Web で背面タッチが死ぬことがある）。バー幅だけを占める。
   return (
-    <View pointerEvents="box-none" style={[styles.root, { left: 0, right: 0, top: 0, bottom: 0 }]}>
+    <View pointerEvents="box-none" style={styles.root}>
       <View style={styles.bar}>
         {/* プログレスバー（バー上部） */}
         <View style={styles.barProgress}>
@@ -340,16 +326,13 @@ export function GlobalJukeboxPlayer() {
 const styles = StyleSheet.create({
   root: {
     position: "absolute",
-    right: 16,
-    bottom: 16,
-    left: 16,
-    pointerEvents: "box-none",
-  },
-  bar: {
-    position: "absolute",
     left: 8,
     right: 8,
     bottom: 68,
+    zIndex: 1000,
+    pointerEvents: "box-none",
+  },
+  bar: {
     backgroundColor: "rgba(18,18,18,0.97)",
     borderRadius: 12,
     borderWidth: 1,
