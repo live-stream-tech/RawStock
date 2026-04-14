@@ -8,6 +8,11 @@ import { router, useLocalSearchParams } from "expo-router";
 import { C } from "@/constants/colors";
 import { useAuth } from "@/lib/auth";
 import { apiRequest } from "@/lib/query-client";
+import {
+  concertStaffApplyExternalUrl,
+  concertStaffManageExternalUrl,
+  withConcertIdParam,
+} from "@/lib/concert-external";
 
 type Concert = {
   id: number;
@@ -58,6 +63,9 @@ export default function ConcertDetailScreen() {
   const { user, requireAuth } = useAuth();
   const qc = useQueryClient();
 
+  const staffApplyExternal = concertStaffApplyExternalUrl();
+  const staffManageExternal = concertStaffManageExternalUrl();
+
   const { data: concert, isLoading } = useQuery<Concert | null>({
     queryKey: [`/api/concerts/${numericId}`],
     enabled: !Number.isNaN(numericId),
@@ -71,7 +79,7 @@ export default function ConcertDetailScreen() {
 
   const { data: staffRequests = [], isLoading: loadingStaff } = useQuery<StaffRow[]>({
     queryKey: [`/api/concerts/${numericId}/staff-req`],
-    enabled: !!concert && isArtist,
+    enabled: !!concert && isArtist && !staffManageExternal,
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/concerts/${numericId}/staff-req`);
       return res.json();
@@ -91,6 +99,12 @@ export default function ConcertDetailScreen() {
 
   const handleStaffRequest = async () => {
     if (!requireAuth("apply as staff")) return;
+    if (staffApplyExternal) {
+      Linking.openURL(withConcertIdParam(staffApplyExternal, numericId)).catch(() =>
+        Alert.alert("Error", "Could not open the link."),
+      );
+      return;
+    }
     try {
       await apiRequest("POST", `/api/concerts/${numericId}/staff-request`, {});
       Alert.alert("Request Sent", "Waiting for artist approval.");
@@ -207,7 +221,19 @@ export default function ConcertDetailScreen() {
         {isArtist && (
           <View style={{ marginTop: 28 }}>
             <Text style={styles.sectionTitle}>Staff Requests</Text>
-            {loadingStaff ? (
+            {staffManageExternal ? (
+              <Pressable
+                style={styles.primaryBtn}
+                onPress={() => {
+                  Linking.openURL(withConcertIdParam(staffManageExternal, numericId)).catch(() =>
+                    Alert.alert("Error", "Could not open the link."),
+                  );
+                }}
+              >
+                <Ionicons name="open-outline" size={18} color="#fff" />
+                <Text style={styles.primaryBtnText}>Manage applications (web)</Text>
+              </Pressable>
+            ) : loadingStaff ? (
               <ActivityIndicator size="small" color={C.accent} />
             ) : staffRequests.length === 0 ? (
               <Text style={styles.emptyText}>No requests at this time.</Text>

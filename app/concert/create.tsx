@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { View, Text, ScrollView, StyleSheet, Pressable, TextInput, Platform, Alert } from "react-native";
+import { View, Text, ScrollView, StyleSheet, Pressable, TextInput, Platform, Alert, Linking } from "react-native";
 import { webScrollStyle } from "@/constants/layout";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,11 +7,13 @@ import { router } from "expo-router";
 import { C } from "@/constants/colors";
 import { useAuth, AuthGuard } from "@/lib/auth";
 import { apiRequest } from "@/lib/query-client";
+import { concertCreateExternalUrl } from "@/lib/concert-external";
 
 export default function ConcertCreateScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const { user, requireAuth } = useAuth();
+  const externalCreateUrl = concertCreateExternalUrl();
 
   const [title, setTitle] = useState("");
   const [venueName, setVenueName] = useState("");
@@ -94,127 +96,150 @@ export default function ConcertCreateScreen() {
         </View>
 
         <ScrollView style={webScrollStyle(styles.scroll)} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-          <Text style={styles.label}>
-            Concert Title <Text style={styles.required}>*</Text>
-          </Text>
-          <TextInput
-            style={styles.input}
-            value={title}
-            onChangeText={setTitle}
-            placeholder="e.g. 1st Solo Live"
-            placeholderTextColor={C.textMuted}
-          />
+          {externalCreateUrl ? (
+            <View style={styles.externalCard}>
+              <Ionicons name="open-outline" size={22} color={C.accent} />
+              <Text style={styles.externalTitle}>Register on the web</Text>
+              <Text style={styles.externalBody}>
+                Concert registration is handled outside the app. Tap below to open the form in your browser.
+              </Text>
+              <Pressable
+                style={styles.submitBtn}
+                onPress={() => {
+                  Linking.openURL(externalCreateUrl).catch(() => {
+                    Alert.alert("Error", "Could not open the link.");
+                  });
+                }}
+              >
+                <Text style={styles.submitText}>Open registration</Text>
+              </Pressable>
+              <View style={{ height: 32 }} />
+            </View>
+          ) : (
+            <>
+              <Text style={styles.label}>
+                Concert Title <Text style={styles.required}>*</Text>
+              </Text>
+              <TextInput
+                style={styles.input}
+                value={title}
+                onChangeText={setTitle}
+                placeholder="e.g. 1st Solo Live"
+                placeholderTextColor={C.textMuted}
+              />
 
-          <Text style={styles.label}>
-            Venue Name <Text style={styles.required}>*</Text>
-          </Text>
-          <TextInput
-            style={styles.input}
-            value={venueName}
-            onChangeText={setVenueName}
-            placeholder="e.g. Shibuya Club Quattro"
-            placeholderTextColor={C.textMuted}
-          />
+              <Text style={styles.label}>
+                Venue Name <Text style={styles.required}>*</Text>
+              </Text>
+              <TextInput
+                style={styles.input}
+                value={venueName}
+                onChangeText={setVenueName}
+                placeholder="e.g. Shibuya Club Quattro"
+                placeholderTextColor={C.textMuted}
+              />
 
-          <Text style={styles.label}>
-            Venue Address <Text style={styles.required}>*</Text>
-          </Text>
-          <TextInput
-            style={styles.input}
-            value={venueAddress}
-            onChangeText={setVenueAddress}
-            placeholder="e.g. 123 Main St, New York, NY"
-            placeholderTextColor={C.textMuted}
-          />
+              <Text style={styles.label}>
+                Venue Address <Text style={styles.required}>*</Text>
+              </Text>
+              <TextInput
+                style={styles.input}
+                value={venueAddress}
+                onChangeText={setVenueAddress}
+                placeholder="e.g. 123 Main St, New York, NY"
+                placeholderTextColor={C.textMuted}
+              />
 
-          <Text style={styles.label}>
-            Date &amp; Time <Text style={styles.required}>*</Text>
-          </Text>
-          <TextInput
-            style={styles.input}
-            value={concertDate}
-            onChangeText={setConcertDate}
-            placeholder="2026-04-01 19:00"
-            placeholderTextColor={C.textMuted}
-          />
+              <Text style={styles.label}>
+                Date &amp; Time <Text style={styles.required}>*</Text>
+              </Text>
+              <TextInput
+                style={styles.input}
+                value={concertDate}
+                onChangeText={setConcertDate}
+                placeholder="2026-04-01 19:00"
+                placeholderTextColor={C.textMuted}
+              />
 
-          <Text style={styles.label}>Ticket URL</Text>
-          <TextInput
-            style={styles.input}
-            value={ticketUrl}
-            onChangeText={setTicketUrl}
-            placeholder="https://example.com/tickets"
-            placeholderTextColor={C.textMuted}
-            autoCapitalize="none"
-          />
+              <Text style={styles.label}>Ticket URL</Text>
+              <TextInput
+                style={styles.input}
+                value={ticketUrl}
+                onChangeText={setTicketUrl}
+                placeholder="https://example.com/tickets"
+                placeholderTextColor={C.textMuted}
+                autoCapitalize="none"
+              />
 
-          <Text style={styles.label}>Photography Policy</Text>
-          <View style={styles.toggleRow}>
-            <Pressable
-              style={[styles.toggleBtn, !shootingAllowed && styles.toggleBtnActive]}
-              onPress={() => setShootingAllowed(false)}
-            >
-              <Text style={[styles.toggleText, !shootingAllowed && styles.toggleTextActive]}>No Photography</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.toggleBtn, shootingAllowed && styles.toggleBtnActive]}
-              onPress={() => setShootingAllowed(true)}
-            >
-              <Text style={[styles.toggleText, shootingAllowed && styles.toggleTextActive]}>Photography OK</Text>
-            </Pressable>
-          </View>
-
-          <Text style={styles.label}>Photography Rules</Text>
-          <TextInput
-            style={[styles.input, styles.multiline]}
-            value={shootingNotes}
-            onChangeText={setShootingNotes}
-            placeholder="e.g. No flash / specific songs only"
-            placeholderTextColor={C.textMuted}
-            multiline
-          />
-
-          <Text style={[styles.label, { marginTop: 24 }]}>Revenue Share (must total 100%)</Text>
-          <View style={styles.shareBox}>
-            {[
-              { key: "artist", label: "Artist" },
-              { key: "photographer", label: "Photographer" },
-              { key: "editor", label: "Editor" },
-              { key: "venue", label: "Venue" },
-            ].map((item) => (
-              <View key={item.key} style={styles.shareRow}>
-                <Text style={styles.shareLabel}>{item.label}</Text>
-                <View style={styles.shareControls}>
-                  <Pressable
-                    style={styles.shareBtn}
-                    onPress={() => adjustShare(item.key as any, -5)}
-                  >
-                    <Text style={styles.shareBtnText}>-5</Text>
-                  </Pressable>
-                  <Text style={styles.shareValue}>{shares[item.key as keyof typeof shares]}%</Text>
-                  <Pressable
-                    style={styles.shareBtn}
-                    onPress={() => adjustShare(item.key as any, +5)}
-                  >
-                    <Text style={styles.shareBtnText}>+5</Text>
-                  </Pressable>
-                </View>
+              <Text style={styles.label}>Photography Policy</Text>
+              <View style={styles.toggleRow}>
+                <Pressable
+                  style={[styles.toggleBtn, !shootingAllowed && styles.toggleBtnActive]}
+                  onPress={() => setShootingAllowed(false)}
+                >
+                  <Text style={[styles.toggleText, !shootingAllowed && styles.toggleTextActive]}>No Photography</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.toggleBtn, shootingAllowed && styles.toggleBtnActive]}
+                  onPress={() => setShootingAllowed(true)}
+                >
+                  <Text style={[styles.toggleText, shootingAllowed && styles.toggleTextActive]}>Photography OK</Text>
+                </Pressable>
               </View>
-            ))}
-            <Text style={[styles.shareSum, sumShare !== 100 && styles.shareSumError]}>
-              Total: {sumShare}% {sumShare !== 100 && "(must be 100%)"}
-            </Text>
-          </View>
 
-          <Pressable
-            style={[styles.submitBtn, (!canSubmit || saving) && styles.submitBtnDisabled]}
-            onPress={handleSubmit}
-            disabled={!canSubmit || saving}
-          >
-            <Text style={styles.submitText}>{saving ? "Saving..." : "Register Concert"}</Text>
-          </Pressable>
+              <Text style={styles.label}>Photography Rules</Text>
+              <TextInput
+                style={[styles.input, styles.multiline]}
+                value={shootingNotes}
+                onChangeText={setShootingNotes}
+                placeholder="e.g. No flash / specific songs only"
+                placeholderTextColor={C.textMuted}
+                multiline
+              />
 
-          <View style={{ height: 40 }} />
+              <Text style={[styles.label, { marginTop: 24 }]}>Revenue Share (must total 100%)</Text>
+              <View style={styles.shareBox}>
+                {[
+                  { key: "artist", label: "Artist" },
+                  { key: "photographer", label: "Photographer" },
+                  { key: "editor", label: "Editor" },
+                  { key: "venue", label: "Venue" },
+                ].map((item) => (
+                  <View key={item.key} style={styles.shareRow}>
+                    <Text style={styles.shareLabel}>{item.label}</Text>
+                    <View style={styles.shareControls}>
+                      <Pressable
+                        style={styles.shareBtn}
+                        onPress={() => adjustShare(item.key as any, -5)}
+                      >
+                        <Text style={styles.shareBtnText}>-5</Text>
+                      </Pressable>
+                      <Text style={styles.shareValue}>{shares[item.key as keyof typeof shares]}%</Text>
+                      <Pressable
+                        style={styles.shareBtn}
+                        onPress={() => adjustShare(item.key as any, +5)}
+                      >
+                        <Text style={styles.shareBtnText}>+5</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ))}
+                <Text style={[styles.shareSum, sumShare !== 100 && styles.shareSumError]}>
+                  Total: {sumShare}% {sumShare !== 100 && "(must be 100%)"}
+                </Text>
+              </View>
+
+              <Pressable
+                style={[styles.submitBtn, (!canSubmit || saving) && styles.submitBtnDisabled]}
+                onPress={handleSubmit}
+                disabled={!canSubmit || saving}
+              >
+                <Text style={styles.submitText}>{saving ? "Saving..." : "Register Concert"}</Text>
+              </Pressable>
+
+              <View style={{ height: 40 }} />
+            </>
+          )}
         </ScrollView>
       </View>
     </AuthGuard>
@@ -322,5 +347,17 @@ const styles = StyleSheet.create({
   },
   submitBtnDisabled: { opacity: 0.4 },
   submitText: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  externalCard: {
+    marginTop: 12,
+    padding: 20,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface,
+    alignItems: "center",
+    gap: 10,
+  },
+  externalTitle: { fontSize: 17, fontWeight: "800", color: C.text, textAlign: "center" },
+  externalBody: { fontSize: 13, color: C.textSec, textAlign: "center", lineHeight: 20 },
 });
 

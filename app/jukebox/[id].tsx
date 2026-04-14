@@ -372,8 +372,14 @@ function NowPlaying({
   useEffect(() => {
     if (Platform.OS !== "web" || typeof window === "undefined") return;
     const onResizeGroup = () => throttledScheduleTryResume();
+    /** 端末回転で WebKit が一時停止しやすい — 遅延で複数回 resume */
+    const onOrientation = () => {
+      throttledScheduleTryResume();
+      setTimeout(() => scheduleTryResume(), 350);
+      setTimeout(() => scheduleTryResume(), 800);
+    };
     window.addEventListener("resize", onResizeGroup);
-    window.addEventListener("orientationchange", onResizeGroup);
+    window.addEventListener("orientationchange", onOrientation);
     const vv = window.visualViewport;
     vv?.addEventListener("resize", onResizeGroup);
     const onVis = () => {
@@ -385,7 +391,7 @@ function NowPlaying({
     document.addEventListener("visibilitychange", onVis);
     return () => {
       window.removeEventListener("resize", onResizeGroup);
-      window.removeEventListener("orientationchange", onResizeGroup);
+      window.removeEventListener("orientationchange", onOrientation);
       vv?.removeEventListener("resize", onResizeGroup);
       document.removeEventListener("visibilitychange", onVis);
     };
@@ -908,6 +914,7 @@ export default function JukeboxScreen() {
       setShowAddModal(false);
       qc.invalidateQueries({ queryKey: jukeboxKey });
       qc.invalidateQueries({ queryKey: JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY });
+      qc.invalidateQueries({ queryKey: [`/api/tickets/request-count?communityId=${communityId}`] });
     },
     onError: (err: any) => {
       if (err?.code === "insufficient_tickets") {
@@ -1366,6 +1373,11 @@ export default function JukeboxScreen() {
                 </Text>
               </Pressable>
               <Text style={styles.headerTitle}>Watch Party</Text>
+              <Text style={styles.jukeboxPricingHint} numberOfLines={3}>
+                {user
+                  ? `${freeRemaining} free left today (max ${reqCountData?.freeLimit ?? 20}/day) · then ${ticketsPerRequest} tickets/request`
+                  : `Sign in: up to ${reqCountData?.freeLimit ?? 20} free requests per community per day, then ${ticketsPerRequest} tickets each.`}
+              </Text>
             </View>
             <View style={{ width: 36 }} />
           </View>
@@ -1493,6 +1505,11 @@ export default function JukeboxScreen() {
                 </Text>
               </Pressable>
               <Text style={styles.headerTitle}>Watch Party</Text>
+              <Text style={styles.jukeboxPricingHint} numberOfLines={3}>
+                {user
+                  ? `${freeRemaining} free left today (max ${reqCountData?.freeLimit ?? 20}/day) · then ${ticketsPerRequest} tickets/request`
+                  : `Sign in: up to ${reqCountData?.freeLimit ?? 20} free requests per community per day, then ${ticketsPerRequest} tickets each.`}
+              </Text>
             </View>
             <View style={{ width: 36 }} />
           </View>
@@ -1618,6 +1635,15 @@ export default function JukeboxScreen() {
                 {communityDisplayName}
               </Text>
             </Pressable>
+
+            <Text
+              style={[styles.landscapePricingHint, { top: insets.top + 44, left: insets.left + 52, right: insets.right + 52 }]}
+              numberOfLines={2}
+            >
+              {user
+                ? `${freeRemaining} free · then ${ticketsPerRequest} tickets`
+                : `${reqCountData?.freeLimit ?? 20} free/day · then ${ticketsPerRequest} tickets`}
+            </Text>
 
             {!chatPanelOpen && (
               <Pressable
@@ -1786,6 +1812,16 @@ const styles = StyleSheet.create({
   },
   jukeboxBadgeText: { color: "#fff", fontSize: 10, fontWeight: "800" },
   headerTitle: { color: C.textSec, fontSize: 11, marginTop: 1 },
+  jukeboxPricingHint: {
+    fontSize: 10,
+    color: C.textMuted,
+    textAlign: "center",
+    marginTop: 4,
+    paddingHorizontal: 8,
+    lineHeight: 14,
+    maxWidth: 320,
+    alignSelf: "center",
+  },
 
   landscapeCommunityPill: {
     position: "absolute",
@@ -1809,6 +1845,14 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textAlign: "center",
     minWidth: 0,
+  },
+  landscapePricingHint: {
+    position: "absolute",
+    zIndex: 44,
+    fontSize: 10,
+    color: "rgba(255,255,255,0.78)",
+    textAlign: "center",
+    lineHeight: 13,
   },
 
   nowPlaying: {

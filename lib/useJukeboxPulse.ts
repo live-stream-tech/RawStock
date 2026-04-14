@@ -65,8 +65,8 @@ export const JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY = ["/api/jukebox/active-sessions"
 export function useJukeboxPulse() {
   const { data, dataUpdatedAt, isLoading, isError } = useQuery<JukeboxActiveSessionsResponse>({
     queryKey: JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY,
-    refetchInterval: 20_000,
-    staleTime: 10_000,
+    refetchInterval: 12_000,
+    staleTime: 5_000,
   });
 
   const pulse = useMemo(() => buildPulse(data), [data, dataUpdatedAt]);

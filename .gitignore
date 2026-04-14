@@ -6,6 +6,7 @@ node_modules/
 # Expo
 .expo/
 web-build/
+expo-log-box-*.tgz
 
 # DeepAR Web assets (copied from node_modules/deepar on postinstall)
 public/deepar/

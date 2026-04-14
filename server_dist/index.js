@@ -490,7 +490,7 @@ var jukeboxQueue = pgTable("jukebox_queue", {
   videoThumbnail: text("video_thumbnail").notNull(),
   videoDurationSecs: integer("video_duration_secs").default(0),
   youtubeId: text("youtube_id"),
-  addedBy: text("added_by").notNull().default("\u3042\u306A\u305F"),
+  addedBy: text("added_by").notNull().default("You"),
   addedByAvatar: text("added_by_avatar"),
   position: integer("position").notNull().default(0),
   isPlayed: boolean("is_played").default(false),
@@ -673,7 +673,7 @@ var withdrawals = pgTable("withdrawals", {
   status: text("status").notNull().default("pending"),
   bankName: text("bank_name").notNull(),
   bankBranch: text("bank_branch").notNull(),
-  accountType: text("account_type").notNull().default("\u666E\u901A"),
+  accountType: text("account_type").notNull().default("Checking"),
   accountNumber: text("account_number").notNull(),
   accountName: text("account_name").notNull(),
   note: text("note"),
@@ -888,7 +888,20 @@ var pool = new Pool({
 var db = drizzle(pool, { schema: schema_exports });
 
 // server/routes.ts
-import { eq as eq2, asc as asc2, desc, count, sql as sql3, and as and2, or, gte as gte2, lte as lte2, isNull, inArray, isNotNull } from "drizzle-orm";
+import {
+  eq as eq2,
+  asc as asc2,
+  desc,
+  count,
+  sql as sql3,
+  and as and2,
+  or,
+  gte as gte2,
+  lte as lte2,
+  isNull,
+  inArray,
+  isNotNull
+} from "drizzle-orm";
 
 // server/editorPricing.ts
 function validateEditorPricing(row) {
@@ -964,7 +977,7 @@ function requireStripe() {
   if (!STRIPE_SECRET_KEY) {
     throw new Error("STRIPE_SECRET_KEY is not configured. Add it to your environment secrets.");
   }
-  return new Stripe(STRIPE_SECRET_KEY, { apiVersion: "2025-01-27.acacia" });
+  return new Stripe(STRIPE_SECRET_KEY, { apiVersion: "2026-02-25.clover" });
 }
 async function getUncachableStripeClient() {
   return requireStripe();
@@ -1745,11 +1758,15 @@ var r2Client = endpoint && accessKeyId && secretAccessKey ? new S3Client({
   credentials: {
     accessKeyId,
     secretAccessKey
-  }
+  },
+  // R2 / S3 互換では path-style が安定（署名 URL とブラウザ PUT の不一致を防ぐ）
+  forcePathStyle: true
 }) : null;
 async function createSignedUploadUrl(key, contentType) {
   if (!r2Client || !endpoint || !bucket) {
-    throw new Error("R2 \u30AF\u30E9\u30A4\u30A2\u30F3\u30C8\u304C\u6B63\u3057\u304F\u8A2D\u5B9A\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+    throw new Error(
+      "R2 is not configured. Set R2_ENDPOINT, R2_BUCKET_NAME, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY."
+    );
   }
   const cmd = new PutObjectCommand({
     Bucket: bucket,
@@ -1757,7 +1774,8 @@ async function createSignedUploadUrl(key, contentType) {
     ContentType: contentType
   });
   const uploadUrl = await getSignedUrl(r2Client, cmd, { expiresIn: 60 * 5 });
-  const publicUrl = `${endpoint.replace(/\/$/, "")}/${bucket}/${key}`;
+  const publicBase = process.env.R2_PUBLIC_BASE_URL?.trim();
+  const publicUrl = publicBase ? `${publicBase.replace(/\/$/, "")}/${key}` : `${endpoint.replace(/\/$/, "")}/${bucket}/${key}`;
   return { uploadUrl, publicUrl };
 }
 
@@ -1790,30 +1808,30 @@ var VIOLENCE_KEYWORDS = ["\u6BBA\u3059", "\u6B7B\u306D", "\u3076\u3063\u6BBA", "
 var VIOLENCE_PATTERN = new RegExp(VIOLENCE_KEYWORDS.join("|"), "i");
 function regexFilter(text2) {
   if (PHONE_PATTERN.test(text2))
-    return { blocked: true, reason: "\u96FB\u8A71\u756A\u53F7\u3068\u601D\u308F\u308C\u308B\u60C5\u5831\u304C\u542B\u307E\u308C\u3066\u3044\u307E\u3059" };
+    return { blocked: true, reason: "Posts must not include phone numbers." };
   if (EMAIL_PATTERN.test(text2))
-    return { blocked: true, reason: "\u30E1\u30FC\u30EB\u30A2\u30C9\u30EC\u30B9\u3068\u601D\u308F\u308C\u308B\u60C5\u5831\u304C\u542B\u307E\u308C\u3066\u3044\u307E\u3059" };
+    return { blocked: true, reason: "Posts must not include email addresses." };
   if (EXTERNAL_CONTACT_PATTERN.test(text2))
-    return { blocked: true, reason: "\u5916\u90E8\u9023\u7D61\u5148\u306E\u4EA4\u63DB\u306F\u7981\u6B62\u3055\u308C\u3066\u3044\u307E\u3059" };
+    return { blocked: true, reason: "Sharing external contact info is not allowed." };
   if (ADDRESS_PATTERN.test(text2))
-    return { blocked: true, reason: "\u4F4F\u6240\u30FB\u90F5\u4FBF\u756A\u53F7\u3068\u601D\u308F\u308C\u308B\u60C5\u5831\u304C\u542B\u307E\u308C\u3066\u3044\u307E\u3059" };
+    return { blocked: true, reason: "Posts must not include addresses or postal codes." };
   if (ADULT_PATTERN.test(text2))
-    return { blocked: true, reason: "\u30A2\u30C0\u30EB\u30C8\u30B3\u30F3\u30C6\u30F3\u30C4\u306B\u95A2\u3059\u308B\u6295\u7A3F\u306F\u7981\u6B62\u3055\u308C\u3066\u3044\u307E\u3059" };
+    return { blocked: true, reason: "Adult or sexual content is not allowed." };
   if (VIOLENCE_PATTERN.test(text2))
-    return { blocked: true, reason: "\u66B4\u529B\u30FB\u8105\u8FEB\u306B\u95A2\u3059\u308B\u6295\u7A3F\u306F\u7981\u6B62\u3055\u308C\u3066\u3044\u307E\u3059" };
+    return { blocked: true, reason: "Violence or threats are not allowed." };
   return { blocked: false, reason: "" };
 }
-var LLM_SYSTEM_PROMPT = `\u3042\u306A\u305F\u306F\u30EA\u30A2\u30EB\u30BF\u30A4\u30E0\u30C1\u30E3\u30C3\u30C8\u306E\u30B3\u30F3\u30C6\u30F3\u30C4\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u3067\u3059\u3002
-\u6295\u7A3F\u30C6\u30AD\u30B9\u30C8\u3092\u8AAD\u307F\u3001\u4EE5\u4E0B\u306E\u57FA\u6E96\u3067\u5224\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002
+var LLM_SYSTEM_PROMPT = `You are a real-time chat moderator.
+Read the user's message and decide if it should be blocked.
 
-\u30D6\u30ED\u30C3\u30AF\u3059\u3079\u304D\u5185\u5BB9:
-- \u500B\u4EBA\u60C5\u5831\uFF08\u96FB\u8A71\u756A\u53F7\u30FB\u30E1\u30FC\u30EB\u30FB\u4F4F\u6240\u30FBSNS ID\u7B49\uFF09\u306E\u4EA4\u63DB\u30FB\u8981\u6C42
-- \u30A2\u30C0\u30EB\u30C8\u30FB\u6027\u7684\u306A\u5185\u5BB9
-- \u66B4\u529B\u30FB\u8105\u8FEB\u30FB\u5DEE\u5225\u7684\u8868\u73FE
-- \u30B9\u30D1\u30E0\u30FB\u5BA3\u4F1D\u30FB\u30D5\u30A3\u30C3\u30B7\u30F3\u30B0
+Block messages that contain or solicit:
+- Personal info (phone, email, address, social handles) exchange or requests
+- Adult or sexual content
+- Violence, threats, or hate
+- Spam, scams, or phishing
 
-\u5224\u5B9A\u7D50\u679C\u306FJSON\u306E\u307F\u8FD4\u3057\u3066\u304F\u3060\u3055\u3044\uFF08\u8AAC\u660E\u6587\u4E0D\u8981\uFF09:
-{"allowed":true|false,"reason":"\u7406\u7531\uFF081\u6587\u3001allowed\u304Cfalse\u306E\u5834\u5408\u306E\u307F\uFF09"}`;
+Reply with JSON only (no prose):
+{"allowed":true|false,"reason":"One short English sentence when allowed is false"}`;
 async function llmFilter(text2) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -1857,7 +1875,7 @@ async function moderateContent(text2) {
   }
   const llmResult = await llmFilter(text2);
   if (!llmResult.allowed) {
-    return { allowed: false, reason: llmResult.reason || "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u30AC\u30A4\u30C9\u30E9\u30A4\u30F3\u306B\u9055\u53CD\u3059\u308B\u5185\u5BB9\u304C\u542B\u307E\u308C\u3066\u3044\u307E\u3059" };
+    return { allowed: false, reason: llmResult.reason || "This content violates community guidelines." };
   }
   return { allowed: true };
 }
@@ -1922,10 +1940,7 @@ var useRedis = !!(UPSTASH_REDIS_REST_URL && UPSTASH_REDIS_REST_TOKEN);
 if (!useRedis) {
   console.warn("[Redis] UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN is not set. Using in-memory event bus for SSE.");
 }
-var redis = new Redis({
-  url: UPSTASH_REDIS_REST_URL || "https://placeholder.upstash.io",
-  token: UPSTASH_REDIS_REST_TOKEN || "placeholder"
-});
+var redis = useRedis ? new Redis({ url: UPSTASH_REDIS_REST_URL, token: UPSTASH_REDIS_REST_TOKEN }) : null;
 var eventBus = new EventEmitter();
 eventBus.setMaxListeners(200);
 function jukeboxChannel(communityId) {
@@ -2030,21 +2045,21 @@ function paramNum(req, key) {
   return parseInt(paramStr(req, key), 10) || 0;
 }
 function formatTimeAgo(d) {
-  if (!d) return "\u305F\u3063\u305F\u4ECA";
+  if (!d) return "Just now";
   const date = typeof d === "string" ? new Date(d) : d;
-  if (isNaN(date.getTime())) return "\u305F\u3063\u305F\u4ECA";
+  if (isNaN(date.getTime())) return "Just now";
   const diffMs = Date.now() - date.getTime();
   const diffSec = Math.floor(diffMs / 1e3);
   const diffMin = Math.floor(diffSec / 60);
   const diffHour = Math.floor(diffMin / 60);
   const diffDay = Math.floor(diffHour / 24);
-  if (diffSec < 60) return "\u305F\u3063\u305F\u4ECA";
-  if (diffMin < 60) return `${diffMin}\u5206\u524D`;
-  if (diffHour < 24) return `${diffHour}\u6642\u9593\u524D`;
-  if (diffDay < 7) return `${diffDay}\u65E5\u524D`;
-  if (diffDay < 30) return `${Math.floor(diffDay / 7)}\u9031\u9593\u524D`;
-  if (diffDay < 365) return `${Math.floor(diffDay / 30)}\u30F6\u6708\u524D`;
-  return `${Math.floor(diffDay / 365)}\u5E74\u524D`;
+  if (diffSec < 60) return "Just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffHour < 24) return `${diffHour}h ago`;
+  if (diffDay < 7) return `${diffDay}d ago`;
+  if (diffDay < 30) return `${Math.floor(diffDay / 7)}w ago`;
+  if (diffDay < 365) return `${Math.floor(diffDay / 30)}mo ago`;
+  return `${Math.floor(diffDay / 365)}y ago`;
 }
 function queryStr(req, key) {
   const v = req.query[key];
@@ -2197,12 +2212,12 @@ function formatDmThreadTime(d) {
   if (Number.isNaN(t)) return "";
   const ms = Date.now() - t;
   const m = Math.floor(ms / 6e4);
-  if (m < 1) return "\u305F\u3063\u305F\u4ECA";
-  if (m < 60) return `${m}\u5206\u524D`;
+  if (m < 1) return "Just now";
+  if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h}\u6642\u9593\u524D`;
+  if (h < 24) return `${h}h ago`;
   const days = Math.floor(h / 24);
-  if (days < 7) return `${days}\u65E5\u524D`;
+  if (days < 7) return `${days}d ago`;
   const dt = new Date(t);
   return `${dt.getMonth() + 1}/${dt.getDate()}`;
 }
@@ -2345,7 +2360,7 @@ async function recordRevenue(walletId, userId, creatorId, amount, source, refere
   await executor.insert(earnings).values({
     userId: `user-${userId}`,
     type: source,
-    title: source === "tip" ? "\u6295\u3052\u92AD\u53CE\u76CA" : "\u6709\u6599\u914D\u4FE1\u53CE\u76CA",
+    title: source === "tip" ? "Tip revenue" : "Paid live revenue",
     amount,
     revenueShare: Math.round(backRate * 100),
     netAmount
@@ -2361,6 +2376,12 @@ async function recordRevenue(walletId, userId, creatorId, amount, source, refere
     await upsertCreatorMonthlyRevenue(creatorId, yearMonth, source, amount, executor);
     await syncCreatorLevelFromMonthlyProgress(creatorId, yearMonth, executor);
   }
+}
+async function creatorRowForUserId(executor, userId) {
+  const [u] = await executor.select({ displayName: users.displayName }).from(users).where(eq2(users.id, userId)).limit(1);
+  if (!u) return void 0;
+  const [row] = await executor.select().from(creators).where(eq2(creators.name, u.displayName)).limit(1);
+  return row;
 }
 async function registerRoutes(app2) {
   await promoteAdminByEmail();
@@ -2417,7 +2438,7 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/auth/me", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const [u] = await db.select({
       pinnedCommunityIds: users.pinnedCommunityIds
     }).from(users).where(eq2(users.id, user.id));
@@ -2456,7 +2477,7 @@ async function registerRoutes(app2) {
   });
   app2.post("/api/auth/accept-policies", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const { acceptTerms, acceptPrivacy } = req.body;
     const doTerms = acceptTerms !== false;
     const doPrivacy = acceptPrivacy !== false;
@@ -2478,18 +2499,18 @@ async function registerRoutes(app2) {
   });
   app2.post("/api/connect/payout-terms-agree", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const now = /* @__PURE__ */ new Date();
     await db.update(users).set({ payoutTermsAgreedAt: now, updatedAt: now }).where(eq2(users.id, user.id));
     res.json({ ok: true, payoutTermsAgreedAt: now.toISOString() });
   });
   app2.post("/api/connect/onboard", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const [ptRow] = await db.select({ payoutTermsAgreedAt: users.payoutTermsAgreedAt }).from(users).where(eq2(users.id, user.id));
     if (!ptRow?.payoutTermsAgreedAt) {
       return res.status(400).json({
-        error: "\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC\u5411\u3051\u6255\u3044\u51FA\u3057\u6761\u9805\u306B\u540C\u610F\u3057\u3066\u304F\u3060\u3055\u3044\u3002Payout Settings \u3067\u5185\u5BB9\u3092\u78BA\u8A8D\u3057\u3001\u540C\u610F\u306E\u3046\u3048 Stripe \u3092\u9023\u643A\u3057\u3066\u304F\u3060\u3055\u3044\u3002"
+        error: "Please accept the creator payout terms. Review them in Payout Settings, then connect Stripe after agreeing."
       });
     }
     try {
@@ -2505,12 +2526,12 @@ async function registerRoutes(app2) {
       res.json({ url, accountId });
     } catch (e) {
       console.error("Connect onboard error:", e);
-      res.status(500).json({ error: e.message ?? "Stripe Connect \u306E\u6E96\u5099\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
+      res.status(500).json({ error: e.message ?? "Failed to prepare Stripe Connect" });
     }
   });
   app2.get("/api/connect/status", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     if (!user.stripeConnectId) {
       return res.json({ connected: false, stripeConnectId: null, chargesEnabled: false });
     }
@@ -2530,7 +2551,7 @@ async function registerRoutes(app2) {
   const BANNER_RATE_PLATFORM = 0.5;
   app2.post("/api/banner/checkout", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const { people, days } = req.body;
     const p = Math.max(1, Number(people) || 1);
     const d = Math.max(1, Number(days) || 1);
@@ -2543,17 +2564,17 @@ async function registerRoutes(app2) {
       res.json({ clientSecret, paymentIntentId, amountUSD });
     } catch (e) {
       console.error("Banner checkout error:", e);
-      res.status(500).json({ error: e.message ?? "\u6C7A\u6E08\u306E\u6E96\u5099\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
+      res.status(500).json({ error: e.message ?? "Failed to prepare payment" });
     }
   });
   app2.post("/api/banner/confirm", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const { paymentIntentId } = req.body;
-    if (!paymentIntentId) return res.status(400).json({ error: "paymentIntentId \u304C\u5FC5\u8981\u3067\u3059" });
+    if (!paymentIntentId) return res.status(400).json({ error: "paymentIntentId is required" });
     const status = await getPaymentIntentStatus(paymentIntentId);
     if (status !== "succeeded") {
-      return res.status(400).json({ error: "\u6C7A\u6E08\u304C\u5B8C\u4E86\u3057\u3066\u3044\u307E\u305B\u3093" });
+      return res.status(400).json({ error: "Payment has not completed" });
     }
     const stripe = await getUncachableStripeClient();
     const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
@@ -2575,7 +2596,7 @@ async function registerRoutes(app2) {
   const BANNER_CHECKOUT_AMOUNT_USD = 1e4;
   app2.post("/api/banner/checkout-session", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     try {
       const stripe = await getUncachableStripeClient();
       const baseUrl = "https://rawstock.live";
@@ -2587,8 +2608,8 @@ async function registerRoutes(app2) {
               currency: "usd",
               unit_amount: BANNER_CHECKOUT_AMOUNT_USD,
               product_data: {
-                name: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u5E83\u544A\u30D0\u30CA\u30FC\uFF083\u65E5\u9593\uFF09",
-                description: `\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u30DA\u30FC\u30B8\u306E\u5E83\u544A\u30D0\u30CA\u30FC\u67A0 3\u65E5\u9593\u51FA\u7A3F\uFF08$${(BANNER_CHECKOUT_AMOUNT_USD / 100).toFixed(2)}\uFF09`
+                name: "Community ad banner (3 days)",
+                description: `Community page ad banner slot, 3-day run ($${(BANNER_CHECKOUT_AMOUNT_USD / 100).toFixed(2)})`
               }
             },
             quantity: 1
@@ -2606,17 +2627,17 @@ async function registerRoutes(app2) {
       res.json({ checkoutUrl: session.url });
     } catch (e) {
       console.error("Banner checkout session error:", e);
-      res.status(500).json({ error: e.message ?? "\u6C7A\u6E08\u306E\u6E96\u5099\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
+      res.status(500).json({ error: e.message ?? "Failed to prepare payment" });
     }
   });
   app2.post("/api/banner/confirm-session", async (req, res) => {
     const { sessionId } = req.body;
-    if (!sessionId) return res.status(400).json({ error: "sessionId \u304C\u5FC5\u8981\u3067\u3059" });
+    if (!sessionId) return res.status(400).json({ error: "sessionId is required" });
     try {
       const stripe = await getUncachableStripeClient();
       const session = await stripe.checkout.sessions.retrieve(sessionId);
       if (session.payment_status !== "paid") {
-        return res.status(400).json({ error: "\u6C7A\u6E08\u304C\u5B8C\u4E86\u3057\u3066\u3044\u307E\u305B\u3093" });
+        return res.status(400).json({ error: "Payment has not completed" });
       }
       const amountUSD = session.amount_total ?? BANNER_CHECKOUT_AMOUNT_USD;
       const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? session.id;
@@ -2638,7 +2659,7 @@ async function registerRoutes(app2) {
       });
     } catch (e) {
       console.error("Banner confirm-session error:", e);
-      res.status(500).json({ error: e.message ?? "\u6C7A\u6E08\u306E\u78BA\u8A8D\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
+      res.status(500).json({ error: e.message ?? "Failed to confirm payment" });
     }
   });
   app2.put("/api/auth/profile", async (req, res) => {
@@ -2652,7 +2673,7 @@ async function registerRoutes(app2) {
       timestamp: Date.now()
     });
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const { name, displayName, bio, avatar, profileImageUrl, spotifyUrl, appleMusicUrl, bandcampUrl, instagramUrl, youtubeUrl, xUrl, phoneNumber, pinnedCommunityIds } = req.body;
     const newName = name ?? displayName ?? user.displayName;
     const newBio = bio ?? user.bio;
@@ -2708,10 +2729,10 @@ async function registerRoutes(app2) {
   });
   app2.delete("/api/auth/account", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const [owned] = await db.select().from(communities).where(eq2(communities.ownerId, user.id)).limit(1);
     if (owned) {
-      return res.status(400).json({ error: "\u7BA1\u7406\u3057\u3066\u3044\u308B\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u304C\u3042\u308B\u305F\u3081\u524A\u9664\u3067\u304D\u307E\u305B\u3093\u3002\u5148\u306B\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u3092\u524A\u9664\u3057\u3066\u304F\u3060\u3055\u3044\u3002" });
+      return res.status(400).json({ error: "You cannot delete your account while you manage a community. Delete the community first." });
     }
     try {
       await db.delete(communityMembers).where(eq2(communityMembers.userId, user.id));
@@ -2724,12 +2745,12 @@ async function registerRoutes(app2) {
       res.json({ ok: true });
     } catch (e) {
       console.error("Account deletion error:", e);
-      res.status(500).json({ error: "\u30A2\u30AB\u30A6\u30F3\u30C8\u306E\u524A\u9664\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
+      res.status(500).json({ error: "Failed to delete account" });
     }
   });
   app2.get("/api/profile/by-name/:name", async (req, res) => {
     const name = decodeURIComponent(req.params.name || "");
-    if (!name.trim()) return res.status(400).json({ error: "\u540D\u524D\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!name.trim()) return res.status(400).json({ error: "Please provide a name" });
     const [u] = await db.select({ id: users.id }).from(users).where(eq2(users.displayName, name));
     if (u) return res.json({ type: "user", id: u.id });
     const [c] = await db.select({ id: creators.id }).from(creators).where(eq2(creators.name, name));
@@ -2793,7 +2814,7 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/users/:id/follow-status", async (req, res) => {
     const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const targetId = paramNum(req, "id");
     if (!targetId) return res.status(400).json({ error: "Invalid id" });
     const [row] = await db.select({ id: userFollows.id }).from(userFollows).where(and2(eq2(userFollows.followerId, me.id), eq2(userFollows.followingId, targetId)));
@@ -2859,10 +2880,10 @@ async function registerRoutes(app2) {
   });
   app2.post("/api/users/:id/follow", async (req, res) => {
     const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const targetId = paramNum(req, "id");
     if (!targetId) return res.status(400).json({ error: "Invalid id" });
-    if (targetId === me.id) return res.status(400).json({ error: "\u81EA\u5206\u81EA\u8EAB\u306F\u30D5\u30A9\u30ED\u30FC\u3067\u304D\u307E\u305B\u3093" });
+    if (targetId === me.id) return res.status(400).json({ error: "You cannot follow yourself" });
     const [exists] = await db.select({ id: users.id }).from(users).where(eq2(users.id, targetId));
     if (!exists) return res.status(404).json({ error: "Not found" });
     await db.insert(userFollows).values({ followerId: me.id, followingId: targetId }).onConflictDoNothing({ target: [userFollows.followerId, userFollows.followingId] });
@@ -2870,7 +2891,7 @@ async function registerRoutes(app2) {
   });
   app2.delete("/api/users/:id/follow", async (req, res) => {
     const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const targetId = paramNum(req, "id");
     if (!targetId) return res.status(400).json({ error: "Invalid id" });
     await db.delete(userFollows).where(and2(eq2(userFollows.followerId, me.id), eq2(userFollows.followingId, targetId)));
@@ -2887,7 +2908,9 @@ async function registerRoutes(app2) {
       google: {
         configured: !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && GOOGLE_CALLBACK_URL),
         callbackUrl: GOOGLE_CALLBACK_URL,
-        publicOrigin: BASE_URL
+        publicOrigin: BASE_URL,
+        /** Web クライアント ID は公開情報。`.env` の GOOGLE_CLIENT_ID が GCP のクライアントと一致するか照合用 */
+        clientId: GOOGLE_CLIENT_ID || null
       }
     });
   });
@@ -2977,10 +3000,10 @@ async function registerRoutes(app2) {
   app2.get("/api/youtube/search", async (req, res) => {
     const q = queryStr(req, "q").trim();
     if (!q) {
-      return res.status(400).json({ error: "\u691C\u7D22\u30AD\u30FC\u30EF\u30FC\u30C9\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "Please enter a search query" });
     }
     if (!YOUTUBE_API_KEY) {
-      return res.status(500).json({ error: "YouTube API \u30AD\u30FC\u304C\u8A2D\u5B9A\u3055\u308C\u3066\u3044\u307E\u305B\u3093" });
+      return res.status(500).json({ error: "YouTube API key is not configured" });
     }
     try {
       const params = new URLSearchParams({
@@ -2994,7 +3017,15 @@ async function registerRoutes(app2) {
       if (!ytRes.ok) {
         const text2 = await ytRes.text();
         console.error("YouTube search error:", ytRes.status, text2);
-        return res.status(502).json({ error: "YouTube \u691C\u7D22\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
+        let clientMessage = "YouTube search failed";
+        try {
+          const errJson = JSON.parse(text2);
+          if (errJson?.error?.message) {
+            clientMessage = errJson.error.message;
+          }
+        } catch {
+        }
+        return res.status(502).json({ error: clientMessage });
       }
       const json = await ytRes.json();
       const items = json.items ?? [];
@@ -3038,7 +3069,7 @@ async function registerRoutes(app2) {
       res.json(results);
     } catch (e) {
       console.error("YouTube search exception:", e);
-      res.status(500).json({ error: "YouTube \u691C\u7D22\u3067\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F" });
+      res.status(500).json({ error: "An error occurred during YouTube search" });
     }
   });
   async function getGoogleAccessToken(userId) {
@@ -3078,11 +3109,11 @@ async function registerRoutes(app2) {
   }
   app2.get("/api/youtube/playlists", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const accessToken = await getGoogleAccessToken(user.id);
     if (!accessToken) {
       return res.status(403).json({
-        error: "YouTube \u30D7\u30EC\u30A4\u30EA\u30B9\u30C8\u3092\u5229\u7528\u3059\u308B\u306B\u306F Google \u3067\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044",
+        error: "Sign in with Google to use YouTube playlists",
         needsGoogleLogin: true
       });
     }
@@ -3099,7 +3130,7 @@ async function registerRoutes(app2) {
       if (!ytRes.ok) {
         const text2 = await ytRes.text();
         console.error("YouTube playlists error:", ytRes.status, text2);
-        return res.status(502).json({ error: "\u30D7\u30EC\u30A4\u30EA\u30B9\u30C8\u306E\u53D6\u5F97\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
+        return res.status(502).json({ error: "Failed to fetch the playlist" });
       }
       const json = await ytRes.json();
       const items = (json.items ?? []).map((item) => {
@@ -3114,21 +3145,21 @@ async function registerRoutes(app2) {
       res.json(items);
     } catch (e) {
       console.error("YouTube playlists exception:", e);
-      res.status(500).json({ error: "\u30D7\u30EC\u30A4\u30EA\u30B9\u30C8\u306E\u53D6\u5F97\u3067\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F" });
+      res.status(500).json({ error: "An error occurred while fetching the playlist" });
     }
   });
   app2.get("/api/youtube/playlists/:playlistId/items", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const accessToken = await getGoogleAccessToken(user.id);
     if (!accessToken) {
       return res.status(403).json({
-        error: "YouTube \u30D7\u30EC\u30A4\u30EA\u30B9\u30C8\u3092\u5229\u7528\u3059\u308B\u306B\u306F Google \u3067\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044",
+        error: "Sign in with Google to use YouTube playlists",
         needsGoogleLogin: true
       });
     }
     const playlistId = paramStr(req, "playlistId");
-    if (!playlistId) return res.status(400).json({ error: "\u30D7\u30EC\u30A4\u30EA\u30B9\u30C8ID\u304C\u5FC5\u8981\u3067\u3059" });
+    if (!playlistId) return res.status(400).json({ error: "playlistId is required" });
     try {
       const params = new URLSearchParams({
         part: "snippet,contentDetails",
@@ -3142,7 +3173,7 @@ async function registerRoutes(app2) {
       if (!ytRes.ok) {
         const text2 = await ytRes.text();
         console.error("YouTube playlistItems error:", ytRes.status, text2);
-        return res.status(502).json({ error: "\u30D7\u30EC\u30A4\u30EA\u30B9\u30C8\u306E\u53D6\u5F97\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
+        return res.status(502).json({ error: "Failed to fetch the playlist" });
       }
       const json = await ytRes.json();
       const baseItems = (json.items ?? []).map((item) => {
@@ -3178,15 +3209,15 @@ async function registerRoutes(app2) {
       res.json(items);
     } catch (e) {
       console.error("YouTube playlistItems exception:", e);
-      res.status(500).json({ error: "\u30D7\u30EC\u30A4\u30EA\u30B9\u30C8\u306E\u53D6\u5F97\u3067\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F" });
+      res.status(500).json({ error: "An error occurred while fetching the playlist" });
     }
   });
   const GENRE_TO_CATEGORY = {
-    pop: ["Pop", "\u30DD\u30C3\u30D7", "J-Pop", "K-Pop", "\u97F3\u697D"],
-    rock: ["Rock", "\u30ED\u30C3\u30AF", "\u30D0\u30F3\u30C9"],
-    hiphop: ["Hip-Hop", "HipHop", "\u30D2\u30C3\u30D7\u30DB\u30C3\u30D7", "Rap", "\u30E9\u30C3\u30D7"],
-    edm: ["EDM", "Electronic", "\u30A8\u30EC\u30AF\u30C8\u30ED", "DJ"],
-    ai: ["AI", "AI\u97F3\u697D", "Generative"]
+    pop: ["Pop", "J-Pop", "K-Pop", "Music", "Vocal"],
+    rock: ["Rock", "Band", "Guitar"],
+    hiphop: ["Hip-Hop", "HipHop", "Rap", "Trap"],
+    edm: ["EDM", "Electronic", "House", "DJ"],
+    ai: ["AI", "Generative", "Suno", "Instrumental"]
   };
   app2.get("/api/communities", async (req, res) => {
     const genreId = queryStr(req, "genre");
@@ -3201,7 +3232,7 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/communities/me", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const memberships = await db.select({ communityId: communityMembers.communityId }).from(communityMembers).where(eq2(communityMembers.userId, user.id));
     if (memberships.length === 0) {
       return res.json([]);
@@ -3249,12 +3280,12 @@ async function registerRoutes(app2) {
   });
   app2.patch("/api/communities/:id/staff", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const communityId = paramNum(req, "id");
     const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
-    if (!isAdmin) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u306E\u307F\u8A2D\u5B9A\u3067\u304D\u307E\u3059" });
+    if (!isAdmin) return res.status(403).json({ error: "Only the community owner can change this" });
     const { adminId, moderatorIds } = req.body;
     if (adminId !== void 0) {
       await db.update(communities).set({ adminId: adminId ?? null }).where(eq2(communities.id, communityId));
@@ -3296,7 +3327,7 @@ async function registerRoutes(app2) {
   });
   app2.post("/api/communities/:id/join", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const communityId = paramNum(req, "id");
     const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
@@ -3345,24 +3376,24 @@ async function registerRoutes(app2) {
       rows.map((r, i) => ({
         ...r,
         postCount: postCounts[i],
-        author: authorMap.get(r.authorUserId) ?? { displayName: "\u4E0D\u660E", profileImageUrl: null }
+        author: authorMap.get(r.authorUserId) ?? { displayName: "Unknown", profileImageUrl: null }
       }))
     );
   });
   app2.post("/api/communities/:id/threads", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const memberRows = await db.select().from(communityMembers).where(and2(eq2(communityMembers.communityId, communityId), eq2(communityMembers.userId, user.id)));
-    if (memberRows.length === 0) return res.status(403).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306B\u53C2\u52A0\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (memberRows.length === 0) return res.status(403).json({ error: "Join the community first" });
     const { title, body } = req.body;
-    if (!title || !title.trim()) return res.status(400).json({ error: "\u30BF\u30A4\u30C8\u30EB\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!title || !title.trim()) return res.status(400).json({ error: "Please enter a title" });
     const combinedText = [title, body].filter(Boolean).join(" ");
     const modResult = await moderateContent(combinedText);
-    if (!modResult.allowed) {
-      return res.status(400).json({ error: modResult.reason ?? "\u4E0D\u9069\u5207\u306A\u30B3\u30F3\u30C6\u30F3\u30C4\u304C\u542B\u307E\u308C\u3066\u3044\u307E\u3059" });
+    if (modResult.allowed === false) {
+      return res.status(400).json({ error: modResult.reason ?? "This content is not allowed" });
     }
     const [row] = await db.insert(communityThreads).values({
       communityId,
@@ -3383,16 +3414,16 @@ async function registerRoutes(app2) {
     const authorMap = new Map(authorRows.map((a) => [a.id, a]));
     res.json({
       ...thread,
-      author: authorMap.get(thread.authorUserId) ?? { displayName: "\u4E0D\u660E", profileImageUrl: null },
+      author: authorMap.get(thread.authorUserId) ?? { displayName: "Unknown", profileImageUrl: null },
       posts: posts.map((p) => ({
         ...p,
-        author: authorMap.get(p.authorUserId) ?? { displayName: "\u4E0D\u660E", profileImageUrl: null }
+        author: authorMap.get(p.authorUserId) ?? { displayName: "Unknown", profileImageUrl: null }
       }))
     });
   });
   app2.delete("/api/communities/:id/threads/:threadId", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const threadId = paramNum(req, "threadId");
     const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
@@ -3400,7 +3431,7 @@ async function registerRoutes(app2) {
     const isAdmin = community.adminId === user.id;
     const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u307E\u305F\u306F\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u306E\u307F\u524A\u9664\u3067\u304D\u307E\u3059" });
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can delete this" });
     const [thread] = await db.select().from(communityThreads).where(and2(eq2(communityThreads.communityId, communityId), eq2(communityThreads.id, threadId)));
     if (!thread) return res.status(404).json({ message: "Not found" });
     await db.delete(communityThreadPosts).where(eq2(communityThreadPosts.threadId, threadId));
@@ -3409,7 +3440,7 @@ async function registerRoutes(app2) {
   });
   app2.delete("/api/communities/:id/threads/:threadId/posts/:postId", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const threadId = paramNum(req, "threadId");
     const postId = paramNum(req, "postId");
@@ -3418,7 +3449,7 @@ async function registerRoutes(app2) {
     const isAdmin = community.adminId === user.id;
     const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u307E\u305F\u306F\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u306E\u307F\u524A\u9664\u3067\u304D\u307E\u3059" });
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can delete this" });
     const [thread] = await db.select().from(communityThreads).where(and2(eq2(communityThreads.communityId, communityId), eq2(communityThreads.id, threadId)));
     if (!thread) return res.status(404).json({ message: "Not found" });
     await db.delete(communityThreadPosts).where(and2(eq2(communityThreadPosts.threadId, threadId), eq2(communityThreadPosts.id, postId)));
@@ -3426,18 +3457,18 @@ async function registerRoutes(app2) {
   });
   app2.post("/api/communities/:id/threads/:threadId/posts", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const threadId = paramNum(req, "threadId");
     const [thread] = await db.select().from(communityThreads).where(and2(eq2(communityThreads.communityId, communityId), eq2(communityThreads.id, threadId)));
     if (!thread) return res.status(404).json({ message: "Not found" });
     const memberRows = await db.select().from(communityMembers).where(and2(eq2(communityMembers.communityId, communityId), eq2(communityMembers.userId, user.id)));
-    if (memberRows.length === 0) return res.status(403).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306B\u53C2\u52A0\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (memberRows.length === 0) return res.status(403).json({ error: "Join the community first" });
     const { body } = req.body;
-    if (!body || !body.trim()) return res.status(400).json({ error: "\u672C\u6587\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!body || !body.trim()) return res.status(400).json({ error: "Please enter body text" });
     const modResult = await moderateContent(body);
-    if (!modResult.allowed) {
-      return res.status(400).json({ error: modResult.reason ?? "\u4E0D\u9069\u5207\u306A\u30B3\u30F3\u30C6\u30F3\u30C4\u304C\u542B\u307E\u308C\u3066\u3044\u307E\u3059" });
+    if (modResult.allowed === false) {
+      return res.status(400).json({ error: modResult.reason ?? "This content is not allowed" });
     }
     const [row] = await db.insert(communityThreadPosts).values({
       threadId,
@@ -3449,20 +3480,20 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/communities/:id/admin/jukebox-queue", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
     const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u307E\u305F\u306F\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u306E\u307F\u30A2\u30AF\u30BB\u30B9\u53EF\u80FD\u3067\u3059" });
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can access this" });
     const rows = await db.select().from(jukeboxQueue).where(eq2(jukeboxQueue.communityId, communityId)).orderBy(asc2(jukeboxQueue.position));
     res.json(rows);
   });
   app2.delete("/api/communities/:id/admin/jukebox-queue/:itemId", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const itemId = paramNum(req, "itemId");
     const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
@@ -3470,7 +3501,7 @@ async function registerRoutes(app2) {
     const isAdmin = community.adminId === user.id;
     const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u307E\u305F\u306F\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u306E\u307F\u64CD\u4F5C\u53EF\u80FD\u3067\u3059" });
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can perform this action" });
     const [item] = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.id, itemId)));
     if (!item) return res.status(404).json({ message: "Not found" });
     await db.delete(jukeboxQueue).where(eq2(jukeboxQueue.id, itemId));
@@ -3478,27 +3509,27 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/communities/:id/admin/ads", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
     const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u307E\u305F\u306F\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u306E\u307F\u30A2\u30AF\u30BB\u30B9\u53EF\u80FD\u3067\u3059" });
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can access this" });
     const rows = await db.select().from(communityAds).where(and2(eq2(communityAds.communityId, communityId), eq2(communityAds.status, "approved"))).orderBy(asc2(communityAds.startDate));
     res.json(rows);
   });
   app2.get("/api/communities/:id/admin/reports", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
     const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u307E\u305F\u306F\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u306E\u307F\u30A2\u30AF\u30BB\u30B9\u53EF\u80FD\u3067\u3059" });
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can access this" });
     const videoIdsInCommunity = await db.select({ id: videos.id }).from(videos).where(eq2(videos.communityId, communityId));
     const vidSet = new Set(videoIdsInCommunity.map((v) => v.id));
     const byName = await db.select({ id: videos.id }).from(videos).where(eq2(videos.community, community.name));
@@ -3520,7 +3551,7 @@ async function registerRoutes(app2) {
   });
   app2.patch("/api/communities/:id/admin/reports/:reportId/hide", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const reportId = paramNum(req, "reportId");
     const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
@@ -3528,9 +3559,9 @@ async function registerRoutes(app2) {
     const isAdmin = community.adminId === user.id;
     const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u307E\u305F\u306F\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u306E\u307F\u64CD\u4F5C\u53EF\u80FD\u3067\u3059" });
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can perform this action" });
     const [report] = await db.select().from(reports).where(eq2(reports.id, reportId));
-    if (!report) return res.status(404).json({ error: "\u901A\u5831\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    if (!report) return res.status(404).json({ error: "Report not found" });
     const vidSet = new Set((await db.select({ id: videos.id }).from(videos).where(eq2(videos.communityId, communityId))).map((v) => v.id));
     const byName = await db.select({ id: videos.id }).from(videos).where(eq2(videos.community, community.name));
     byName.forEach((v) => vidSet.add(v.id));
@@ -3543,7 +3574,7 @@ async function registerRoutes(app2) {
         allowed = !!v && (v.communityId === communityId || v.community === community.name);
       }
     }
-    if (!allowed) return res.status(403).json({ error: "\u3053\u306E\u901A\u5831\u306F\u3053\u306E\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306B\u5C5E\u3057\u3066\u3044\u307E\u305B\u3093" });
+    if (!allowed) return res.status(403).json({ error: "This report does not belong to this community" });
     if (report.contentType === "video") {
       await db.update(videos).set({ hidden: true }).where(eq2(videos.id, report.contentId));
     } else if (report.contentType === "comment") {
@@ -3554,7 +3585,7 @@ async function registerRoutes(app2) {
   });
   app2.patch("/api/communities/:id/admin/reports/:reportId/dismiss", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const reportId = paramNum(req, "reportId");
     const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
@@ -3562,9 +3593,9 @@ async function registerRoutes(app2) {
     const isAdmin = community.adminId === user.id;
     const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u307E\u305F\u306F\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u306E\u307F\u64CD\u4F5C\u53EF\u80FD\u3067\u3059" });
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can perform this action" });
     const [report] = await db.select().from(reports).where(eq2(reports.id, reportId));
-    if (!report) return res.status(404).json({ error: "\u901A\u5831\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    if (!report) return res.status(404).json({ error: "Report not found" });
     const vidSet = new Set((await db.select({ id: videos.id }).from(videos).where(eq2(videos.communityId, communityId))).map((v) => v.id));
     const byName = await db.select({ id: videos.id }).from(videos).where(eq2(videos.community, community.name));
     byName.forEach((v) => vidSet.add(v.id));
@@ -3577,7 +3608,7 @@ async function registerRoutes(app2) {
         allowed = !!v && (v.communityId === communityId || v.community === community.name);
       }
     }
-    if (!allowed) return res.status(403).json({ error: "\u3053\u306E\u901A\u5831\u306F\u3053\u306E\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306B\u5C5E\u3057\u3066\u3044\u307E\u305B\u3093" });
+    if (!allowed) return res.status(403).json({ error: "This report does not belong to this community" });
     await db.update(reports).set({ status: "reviewed" }).where(eq2(reports.id, reportId));
     res.json({ ok: true });
   });
@@ -3604,17 +3635,17 @@ async function registerRoutes(app2) {
   });
   app2.post("/api/communities/:id/polls", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const memberRows = await db.select().from(communityMembers).where(and2(eq2(communityMembers.communityId, communityId), eq2(communityMembers.userId, user.id)));
-    if (memberRows.length === 0) return res.status(403).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306B\u53C2\u52A0\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (memberRows.length === 0) return res.status(403).json({ error: "Join the community first" });
     const { question, options } = req.body;
-    if (!question || !question.trim()) return res.status(400).json({ error: "\u8CEA\u554F\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
-    if (!options || !Array.isArray(options) || options.length < 2) return res.status(400).json({ error: "\u9078\u629E\u80A2\u30922\u3064\u4EE5\u4E0A\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!question || !question.trim()) return res.status(400).json({ error: "Please enter a question" });
+    if (!options || !Array.isArray(options) || options.length < 2) return res.status(400).json({ error: "Provide at least two options" });
     const validOpts = options.filter((o) => o && String(o).trim()).slice(0, 10);
-    if (validOpts.length < 2) return res.status(400).json({ error: "\u9078\u629E\u80A2\u30922\u3064\u4EE5\u4E0A\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (validOpts.length < 2) return res.status(400).json({ error: "Provide at least two options" });
     const [poll] = await db.insert(communityPolls).values({
       communityId,
       authorUserId: user.id,
@@ -3631,19 +3662,19 @@ async function registerRoutes(app2) {
   });
   app2.post("/api/communities/:id/polls/:pollId/vote", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const pollId = paramNum(req, "pollId");
     const { optionId } = req.body;
-    if (!optionId) return res.status(400).json({ error: "optionId \u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!optionId) return res.status(400).json({ error: "optionId is required" });
     const [poll] = await db.select().from(communityPolls).where(and2(eq2(communityPolls.communityId, communityId), eq2(communityPolls.id, pollId)));
     if (!poll) return res.status(404).json({ message: "Not found" });
     const [opt] = await db.select().from(communityPollOptions).where(and2(eq2(communityPollOptions.pollId, pollId), eq2(communityPollOptions.id, optionId)));
-    if (!opt) return res.status(404).json({ message: "\u9078\u629E\u80A2\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    if (!opt) return res.status(404).json({ message: "Option not found" });
     const memberRows = await db.select().from(communityMembers).where(and2(eq2(communityMembers.communityId, communityId), eq2(communityMembers.userId, user.id)));
-    if (memberRows.length === 0) return res.status(403).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306B\u53C2\u52A0\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (memberRows.length === 0) return res.status(403).json({ error: "Join the community first" });
     const existing = await db.select().from(communityPollVotes).where(and2(eq2(communityPollVotes.pollId, pollId), eq2(communityPollVotes.userId, user.id)));
-    if (existing.length > 0) return res.status(400).json({ error: "\u3059\u3067\u306B\u6295\u7968\u6E08\u307F\u3067\u3059" });
+    if (existing.length > 0) return res.status(400).json({ error: "You have already voted" });
     await db.insert(communityPollVotes).values({
       pollId,
       optionId,
@@ -3732,17 +3763,17 @@ async function registerRoutes(app2) {
     const editorId = paramNum(req, "id");
     const { requesterName, title, description, priceType, budget, deadline } = req.body;
     if (!title || !description || !priceType) {
-      return res.status(400).json({ error: "\u5FC5\u9808\u9805\u76EE\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "Please fill in all required fields" });
     }
     if (priceType !== "per_minute" && priceType !== "revenue_share") {
-      return res.status(400).json({ error: "\u4E0D\u6B63\u306A\u6599\u91D1\u5F62\u5F0F\u3067\u3059" });
+      return res.status(400).json({ error: "Invalid pricing type" });
     }
     const [editor] = await db.select().from(videoEditors).where(eq2(videoEditors.id, editorId));
     if (!editor) {
       return res.status(404).json({ error: "Editor not found" });
     }
     if (editor.priceType !== "both" && editor.priceType !== priceType) {
-      return res.status(400).json({ error: "\u3053\u306E\u7DE8\u96C6\u8005\u306F\u9078\u629E\u3057\u305F\u6599\u91D1\u5F62\u5F0F\u306B\u5BFE\u5FDC\u3057\u3066\u3044\u307E\u305B\u3093" });
+      return res.status(400).json({ error: "This editor does not support the selected pricing type" });
     }
     const user = await getAuthUser(req);
     const requestUserId = user ? `user-${user.id}` : "guest";
@@ -3759,12 +3790,12 @@ async function registerRoutes(app2) {
     }).returning();
     await db.insert(notifications).values({
       type: "editor_request",
-      title: `${requestUserName} \u304B\u3089\u7DE8\u96C6\u4F9D\u983C`,
-      body: `${title}\uFF08\u7DE8\u96C6\u8005ID: ${editorId}\uFF09`,
+      title: `Edit request from ${requestUserName}`,
+      body: `${title} (editor ID: ${editorId})`,
       amount: budget ?? null,
       avatar: editor.avatar ?? null,
       thumbnail: null,
-      timeAgo: "\u305F\u3063\u305F\u4ECA"
+      timeAgo: "Just now"
     });
     res.status(201).json(requestRow);
   });
@@ -3773,22 +3804,22 @@ async function registerRoutes(app2) {
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const taken = await db.select().from(videoEditors).where(eq2(videoEditors.userId, user.id)).limit(1);
     if (taken.length > 0) {
-      return res.status(409).json({ error: "\u65E2\u306B\u52D5\u753B\u7DE8\u96C6\u8005\u3068\u3057\u3066\u767B\u9332\u6E08\u307F\u3067\u3059" });
+      return res.status(409).json({ error: "Already registered as a video editor" });
     }
     const body = req.body;
     const communityId = body.communityId;
     if (communityId == null || !Number.isFinite(communityId)) {
-      return res.status(400).json({ error: "communityId \u304C\u5FC5\u8981\u3067\u3059" });
+      return res.status(400).json({ error: "communityId is required" });
     }
     const [comm] = await db.select({ id: communities.id }).from(communities).where(eq2(communities.id, communityId));
-    if (!comm) return res.status(400).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    if (!comm) return res.status(400).json({ error: "Community not found" });
     const pricingRow = {
       priceType: String(body.priceType ?? ""),
       pricePerMinute: body.pricePerMinute ?? null,
       revenueSharePercent: body.revenueSharePercent ?? null
     };
     const pv = validateEditorPricing(pricingRow);
-    if (!pv.ok) return res.status(400).json({ error: pv.error });
+    if (pv.ok === false) return res.status(400).json({ error: pv.error });
     const styleTags = normalizeEditorStyleTagSlugs(
       Array.isArray(body.styleTags) ? body.styleTags.map((x) => String(x)) : []
     );
@@ -3816,18 +3847,18 @@ async function registerRoutes(app2) {
     const id = paramNum(req, "id");
     const [editor] = await db.select().from(videoEditors).where(eq2(videoEditors.id, id));
     if (!editor) return res.status(404).json({ error: "Not found" });
-    if (editor.userId !== user.id) return res.status(403).json({ error: "\u7DE8\u96C6\u3067\u304D\u307E\u305B\u3093" });
+    if (editor.userId !== user.id) return res.status(403).json({ error: "You cannot edit this" });
     const body = req.body;
     const communityId = body.communityId ?? editor.communityId;
     const [comm] = await db.select({ id: communities.id }).from(communities).where(eq2(communities.id, communityId));
-    if (!comm) return res.status(400).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    if (!comm) return res.status(400).json({ error: "Community not found" });
     const pricingRow = {
       priceType: String(body.priceType ?? editor.priceType),
       pricePerMinute: body.pricePerMinute !== void 0 ? body.pricePerMinute : editor.pricePerMinute,
       revenueSharePercent: body.revenueSharePercent !== void 0 ? body.revenueSharePercent : editor.revenueSharePercent
     };
     const pv = validateEditorPricing(pricingRow);
-    if (!pv.ok) return res.status(400).json({ error: pv.error });
+    if (pv.ok === false) return res.status(400).json({ error: pv.error });
     let styleTags = Array.isArray(editor.styleTags) ? [...editor.styleTags] : [];
     if (body.styleTags !== void 0) {
       styleTags = normalizeEditorStyleTagSlugs(
@@ -3850,7 +3881,7 @@ async function registerRoutes(app2) {
   });
   app2.post("/api/communities", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const { name, description, bannerUrl, iconUrl, categories } = req.body;
     const trimmedName = (name ?? "").trim();
     const trimmedDescription = (description ?? "").trim();
@@ -3858,10 +3889,10 @@ async function registerRoutes(app2) {
     const icon = (iconUrl ?? "").trim() || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=160&h=160&fit=crop";
     const categoryList = Array.isArray(categories) ? categories.map((c) => String(c).trim()).filter(Boolean) : typeof categories === "string" ? categories.split(/[,\s]+/).map((c) => c.trim()).filter(Boolean) : [];
     if (!trimmedName || !trimmedDescription || categoryList.length === 0) {
-      return res.status(400).json({ error: "\u540D\u524D\u30FB\u8AAC\u660E\u30FB\u30AB\u30C6\u30B4\u30EA\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "Please enter name, description, and category" });
     }
     if (trimmedDescription.length < 10) {
-      return res.status(400).json({ error: "\u8AAC\u660E\u6587\u306F10\u6587\u5B57\u4EE5\u4E0A\u3067\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "Description must be at least 10 characters" });
     }
     try {
       const primaryCategory = categoryList[0];
@@ -3887,17 +3918,17 @@ async function registerRoutes(app2) {
       });
     } catch (e) {
       console.error("Create community error:", e);
-      res.status(500).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306E\u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
+      res.status(500).json({ error: "Failed to create community" });
     }
   });
   app2.delete("/api/communities/:id", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     if (community.ownerId !== user.id) {
-      return res.status(403).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306E\u524A\u9664\u306F\u4F5C\u6210\u8005\u306E\u307F\u53EF\u80FD\u3067\u3059" });
+      return res.status(403).json({ error: "Only the creator can delete this community" });
     }
     try {
       const threadRows = await db.select({ id: communityThreads.id }).from(communityThreads).where(eq2(communityThreads.communityId, communityId));
@@ -3927,7 +3958,7 @@ async function registerRoutes(app2) {
       res.json({ ok: true });
     } catch (e) {
       console.error("Community deletion error:", e);
-      res.status(500).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306E\u524A\u9664\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
+      res.status(500).json({ error: "Failed to delete community" });
     }
   });
   const MIN_AD_AMOUNT = 7e3;
@@ -3936,9 +3967,9 @@ async function registerRoutes(app2) {
   const MAX_MONTHS_AHEAD = 3;
   app2.get("/api/community-ads/pricing", async (req, res) => {
     const cid = Number(queryStr(req, "communityId")) || 0;
-    if (!cid) return res.status(400).json({ error: "communityId\u304C\u5FC5\u8981\u3067\u3059" });
+    if (!cid) return res.status(400).json({ error: "communityId is required" });
     const [community] = await db.select().from(communities).where(eq2(communities.id, cid));
-    if (!community) return res.status(404).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    if (!community) return res.status(404).json({ error: "Community not found" });
     const memberCount = community.members;
     const dailyRate = memberCount * DAILY_RATE_PER_MEMBER;
     const minDays = dailyRate > 0 ? Math.ceil(MIN_AD_AMOUNT / dailyRate) : 0;
@@ -3954,7 +3985,7 @@ async function registerRoutes(app2) {
     const cid = Number(queryStr(req, "communityId")) || 0;
     const start = queryStr(req, "start");
     const end = queryStr(req, "end");
-    if (!cid || !start || !end) return res.status(400).json({ error: "communityId, start, end\u304C\u5FC5\u8981\u3067\u3059" });
+    if (!cid || !start || !end) return res.status(400).json({ error: "communityId, start, and end are required" });
     const conflicts = await db.select({ id: communityAds.id, startDate: communityAds.startDate, endDate: communityAds.endDate }).from(communityAds).where(
       and2(
         eq2(communityAds.communityId, cid),
@@ -3971,7 +4002,7 @@ async function registerRoutes(app2) {
     const { communityId: bodyCommunityId, companyName, contactName, email, bannerUrl, linkUrl, startDate, endDate, agreedToTerms } = req.body;
     const cid = Number(bodyCommunityId) || 0;
     const [community] = await db.select().from(communities).where(eq2(communities.id, cid));
-    if (!community) return res.status(404).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    if (!community) return res.status(404).json({ error: "Community not found" });
     const company = (companyName ?? "").trim();
     const contact = (contactName ?? "").trim();
     const em = (email ?? "").trim();
@@ -3980,17 +4011,17 @@ async function registerRoutes(app2) {
     const start = (startDate ?? "").trim();
     const end = (endDate ?? "").trim();
     if (!company || !contact || !em || !banner || !start || !end) {
-      return res.status(400).json({ error: "\u4F1A\u793E\u540D\u30FB\u62C5\u5F53\u8005\u540D\u30FB\u30E1\u30FC\u30EB\u30FB\u30D0\u30CA\u30FCURL\u30FB\u63B2\u8F09\u671F\u9593\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "Please enter company name, contact name, email, banner URL, and run dates" });
     }
     if (!agreedToTerms) {
-      return res.status(400).json({ error: "\u6599\u91D1\u898F\u7D04\u3078\u306E\u540C\u610F\u304C\u5FC5\u8981\u3067\u3059" });
+      return res.status(400).json({ error: "You must accept the advertising rate terms" });
     }
     const memberCount = community.members;
     const dailyRate = memberCount * DAILY_RATE_PER_MEMBER;
     const startD = new Date(start);
     const endD = new Date(end);
     if (isNaN(startD.getTime()) || isNaN(endD.getTime()) || endD < startD) {
-      return res.status(400).json({ error: "\u63B2\u8F09\u671F\u9593\u306E\u65E5\u4ED8\u304C\u4E0D\u6B63\u3067\u3059" });
+      return res.status(400).json({ error: "Invalid ad run dates" });
     }
     const days = Math.ceil((endD.getTime() - startD.getTime()) / (24 * 60 * 60 * 1e3)) + 1;
     const totalAmount = days * dailyRate;
@@ -4000,7 +4031,7 @@ async function registerRoutes(app2) {
     const maxEnd = /* @__PURE__ */ new Date();
     maxEnd.setMonth(maxEnd.getMonth() + MAX_MONTHS_AHEAD);
     if (endD > maxEnd) {
-      return res.status(400).json({ error: `\u63B2\u8F09\u7D42\u4E86\u65E5\u306F${MAX_MONTHS_AHEAD}\u30F6\u6708\u4EE5\u5185\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044` });
+      return res.status(400).json({ error: `End date must be within ${MAX_MONTHS_AHEAD} months` });
     }
     const conflicts = await db.select({ id: communityAds.id }).from(communityAds).where(
       and2(
@@ -4010,7 +4041,7 @@ async function registerRoutes(app2) {
       )
     );
     if (conflicts.length > 0) {
-      return res.status(409).json({ error: "\u6307\u5B9A\u671F\u9593\u306F\u65E2\u306B\u4E88\u7D04\u6E08\u307F\u3067\u3059\u3002\u5225\u306E\u65E5\u7A0B\u3092\u9078\u3093\u3067\u304F\u3060\u3055\u3044\u3002" });
+      return res.status(409).json({ error: "That period is already booked. Please choose different dates." });
     }
     const [row] = await db.insert(communityAds).values({
       communityId: cid,
@@ -4031,11 +4062,11 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/community-ads/revenue-settings/:communityId", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const cid = paramNum(req, "communityId");
     const [community] = await db.select().from(communities).where(eq2(communities.id, cid));
-    if (!community) return res.status(404).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
-    if (community.adminId !== user.id) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u306E\u307F\u8A2D\u5B9A\u3067\u304D\u307E\u3059" });
+    if (!community) return res.status(404).json({ error: "Community not found" });
+    if (community.adminId !== user.id) return res.status(403).json({ error: "Only the community owner can change this" });
     const mods = await db.select({ userId: communityModerators.userId, displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(communityModerators).leftJoin(users, eq2(communityModerators.userId, users.id)).where(eq2(communityModerators.communityId, cid));
     let distribution = {};
     const rawDist = community.revenueDistribution;
@@ -4060,25 +4091,25 @@ async function registerRoutes(app2) {
   });
   app2.patch("/api/community-ads/revenue-settings/:communityId", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const cid = paramNum(req, "communityId");
     const [community] = await db.select().from(communities).where(eq2(communities.id, cid));
-    if (!community) return res.status(404).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
-    if (community.adminId !== user.id) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u306E\u307F\u8A2D\u5B9A\u3067\u304D\u307E\u3059" });
+    if (!community) return res.status(404).json({ error: "Community not found" });
+    if (community.adminId !== user.id) return res.status(403).json({ error: "Only the community owner can change this" });
     const { distribution } = req.body;
     if (!distribution || typeof distribution !== "object") {
-      return res.status(400).json({ error: "distribution\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u304C\u5FC5\u8981\u3067\u3059" });
+      return res.status(400).json({ error: "distribution object is required" });
     }
     const total = Object.values(distribution).reduce((s, v) => s + Number(v), 0);
     if (Math.abs(total - 100) > 1) {
-      return res.status(400).json({ error: `\u5206\u914D\u6BD4\u7387\u306E\u5408\u8A08\u306F100%\u306B\u3057\u3066\u304F\u3060\u3055\u3044\uFF08\u73FE\u5728: ${total}%\uFF09` });
+      return res.status(400).json({ error: `Distribution must total 100% (currently ${total}%)` });
     }
     await db.update(communities).set({ revenueDistribution: JSON.stringify(distribution) }).where(eq2(communities.id, cid));
     res.json({ ok: true });
   });
   app2.post("/api/genre-owners/assign", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user || user.role !== "ADMIN") return res.status(403).json({ error: "\u7BA1\u7406\u8005\u306E\u307F\u5B9F\u884C\u3067\u304D\u307E\u3059" });
+    if (!user || user.role !== "ADMIN") return res.status(403).json({ error: "Only admins can run this" });
     const allCommunities = await db.select({ id: communities.id, category: communities.category, members: communities.members, adminId: communities.adminId }).from(communities).where(sql3`${communities.adminId} IS NOT NULL`);
     const byGenre = /* @__PURE__ */ new Map();
     for (const c of allCommunities) {
@@ -4106,7 +4137,7 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/community-ads/review", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const ownedRows = await db.select({ id: communities.id }).from(communities).where(eq2(communities.adminId, user.id));
     const modRows = await db.select({ communityId: communityModerators.communityId }).from(communityModerators).where(eq2(communityModerators.userId, user.id));
     const communityIds = /* @__PURE__ */ new Set();
@@ -4128,61 +4159,61 @@ async function registerRoutes(app2) {
   });
   app2.patch("/api/community-ads/:id/moderator-approve", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const id = paramNum(req, "id");
     const [ad] = await db.select().from(communityAds).where(eq2(communityAds.id, id));
-    if (!ad) return res.status(404).json({ error: "\u7533\u3057\u8FBC\u307F\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
-    if (ad.status !== "pending") return res.status(400).json({ error: "\u3053\u306E\u7533\u3057\u8FBC\u307F\u306F\u65E2\u306B\u51E6\u7406\u6E08\u307F\u3067\u3059" });
+    if (!ad) return res.status(404).json({ error: "Application not found" });
+    if (ad.status !== "pending") return res.status(400).json({ error: "This application has already been processed" });
     const [mod] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, ad.communityId), eq2(communityModerators.userId, user.id)));
-    if (!mod) return res.status(403).json({ error: "\u3053\u306E\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306E\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u306E\u307F\u627F\u8A8D\u3067\u304D\u307E\u3059" });
+    if (!mod) return res.status(403).json({ error: "Only moderators of this community can approve this" });
     await db.update(communityAds).set({ status: "moderator_approved", approvedByModerator: user.id }).where(eq2(communityAds.id, id));
     res.json({ ok: true });
   });
   app2.patch("/api/community-ads/:id/approve", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const id = paramNum(req, "id");
     const [ad] = await db.select().from(communityAds).where(eq2(communityAds.id, id));
-    if (!ad) return res.status(404).json({ error: "\u7533\u3057\u8FBC\u307F\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
-    if (ad.status !== "moderator_approved") return res.status(400).json({ error: "\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u627F\u8A8D\u5F8C\u306B\u7BA1\u7406\u4EBA\u304C\u627F\u8A8D\u3067\u304D\u307E\u3059" });
+    if (!ad) return res.status(404).json({ error: "Application not found" });
+    if (ad.status !== "moderator_approved") return res.status(400).json({ error: "The owner can approve after moderator approval" });
     const [community] = await db.select().from(communities).where(eq2(communities.id, ad.communityId));
-    if (!community || community.adminId !== user.id) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u306E\u307F\u6700\u7D42\u627F\u8A8D\u3067\u304D\u307E\u3059" });
+    if (!community || community.adminId !== user.id) return res.status(403).json({ error: "Only the owner can give final approval" });
     await db.update(communityAds).set({ status: "approved", approvedByOwner: user.id }).where(eq2(communityAds.id, id));
     res.json({ ok: true });
   });
   app2.patch("/api/community-ads/:id/reject", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const id = paramNum(req, "id");
     const [ad] = await db.select().from(communityAds).where(eq2(communityAds.id, id));
-    if (!ad) return res.status(404).json({ error: "\u7533\u3057\u8FBC\u307F\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
-    if (ad.status === "approved" || ad.status === "rejected") return res.status(400).json({ error: "\u65E2\u306B\u51E6\u7406\u6E08\u307F\u3067\u3059" });
+    if (!ad) return res.status(404).json({ error: "Application not found" });
+    if (ad.status === "approved" || ad.status === "rejected") return res.status(400).json({ error: "Already processed" });
     const [community] = await db.select().from(communities).where(eq2(communities.id, ad.communityId));
     const [mod] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, ad.communityId), eq2(communityModerators.userId, user.id)));
     const isOwner = community?.adminId === user.id;
     const isMod = !!mod;
-    if (!isOwner && !isMod) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u307E\u305F\u306F\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u306E\u307F\u5374\u4E0B\u3067\u304D\u307E\u3059" });
+    if (!isOwner && !isMod) return res.status(403).json({ error: "Only owners or moderators can reject" });
     await db.update(communityAds).set({ status: "rejected" }).where(eq2(communityAds.id, id));
     res.json({ ok: true });
   });
   const REPORT_REASONS = ["spam", "harassment", "inappropriate", "other"];
   app2.post("/api/reports", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const { contentType, contentId, reason } = req.body;
     const cid = Number(contentId) || 0;
     const type = contentType === "comment" ? "comment" : contentType === "video" ? "video" : null;
     if (!type || !cid || !reason || !REPORT_REASONS.includes(reason)) {
-      return res.status(400).json({ error: "contentType(video/comment), contentId, reason(spam/harassment/inappropriate/other)\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "Provide contentType (video/comment), contentId, and reason (spam/harassment/inappropriate/other)" });
     }
     let contentText;
     if (type === "video") {
       const [video] = await db.select().from(videos).where(eq2(videos.id, cid));
-      if (!video) return res.status(404).json({ error: "\u5BFE\u8C61\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+      if (!video) return res.status(404).json({ error: "Target not found" });
       contentText = video.title ?? "";
     } else {
       const [comment] = await db.select().from(videoComments).where(eq2(videoComments.id, cid));
-      if (!comment) return res.status(404).json({ error: "\u5BFE\u8C61\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+      if (!comment) return res.status(404).json({ error: "Target not found" });
       contentText = comment.text ?? "";
     }
     const { verdict, reason: aiReason } = await judgeReportContent(contentText, reason);
@@ -4206,7 +4237,7 @@ async function registerRoutes(app2) {
   });
   app2.post("/api/concerts", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const {
       title,
       venueName,
@@ -4222,7 +4253,7 @@ async function registerRoutes(app2) {
       status
     } = req.body;
     if (!title || !venueName || !venueAddress || !concertDate) {
-      return res.status(400).json({ error: "\u5FC5\u9808\u9805\u76EE\u304C\u4E0D\u8DB3\u3057\u3066\u3044\u307E\u3059" });
+      return res.status(400).json({ error: "Required items are missing" });
     }
     const shares = [
       Number(artistShare ?? 0),
@@ -4231,11 +4262,11 @@ async function registerRoutes(app2) {
       Number(venueShare ?? 0)
     ];
     if (shares.some((s) => s < 0)) {
-      return res.status(400).json({ error: "\u5206\u914D\u6BD4\u7387\u306F0\u4EE5\u4E0A\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "Distribution ratios must be 0 or greater" });
     }
     const sum = shares.reduce((a, b) => a + b, 0);
     if (sum !== 100) {
-      return res.status(400).json({ error: "\u5206\u914D\u6BD4\u7387\u306E\u5408\u8A08\u306F100%\u306B\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "Distribution must total 100%" });
     }
     const [row] = await db.insert(concerts).values({
       artistUserId: user.id,
@@ -4261,18 +4292,18 @@ async function registerRoutes(app2) {
   app2.get("/api/concerts/:id", async (req, res) => {
     const id = paramNum(req, "id");
     const [row] = await db.select().from(concerts).where(eq2(concerts.id, id));
-    if (!row) return res.status(404).json({ error: "\u516C\u6F14\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    if (!row) return res.status(404).json({ error: "Show not found" });
     res.json(row);
   });
   app2.post("/api/concerts/:id/staff-request", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const concertId = paramNum(req, "id");
     const [concert] = await db.select().from(concerts).where(eq2(concerts.id, concertId));
-    if (!concert) return res.status(404).json({ error: "\u516C\u6F14\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    if (!concert) return res.status(404).json({ error: "Show not found" });
     const existing = await db.select().from(concertStaff).where(and2(eq2(concertStaff.concertId, concertId), eq2(concertStaff.staffUserId, user.id)));
     if (existing.length > 0) {
-      return res.status(400).json({ error: "\u3059\u3067\u306B\u7533\u8ACB\u6E08\u307F\u3067\u3059" });
+      return res.status(400).json({ error: "Already applied" });
     }
     const [row] = await db.insert(concertStaff).values({
       concertId,
@@ -4284,12 +4315,12 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/concerts/:id/staff-requests", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const concertId = paramNum(req, "id");
     const [concert] = await db.select().from(concerts).where(eq2(concerts.id, concertId));
-    if (!concert) return res.status(404).json({ error: "\u516C\u6F14\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    if (!concert) return res.status(404).json({ error: "Show not found" });
     if (concert.artistUserId !== user.id) {
-      return res.status(403).json({ error: "\u30A2\u30FC\u30C6\u30A3\u30B9\u30C8\u306E\u307F\u7533\u8ACB\u4E00\u89A7\u3092\u95B2\u89A7\u3067\u304D\u307E\u3059" });
+      return res.status(403).json({ error: "Only the artist can view applications" });
     }
     const rows = await db.select().from(concertStaff).where(eq2(concertStaff.concertId, concertId)).orderBy(desc(concertStaff.createdAt));
     res.json(rows);
@@ -4304,31 +4335,31 @@ async function registerRoutes(app2) {
   });
   app2.patch("/api/concerts/:id/staff/:staffId/approve", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const concertId = paramNum(req, "id");
     const staffId = paramNum(req, "staffId");
     const [concert] = await db.select().from(concerts).where(eq2(concerts.id, concertId));
-    if (!concert) return res.status(404).json({ error: "\u516C\u6F14\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    if (!concert) return res.status(404).json({ error: "Show not found" });
     if (concert.artistUserId !== user.id) {
-      return res.status(403).json({ error: "\u30A2\u30FC\u30C6\u30A3\u30B9\u30C8\u306E\u307F\u627F\u8A8D\u3067\u304D\u307E\u3059" });
+      return res.status(403).json({ error: "Only the artist can approve" });
     }
     const [staff] = await db.select().from(concertStaff).where(and2(eq2(concertStaff.id, staffId), eq2(concertStaff.concertId, concertId)));
-    if (!staff) return res.status(404).json({ error: "\u7533\u8ACB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    if (!staff) return res.status(404).json({ error: "Request not found" });
     const [updated] = await db.update(concertStaff).set({ status: "approved" }).where(eq2(concertStaff.id, staffId)).returning();
     res.json(updated);
   });
   app2.patch("/api/concerts/:id/staff/:staffId/reject", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const concertId = paramNum(req, "id");
     const staffId = paramNum(req, "staffId");
     const [concert] = await db.select().from(concerts).where(eq2(concerts.id, concertId));
-    if (!concert) return res.status(404).json({ error: "\u516C\u6F14\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    if (!concert) return res.status(404).json({ error: "Show not found" });
     if (concert.artistUserId !== user.id) {
-      return res.status(403).json({ error: "\u30A2\u30FC\u30C6\u30A3\u30B9\u30C8\u306E\u307F\u5374\u4E0B\u3067\u304D\u307E\u3059" });
+      return res.status(403).json({ error: "Only the artist can reject" });
     }
     const [staff] = await db.select().from(concertStaff).where(and2(eq2(concertStaff.id, staffId), eq2(concertStaff.concertId, concertId)));
-    if (!staff) return res.status(404).json({ error: "\u7533\u8ACB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    if (!staff) return res.status(404).json({ error: "Request not found" });
     const [updated] = await db.update(concertStaff).set({ status: "rejected" }).where(eq2(concertStaff.id, staffId)).returning();
     res.json(updated);
   });
@@ -4336,28 +4367,28 @@ async function registerRoutes(app2) {
   const GENRE_MAX_MONTHS_AHEAD = 3;
   app2.post("/api/genre-ads", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const { genreId, companyName, contactName, email, bannerUrl, startDate, endDate } = req.body;
     const gid = (genreId ?? "").trim();
     if (!gid || !GENRE_TO_CATEGORY[gid]) {
-      return res.status(400).json({ error: "genreId \u304C\u4E0D\u6B63\u3067\u3059" });
+      return res.status(400).json({ error: "Invalid genreId" });
     }
     if (!companyName || !contactName || !email || !bannerUrl || !startDate || !endDate) {
-      return res.status(400).json({ error: "\u5FC5\u9808\u9805\u76EE\u304C\u4E0D\u8DB3\u3057\u3066\u3044\u307E\u3059" });
+      return res.status(400).json({ error: "Required items are missing" });
     }
     const start = new Date(startDate);
     const end = new Date(endDate);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-      return res.status(400).json({ error: "\u65E5\u4ED8\u306E\u5F62\u5F0F\u304C\u4E0D\u6B63\u3067\u3059\uFF08YYYY-MM-DD\uFF09" });
+      return res.status(400).json({ error: "Invalid date format (YYYY-MM-DD)" });
     }
     if (end < start) {
-      return res.status(400).json({ error: "\u7D42\u4E86\u65E5\u306F\u958B\u59CB\u65E5\u4EE5\u964D\u306B\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "End date must be on or after start date" });
     }
     const now = /* @__PURE__ */ new Date();
     const maxEnd = new Date(now);
     maxEnd.setMonth(maxEnd.getMonth() + GENRE_MAX_MONTHS_AHEAD);
     if (end > maxEnd) {
-      return res.status(400).json({ error: `\u63B2\u8F09\u7D42\u4E86\u65E5\u306F${GENRE_MAX_MONTHS_AHEAD}\u30F6\u6708\u4EE5\u5185\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044` });
+      return res.status(400).json({ error: `End date must be within ${GENRE_MAX_MONTHS_AHEAD} months` });
     }
     const cats = GENRE_TO_CATEGORY[gid];
     const communityRows = await db.select({ members: communities.members }).from(communities).where(
@@ -4389,7 +4420,7 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/genre-ads/review", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const ownerRows = await db.select().from(genreOwners).where(eq2(genreOwners.ownerUserId, user.id));
     if (ownerRows.length === 0) return res.json([]);
     const genreIds = ownerRows.map((o) => o.genreId);
@@ -4398,23 +4429,23 @@ async function registerRoutes(app2) {
   });
   app2.patch("/api/genre-ads/:id/approve", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const id = paramNum(req, "id");
     const [ad] = await db.select().from(genreAds).where(eq2(genreAds.id, id));
-    if (!ad) return res.status(404).json({ error: "\u7533\u3057\u8FBC\u307F\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    if (!ad) return res.status(404).json({ error: "Application not found" });
     const [owner] = await db.select().from(genreOwners).where(and2(eq2(genreOwners.genreId, ad.genreId), eq2(genreOwners.ownerUserId, user.id)));
-    if (!owner) return res.status(403).json({ error: "\u3053\u306E\u30B8\u30E3\u30F3\u30EB\u306E\u7BA1\u7406\u4EBA\u3067\u306F\u3042\u308A\u307E\u305B\u3093" });
+    if (!owner) return res.status(403).json({ error: "You are not the genre manager" });
     await db.update(genreAds).set({ status: "approved" }).where(eq2(genreAds.id, id));
     res.json({ ok: true });
   });
   app2.patch("/api/genre-ads/:id/reject", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const id = paramNum(req, "id");
     const [ad] = await db.select().from(genreAds).where(eq2(genreAds.id, id));
-    if (!ad) return res.status(404).json({ error: "\u7533\u3057\u8FBC\u307F\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    if (!ad) return res.status(404).json({ error: "Application not found" });
     const [owner] = await db.select().from(genreOwners).where(and2(eq2(genreOwners.genreId, ad.genreId), eq2(genreOwners.ownerUserId, user.id)));
-    if (!owner) return res.status(403).json({ error: "\u3053\u306E\u30B8\u30E3\u30F3\u30EB\u306E\u7BA1\u7406\u4EBA\u3067\u306F\u3042\u308A\u307E\u305B\u3093" });
+    if (!owner) return res.status(403).json({ error: "You are not the genre manager" });
     await db.update(genreAds).set({ status: "rejected" }).where(eq2(genreAds.id, id));
     res.json({ ok: true });
   });
@@ -4450,7 +4481,7 @@ async function registerRoutes(app2) {
     if (!user) return;
     const id = paramNum(req, "id");
     const [report] = await db.select().from(reports).where(eq2(reports.id, id));
-    if (!report) return res.status(404).json({ error: "\u901A\u5831\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    if (!report) return res.status(404).json({ error: "Report not found" });
     if (report.contentType === "video") {
       await db.update(videos).set({ hidden: true }).where(eq2(videos.id, report.contentId));
     } else if (report.contentType === "comment") {
@@ -4464,7 +4495,7 @@ async function registerRoutes(app2) {
     if (!user) return;
     const id = paramNum(req, "id");
     const [report] = await db.select().from(reports).where(eq2(reports.id, id));
-    if (!report) return res.status(404).json({ error: "\u901A\u5831\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    if (!report) return res.status(404).json({ error: "Report not found" });
     await db.update(reports).set({ status: "reviewed" }).where(eq2(reports.id, id));
     res.json({ ok: true });
   });
@@ -4586,7 +4617,7 @@ async function registerRoutes(app2) {
       timestamp: Date.now()
     });
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const hasAccessKey = Boolean(process.env.R2_ACCESS_KEY_ID?.trim());
     const hasSecret = Boolean(process.env.R2_SECRET_ACCESS_KEY?.trim());
     const hasEndpoint = Boolean(process.env.R2_ENDPOINT?.trim());
@@ -4600,7 +4631,7 @@ async function registerRoutes(app2) {
     });
     const { fileName, contentType } = req.body;
     if (!fileName || !contentType) {
-      return res.status(400).json({ error: "fileName \u3068 contentType \u306F\u5FC5\u9808\u3067\u3059" });
+      return res.status(400).json({ error: "fileName and contentType are required" });
     }
     const safeName = String(fileName).replace(/[^a-zA-Z0-9_.-]/g, "_");
     const key = `rawstock_${Date.now()}_${safeName}`;
@@ -4613,6 +4644,8 @@ async function registerRoutes(app2) {
       });
       res.json({ uploadUrl, key, url: publicUrl });
     } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      const notConfigured = errMsg.includes("R2 is not configured") || errMsg.includes("\u6B63\u3057\u304F\u8A2D\u5B9A");
       console.error("[upload-url] presign_failed", {
         hasAccessKey,
         hasSecret,
@@ -4620,7 +4653,10 @@ async function registerRoutes(app2) {
         hasBucket,
         err: e
       });
-      res.status(500).json({ error: "\u7F72\u540D\u4ED8\u304DURL\u306E\u767A\u884C\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
+      res.status(notConfigured ? 503 : 500).json({
+        error: notConfigured ? "File storage is not configured. Set R2_* variables on the server (and R2_PUBLIC_BASE_URL if you use a public domain)." : "Failed to issue signed URL",
+        code: notConfigured ? "R2_NOT_CONFIGURED" : "R2_PRESIGN_FAILED"
+      });
     }
   });
   app2.get("/api/videos", async (req, res) => {
@@ -4649,7 +4685,7 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/videos/my", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const rows = await db.select().from(videos).where(or(eq2(videos.creator, user.displayName), eq2(videos.userId, user.id))).orderBy(desc(videos.createdAt));
     const filtered = rows.filter((r) => !r.hidden);
     res.json(filtered);
@@ -4660,7 +4696,7 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/videos/saved", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const rows = await db.select({
       id: videos.id,
       title: videos.title,
@@ -4672,7 +4708,7 @@ async function registerRoutes(app2) {
     }).from(savedVideos).innerJoin(videos, eq2(videos.id, savedVideos.videoId)).where(and2(eq2(savedVideos.userId, user.id), eq2(videos.hidden, false))).orderBy(desc(savedVideos.createdAt));
     const timeAgoList = rows.map((r) => ({
       ...r,
-      timeAgo: r.createdAt ? formatTimeAgo(r.createdAt) : "\u305F\u3063\u305F\u4ECA"
+      timeAgo: r.createdAt ? formatTimeAgo(r.createdAt) : "Just now"
     }));
     res.json(timeAgoList);
   });
@@ -4707,36 +4743,36 @@ async function registerRoutes(app2) {
   });
   app2.post("/api/videos/:id/comments", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const videoId = paramNum(req, "id");
     const text2 = req.body.text?.trim();
-    if (!text2) return res.status(400).json({ error: "\u30B3\u30E1\u30F3\u30C8\u672C\u6587\u306F\u5FC5\u9808\u3067\u3059" });
+    if (!text2) return res.status(400).json({ error: "Comment text is required" });
     const [row] = await db.insert(videoComments).values({ videoId, userId: user.id, text: text2 }).returning();
     res.status(201).json(row);
   });
   app2.post("/api/videos", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const { title, community, communityId, duration, price, thumbnail, description, concertId, visibility, videoUrl, youtubeId, postType, complianceAcknowledged } = req.body;
     if (complianceAcknowledged !== true) {
       return res.status(400).json({
-        message: "\u6295\u7A3F\u524D\u306B\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u30AC\u30A4\u30C9\u30E9\u30A4\u30F3\u3068\u6A29\u5229\u306B\u95A2\u3059\u308B\u78BA\u8A8D\u304C\u5FC5\u8981\u3067\u3059",
+        message: "Confirm community guidelines and rights before posting",
         code: "COMPLIANCE_ACK_REQUIRED"
       });
     }
     if (!title || !duration || !thumbnail) {
-      return res.status(400).json({ message: "\u5FC5\u9808\u30D5\u30A3\u30FC\u30EB\u30C9\u304C\u4E0D\u8DB3\u3057\u3066\u3044\u307E\u3059" });
+      return res.status(400).json({ message: "Required fields are missing" });
     }
     const vis = visibility === "draft" ? "draft" : visibility === "my_page_only" ? "my_page_only" : "community";
     if (vis === "community" && (!community || !community.trim())) {
-      return res.status(400).json({ message: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u516C\u958B\u6642\u306F community \u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ message: "Specify community when posting to a community" });
     }
     const [row] = await db.insert(videos).values({
       title,
       creator: user.displayName,
       community: community?.trim() ?? "",
       views: 0,
-      timeAgo: "\u305F\u3063\u305F\u4ECA",
+      timeAgo: "Just now",
       duration,
       price: price ?? null,
       thumbnail,
@@ -4755,17 +4791,17 @@ async function registerRoutes(app2) {
   });
   app2.patch("/api/videos/:id", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const id = paramNum(req, "id");
     const [video] = await db.select().from(videos).where(eq2(videos.id, id));
     if (!video) return res.status(404).json({ message: "Not found" });
     const isOwner = video.userId === user.id || video.creator === user.displayName;
-    if (!isOwner) return res.status(403).json({ error: "\u7DE8\u96C6\u6A29\u9650\u304C\u3042\u308A\u307E\u305B\u3093" });
+    if (!isOwner) return res.status(403).json({ error: "You do not have permission to edit" });
     const { title, visibility, communityId, community } = req.body;
     const updates = {};
     if (title !== void 0) {
       const newTitle = title?.trim();
-      if (!newTitle) return res.status(400).json({ error: "\u30BF\u30A4\u30C8\u30EB\u306F\u5FC5\u9808\u3067\u3059" });
+      if (!newTitle) return res.status(400).json({ error: "Title is required" });
       updates.title = newTitle;
     }
     if (visibility !== void 0) {
@@ -4781,19 +4817,19 @@ async function registerRoutes(app2) {
   });
   app2.delete("/api/videos/:id", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const id = paramNum(req, "id");
     const [video] = await db.select().from(videos).where(eq2(videos.id, id));
     if (!video) return res.status(404).json({ message: "Not found" });
     const isOwner = video.userId === user.id || video.creator === user.displayName;
-    if (!isOwner) return res.status(403).json({ error: "\u524A\u9664\u6A29\u9650\u304C\u3042\u308A\u307E\u305B\u3093" });
+    if (!isOwner) return res.status(403).json({ error: "You do not have permission to delete" });
     await db.delete(videoComments).where(eq2(videoComments.videoId, id));
     await db.delete(videos).where(eq2(videos.id, id));
     res.json({ ok: true });
   });
   app2.post("/api/videos/:id/save", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const videoId = paramNum(req, "id");
     const [video] = await db.select().from(videos).where(eq2(videos.id, videoId));
     if (!video || video.hidden) return res.status(404).json({ message: "Not found" });
@@ -4809,7 +4845,7 @@ async function registerRoutes(app2) {
   });
   app2.delete("/api/videos/:id/save", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const videoId = paramNum(req, "id");
     await db.delete(savedVideos).where(and2(eq2(savedVideos.userId, user.id), eq2(savedVideos.videoId, videoId)));
     res.json({ ok: true });
@@ -4854,21 +4890,21 @@ async function registerRoutes(app2) {
     const id = paramNum(req, "id");
     const [session] = await db.select().from(bookingSessions).where(eq2(bookingSessions.id, id));
     if (!session) return res.status(404).json({ message: "Not found" });
-    if (session.spotsLeft <= 0) return res.status(400).json({ message: "\u6E80\u5E2D\u3067\u3059" });
+    if (session.spotsLeft <= 0) return res.status(400).json({ message: "Fully booked" });
     const [updated] = await db.update(bookingSessions).set({ spotsLeft: session.spotsLeft - 1 }).where(eq2(bookingSessions.id, id)).returning();
     res.json(updated);
   });
   app2.post("/api/dm/open", async (req, res) => {
     const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const raw = req.body?.peerUserId;
     const peer = typeof raw === "number" && Number.isFinite(raw) ? Math.floor(raw) : typeof raw === "string" ? parseInt(raw, 10) : NaN;
     if (!Number.isFinite(peer) || peer < 1) {
-      return res.status(400).json({ error: "peerUserId \u304C\u5FC5\u8981\u3067\u3059" });
+      return res.status(400).json({ error: "peerUserId is required" });
     }
-    if (peer === me.id) return res.status(400).json({ error: "\u81EA\u5206\u81EA\u8EAB\u3068\u306F DM \u3067\u304D\u307E\u305B\u3093" });
+    if (peer === me.id) return res.status(400).json({ error: "You cannot DM yourself" });
     const [peerUser] = await db.select({ id: users.id }).from(users).where(eq2(users.id, peer));
-    if (!peerUser) return res.status(404).json({ error: "\u30E6\u30FC\u30B6\u30FC\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    if (!peerUser) return res.status(404).json({ error: "User not found" });
     const u1 = Math.min(me.id, peer);
     const u2 = Math.max(me.id, peer);
     let [th] = await db.select().from(dmThreads).where(and2(eq2(dmThreads.user1Id, u1), eq2(dmThreads.user2Id, u2)));
@@ -4974,13 +5010,13 @@ async function registerRoutes(app2) {
     const { username, avatar, message, isGift, giftAmount } = req.body;
     if (!isGift && message) {
       const modResult = await moderateContent(message);
-      if (!modResult.allowed) {
-        return res.status(400).json({ error: modResult.reason ?? "\u4E0D\u9069\u5207\u306A\u30B3\u30F3\u30C6\u30F3\u30C4\u304C\u542B\u307E\u308C\u3066\u3044\u307E\u3059" });
+      if (modResult.allowed === false) {
+        return res.status(400).json({ error: modResult.reason ?? "This content is not allowed" });
       }
     }
     const [msg] = await db.insert(liveStreamChat).values({
       streamId: id,
-      username: username ?? "\u3042\u306A\u305F",
+      username: username ?? "You",
       avatar,
       message,
       isGift: isGift ?? false,
@@ -4991,7 +5027,7 @@ async function registerRoutes(app2) {
   app2.get("/api/dm-messages/:id/peer", async (req, res) => {
     const rawId = paramNum(req, "id");
     const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const legacyDmId = rawId < 0 ? -rawId : rawId;
     if (rawId > 0) {
       const [th] = await db.select().from(dmThreads).where(
@@ -5019,7 +5055,7 @@ async function registerRoutes(app2) {
   app2.get("/api/dm-messages/:id/conversation", async (req, res) => {
     const rawId = paramNum(req, "id");
     const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const legacyDmId = rawId < 0 ? -rawId : rawId;
     if (rawId > 0) {
       const [th] = await db.select().from(dmThreads).where(
@@ -5047,9 +5083,9 @@ async function registerRoutes(app2) {
     const rawId = paramNum(req, "id");
     const legacyDmId = rawId < 0 ? -rawId : rawId;
     const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const text2 = typeof req.body?.text === "string" ? req.body.text : "";
-    if (!text2.trim()) return res.status(400).json({ error: "\u30E1\u30C3\u30BB\u30FC\u30B8\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!text2.trim()) return res.status(400).json({ error: "Please enter a message" });
     if (rawId > 0) {
       const [th] = await db.select().from(dmThreads).where(
         and2(eq2(dmThreads.id, rawId), or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id)))
@@ -5321,7 +5357,7 @@ data: ${data}
       return res.status(500).json({ error: "Cloudflare Stream is not configured" });
     }
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const {
       name,
       title,
@@ -5335,11 +5371,11 @@ data: ${data}
     if (visibility === "community") {
       const cid = typeof rcIn === "number" && Number.isFinite(rcIn) ? rcIn : parseInt(String(rcIn ?? ""), 10);
       if (!Number.isFinite(cid)) {
-        return res.status(400).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u9650\u5B9A\u914D\u4FE1\u3067\u306F restrictedCommunityId \u304C\u5FC5\u8981\u3067\u3059" });
+        return res.status(400).json({ error: "restrictedCommunityId is required for community-only streams" });
       }
       const [mem] = await db.select({ id: communityMembers.id }).from(communityMembers).where(and2(eq2(communityMembers.userId, user.id), eq2(communityMembers.communityId, cid)));
       if (!mem) {
-        return res.status(403).json({ error: "\u9078\u629E\u3057\u305F\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306E\u30E1\u30F3\u30D0\u30FC\u3067\u306F\u3042\u308A\u307E\u305B\u3093" });
+        return res.status(403).json({ error: "You are not a member of the selected community" });
       }
       restrictedCommunityId = cid;
     }
@@ -5541,7 +5577,7 @@ data: ${data}
           });
         }
         return res.status(403).json({
-          error: "\u3053\u306E\u914D\u4FE1\u3092\u8996\u8074\u3059\u308B\u6A29\u9650\u304C\u3042\u308A\u307E\u305B\u3093",
+          error: "You are not allowed to watch this stream",
           code: "STREAM_ACCESS_DENIED"
         });
       }
@@ -5656,7 +5692,7 @@ data: ${data}
       videoThumbnail,
       videoDurationSecs: videoDurationSecs ?? 0,
       youtubeId: youtubeId ?? null,
-      addedBy: addedBy ?? "\u3042\u306A\u305F",
+      addedBy: addedBy ?? "You",
       addedByAvatar,
       position: nextPos,
       isPlayed: false
@@ -5774,7 +5810,7 @@ data: ${data}
     const communityId = paramNum(req, "communityId");
     const { durationSecs } = req.body;
     if (!durationSecs || typeof durationSecs !== "number" || durationSecs <= 0) {
-      return res.status(400).json({ error: "durationSecs \u306F\u6B63\u306E\u6570\u5024\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059" });
+      return res.status(400).json({ error: "durationSecs must be a positive number" });
     }
     const [current] = await db.select({ currentVideoDurationSecs: jukeboxState.currentVideoDurationSecs }).from(jukeboxState).where(eq2(jukeboxState.communityId, communityId));
     if (!current) return res.status(404).json({ error: "jukebox state not found" });
@@ -5787,14 +5823,14 @@ data: ${data}
   app2.post("/api/jukebox/:communityId/chat", async (req, res) => {
     const communityId = paramNum(req, "communityId");
     const { username, avatar, message } = req.body;
-    if (!message || !message.trim()) return res.status(400).json({ error: "\u30E1\u30C3\u30BB\u30FC\u30B8\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!message || !message.trim()) return res.status(400).json({ error: "Please enter a message" });
     const modResult = await moderateContent(message);
-    if (!modResult.allowed) {
-      return res.status(400).json({ error: modResult.reason ?? "\u4E0D\u9069\u5207\u306A\u30B3\u30F3\u30C6\u30F3\u30C4\u304C\u542B\u307E\u308C\u3066\u3044\u307E\u3059" });
+    if (modResult.allowed === false) {
+      return res.status(400).json({ error: modResult.reason ?? "This content is not allowed" });
     }
     const [msg] = await db.insert(jukeboxChat).values({
       communityId,
-      username: username ?? "\u3042\u306A\u305F",
+      username: username ?? "You",
       avatar,
       message
     }).returning();
@@ -5912,7 +5948,7 @@ data: ${data}
           description: `Mentor session booking ${sid}`
         }).returning({ id: ticketTransactions.id });
         const walletId = await getOrCreateUserWallet(sessionRow.creatorId, tx);
-        const [creatorRow] = await tx.select().from(creators).where(eq2(creators.userId, sessionRow.creatorId)).limit(1);
+        const creatorRow = await creatorRowForUserId(tx, sessionRow.creatorId);
         await recordRevenue(
           walletId,
           sessionRow.creatorId,
@@ -5966,8 +6002,8 @@ data: ${data}
       const [{ total }] = await db.select({ total: count() }).from(mentorBookings).where(sql3`stream_id = ${streamId} AND status IN ('paid','waiting','notified')`);
       const queuePos = Number(total) + 1;
       const [stream] = await db.select().from(liveStreams).where(eq2(liveStreams.id, streamId));
-      const streamTitle = stream?.title ?? "\u30C4\u30FC\u30B7\u30E7\u30C3\u30C8\u64AE\u5F71";
-      const creatorName = stream?.creator ?? "\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC";
+      const streamTitle = stream?.title ?? "Two-shot photo session";
+      const creatorName = stream?.creator ?? "Creator";
       const baseUrl = "https://rawstock.live";
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ["card"],
@@ -5977,8 +6013,8 @@ data: ${data}
               currency: "jpy",
               unit_amount: price,
               product_data: {
-                name: `\u30C4\u30FC\u30B7\u30E7\u30C3\u30C8\u64AE\u5F71 with ${creatorName}`,
-                description: `${streamTitle} | \u6574\u7406\u756A\u53F7${queuePos}\u756A`
+                name: `Two-shot photo session with ${creatorName}`,
+                description: `${streamTitle} | Queue #${queuePos}`
               }
             },
             quantity: 1
@@ -6060,7 +6096,7 @@ data: ${data}
             await recordRevenue(walletId, creatorUser.id, creatorRow?.id ?? null, booking.price, "mentor", String(booking.id));
           }
         }
-      } else {
+      } else if (booking.streamId != null) {
         const [stream] = await db.select().from(liveStreams).where(eq2(liveStreams.id, booking.streamId));
         if (stream) {
           const [creatorUser] = await db.select().from(users).where(eq2(users.displayName, stream.creator));
@@ -6092,7 +6128,7 @@ data: ${data}
     await db.update(mentorBookings).set({
       status: "cancelled",
       cancelledAt: /* @__PURE__ */ new Date(),
-      cancelReason: reason ?? "\u30E6\u30FC\u30B6\u30FC\u30AD\u30E3\u30F3\u30BB\u30EB",
+      cancelReason: reason ?? "User cancelled",
       refundable: !isSelfCancel
     }).where(eq2(mentorBookings.id, bookingId));
     res.json({ ok: true });
@@ -6228,12 +6264,12 @@ data: ${data}
   });
   app2.post("/api/revenue/record", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u304C\u5FC5\u8981\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Sign-in required" });
     const { amount, source, referenceId } = req.body;
-    if (!amount || amount <= 0) return res.status(400).json({ error: "amount \u306F\u6B63\u306E\u6570\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!amount || amount <= 0) return res.status(400).json({ error: "amount must be a positive number" });
     const src = source ?? "tip";
     if (!["tip", "paid_live", "mentor"].includes(src)) {
-      return res.status(400).json({ error: "source \u306F tip / paid_live / mentor \u306E\u3044\u305A\u308C\u304B\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "source must be tip, paid_live, or mentor" });
     }
     const walletId = await getOrCreateUserWallet(user.id);
     const [creatorRow] = await db.select().from(creators).where(eq2(creators.name, user.displayName));
@@ -6242,7 +6278,7 @@ data: ${data}
   });
   app2.get("/api/revenue/summary", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u304C\u5FC5\u8981\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Sign-in required" });
     const userId = `user-${user.id}`;
     const earningRows = await db.select().from(earnings).where(eq2(earnings.userId, userId));
     const withdrawalRows = await db.select().from(withdrawals).where(eq2(withdrawals.userId, userId));
@@ -6254,7 +6290,7 @@ data: ${data}
     const monthly = [];
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const label = `${d.getMonth() + 1}\u6708`;
+      const label = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       const monthTotal = earningRows.filter((e) => {
         const ed = new Date(e.createdAt);
         return ed.getFullYear() === d.getFullYear() && ed.getMonth() === d.getMonth();
@@ -6265,7 +6301,7 @@ data: ${data}
   });
   app2.get("/api/revenue/earnings", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u304C\u5FC5\u8981\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Sign-in required" });
     const userId = `user-${user.id}`;
     const rows = await db.select().from(earnings).where(eq2(earnings.userId, userId)).orderBy(desc(earnings.createdAt));
     res.json(rows);
@@ -6274,7 +6310,7 @@ data: ${data}
     const month = req.query.month ?? "";
     const match = /^(\d{4})-(\d{2})$/.exec(month);
     if (!match) {
-      return res.status(400).json({ error: "month \u306F YYYY-MM \u5F62\u5F0F\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "month must be in YYYY-MM format" });
     }
     const kind = queryStr(req, "kind") || "overall";
     if (queryStr(req, "refresh") === "1") {
@@ -6289,7 +6325,7 @@ data: ${data}
   });
   app2.get("/api/revenue/withdrawals", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u304C\u5FC5\u8981\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Sign-in required" });
     const userId = `user-${user.id}`;
     const rows = await db.select().from(withdrawals).where(eq2(withdrawals.userId, userId)).orderBy(desc(withdrawals.requestedAt));
     res.json(rows);
@@ -6400,10 +6436,10 @@ data: ${data}
   });
   app2.get("/api/livers/me/level-progress", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u304C\u5FC5\u8981\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Sign-in required" });
     const [creator] = await db.select().from(creators).where(eq2(creators.name, user.displayName));
     if (!creator) {
-      return res.status(404).json({ error: "\u914D\u4FE1\u8005\u767B\u9332\u304C\u5FC5\u8981\u3067\u3059" });
+      return res.status(404).json({ error: "Creator registration required" });
     }
     const month = queryStr(req, "month") || getYearMonth();
     await ensureDefaultLevelThresholds();
@@ -6434,9 +6470,9 @@ data: ${data}
   });
   app2.post("/api/livers/me/streams/record", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u304C\u5FC5\u8981\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Sign-in required" });
     const [creator] = await db.select().from(creators).where(eq2(creators.name, user.displayName));
-    if (!creator) return res.status(404).json({ error: "\u914D\u4FE1\u8005\u767B\u9332\u304C\u5FC5\u8981\u3067\u3059" });
+    if (!creator) return res.status(404).json({ error: "Creator registration required" });
     const month = getYearMonth();
     const [score] = await db.select().from(creatorMonthlyScores).where(and2(eq2(creatorMonthlyScores.creatorId, creator.id), eq2(creatorMonthlyScores.yearMonth, month)));
     if (score) {
@@ -6457,7 +6493,7 @@ data: ${data}
   });
   app2.get("/api/profile/roles", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const rows = await db.select().from(creators).where(eq2(creators.name, user.displayName));
     const isEditor = rows.some((r) => r.category === "editor");
     const isMentor = rows.some((r) => r.category === "mentor");
@@ -6465,13 +6501,13 @@ data: ${data}
   });
   app2.post("/api/profile/register-role", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const { role } = req.body;
     if (role !== "editor" && role !== "mentor") {
-      return res.status(400).json({ error: "role \u306F editor \u304B mentor \u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "role must be editor or mentor" });
     }
     const category = role === "editor" ? "editor" : "mentor";
-    const communityLabel = role === "editor" ? "\u52D5\u753B\u7DE8\u96C6\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC" : "\u30E1\u30F3\u30BF\u30FC\u30BB\u30C3\u30B7\u30E7\u30F3\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC";
+    const communityLabel = role === "editor" ? "Video editor" : "Mentor session creator";
     const existing = await db.select().from(creators).where(
       and2(
         eq2(creators.name, user.displayName),
@@ -6508,7 +6544,7 @@ data: ${data}
   app2.post("/api/livers/:id/reviews", async (req, res) => {
     const id = paramNum(req, "id");
     const { userId, userName, userAvatar, satisfactionScore, streamCountScore, attendanceScore, comment, sessionDate } = req.body;
-    if (!userName || !comment) return res.status(400).json({ error: "\u5FC5\u9808\u9805\u76EE\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!userName || !comment) return res.status(400).json({ error: "Please fill in all required fields" });
     const overall = ((satisfactionScore ?? 5) + (streamCountScore ?? 5) + (attendanceScore ?? 5)) / 3;
     const [row] = await db.insert(liverReviews).values({
       liverId: id,
@@ -6541,7 +6577,7 @@ data: ${data}
   app2.post("/api/livers/:id/availability", async (req, res) => {
     const id = paramNum(req, "id");
     const { date, startTime, endTime, maxSlots, note } = req.body;
-    if (!date || !startTime || !endTime) return res.status(400).json({ error: "\u65E5\u4ED8\u3068\u6642\u9593\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!date || !startTime || !endTime) return res.status(400).json({ error: "Please enter date and time" });
     const [row] = await db.insert(liverAvailability).values({
       liverId: id,
       date,
@@ -6562,36 +6598,36 @@ data: ${data}
     const existingDm = await db.select().from(dmMessages);
     if (existingDm.length === 0) {
       await db.insert(dmMessages).values([
-        { name: "\u685C\u82B1\u30A2\u30EA\u30B9", avatar: "https://images.unsplash.com/photo-1521119989659-a83eee488004?w=100&h=100&fit=crop", lastMessage: "\u3042\u308A\u304C\u3068\u3046\u3054\u3056\u3044\u307E\u3059\uFF01\u6B21\u306E\u914D\u4FE1\u3082\u3088\u308D\u3057\u304F\u304A\u9858\u3044\u3057\u307E\u3059", time: "\u305F\u3063\u305F\u4ECA", unread: 2, online: true, sortOrder: 1 },
-        { name: "\u30A8\u30DF\u30EA\u30FC\u5148\u751F", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop", lastMessage: "\u6B21\u306E\u30EC\u30C3\u30B9\u30F3\u306F3/2\u306E19:00\u304B\u3089\u3067\u3059\u3002\u304A\u697D\u3057\u307F\u306B\uFF01", time: "5\u5206\u524D", unread: 1, online: true, sortOrder: 2 },
-        { name: "\u661F\u7A7A\u308A\u3093", avatar: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=100&h=100&fit=crop", lastMessage: "\u9451\u5B9A\u306E\u7D50\u679C\u3092DM\u3067\u304A\u9001\u308A\u3057\u307E\u3059\u306D", time: "12\u5206\u524D", unread: 0, online: false, sortOrder: 3 },
-        { name: "\u5FC3\u7406\u58EB \u307F\u304F", avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop", lastMessage: "\u304A\u6C17\u6301\u3061\u3092\u805E\u304B\u305B\u3066\u3044\u305F\u3060\u3044\u3066\u3042\u308A\u304C\u3068\u3046\u3054\u3056\u3044\u307E\u3059", time: "1\u6642\u9593\u524D", unread: 0, online: true, sortOrder: 4 },
-        { name: "\u6599\u7406\u5BB6 \u306F\u308B\u304B", avatar: "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=100&h=100&fit=crop", lastMessage: "\u30EC\u30B7\u30D4\u3092\u9001\u308A\u307E\u3057\u305F\uFF01\u305C\u3072\u4F5C\u3063\u3066\u307F\u3066\u304F\u3060\u3055\u3044\u{1F373}", time: "3\u6642\u9593\u524D", unread: 0, online: false, sortOrder: 5 },
-        { name: "\u30E9\u30A4\u30D5\u30B3\u30FC\u30C1 \u3051\u3093\u3058", avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop", lastMessage: "\u76EE\u6A19\u8A2D\u5B9A\u30B7\u30FC\u30C8\u3092\u78BA\u8A8D\u3057\u307E\u3057\u305F\u3002\u7D20\u6674\u3089\u3057\u3044\u9032\u6357\u3067\u3059\uFF01", time: "\u6628\u65E5", unread: 0, online: false, sortOrder: 6 },
-        { name: "\u30E8\u30AC\u8B1B\u5E2B \u306A\u306A", avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&h=100&fit=crop", lastMessage: "\u660E\u65E5\u306E\u30AF\u30E9\u30B9\u3082\u304A\u5F85\u3061\u3057\u3066\u3044\u307E\u3059", time: "\u6628\u65E5", unread: 0, online: false, sortOrder: 7 },
-        { name: "\u5730\u4E0B\u30A2\u30A4\u30C9\u30EB\u754C\u9688", avatar: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=100&h=100&fit=crop", lastMessage: "\u3010\u304A\u77E5\u3089\u305B\u3011\u672C\u65E521:00\u304B\u3089\u30E9\u30A4\u30D6\u914D\u4FE1\u304C\u3042\u308A\u307E\u3059", time: "2\u65E5\u524D", unread: 0, online: false, sortOrder: 8 }
+        { name: "Alice Oka", avatar: "https://images.unsplash.com/photo-1521119989659-a83eee488004?w=100&h=100&fit=crop", lastMessage: "Thanks! Looking forward to your next stream.", time: "Just now", unread: 2, online: true, sortOrder: 1 },
+        { name: "Emily Sensei", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop", lastMessage: "Next lesson is Mar 2 at 7:00 PM. See you then!", time: "5m ago", unread: 1, online: true, sortOrder: 2 },
+        { name: "Rin Hoshizora", avatar: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=100&h=100&fit=crop", lastMessage: "I'll send your reading results in DM.", time: "12m ago", unread: 0, online: false, sortOrder: 3 },
+        { name: "Miku, Psychologist", avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop", lastMessage: "Thank you for sharing how you feel.", time: "1h ago", unread: 0, online: true, sortOrder: 4 },
+        { name: "Haruka, Chef", avatar: "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=100&h=100&fit=crop", lastMessage: "Sent the recipe\u2014hope you try it! \u{1F373}", time: "3h ago", unread: 0, online: false, sortOrder: 5 },
+        { name: "Kenji, Life Coach", avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop", lastMessage: "Reviewed your goals sheet\u2014great progress!", time: "Yesterday", unread: 0, online: false, sortOrder: 6 },
+        { name: "Nana, Yoga Instructor", avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&h=100&fit=crop", lastMessage: "Hope to see you in class tomorrow.", time: "Yesterday", unread: 0, online: false, sortOrder: 7 },
+        { name: "Underground Idols", avatar: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=100&h=100&fit=crop", lastMessage: "[Notice] Live stream tonight at 9:00 PM.", time: "2d ago", unread: 0, online: false, sortOrder: 8 }
       ]);
     }
     const existingAnnouncements = await db.select().from(announcements);
     if (existingAnnouncements.length === 0) {
       await db.insert(announcements).values({
-        title: "\u30E9\u30A4\u30D6\u914D\u4FE1\u30FB\u6280\u8853\u30B3\u30F3\u30C8\u30EA\u30D3\u30E5\u30FC\u30BF\u52DF\u96C6",
-        body: "\u30CD\u30A4\u30C6\u30A3\u30D6 WebRTC\uFF08WHIP\uFF09\u3084\u9060\u9694\u30BB\u30C3\u30B7\u30E7\u30F3\u540C\u671F\u306A\u3069\u3001\u5B9F\u88C5\u30FB\u7814\u7A76\u306B\u5354\u529B\u3044\u305F\u3060\u3051\u308B\u65B9\u3092\u52DF\u96C6\u3057\u3066\u3044\u307E\u3059\u3002\u65B9\u91DD\u306E\u8A73\u7D30\u306F\u30EA\u30DD\u30B8\u30C8\u30EA\u306E docs/LIVE_NATIVE_AND_FILTERS.md \u3092\u3054\u53C2\u7167\u304F\u3060\u3055\u3044\u3002",
+        title: "Live streaming & technical contributors wanted",
+        body: "We are looking for contributors to help with native WebRTC (WHIP), remote session sync, and related implementation work. See docs/LIVE_NATIVE_AND_FILTERS.md in the repository for details.",
         type: "recruiting",
         isPinned: true
       });
     }
     const communityData = [
-      { name: "\u5730\u4E0B\u30A2\u30A4\u30C9\u30EB\u754C\u9688", category: "idol" },
-      { name: "\u304A\u7B11\u3044\u82B8\u4EBA\u754C\u9688", category: "idol" },
-      { name: "\u30AD\u30E3\u30D0\u5B22\u30FB\u30DB\u30B9\u30C8\u754C\u9688", category: "idol" },
-      { name: "JK\u65E5\u5E38\u754C\u9688", category: "idol" },
-      { name: "\u30A2\u30A4\u30C9\u30EB\u90E8", category: "idol" },
-      { name: "\u82F1\u4F1A\u8A71\u30AF\u30E9\u30D6", category: "english" },
-      { name: "\u5360\u3044\u30B5\u30ED\u30F3", category: "fortune" },
-      { name: "\u30D5\u30A3\u30C3\u30C8\u30CD\u30B9\u90E8", category: "coaching" },
-      { name: "\u30AB\u30A6\u30F3\u30BB\u30EA\u30F3\u30B0\u30EB\u30FC\u30E0", category: "counselor" },
-      { name: "\u6599\u7406\u6559\u5BA4", category: "cooking" }
+      { name: "Underground Idols", category: "idol" },
+      { name: "Comedy Circle", category: "idol" },
+      { name: "Nightlife Hosts", category: "idol" },
+      { name: "Daily Vlog Circle", category: "idol" },
+      { name: "Idol Club", category: "idol" },
+      { name: "English Club", category: "english" },
+      { name: "Fortune Salon", category: "fortune" },
+      { name: "Fitness Club", category: "coaching" },
+      { name: "Counseling Room", category: "counselor" },
+      { name: "Cooking School", category: "cooking" }
     ];
     const existingComm = await db.select().from(communities);
     const existingCommNames = new Set(existingComm.map((c) => c.name));
@@ -6614,8 +6650,8 @@ data: ${data}
     const existingNames = new Set(existingCreators.map((c) => c.name));
     const demoCreators = [
       {
-        name: "\u661F\u7A7A\u307F\u3086",
-        community: "\u5730\u4E0B\u30A2\u30A4\u30C9\u30EB\u754C\u9688",
+        name: "Miyu Hoshizora",
+        community: "Underground Idols",
         avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop",
         rank: 1,
         heatScore: 1090.1,
@@ -6626,12 +6662,12 @@ data: ${data}
         revenueShare: 80,
         satisfactionScore: 4.5,
         attendanceRate: 4.3,
-        bio: "\u5730\u4E0B\u30A2\u30A4\u30C9\u30EB\u754C\u9688\u306E\u30C8\u30C3\u30D7\u30E9\u30F3\u30AB\u30FC\u3002\u6B4C\u3068\u30C0\u30F3\u30B9\u3067\u6BCE\u56DE\u8996\u8074\u8005\u3092\u9B45\u4E86\u3059\u308B\u5B9F\u529B\u6D3E\u30E9\u30A4\u30D0\u30FC\u3002",
+        bio: "Top-ranked in Underground Idols. Singer-dancer who wins over viewers every stream.",
         category: "idol"
       },
       {
-        name: "\u30B3\u30F3\u30D3\u82B8\u4EBA\u300C\u30C0\u30D6\u30EB\u30D1\u30F3\u30C1\u300D",
-        community: "\u304A\u7B11\u3044\u82B8\u4EBA\u754C\u9688",
+        name: 'Comedy duo "Double Punch"',
+        community: "Comedy Circle",
         avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop",
         rank: 2,
         heatScore: 923.5,
@@ -6642,12 +6678,12 @@ data: ${data}
         revenueShare: 80,
         satisfactionScore: 4.2,
         attendanceRate: 4.1,
-        bio: "\u304A\u7B11\u3044\u30B3\u30F3\u30D3\u3068\u3057\u3066\u6D3B\u52D5\u4E2D\u3002\u30E9\u30A4\u30D6\u914D\u4FE1\u3067\u3082\u606F\u306E\u5408\u3063\u305F\u30C8\u30FC\u30AF\u3067\u7B11\u3044\u3092\u5C4A\u3051\u307E\u3059\u3002",
+        bio: "Comedy duo delivering sharp, in-sync banter on every live stream.",
         category: "idol"
       },
       {
-        name: "\u9E97\u83EF -REIKA-",
-        community: "\u30AD\u30E3\u30D0\u5B22\u30FB\u30DB\u30B9\u30C8\u754C\u9688",
+        name: "REIKA",
+        community: "Nightlife Hosts",
         avatar: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=100&h=100&fit=crop",
         rank: 3,
         heatScore: 1414,
@@ -6658,12 +6694,12 @@ data: ${data}
         revenueShare: 80,
         satisfactionScore: 4.6,
         attendanceRate: 4.8,
-        bio: "\u30AD\u30E3\u30D0\u5B22\xD7\u30E9\u30A4\u30D0\u30FC\u3068\u3057\u3066\u5927\u4EBA\u6C17\u3002\u30C8\u30FC\u30AF\u529B\u3068\u7F8E\u8C8C\u3067\u591A\u304F\u306E\u30D5\u30A1\u30F3\u3092\u7372\u5F97\u3002",
+        bio: "Host-style streamer with strong talk skills and a loyal fan base.",
         category: "idol"
       },
       {
-        name: "\u307E\u3044\u307E\u304417\u6B73",
-        community: "JK\u65E5\u5E38\u754C\u9688",
+        name: "Maimai, 17",
+        community: "Daily Vlog Circle",
         avatar: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=100&h=100&fit=crop",
         rank: 4,
         heatScore: 865.7,
@@ -6674,12 +6710,12 @@ data: ${data}
         revenueShare: 80,
         satisfactionScore: 4.3,
         attendanceRate: 4.5,
-        bio: "JK\u306E\u30EA\u30A2\u30EB\u306A\u65E5\u5E38\u3092\u767A\u4FE1\u4E2D\u3002\u7D20\u6734\u3067\u89AA\u3057\u307F\u3084\u3059\u3044\u30AD\u30E3\u30E9\u304C\u4EBA\u6C17\u306E\u79D8\u5BC6\u3002",
+        bio: "Daily-life vlogs with a down-to-earth, approachable vibe.",
         category: "idol"
       },
       {
-        name: "\u685C\u4E95 \u307F\u306A\u307F",
-        community: "\u30A2\u30A4\u30C9\u30EB\u90E8",
+        name: "Minami Sakurai",
+        community: "Idol Club",
         avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&h=150&fit=crop",
         rank: 1,
         heatScore: 4.8,
@@ -6690,12 +6726,12 @@ data: ${data}
         revenueShare: 80,
         satisfactionScore: 4.9,
         attendanceRate: 4.7,
-        bio: "\u6BCE\u65E5\u5143\u6C17\u306B\u914D\u4FE1\u4E2D\uFF01\u307F\u3093\u306A\u3068\u4E00\u7DD2\u306B\u697D\u3057\u3044\u6642\u9593\u3092\u904E\u3054\u3057\u305F\u3044\u3067\u3059\u266A",
+        bio: "Streaming daily\u2014here for fun times with everyone.",
         category: "idol"
       },
       {
-        name: "\u7530\u4E2D \u3086\u3046\u304D",
-        community: "\u82F1\u4F1A\u8A71\u30AF\u30E9\u30D6",
+        name: "Yuuki Tanaka",
+        community: "English Club",
         avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop",
         rank: 2,
         heatScore: 4.6,
@@ -6706,12 +6742,12 @@ data: ${data}
         revenueShare: 80,
         satisfactionScore: 4.7,
         attendanceRate: 4.5,
-        bio: "TOEIC 990\u70B9\u53D6\u5F97\u3002\u30D3\u30B8\u30CD\u30B9\u82F1\u8A9E\u304B\u3089\u65E5\u5E38\u4F1A\u8A71\u307E\u3067\u4E01\u5BE7\u306B\u6559\u3048\u307E\u3059\uFF01",
+        bio: "TOEIC 990. Teaches business English through everyday conversation.",
         category: "english"
       },
       {
-        name: "\u795E\u5D0E \u30EA\u30CA",
-        community: "\u5360\u3044\u30B5\u30ED\u30F3",
+        name: "Rina Kanzaki",
+        community: "Fortune Salon",
         avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&h=150&fit=crop",
         rank: 3,
         heatScore: 4.5,
@@ -6722,12 +6758,12 @@ data: ${data}
         revenueShare: 80,
         satisfactionScore: 4.6,
         attendanceRate: 4.3,
-        bio: "\u30BF\u30ED\u30C3\u30C8\u30FB\u897F\u6D0B\u5360\u661F\u8853\u30FB\u6570\u79D8\u8853\u3092\u7D44\u307F\u5408\u308F\u305B\u305F\u72EC\u81EA\u306E\u30EA\u30FC\u30C7\u30A3\u30F3\u30B0\u3067\u3001\u3042\u306A\u305F\u306E\u672A\u6765\u3092\u7167\u3089\u3057\u307E\u3059\u3002",
+        bio: "Tarot, Western astrology, and numerology blended into one-of-a-kind readings.",
         category: "fortune"
       },
       {
-        name: "\u677E\u672C \u3053\u3046\u305F",
-        community: "\u30D5\u30A3\u30C3\u30C8\u30CD\u30B9\u90E8",
+        name: "Kota Matsumoto",
+        community: "Fitness Club",
         avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop",
         rank: 4,
         heatScore: 4.3,
@@ -6738,12 +6774,12 @@ data: ${data}
         revenueShare: 80,
         satisfactionScore: 4.4,
         attendanceRate: 4.8,
-        bio: "\u5143\u30D7\u30ED\u30B5\u30C3\u30AB\u30FC\u9078\u624B\u3002\u30C0\u30A4\u30A8\u30C3\u30C8\u30FB\u7B4B\u30C8\u30EC\u30FB\u30E1\u30F3\u30BF\u30EB\u30B3\u30FC\u30C1\u30F3\u30B0\u3092\u5C02\u9580\u3068\u3059\u308B\u30D1\u30FC\u30BD\u30CA\u30EB\u30C8\u30EC\u30FC\u30CA\u30FC\u3002",
+        bio: "Ex-pro soccer player. Personal trainer focused on diet, strength, and mindset.",
         category: "coaching"
       },
       {
-        name: "\u4F0A\u85E4 \u3055\u3084\u304B",
-        community: "\u30AB\u30A6\u30F3\u30BB\u30EA\u30F3\u30B0\u30EB\u30FC\u30E0",
+        name: "Sayaka Ito",
+        community: "Counseling Room",
         avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&h=150&fit=crop",
         rank: 5,
         heatScore: 4.7,
@@ -6754,12 +6790,12 @@ data: ${data}
         revenueShare: 80,
         satisfactionScore: 4.8,
         attendanceRate: 4.9,
-        bio: "\u81E8\u5E8A\u5FC3\u7406\u58EB\u30FB\u516C\u8A8D\u5FC3\u7406\u5E2B\u3002\u60A9\u307F\u3092\u62B1\u3048\u305F\u65B9\u306E\u8A71\u3092\u4E01\u5BE7\u306B\u8074\u304D\u3001\u4E00\u7DD2\u306B\u89E3\u6C7A\u7B56\u3092\u63A2\u3057\u307E\u3059\u3002",
+        bio: "Clinical psychologist. Listens carefully and works with you on next steps.",
         category: "counselor"
       },
       {
-        name: "\u4E2D\u6751 \u3042\u304A\u3044",
-        community: "\u6599\u7406\u6559\u5BA4",
+        name: "Aoi Nakamura",
+        community: "Cooking School",
         avatar: "https://images.unsplash.com/photo-1502767089025-6572583495b9?w=150&h=150&fit=crop",
         rank: 6,
         heatScore: 4.4,
@@ -6770,7 +6806,7 @@ data: ${data}
         revenueShare: 80,
         satisfactionScore: 4.5,
         attendanceRate: 4.6,
-        bio: "\u30D5\u30E9\u30F3\u30B9\u6599\u7406\u5B66\u6821\u5352\u696D\u3002\u5BB6\u5EAD\u3067\u672C\u683C\u7684\u306A\u30EC\u30B7\u30D4\u3092\u697D\u3057\u304F\u5B66\u3079\u308B\u6599\u7406\u6559\u5BA4\u3092\u958B\u50AC\u4E2D\u3002",
+        bio: "Trained in France. Fun, approachable cooking classes for serious home recipes.",
         category: "cooking"
       }
     ];
@@ -6788,23 +6824,23 @@ data: ${data}
         const dateStr = dt.toISOString().slice(0, 10);
         availData.push({ liverId: c.id, date: dateStr, startTime: "19:00", endTime: "21:00", maxSlots: 3, bookedSlots: Math.floor(Math.random() * 2), note: "" });
         if (d % 2 === 0) {
-          availData.push({ liverId: c.id, date: dateStr, startTime: "13:00", endTime: "15:00", maxSlots: 2, bookedSlots: 0, note: "\u5348\u5F8C\u306E\u90E8" });
+          availData.push({ liverId: c.id, date: dateStr, startTime: "13:00", endTime: "15:00", maxSlots: 2, bookedSlots: 0, note: "Afternoon slot" });
         }
       }
     }
     await db.insert(liverAvailability).values(availData);
     const reviewAuthors = [
-      { name: "\u3086\u304D", avatar: "https://images.unsplash.com/photo-1552374196-c4e7ffc6e126?w=80&h=80&fit=crop" },
-      { name: "\u305F\u304B\u3057", avatar: "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=80&h=80&fit=crop" },
-      { name: "\u306F\u308B\u304B", avatar: "https://images.unsplash.com/photo-1554151228-14d9def656e4?w=80&h=80&fit=crop" },
-      { name: "\u3051\u3093\u3058", avatar: "https://images.unsplash.com/photo-1560250097-0b93528c311a?w=80&h=80&fit=crop" }
+      { name: "Yuki", avatar: "https://images.unsplash.com/photo-1552374196-c4e7ffc6e126?w=80&h=80&fit=crop" },
+      { name: "Takashi", avatar: "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=80&h=80&fit=crop" },
+      { name: "Haruka", avatar: "https://images.unsplash.com/photo-1554151228-14d9def656e4?w=80&h=80&fit=crop" },
+      { name: "Kenji", avatar: "https://images.unsplash.com/photo-1560250097-0b93528c311a?w=80&h=80&fit=crop" }
     ];
     const comments = [
-      "\u3068\u3066\u3082\u697D\u3057\u3044\u6642\u9593\u3067\u3057\u305F\uFF01\u307E\u305F\u4E88\u7D04\u3057\u305F\u3044\u3067\u3059\u3002",
-      "\u4E01\u5BE7\u306A\u5BFE\u5FDC\u3067\u5927\u6E80\u8DB3\u3067\u3059\u3002\u30B9\u30B1\u30B8\u30E5\u30FC\u30EB\u901A\u308A\u306B\u9032\u3093\u3067\u304F\u308C\u307E\u3057\u305F\u3002",
-      "\u7D20\u6674\u3089\u3057\u3044\u914D\u4FE1\u3067\u3057\u305F\u3002\u307E\u305F\u53C2\u52A0\u3057\u305F\u3044\u3068\u601D\u3044\u307E\u3059\uFF01",
-      "\u671F\u5F85\u4EE5\u4E0A\u306E\u5185\u5BB9\u3067\u3057\u305F\u3002\u6BCE\u56DE\u6765\u308B\u306E\u304C\u697D\u3057\u307F\u3067\u3059\u3002",
-      "\u6642\u9593\u3092\u5B88\u3063\u3066\u304F\u308C\u3066\u4FE1\u983C\u3067\u304D\u307E\u3059\u3002\u6B21\u56DE\u3082\u4E88\u7D04\u3057\u307E\u3059\uFF01"
+      "Had a great time\u2014would book again!",
+      "Very thoughtful and stayed on schedule.",
+      "Amazing stream. I want to join the next one too!",
+      "Exceeded expectations. I look forward to every session.",
+      "Reliable and on time. I'll book again!"
     ];
     const reviewData = [];
     for (const c of insertedCreators) {
@@ -6837,25 +6873,25 @@ data: ${data}
         const dt = new Date(today);
         dt.setDate(today.getDate() + i + 1);
         const categories = ["idol", "english", "fortune", "coaching", "counselor"];
-        const labels = ["\u30A2\u30A4\u30C9\u30EB", "\u82F1\u4F1A\u8A71", "\u5360\u3044", "\u30B3\u30FC\u30C1\u30F3\u30B0", "\u30AB\u30A6\u30F3\u30BB\u30E9\u30FC"];
+        const labels = ["Idol", "English", "Fortune", "Coaching", "Counselor"];
         const prices = [3e3, 5e3, 4e3, 6e3, 4500];
         const cat = categories[i % categories.length];
         return {
           creator: c.name,
           category: cat,
           categoryLabel: labels[i % labels.length],
-          title: `${c.name}\u3068\u306E1\u5BFE1\u30BB\u30C3\u30B7\u30E7\u30F3`,
+          title: `1:1 session with ${c.name}`,
           avatar: c.avatar,
           thumbnail: `https://images.unsplash.com/photo-151645036045${i}-9312f5e86fc7?w=400&h=250&fit=crop`,
           date: dt.toISOString().slice(0, 10),
           time: "19:00",
-          duration: "30\u5206",
+          duration: "30 min",
           price: prices[i % prices.length],
           spotsTotal: 5,
           spotsLeft: 2 + i,
           rating: parseFloat((4.3 + Math.random() * 0.7).toFixed(1)),
           reviewCount: 10 + i * 5,
-          tag: i === 0 ? "\u4EBA\u6C17" : null
+          tag: i === 0 ? "Popular" : null
         };
       });
       await db.insert(bookingSessions).values(bookingData);
@@ -6863,16 +6899,16 @@ data: ${data}
     const existingLive = await db.select().from(liveStreams);
     if (existingLive.length === 0) {
       await db.insert(liveStreams).values([
-        { title: "\u661F\u7A7A\u307F\u3086\u266A \u6B4C\u3068\u30C0\u30F3\u30B9\u3067\u304A\u5C4A\u3051\uFF01", creator: "\u661F\u7A7A\u307F\u3086", community: "\u5730\u4E0B\u30A2\u30A4\u30C9\u30EB\u754C\u9688", viewers: 1240, thumbnail: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=40&h=40&fit=crop", timeAgo: "\u914D\u4FE1\u4E88\u5B9A", isLive: true },
-        { title: "\u9E97\u83EF\u306E\u591C\u30C8\u30FC\u30AF\u3010\u672C\u97F3\u3067\u8A9E\u308B\u3088\u3011", creator: "\u9E97\u83EF -REIKA-", community: "\u30AD\u30E3\u30D0\u5B22\u30FB\u30DB\u30B9\u30C8\u754C\u9688", viewers: 890, thumbnail: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=40&h=40&fit=crop", timeAgo: "\u914D\u4FE1\u4E88\u5B9A", isLive: true },
-        { title: "\u671D\u6D3B\uFF01\u4E00\u7DD2\u306B\u30E8\u30AC\u3057\u3088\u3046", creator: "\u677E\u672C \u3053\u3046\u305F", community: "\u30D5\u30A3\u30C3\u30C8\u30CD\u30B9\u90E8", viewers: 420, thumbnail: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=40&h=40&fit=crop", timeAgo: "\u914D\u4FE1\u4E88\u5B9A", isLive: true },
-        { title: "\u795E\u5D0E\u30EA\u30CA\u3010\u6DF1\u591C\u306E\u5360\u3044\u30BF\u30A4\u30E0\u3011", creator: "\u795E\u5D0E \u30EA\u30CA", community: "\u5360\u3044\u30B5\u30ED\u30F3", viewers: 312, thumbnail: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=40&h=40&fit=crop", timeAgo: "\u914D\u4FE1\u4E88\u5B9A", isLive: true }
+        { title: "Miyu Hoshizora \u2014 Song & dance live", creator: "Miyu Hoshizora", community: "Underground Idols", viewers: 1240, thumbnail: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=40&h=40&fit=crop", timeAgo: "Scheduled", isLive: true },
+        { title: "REIKA \u2014 Late-night honest talk", creator: "REIKA", community: "Nightlife Hosts", viewers: 890, thumbnail: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=40&h=40&fit=crop", timeAgo: "Scheduled", isLive: true },
+        { title: "Morning yoga \u2014 join in!", creator: "Kota Matsumoto", community: "Fitness Club", viewers: 420, thumbnail: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=40&h=40&fit=crop", timeAgo: "Scheduled", isLive: true },
+        { title: "Rina Kanzaki \u2014 Late-night readings", creator: "Rina Kanzaki", community: "Fortune Salon", viewers: 312, thumbnail: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=40&h=40&fit=crop", timeAgo: "Scheduled", isLive: true }
       ]);
     }
     res.json({ ok: true, created: insertedCreators.length });
   });
   app2.post("/api/seed-editors", async (_req, res) => {
-    const [idolCommunity] = await db.select({ id: communities.id }).from(communities).where(eq2(communities.name, "\u5730\u4E0B\u30A2\u30A4\u30C9\u30EB\u754C\u9688"));
+    const [idolCommunity] = await db.select({ id: communities.id }).from(communities).where(eq2(communities.name, "Underground Idols"));
     const defaultCommunityId = idolCommunity?.id ?? 1;
     let insertedBase = 0;
     let insertedBoth = 0;
@@ -6880,9 +6916,9 @@ data: ${data}
     if (existingStart.length < 5) {
       const demoEditors = [
         {
-          name: "\u6620\u50CF\u7DE8\u96C6\u30DE\u30F3",
+          name: "Video Edit Man",
           avatar: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150&h=150&fit=crop",
-          bio: "\u30C6\u30ED\u30C3\u30D7\u30FB\u30AB\u30C3\u30C8\u30FB\u30B5\u30E0\u30CD\u307E\u3067\u30EF\u30F3\u30B9\u30C8\u30C3\u30D7\u3067\u5BFE\u5FDC\u3059\u308B\u52D5\u753B\u7DE8\u96C6\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC\u3002",
+          bio: "One-stop editing: captions, cuts, and thumbnails.",
           communityId: defaultCommunityId,
           genres: "YouTube,Variety,Gaming",
           deliveryDays: 3,
@@ -6895,9 +6931,9 @@ data: ${data}
           isAvailable: true
         },
         {
-          name: "\u30B7\u30CD\u30DE\u7DE8\u96C6\u30B9\u30BF\u30B8\u30AA",
+          name: "Cinema Edit Studio",
           avatar: "https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=150&h=150&fit=crop",
-          bio: "\u6620\u753B\u98A8\u306E\u30B7\u30CD\u30DE\u30C6\u30A3\u30C3\u30AF\u306AMV\u5236\u4F5C\u304C\u5F97\u610F\u3067\u3059\u3002",
+          bio: "Cinematic MVs with a film-style look.",
           communityId: defaultCommunityId,
           genres: "MV,Artist,Cinematic",
           deliveryDays: 7,
@@ -6910,9 +6946,9 @@ data: ${data}
           isAvailable: false
         },
         {
-          name: "\u30B7\u30E7\u30FC\u30C8\u52D5\u753B\u8077\u4EBA",
+          name: "Short-form Pro",
           avatar: "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=150&h=150&fit=crop",
-          bio: "TikTok\u30FBYouTube\u30B7\u30E7\u30FC\u30C8\u306E\u4F38\u3073\u308B\u69CB\u6210\u3092\u63D0\u6848\u3057\u307E\u3059\u3002",
+          bio: "Short-form hooks and structures built to perform on TikTok and YouTube Shorts.",
           communityId: defaultCommunityId,
           genres: "Short Video,Vertical,Social Media",
           deliveryDays: 2,
@@ -6925,9 +6961,9 @@ data: ${data}
           isAvailable: true
         },
         {
-          name: "\u30B2\u30FC\u30E0\u5B9F\u6CC1\u30A8\u30C7\u30A3\u30BF\u30FC",
+          name: "Gaming Highlights Editor",
           avatar: "https://images.unsplash.com/photo-1533236897111-3e94666b2dde?w=150&h=150&fit=crop",
-          bio: "APEX/VALORANT\u306A\u3069FPS\u7CFB\u5B9F\u6CC1\u306E\u7DE8\u96C6\u304C\u4E2D\u5FC3\u3067\u3059\u3002",
+          bio: "FPS gameplay edits\u2014Apex, Valorant, and similar titles.",
           communityId: defaultCommunityId,
           genres: "Gaming,Highlights",
           deliveryDays: 4,
@@ -6940,9 +6976,9 @@ data: ${data}
           isAvailable: false
         },
         {
-          name: "\u6559\u80B2\u30C1\u30E3\u30F3\u30CD\u30EB\u7DE8\u96C6\u5BA4",
+          name: "Edu Channel Edit Lab",
           avatar: "https://images.unsplash.com/photo-1525134479668-1bee5c7c6845?w=150&h=150&fit=crop",
-          bio: "\u30D3\u30B8\u30CD\u30B9\u30FB\u6559\u80B2\u7CFB\u306E\u5206\u304B\u308A\u3084\u3059\u3044\u56F3\u89E3\u52D5\u753B\u3092\u5236\u4F5C\u3057\u307E\u3059\u3002",
+          bio: "Clear explainer videos for business and education channels.",
           communityId: defaultCommunityId,
           genres: "Business,Education,Seminar",
           deliveryDays: 5,
@@ -6957,7 +6993,7 @@ data: ${data}
       ];
       for (const row of demoEditors) {
         const v = validateEditorPricing(row);
-        if (!v.ok) return res.status(500).json({ error: v.error });
+        if (v.ok === false) return res.status(500).json({ error: v.error });
       }
       await db.insert(videoEditors).values(demoEditors);
       insertedBase = demoEditors.length;
@@ -6967,9 +7003,9 @@ data: ${data}
     if (!hasBoth) {
       const bothDemo = [
         {
-          name: "\u30D5\u30EB\u30D5\u30EC\u30C3\u30AF\u30B9\u7DE8\u96C6\u6240",
+          name: "Full-flex Edit House",
           avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop",
-          bio: "\u5206\u5358\u4FA1\u3067\u3082\u30EC\u30D9\u30CB\u30E5\u30FC\u30B7\u30A7\u30A2\u3067\u3082\u3054\u76F8\u8AC7\u306B\u5FDC\u3058\u307E\u3059\u3002MV\u30FB\u30E9\u30A4\u30D6\u5207\u308A\u629C\u304D\u4E21\u65B9\u5BFE\u5FDC\u3002",
+          bio: "Per-minute or revenue share\u2014MVs and live highlight reels.",
           communityId: defaultCommunityId,
           genres: "MV,Highlights,Short Video",
           deliveryDays: 4,
@@ -6982,9 +7018,9 @@ data: ${data}
           isAvailable: true
         },
         {
-          name: "\u30CF\u30A4\u30D6\u30EA\u30C3\u30C9\u30FB\u30AF\u30EA\u30C3\u30D7\u30B9",
+          name: "Hybrid Clips",
           avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop",
-          bio: "\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC\u53D6\u308A\u5206\u91CD\u8996\u306E\u6848\u4EF6\u3082\u3001\u56FA\u5B9A\u30EC\u30FC\u30C8\u3082\u67D4\u8EDF\u306B\u3002\u30B2\u30FC\u30E0\u30FB\u97F3\u697D\u5E45\u5E83\u304F\u3002",
+          bio: "Flexible on creator-friendly rev-share or flat rates\u2014gaming, music, and more.",
           communityId: defaultCommunityId,
           genres: "Gaming,Artist,Variety",
           deliveryDays: 3,
@@ -6999,7 +7035,7 @@ data: ${data}
       ];
       for (const row of bothDemo) {
         const v = validateEditorPricing(row);
-        if (!v.ok) return res.status(500).json({ error: v.error });
+        if (v.ok === false) return res.status(500).json({ error: v.error });
       }
       await db.insert(videoEditors).values(bothDemo);
       insertedBoth = bothDemo.length;
@@ -7209,7 +7245,7 @@ data: ${data}
     }
   });
   const FREE_JUKEBOX_PER_DAY = 20;
-  const TICKETS_PER_JUKEBOX = 30;
+  const TICKETS_PER_JUKEBOX = 10;
   const MENTOR_TICKET_PRICE = 500;
   app2.get("/api/tickets/balance", async (req, res) => {
     const user = await getAuthUser(req);
@@ -7289,7 +7325,7 @@ data: ${data}
           description: `Jukebox request in community ${communityId}`
         }).returning({ id: ticketTransactions.id });
         const walletId = await getOrCreateUserWallet(creatorUserId, tx);
-        const [creatorRow] = await tx.select().from(creators).where(eq2(creators.userId, creatorUserId)).limit(1);
+        const creatorRow = await creatorRowForUserId(tx, creatorUserId);
         await recordRevenue(
           walletId,
           creatorUserId,
@@ -7367,7 +7403,7 @@ data: ${data}
         if (needsRevenueRecord) {
           const creatorUserId = Number(creatorId);
           const walletId = await getOrCreateUserWallet(creatorUserId, tx);
-          const [creatorRow] = await tx.select().from(creators).where(eq2(creators.userId, creatorUserId)).limit(1);
+          const creatorRow = await creatorRowForUserId(tx, creatorUserId);
           const source = type === "spend_tip" ? "tip" : "paid_live";
           await recordRevenue(walletId, creatorUserId, creatorRow?.id ?? null, amount, source, String(spendTx.id), tx);
         }
@@ -7480,10 +7516,10 @@ data: ${data}
   });
   app2.post("/api/platform-banners", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
-    if (user.role !== "ADMIN") return res.status(403).json({ error: "\u7BA1\u7406\u8005\u306E\u307F\u64CD\u4F5C\u3067\u304D\u307E\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    if (user.role !== "ADMIN") return res.status(403).json({ error: "Only admins can perform this action" });
     const { title, imageUrl, linkUrl, description, displayOrder } = req.body;
-    if (!title) return res.status(400).json({ error: "title \u306F\u5FC5\u9808\u3067\u3059" });
+    if (!title) return res.status(400).json({ error: "title is required" });
     try {
       const [row] = await db.insert(bannerAds).values({
         title,
@@ -7500,8 +7536,8 @@ data: ${data}
   });
   app2.patch("/api/platform-banners/:id", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
-    if (user.role !== "ADMIN") return res.status(403).json({ error: "\u7BA1\u7406\u8005\u306E\u307F\u64CD\u4F5C\u3067\u304D\u307E\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    if (user.role !== "ADMIN") return res.status(403).json({ error: "Only admins can perform this action" });
     const id = paramNum(req, "id");
     const { title, imageUrl, linkUrl, description, isActive, displayOrder } = req.body;
     try {
@@ -7521,8 +7557,8 @@ data: ${data}
   });
   app2.delete("/api/platform-banners/:id", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
-    if (user.role !== "ADMIN") return res.status(403).json({ error: "\u7BA1\u7406\u8005\u306E\u307F\u64CD\u4F5C\u3067\u304D\u307E\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    if (user.role !== "ADMIN") return res.status(403).json({ error: "Only admins can perform this action" });
     const id = paramNum(req, "id");
     try {
       await db.delete(bannerAds).where(eq2(bannerAds.id, id));
@@ -7533,7 +7569,7 @@ data: ${data}
   });
   app2.post("/api/daily-login", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     try {
       await db.insert(dailyLogins).values({ userId: user.id, date: today }).onConflictDoNothing();
@@ -7756,7 +7792,7 @@ data: ${data}
           title: "Your edited video is ready",
           body: `Your AI Edit job #${job.id}${job.planMinutes ? ` (${job.planMinutes}-min plan)` : ""} has been delivered. Tap to download.`,
           amount: null,
-          avatar: owner?.avatar ?? null,
+          avatar: owner?.profileImageUrl ?? null,
           thumbnail: null,
           timeAgo: "Just now"
         });
@@ -7817,7 +7853,7 @@ data: ${data}
           title: "Your edited video is ready",
           body: `Your AI Edit job #${job.id}${job.planMinutes ? ` (${job.planMinutes}-min plan)` : ""} has been delivered. Tap to download.`,
           amount: null,
-          avatar: owner?.avatar ?? null,
+          avatar: owner?.profileImageUrl ?? null,
           thumbnail: null,
           timeAgo: "Just now"
         });
@@ -7936,7 +7972,7 @@ data: ${data}
         title: "Your edited video is ready",
         body: `Your AI Edit job #${job.id}${job.planMinutes ? ` (${job.planMinutes}-min plan)` : ""} has been delivered. Tap to download.`,
         amount: null,
-        avatar: owner?.avatar ?? null,
+        avatar: owner?.profileImageUrl ?? null,
         thumbnail: null,
         timeAgo: "Just now"
       });
