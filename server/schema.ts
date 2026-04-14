@@ -918,3 +918,20 @@ export const editingRequests = pgTable("editing_requests", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+/** 1対1（2ショット）有料配信の予約。決済完了で CONFIRMED。 */
+export const twoShotReservations = pgTable("two_shot_reservations", {
+  id: serial("id").primaryKey(),
+  hostUserId: integer("host_user_id").notNull(),
+  guestUserId: integer("guest_user_id").notNull(),
+  scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
+  durationMinutes: integer("duration_minutes").notNull().default(30),
+  /** PENDING | CONFIRMED | COMPLETED */
+  status: text("status").notNull().default("PENDING"),
+  stripeCheckoutSessionId: text("stripe_checkout_session_id"),
+  /** Cloudflare Stream 等のキー（後続ステップで設定） */
+  streamKey: text("stream_key"),
+  /** 仮枠識別子（例: hostId-slot-1） */
+  slotKey: text("slot_key"),
+  createdAt: timestamp("created_at").defaultNow(),
+});

@@ -69,6 +69,7 @@ __export(schema_exports, {
   ticketBalances: () => ticketBalances,
   ticketTransactions: () => ticketTransactions,
   transactions: () => transactions,
+  twoShotReservations: () => twoShotReservations,
   userFollows: () => userFollows,
   users: () => users,
   videoComments: () => videoComments,
@@ -879,6 +880,21 @@ var editingRequests = pgTable("editing_requests", {
   status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow()
+});
+var twoShotReservations = pgTable("two_shot_reservations", {
+  id: serial("id").primaryKey(),
+  hostUserId: integer("host_user_id").notNull(),
+  guestUserId: integer("guest_user_id").notNull(),
+  scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
+  durationMinutes: integer("duration_minutes").notNull().default(30),
+  /** PENDING | CONFIRMED | COMPLETED */
+  status: text("status").notNull().default("PENDING"),
+  stripeCheckoutSessionId: text("stripe_checkout_session_id"),
+  /** Cloudflare Stream 等のキー（後続ステップで設定） */
+  streamKey: text("stream_key"),
+  /** 仮枠識別子（例: hostId-slot-1） */
+  slotKey: text("slot_key"),
+  createdAt: timestamp("created_at").defaultNow()
 });
 
 // server/db.ts
@@ -2661,6 +2677,145 @@ async function registerRoutes(app2) {
       console.error("Banner confirm-session error:", e);
       res.status(500).json({ error: e.message ?? "Failed to confirm payment" });
     }
+  });
+  function buildMockTwoShotSlots(hostId) {
+    const d1 = /* @__PURE__ */ new Date();
+    d1.setUTCDate(d1.getUTCDate() + 1);
+    d1.setUTCHours(11, 0, 0, 0);
+    const d2 = new Date(d1);
+    d2.setUTCDate(d2.getUTCDate() + 1);
+    d2.setUTCHours(18, 0, 0, 0);
+    const d3 = new Date(d1);
+    d3.setUTCDate(d3.getUTCDate() + 3);
+    d3.setUTCHours(12, 30, 0, 0);
+    return [
+      { slotKey: `${hostId}-slot-a`, label: "Tomorrow 20:00 JST (30 min)", scheduledAt: d1.toISOString(), durationMinutes: 30, priceJpy: 3e3 },
+      { slotKey: `${hostId}-slot-b`, label: "Day after \xB7 Evening (30 min)", scheduledAt: d2.toISOString(), durationMinutes: 30, priceJpy: 3e3 },
+      { slotKey: `${hostId}-slot-c`, label: "+3 days \xB7 Noon (45 min)", scheduledAt: d3.toISOString(), durationMinutes: 45, priceJpy: 4500 }
+    ];
+  }
+  app2.get("/api/two-shot/slots", async (req, res) => {
+    const hostId = parseInt(String(req.query?.hostId ?? ""), 10);
+    if (!Number.isFinite(hostId) || hostId <= 0) {
+      return res.status(400).json({ error: "hostId is required" });
+    }
+    const [host] = await db.select({ id: users.id }).from(users).where(eq2(users.id, hostId)).limit(1);
+    if (!host) return res.status(404).json({ error: "Host not found" });
+    return res.json({ hostId, slots: buildMockTwoShotSlots(hostId) });
+  });
+  app2.get("/api/two-shot/reservations/:id", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const id = paramNum(req, "id");
+    const [row] = await db.select().from(twoShotReservations).where(eq2(twoShotReservations.id, id)).limit(1);
+    if (!row) return res.status(404).json({ error: "Not found" });
+    if (row.hostUserId !== user.id && row.guestUserId !== user.id) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    return res.json(row);
+  });
+  app2.post("/api/checkout/2shot", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const { hostId, slotKey, origin } = req.body;
+    if (!hostId || hostId <= 0 || !slotKey || typeof slotKey !== "string") {
+      return res.status(400).json({ error: "hostId and slotKey are required" });
+    }
+    if (hostId === user.id) {
+      return res.status(400).json({ error: "You cannot book your own slot" });
+    }
+    const [host] = await db.select({ id: users.id }).from(users).where(eq2(users.id, hostId)).limit(1);
+    if (!host) return res.status(404).json({ error: "Host not found" });
+    const slots = buildMockTwoShotSlots(hostId);
+    const slot = slots.find((s) => s.slotKey === slotKey);
+    if (!slot) return res.status(400).json({ error: "Invalid slot" });
+    const baseOrigin = (typeof origin === "string" && origin.startsWith("http") ? origin : resolvePublicAppOrigin()).replace(
+      /\/$/,
+      ""
+    );
+    try {
+      const stripe = await getUncachableStripeClient();
+      const [reservation] = await db.insert(twoShotReservations).values({
+        hostUserId: hostId,
+        guestUserId: user.id,
+        scheduledAt: new Date(slot.scheduledAt),
+        durationMinutes: slot.durationMinutes,
+        status: "PENDING",
+        slotKey: slot.slotKey
+      }).returning();
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        line_items: [
+          {
+            price_data: {
+              currency: "jpy",
+              unit_amount: slot.priceJpy,
+              product_data: {
+                name: `2-shot session \xB7 ${slot.label}`,
+                description: `Host #${hostId} \u2014 1:1 paid stream (reservation #${reservation.id})`
+              }
+            },
+            quantity: 1
+          }
+        ],
+        mode: "payment",
+        success_url: `${baseOrigin}/two-shot/success?reservationId=${reservation.id}&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${baseOrigin}/two-shot/reserve?hostId=${hostId}`,
+        client_reference_id: String(reservation.id),
+        metadata: {
+          type: "two_shot_reservation",
+          reservationId: String(reservation.id),
+          hostUserId: String(hostId),
+          guestUserId: String(user.id)
+        }
+      });
+      await db.update(twoShotReservations).set({ stripeCheckoutSessionId: session.id }).where(eq2(twoShotReservations.id, reservation.id));
+      return res.json({ url: session.url, sessionId: session.id, reservationId: reservation.id });
+    } catch (e) {
+      console.error("[checkout/2shot]", e);
+      return res.status(500).json({ error: e?.message ?? "Failed to create checkout session" });
+    }
+  });
+  app2.post("/api/webhook/stripe", async (req, res) => {
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
+    if (!webhookSecret) {
+      return res.status(503).json({ error: "STRIPE_WEBHOOK_SECRET is not configured" });
+    }
+    const sig = req.headers["stripe-signature"];
+    if (!sig || typeof sig !== "string") {
+      return res.status(400).json({ error: "Missing stripe-signature" });
+    }
+    const buf = req.rawBody;
+    if (!Buffer.isBuffer(buf)) {
+      return res.status(400).json({ error: "Invalid body" });
+    }
+    let event;
+    try {
+      const stripe = await getUncachableStripeClient();
+      event = stripe.webhooks.constructEvent(buf, sig, webhookSecret);
+    } catch (err) {
+      console.warn("[webhook/stripe] signature failed", err?.message);
+      return res.status(400).send(`Webhook Error: ${err?.message ?? "invalid signature"}`);
+    }
+    try {
+      if (event.type === "checkout.session.completed") {
+        const session = event.data.object;
+        const metaType = session.metadata?.type;
+        if (metaType === "two_shot_reservation") {
+          const rid = parseInt(session.metadata?.reservationId ?? "", 10);
+          if (Number.isFinite(rid) && rid > 0) {
+            await db.update(twoShotReservations).set({
+              status: "CONFIRMED",
+              stripeCheckoutSessionId: session.id
+            }).where(and2(eq2(twoShotReservations.id, rid), eq2(twoShotReservations.status, "PENDING")));
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[webhook/stripe] handler error", e);
+      return res.status(500).json({ error: "handler failed" });
+    }
+    return res.json({ received: true });
   });
   app2.put("/api/auth/profile", async (req, res) => {
     debugIngestServer({

@@ -50,6 +50,7 @@ import {
   jukeboxRequestCounts,
   ticketBalances,
   ticketTransactions,
+  twoShotReservations,
   streamPaidAccess,
   TICKET_PACKS,
   bannerAds,
@@ -96,6 +97,7 @@ import { LEGAL_PRIVACY_VERSION, LEGAL_TERMS_VERSION } from "../constants/legalVe
 import { publishJukeboxEvent, redis, jukeboxChannel, subscribeJukeboxEvents } from "./redis";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
+import type Stripe from "stripe";
 
 const JWT_SECRET = process.env.SESSION_SECRET ?? "livestage-dev-secret";
 const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID ?? "";
@@ -948,6 +950,178 @@ export async function registerRoutes(app: Express): Promise<void> {
       console.error("Banner confirm-session error:", e);
       res.status(500).json({ error: e.message ?? "Failed to confirm payment" });
     }
+  });
+
+  // ── 2-shot (1:1) paid session — mock slots + Stripe Checkout + webhook confirmation ──
+  function buildMockTwoShotSlots(hostId: number): {
+    slotKey: string;
+    label: string;
+    scheduledAt: string;
+    durationMinutes: number;
+    priceJpy: number;
+  }[] {
+    const d1 = new Date();
+    d1.setUTCDate(d1.getUTCDate() + 1);
+    d1.setUTCHours(11, 0, 0, 0);
+    const d2 = new Date(d1);
+    d2.setUTCDate(d2.getUTCDate() + 1);
+    d2.setUTCHours(18, 0, 0, 0);
+    const d3 = new Date(d1);
+    d3.setUTCDate(d3.getUTCDate() + 3);
+    d3.setUTCHours(12, 30, 0, 0);
+    return [
+      { slotKey: `${hostId}-slot-a`, label: "Tomorrow 20:00 JST (30 min)", scheduledAt: d1.toISOString(), durationMinutes: 30, priceJpy: 3000 },
+      { slotKey: `${hostId}-slot-b`, label: "Day after · Evening (30 min)", scheduledAt: d2.toISOString(), durationMinutes: 30, priceJpy: 3000 },
+      { slotKey: `${hostId}-slot-c`, label: "+3 days · Noon (45 min)", scheduledAt: d3.toISOString(), durationMinutes: 45, priceJpy: 4500 },
+    ];
+  }
+
+  app.get("/api/two-shot/slots", async (req: Request, res: Response) => {
+    const hostId = parseInt(String((req as any).query?.hostId ?? ""), 10);
+    if (!Number.isFinite(hostId) || hostId <= 0) {
+      return res.status(400).json({ error: "hostId is required" });
+    }
+    const [host] = await db.select({ id: users.id }).from(users).where(eq(users.id, hostId)).limit(1);
+    if (!host) return res.status(404).json({ error: "Host not found" });
+    return res.json({ hostId, slots: buildMockTwoShotSlots(hostId) });
+  });
+
+  app.get("/api/two-shot/reservations/:id", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const id = paramNum(req, "id");
+    const [row] = await db.select().from(twoShotReservations).where(eq(twoShotReservations.id, id)).limit(1);
+    if (!row) return res.status(404).json({ error: "Not found" });
+    if (row.hostUserId !== user.id && row.guestUserId !== user.id) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    return res.json(row);
+  });
+
+  app.post("/api/checkout/2shot", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const { hostId, slotKey, origin } = req.body as {
+      hostId?: number;
+      slotKey?: string;
+      origin?: string;
+    };
+    if (!hostId || hostId <= 0 || !slotKey || typeof slotKey !== "string") {
+      return res.status(400).json({ error: "hostId and slotKey are required" });
+    }
+    if (hostId === user.id) {
+      return res.status(400).json({ error: "You cannot book your own slot" });
+    }
+    const [host] = await db.select({ id: users.id }).from(users).where(eq(users.id, hostId)).limit(1);
+    if (!host) return res.status(404).json({ error: "Host not found" });
+
+    const slots = buildMockTwoShotSlots(hostId);
+    const slot = slots.find((s) => s.slotKey === slotKey);
+    if (!slot) return res.status(400).json({ error: "Invalid slot" });
+
+    const baseOrigin = (typeof origin === "string" && origin.startsWith("http") ? origin : resolvePublicAppOrigin()).replace(
+      /\/$/,
+      "",
+    );
+
+    try {
+      const stripe = await getUncachableStripeClient();
+      const [reservation] = await db
+        .insert(twoShotReservations)
+        .values({
+          hostUserId: hostId,
+          guestUserId: user.id,
+          scheduledAt: new Date(slot.scheduledAt),
+          durationMinutes: slot.durationMinutes,
+          status: "PENDING",
+          slotKey: slot.slotKey,
+        } as typeof twoShotReservations.$inferInsert)
+        .returning();
+
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        line_items: [
+          {
+            price_data: {
+              currency: "jpy",
+              unit_amount: slot.priceJpy,
+              product_data: {
+                name: `2-shot session · ${slot.label}`,
+                description: `Host #${hostId} — 1:1 paid stream (reservation #${reservation.id})`,
+              },
+            },
+            quantity: 1,
+          },
+        ],
+        mode: "payment",
+        success_url: `${baseOrigin}/two-shot/success?reservationId=${reservation.id}&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${baseOrigin}/two-shot/reserve?hostId=${hostId}`,
+        client_reference_id: String(reservation.id),
+        metadata: {
+          type: "two_shot_reservation",
+          reservationId: String(reservation.id),
+          hostUserId: String(hostId),
+          guestUserId: String(user.id),
+        },
+      });
+
+      await db
+        .update(twoShotReservations)
+        .set({ stripeCheckoutSessionId: session.id } as Partial<InferSelectModel<typeof twoShotReservations>>)
+        .where(eq(twoShotReservations.id, reservation.id));
+
+      return res.json({ url: session.url, sessionId: session.id, reservationId: reservation.id });
+    } catch (e: any) {
+      console.error("[checkout/2shot]", e);
+      return res.status(500).json({ error: e?.message ?? "Failed to create checkout session" });
+    }
+  });
+
+  /** Stripe Billing — 2-shot reservations (raw body + signature) */
+  app.post("/api/webhook/stripe", async (req: Request, res: Response) => {
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
+    if (!webhookSecret) {
+      return res.status(503).json({ error: "STRIPE_WEBHOOK_SECRET is not configured" });
+    }
+    const sig = req.headers["stripe-signature"];
+    if (!sig || typeof sig !== "string") {
+      return res.status(400).json({ error: "Missing stripe-signature" });
+    }
+    const buf = req.rawBody;
+    if (!Buffer.isBuffer(buf)) {
+      return res.status(400).json({ error: "Invalid body" });
+    }
+    let event: Stripe.Event;
+    try {
+      const stripe = await getUncachableStripeClient();
+      event = stripe.webhooks.constructEvent(buf, sig, webhookSecret);
+    } catch (err: any) {
+      console.warn("[webhook/stripe] signature failed", err?.message);
+      return res.status(400).send(`Webhook Error: ${err?.message ?? "invalid signature"}`);
+    }
+
+    try {
+      if (event.type === "checkout.session.completed") {
+        const session = event.data.object as Stripe.Checkout.Session;
+        const metaType = session.metadata?.type;
+        if (metaType === "two_shot_reservation") {
+          const rid = parseInt(session.metadata?.reservationId ?? "", 10);
+          if (Number.isFinite(rid) && rid > 0) {
+            await db
+              .update(twoShotReservations)
+              .set({
+                status: "CONFIRMED",
+                stripeCheckoutSessionId: session.id,
+              } as Partial<InferSelectModel<typeof twoShotReservations>>)
+              .where(and(eq(twoShotReservations.id, rid), eq(twoShotReservations.status, "PENDING")));
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[webhook/stripe] handler error", e);
+      return res.status(500).json({ error: "handler failed" });
+    }
+    return res.json({ received: true });
   });
 
   app.put("/api/auth/profile", async (req: Request, res: Response) => {

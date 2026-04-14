@@ -168,6 +168,8 @@ function RootLayoutNav() {
       <Stack.Screen name="live/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="dm/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="mentor-booking/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="two-shot/reserve" options={{ headerShown: false }} />
+      <Stack.Screen name="two-shot/success" options={{ headerShown: false }} />
       <Stack.Screen name="mentor-success" options={{ headerShown: false }} />
       <Stack.Screen name="success" options={{ headerShown: false }} />
       <Stack.Screen name="revenue" options={{ headerShown: false }} />
