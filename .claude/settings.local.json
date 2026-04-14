@@ -11,7 +11,13 @@
       "Bash(node:*)",
       "Bash(grep -rn \"paid_live\\\\|twoshot.*price\\\\|session.*price\" --include=*.ts --include=*.tsx app/ server/)",
       "Bash(grep -n \"spend.*jukebox\\\\|JUKEBOX\\\\|pay.*jukebox\" app/**/*.tsx)",
-      "Bash(grep -rn \"admin\\\\|ADMIN\\\\|manage.*price\\\\|edit.*price\" --include=*.ts --include=*.tsx app/admin/)"
+      "Bash(grep -rn \"admin\\\\|ADMIN\\\\|manage.*price\\\\|edit.*price\" --include=*.ts --include=*.tsx app/admin/)",
+      "Bash(npx vercel:*)",
+      "Bash(curl -s http://127.0.0.1:5001/api/auth/status)",
+      "Bash(curl -s https://rawstock.live/api/auth/status)",
+      "Bash(curl -sv https://rawstock.live/api/auth/status)",
+      "Bash(curl:*)",
+      "Bash(ls:*)"
     ]
   }
 }
