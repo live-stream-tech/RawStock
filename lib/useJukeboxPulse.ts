@@ -59,11 +59,12 @@ function buildPulse(data: JukeboxActiveSessionsResponse | undefined): JukeboxPul
   };
 }
 
-const PULSE_QUERY_KEY = ["/api/jukebox/active-sessions"] as const;
+/** ホームバナー等で共有。jukebox 操作後に invalidate するために export */
+export const JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY = ["/api/jukebox/active-sessions"] as const;
 
 export function useJukeboxPulse() {
   const { data, dataUpdatedAt, isLoading, isError } = useQuery<JukeboxActiveSessionsResponse>({
-    queryKey: PULSE_QUERY_KEY,
+    queryKey: JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY,
     refetchInterval: 20_000,
     staleTime: 10_000,
   });

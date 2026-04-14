@@ -26,6 +26,7 @@ import { apiRequest, ApiError } from "@/lib/query-client";
 import { useAuth } from "@/lib/auth";
 import { Linking } from "react-native";
 import { getApiUrl } from "@/lib/query-client";
+import { JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY } from "@/lib/useJukeboxPulse";
 import { saveLoginReturn } from "@/lib/login-return";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { webScrollStyle } from "@/constants/layout";
@@ -808,7 +809,7 @@ export default function JukeboxScreen() {
 
   const ticketBalance = ticketData?.balance ?? 0;
   const freeRemaining = reqCountData?.freeRemaining ?? 20;
-  const ticketsPerRequest = reqCountData?.ticketsPerRequest ?? 30;
+  const ticketsPerRequest = reqCountData?.ticketsPerRequest ?? 10;
 
   const state = data?.state ?? null;
   const queue = data?.queue ?? [];
@@ -852,7 +853,9 @@ export default function JukeboxScreen() {
   const nextMutation = useMutation({
     mutationFn: () => apiRequest("POST", `/api/jukebox/${communityId}/next`),
     onSuccess: () => {
-      if (Platform.OS !== "web") qc.invalidateQueries({ queryKey: jukeboxKey });
+      // Web でも refetch する（Vercel 等で POST と SSE が別インスタンスだと EventEmitter に届かない）
+      qc.invalidateQueries({ queryKey: jukeboxKey });
+      qc.invalidateQueries({ queryKey: JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY });
     },
   });
 
@@ -903,7 +906,8 @@ export default function JukeboxScreen() {
     onSuccess: () => {
       setYtUrl("");
       setShowAddModal(false);
-      if (Platform.OS !== "web") qc.invalidateQueries({ queryKey: jukeboxKey });
+      qc.invalidateQueries({ queryKey: jukeboxKey });
+      qc.invalidateQueries({ queryKey: JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY });
     },
     onError: (err: any) => {
       if (err?.code === "insufficient_tickets") {
@@ -939,7 +943,8 @@ export default function JukeboxScreen() {
       return apiRequest("DELETE", `/api/jukebox/${communityId}/queue/${itemId}${addedBy}`);
     },
     onSuccess: () => {
-      if (Platform.OS !== "web") qc.invalidateQueries({ queryKey: jukeboxKey });
+      qc.invalidateQueries({ queryKey: jukeboxKey });
+      qc.invalidateQueries({ queryKey: JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY });
     },
   });
 

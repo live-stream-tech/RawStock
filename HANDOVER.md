@@ -84,7 +84,8 @@
 | `R2_ACCESS_KEY_ID` | R2 | |
 | `R2_SECRET_ACCESS_KEY` | R2 | |
 | `R2_BUCKET_NAME` | R2 | 例: `rawstock-assets` |
-| `R2_ENDPOINT` | R2 | |
+| `R2_ENDPOINT` | R2 | S3 API: `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` |
+| `R2_PUBLIC_BASE_URL` | R2 アップロード後の **公開 GET 用**（任意） | 未設定だと返却 URL が API ホスト向きになりブラウザで 403 になりやすい。R2.dev やカスタムドメインのベース（末尾スラッシュなし） |
 | `UPSTASH_REDIS_REST_URL` | Upstash Redis | SSE 等 |
 | `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis | |
 | `STRIPE_SECRET_KEY` | Stripe | |

@@ -13,6 +13,7 @@ import { Image } from "expo-image";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { C } from "@/constants/colors";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
+import { JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY } from "@/lib/useJukeboxPulse";
 import { usePlayingVideo } from "@/lib/playing-video-context";
 // NOTE: 音声再生は jukebox/[id].tsx の NowPlaying 内の IFrame API プレイヤーが担当。
 // GJP はミニプレイヤー UI のみを担当する。
@@ -172,6 +173,11 @@ export function GlobalJukeboxPlayer() {
     mutationFn: async () => {
       if (!communityId) return;
       await apiRequest("POST", `/api/jukebox/${communityId}/next`);
+    },
+    onSuccess: () => {
+      if (!communityId) return;
+      qc.invalidateQueries({ queryKey: [`/api/jukebox/${communityId}`] });
+      qc.invalidateQueries({ queryKey: JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY });
     },
   });
 

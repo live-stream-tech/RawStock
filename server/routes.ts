@@ -3642,6 +3642,9 @@ export async function registerRoutes(app: Express): Promise<void> {
       });
       res.json({ uploadUrl, key, url: publicUrl });
     } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      const notConfigured =
+        errMsg.includes("R2 is not configured") || errMsg.includes("正しく設定");
       console.error("[upload-url] presign_failed", {
         hasAccessKey,
         hasSecret,
@@ -3649,7 +3652,12 @@ export async function registerRoutes(app: Express): Promise<void> {
         hasBucket,
         err: e,
       });
-      res.status(500).json({ error: "Failed to issue signed URL" });
+      res.status(notConfigured ? 503 : 500).json({
+        error: notConfigured
+          ? "File storage is not configured. Set R2_* variables on the server (and R2_PUBLIC_BASE_URL if you use a public domain)."
+          : "Failed to issue signed URL",
+        code: notConfigured ? "R2_NOT_CONFIGURED" : "R2_PRESIGN_FAILED",
+      });
     }
   });
 
@@ -7109,7 +7117,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   // 1 Ticket = $0.01 USD. Purchased via Stripe (USD). Spent in-app.
 
   const FREE_JUKEBOX_PER_DAY = 20;
-  const TICKETS_PER_JUKEBOX = 30;   // $0.30 per paid request
+  const TICKETS_PER_JUKEBOX = 10; // paid request after free quota
   const MENTOR_TICKET_PRICE = 500; // $5.00 per mentor session
 
   /** GET /api/tickets/balance */
@@ -7163,7 +7171,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     return res.json({ success: true });
   });
 
-  /** POST /api/tickets/spend-jukebox — deduct 30 tickets for a paid jukebox request */
+  /** POST /api/tickets/spend-jukebox — deduct TICKETS_PER_JUKEBOX for a paid jukebox request */
   app.post("/api/tickets/spend-jukebox", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });

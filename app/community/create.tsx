@@ -317,9 +317,9 @@ export default function CreateCommunityScreen() {
               <Text style={styles.consentModalTitle}>Before You Create</Text>
               <Text style={styles.consentModalIntro}>Please read and agree to the following terms.</Text>
               <View style={styles.consentBullets}>
-                <Text style={styles.consentBullet}>· 50% of banner ad revenue goes to RawStock as a platform fee</Text>
+                <Text style={styles.consentBullet}>· 20% of banner ad revenue goes to RawStock as a platform fee</Text>
                 <Text style={styles.consentBullet}>· 10% is held as a community event fund</Text>
-                <Text style={styles.consentBullet}>· The remaining 40% is shared among the admin and moderators (ratio set by admin)</Text>
+                <Text style={styles.consentBullet}>· The remaining 70% is shared among the admin and moderators (ratio set by admin)</Text>
                 <Text style={styles.consentBullet}>· If 50% of members vote no-confidence, the admin is replaced</Text>
                 <Text style={styles.consentBullet}>· A new admin is elected from moderators (or all members if no mods exist)</Text>
                 <Text style={styles.consentBullet}>· Moderators are appointed by the admin</Text>
