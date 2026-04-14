@@ -27,6 +27,7 @@ import { webBroadcastNeedsUserGestureForCamera } from "@/lib/pwa-standalone";
 import { alertDestructiveConfirm, alertMessage } from "@/lib/alertCompat";
 import { isBroadcastJapaneseUi } from "@/lib/broadcastLocale";
 import { getBroadcastStrings } from "@/lib/broadcastStrings";
+import { useAuth } from "@/lib/auth";
 import {
   DeepARBroadcastProcessor,
   type DeepARBroadcastProcessorHandle,
@@ -67,6 +68,7 @@ export default function BroadcastScreen() {
 
 function BroadcastWeb() {
   const t = getBroadcastStrings(isBroadcastJapaneseUi());
+  const { user, requireAuth } = useAuth();
   const params = useLocalSearchParams<{ visibility?: string; communityId?: string; ticketPrice?: string }>();
   const routeVisibility = parseRouteVisibility(
     typeof params.visibility === "string" ? params.visibility : undefined,
@@ -215,6 +217,9 @@ function BroadcastWeb() {
 
   const handleGoLive = async () => {
     setLastLiveError(null);
+    if (!requireAuth("start a live broadcast")) {
+      return;
+    }
     if (!title.trim()) {
       const msg = t.titleRequired;
       alertMessage(t.alertTitleLive, msg);
@@ -324,6 +329,7 @@ function BroadcastWeb() {
     webPreviewLoading ||
     deeparBusy ||
     cameraError ||
+    !user ||
     !title.trim() ||
     !localStreamRef.current;
 
