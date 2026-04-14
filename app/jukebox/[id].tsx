@@ -807,7 +807,7 @@ export default function JukeboxScreen() {
   });
 
   const ticketBalance = ticketData?.balance ?? 0;
-  const freeRemaining = reqCountData?.freeRemaining ?? 3;
+  const freeRemaining = reqCountData?.freeRemaining ?? 20;
   const ticketsPerRequest = reqCountData?.ticketsPerRequest ?? 30;
 
   const state = data?.state ?? null;
@@ -858,7 +858,7 @@ export default function JukeboxScreen() {
 
   const addMutation = useMutation({
     mutationFn: async (video: Video) => {
-      const currentFreeRemaining = reqCountData?.freeRemaining ?? 3;
+      const currentFreeRemaining = reqCountData?.freeRemaining ?? 20;
 
       if (currentFreeRemaining > 0) {
         // Free request — just record it
@@ -907,9 +907,15 @@ export default function JukeboxScreen() {
     },
     onError: (err: any) => {
       if (err?.code === "insufficient_tickets") {
+        const freeLimit =
+          (
+            qc.getQueryData([
+              `/api/tickets/request-count?communityId=${communityId}`,
+            ]) as { freeLimit?: number } | undefined
+          )?.freeLimit ?? 20;
         Alert.alert(
           "Not Enough Tickets 🎟",
-          `You've used your 3 free requests today.\n\nYou need ${err.required} 🎟 to add more songs but only have ${err.balance} 🎟.`,
+          `You've used your ${freeLimit} free requests today.\n\nYou need ${err.required} 🎟 to add more songs but only have ${err.balance} 🎟.`,
           [
             { text: "Cancel", style: "cancel" },
             { text: "Get Tickets", onPress: () => router.push("/tickets") },

@@ -7011,7 +7011,7 @@ data: ${data}
       message: insertedBase === 0 && insertedBoth === 0 ? "Already seeded (base + both)" : void 0
     });
   });
-  const FREE_REQUESTS_PER_DAY = 3;
+  const FREE_REQUESTS_PER_DAY = 20;
   app2.get("/api/coins/balance", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -7208,7 +7208,7 @@ data: ${data}
       return res.status(500).json({ error: "Failed to verify purchase" });
     }
   });
-  const FREE_JUKEBOX_PER_DAY = 3;
+  const FREE_JUKEBOX_PER_DAY = 20;
   const TICKETS_PER_JUKEBOX = 30;
   const MENTOR_TICKET_PRICE = 500;
   app2.get("/api/tickets/balance", async (req, res) => {

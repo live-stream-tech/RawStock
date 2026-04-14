@@ -821,7 +821,7 @@ export const coinTransactions = pgTable("coin_transactions", {
 
 /**
  * Tracks daily jukebox request counts per user per community.
- * First 3 per day are free; 4th+ costs 30 tickets ($0.30 at 1 ticket = $0.01).
+ * First 20 per day are free; 21st+ costs 30 tickets ($0.30 at 1 ticket = $0.01).
  */
 export const jukeboxRequestCounts = pgTable("jukebox_request_counts", {
   id: serial("id").primaryKey(),

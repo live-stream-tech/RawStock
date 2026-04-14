@@ -6856,7 +6856,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   // ─── Coin System API ──────────────────────────────────────────────────────
-  const FREE_REQUESTS_PER_DAY = 3;
+  const FREE_REQUESTS_PER_DAY = 20;
 
   /** GET /api/coins/balance - ログインユーザーのコイン残高を返す */
   app.get("/api/coins/balance", async (req: Request, res: Response) => {
@@ -7108,7 +7108,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   // ── Ticket System ──────────────────────────────────────────────────────────
   // 1 Ticket = $0.01 USD. Purchased via Stripe (USD). Spent in-app.
 
-  const FREE_JUKEBOX_PER_DAY = 3;
+  const FREE_JUKEBOX_PER_DAY = 20;
   const TICKETS_PER_JUKEBOX = 30;   // $0.30 per paid request
   const MENTOR_TICKET_PRICE = 500; // $5.00 per mentor session
 
