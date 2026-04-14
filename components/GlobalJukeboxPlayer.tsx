@@ -12,6 +12,7 @@ import { Image } from "expo-image";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { C } from "@/constants/colors";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
+import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY } from "@/lib/useJukeboxPulse";
 import { usePlayingVideo } from "@/lib/playing-video-context";
 // NOTE: 音声再生は jukebox/[id].tsx の NowPlaying 内の IFrame API プレイヤーが担当。
@@ -37,6 +38,7 @@ type QueueItem = {
   youtubeId?: string | null;
   addedBy: string;
   addedByAvatar: string | null;
+  addedByUserId?: number | null;
   isPlayed: boolean;
 };
 
@@ -251,7 +253,8 @@ export function GlobalJukeboxPlayer() {
       ? Math.min(elapsed / state.currentVideoDurationSecs, 1)
       : 0;
 
-  const addedBy = queue.find((q) => !q.isPlayed)?.addedBy ?? "";
+  const nextQueueItem = queue.find((q) => !q.isPlayed);
+  const addedBy = nextQueueItem?.addedBy ?? "";
 
   if (dismissed) {
     return null;
@@ -294,9 +297,19 @@ export function GlobalJukeboxPlayer() {
               {state.currentVideoTitle ?? "Watch party"}
             </Text>
             {addedBy ? (
-              <Text style={styles.barSubtitle} numberOfLines={1}>
-                {addedBy} picked this track
-              </Text>
+              <Pressable
+                onPress={() =>
+                  navigateToUserOrLiverProfile({
+                    userId: nextQueueItem?.addedByUserId ?? null,
+                    displayName: nextQueueItem?.addedByUserId ? null : addedBy,
+                  })
+                }
+                hitSlop={4}
+              >
+                <Text style={styles.barSubtitle} numberOfLines={1}>
+                  {addedBy} picked this track
+                </Text>
+              </Pressable>
             ) : null}
           </Pressable>
 

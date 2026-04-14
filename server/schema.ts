@@ -450,6 +450,8 @@ export const jukeboxQueue = pgTable("jukebox_queue", {
   youtubeId: text("youtube_id"),
   addedBy: text("added_by").notNull().default("You"),
   addedByAvatar: text("added_by_avatar"),
+  /** 追加したログインユーザー（未ログイン・旧データは NULL） */
+  addedByUserId: integer("added_by_user_id"),
   position: integer("position").notNull().default(0),
   isPlayed: boolean("is_played").default(false),
   createdAt: timestamp("created_at").defaultNow(),

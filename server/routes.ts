@@ -5304,6 +5304,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   app.post("/api/jukebox/:communityId/add", async (req: Request, res: Response) => {
     const communityId = paramNum(req, "communityId");
     const { videoId, videoTitle, videoThumbnail, videoDurationSecs, addedBy, addedByAvatar, youtubeId } = req.body;
+    const authUser = await getAuthUser(req);
     const existing = await db.select().from(jukeboxQueue)
       .where(eq(jukeboxQueue.communityId, communityId))
       .orderBy(desc(jukeboxQueue.position));
@@ -5315,7 +5316,11 @@ export async function registerRoutes(app: Express): Promise<void> {
       videoThumbnail,
       videoDurationSecs: videoDurationSecs ?? 0,
       youtubeId: youtubeId ?? null,
-      addedBy: addedBy ?? "You", addedByAvatar, position: nextPos, isPlayed: false,
+      addedBy: addedBy ?? "You",
+      addedByAvatar,
+      addedByUserId: authUser?.id ?? null,
+      position: nextPos,
+      isPlayed: false,
     } as typeof jukeboxQueue.$inferInsert).returning();
 
     // 未再生の曲が1つもない場合（新しいセッション)は自動で再生を開始する

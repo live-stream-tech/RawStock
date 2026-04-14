@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
+import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { C } from "@/constants/colors";
 import { F } from "@/constants/fonts";
 import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/layout";
@@ -63,7 +64,17 @@ function BookingCard({ session }: { session: BookingSession }) {
 
       <View style={styles.bookingCardBody}>
         <View style={styles.bookingCreatorRow}>
-          <Image source={{ uri: session.avatar }} style={styles.bookingAvatar} contentFit="cover" />
+          <Pressable
+            onPress={() =>
+              navigateToUserOrLiverProfile({
+                userId: session.hostUserId ?? null,
+                displayName: session.hostUserId ? null : session.creator,
+              })
+            }
+            hitSlop={4}
+          >
+            <Image source={{ uri: session.avatar }} style={styles.bookingAvatar} contentFit="cover" />
+          </Pressable>
           <View style={{ flex: 1 }}>
             <Text style={styles.bookingCreatorName}>{session.creator}</Text>
             <View style={styles.bookingRatingRow}>
@@ -586,7 +597,17 @@ export default function LiveScreen() {
                     <View style={styles.streamInfo}>
                       <Text style={styles.streamTitle} numberOfLines={2}>{stream.title}</Text>
                       <View style={styles.streamCreatorRow}>
-                        <Image source={{ uri: stream.avatar }} style={styles.streamAvatar} contentFit="cover" />
+                        <Pressable
+                          onPress={() =>
+                            navigateToUserOrLiverProfile({
+                              userId: stream.hostUserId ?? null,
+                              displayName: stream.hostUserId ? null : stream.creator,
+                            })
+                          }
+                          hitSlop={4}
+                        >
+                          <Image source={{ uri: stream.avatar }} style={styles.streamAvatar} contentFit="cover" />
+                        </Pressable>
                         <Text style={styles.streamCreator}>{stream.creator}</Text>
                       </View>
                     </View>

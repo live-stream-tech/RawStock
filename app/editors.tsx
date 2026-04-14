@@ -18,11 +18,13 @@ import { C } from "@/constants/colors";
 import { F } from "@/constants/fonts";
 import { formatEditorRevenueShareLabel, formatEditorTicketsPerMinute } from "@/constants/tickets";
 import { webScrollStyle } from "@/constants/layout";
+import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 
 type SortKey = "rating" | "delivery" | "price";
 
 type VideoEditor = {
   id: number;
+  userId?: number | null;
   name: string;
   avatar: string | null;
   bio: string;
@@ -86,13 +88,24 @@ function EditorCard({ editor }: { editor: VideoEditor }) {
       onPress={() => router.push(requestHref)}
     >
       <View style={card.header}>
-        {editor.avatar ? (
-          <Image source={{ uri: editor.avatar }} style={card.avatar} contentFit="cover" />
-        ) : (
-          <View style={[card.avatar, card.avatarFallback]}>
-            <Text style={card.avatarInitial}>{editor.name[0]}</Text>
-          </View>
-        )}
+        <Pressable
+          onPress={(e) => {
+            (e as any).stopPropagation?.();
+            navigateToUserOrLiverProfile({
+              userId: editor.userId ?? null,
+              displayName: editor.userId ? null : editor.name,
+            });
+          }}
+          hitSlop={4}
+        >
+          {editor.avatar ? (
+            <Image source={{ uri: editor.avatar }} style={card.avatar} contentFit="cover" />
+          ) : (
+            <View style={[card.avatar, card.avatarFallback]}>
+              <Text style={card.avatarInitial}>{editor.name[0]}</Text>
+            </View>
+          )}
+        </Pressable>
         <View style={card.info}>
           <Text style={card.name} numberOfLines={1}>{editor.name}</Text>
           <StarRating rating={editor.rating} />

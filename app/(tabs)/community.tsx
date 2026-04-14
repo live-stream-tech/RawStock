@@ -14,6 +14,7 @@ import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { navigateFromVideoCreatorRow } from "@/lib/navigate-profile";
 import { C } from "@/constants/colors";
 import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/layout";
 import { MetallicLine } from "@/components/MetallicLine";
@@ -129,7 +130,15 @@ function PurchaseRankCard({
       <View style={styles.purchaseCardBottom}>
         <Text style={styles.purchaseCardTitle} numberOfLines={2}>{item.title}</Text>
         <View style={styles.purchaseCardMeta}>
-          <Image source={{ uri: item.avatar }} style={styles.purchaseCardAvatar} contentFit="cover" />
+          <Pressable
+            onPress={(e) => {
+              (e as any).stopPropagation?.();
+              navigateFromVideoCreatorRow(item);
+            }}
+            hitSlop={4}
+          >
+            <Image source={{ uri: item.avatar }} style={styles.purchaseCardAvatar} contentFit="cover" />
+          </Pressable>
           <Text style={styles.purchaseCardCreator} numberOfLines={1}>{item.creator}</Text>
         </View>
       </View>

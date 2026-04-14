@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/query-client";
+import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
 import { PRICE_PER_TICKET_USD } from "@/constants/tickets";
@@ -28,6 +29,7 @@ type LiveStream = {
   avatar: string;
   thumbnail: string;
   viewers: number;
+  hostUserId?: number | null;
 };
 
 type Step = "terms" | "legal" | "confirm";
@@ -180,7 +182,17 @@ export default function MentorBookingScreen() {
             <Image source={{ uri: stream.thumbnail }} style={styles.streamThumb} contentFit="cover" />
             <View style={styles.streamCardOverlay} />
             <View style={styles.streamCardInfo}>
-              <Image source={{ uri: stream.avatar }} style={styles.streamAvatar} contentFit="cover" />
+              <Pressable
+                onPress={() =>
+                  navigateToUserOrLiverProfile({
+                    userId: stream.hostUserId ?? null,
+                    displayName: stream.hostUserId ? null : stream.creator,
+                  })
+                }
+                hitSlop={6}
+              >
+                <Image source={{ uri: stream.avatar }} style={styles.streamAvatar} contentFit="cover" />
+              </Pressable>
               <View style={{ flex: 1 }}>
                 <Text style={styles.streamCreator}>{stream.creator}</Text>
                 <Text style={styles.streamTitle} numberOfLines={1}>{stream.title}</Text>

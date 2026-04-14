@@ -18,6 +18,7 @@ import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import * as ImagePicker from "expo-image-picker";
 import { C } from "@/constants/colors";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
+import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { useAuth } from "@/lib/auth";
 
 type DMItem = {
@@ -73,7 +74,11 @@ export default function DMChatScreen() {
 
   const { data: peerMeta } = useQuery<{ name: string; avatar: string; otherUserId: number }>({
     queryKey: [`/api/dm-messages/${dmId}/peer`],
-    enabled: Number.isFinite(dmId) && dmId !== 0 && !!token && !dmInfo,
+    enabled:
+      Number.isFinite(dmId) &&
+      dmId !== 0 &&
+      !!token &&
+      (!dmInfo || !dmInfo.otherUserId || dmInfo.otherUserId <= 0),
     queryFn: async () => {
       const res = await fetch(new URL(`/api/dm-messages/${dmId}/peer`, getApiUrl()).toString(), {
         headers: { Authorization: `Bearer ${token}` },
@@ -85,6 +90,7 @@ export default function DMChatScreen() {
 
   const headerName = dmInfo?.name ?? peerMeta?.name ?? "";
   const headerAvatar = dmInfo?.avatar ?? peerMeta?.avatar ?? null;
+  const headerPeerUserId = dmInfo?.otherUserId ?? peerMeta?.otherUserId ?? 0;
 
   const { data: messages = [] } = useQuery<ConvMsg[]>({
     queryKey: [`/api/dm-messages/${dmId}/conversation`],
@@ -145,18 +151,29 @@ export default function DMChatScreen() {
           </Pressable>
 
           {headerName ? (
-            <Pressable style={styles.headerCenter}>
-              <View style={styles.avatarWrap}>
-                <Image source={headerAvatar ? { uri: headerAvatar } : undefined} style={styles.headerAvatar} contentFit="cover" />
-                {(dmInfo?.online ?? false) && <View style={styles.onlineDot} />}
-              </View>
-              <View>
+            <View style={styles.headerCenter}>
+              {headerPeerUserId > 0 ? (
+                <Pressable
+                  style={styles.avatarWrap}
+                  onPress={() => navigateToUserOrLiverProfile({ userId: headerPeerUserId })}
+                  hitSlop={4}
+                >
+                  <Image source={headerAvatar ? { uri: headerAvatar } : undefined} style={styles.headerAvatar} contentFit="cover" />
+                  {(dmInfo?.online ?? false) && <View style={styles.onlineDot} />}
+                </Pressable>
+              ) : (
+                <View style={styles.avatarWrap}>
+                  <Image source={headerAvatar ? { uri: headerAvatar } : undefined} style={styles.headerAvatar} contentFit="cover" />
+                  {(dmInfo?.online ?? false) && <View style={styles.onlineDot} />}
+                </View>
+              )}
+              <View style={{ flex: 1 }}>
                 <Text style={styles.headerName}>{headerName}</Text>
                 <Text style={styles.headerStatus}>
                   {dmInfo?.online ? "Online" : "Recently offline"}
                 </Text>
               </View>
-            </Pressable>
+            </View>
           ) : (
             <View style={styles.headerCenter} />
           )}
@@ -185,7 +202,13 @@ export default function DMChatScreen() {
                 {item.sender === "them" && (
                   <View style={styles.avatarSpacer}>
                     {showAvatar && headerAvatar ? (
-                      <Image source={{ uri: headerAvatar }} style={styles.msgAvatar} contentFit="cover" />
+                      headerPeerUserId > 0 ? (
+                        <Pressable onPress={() => navigateToUserOrLiverProfile({ userId: headerPeerUserId })} hitSlop={4}>
+                          <Image source={{ uri: headerAvatar }} style={styles.msgAvatar} contentFit="cover" />
+                        </Pressable>
+                      ) : (
+                        <Image source={{ uri: headerAvatar }} style={styles.msgAvatar} contentFit="cover" />
+                      )
                     ) : null}
                   </View>
                 )}

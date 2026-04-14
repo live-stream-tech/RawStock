@@ -12,6 +12,7 @@ import { DemoModeProvider } from "@/lib/demo-mode";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { getLoginReturn, saveLoginReturn } from "@/lib/login-return";
 import { GlobalMyListPlayer } from "@/components/GlobalMyListPlayer";
+import { GlobalJukeboxPlayer } from "@/components/GlobalJukeboxPlayer";
 import { PlayingVideoProvider } from "@/lib/playing-video-context";
 
 SplashScreen.preventAutoHideAsync();
@@ -221,6 +222,7 @@ export default function RootLayout() {
                         <PolicyReacceptanceBanner />
                         <RootLayoutNav />
                         <GlobalMyListPlayer />
+                        <GlobalJukeboxPlayer />
                       </View>
                     </PlayingVideoProvider>
                   </DemoModeProvider>

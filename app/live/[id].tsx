@@ -21,6 +21,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { C } from "@/constants/colors";
 import { ApiError, apiRequest, getApiUrl } from "@/lib/query-client";
+import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/lib/auth";
 
@@ -479,7 +480,17 @@ export default function LiveStreamScreen() {
           {/* Creator info + title at bottom of player */}
           <View style={styles.playerBottom}>
             <View style={styles.creatorRow}>
-              <Image source={{ uri: stream.avatar }} style={styles.creatorAvatar} contentFit="cover" />
+              <Pressable
+                onPress={() =>
+                  navigateToUserOrLiverProfile({
+                    userId: stream.hostUserId ?? null,
+                    displayName: stream.hostUserId ? null : stream.creator,
+                  })
+                }
+                hitSlop={6}
+              >
+                <Image source={{ uri: stream.avatar }} style={styles.creatorAvatar} contentFit="cover" />
+              </Pressable>
               <View style={{ flex: 1 }}>
                 <Text style={styles.streamTitle} numberOfLines={2}>{stream.title}</Text>
                 <Text style={styles.creatorName}>{stream.creator}</Text>
@@ -597,9 +608,13 @@ export default function LiveStreamScreen() {
                 <View style={styles.giftBubble}>
                   <View style={styles.giftLeft}>
                     {item.avatar ? (
-                      <Image source={{ uri: item.avatar }} style={styles.chatAvatar} contentFit="cover" />
+                      <Pressable onPress={() => navigateToUserOrLiverProfile({ displayName: item.username })} hitSlop={4}>
+                        <Image source={{ uri: item.avatar }} style={styles.chatAvatar} contentFit="cover" />
+                      </Pressable>
                     ) : (
-                      <View style={[styles.chatAvatar, { backgroundColor: C.surface3 }]} />
+                      <Pressable onPress={() => navigateToUserOrLiverProfile({ displayName: item.username })} hitSlop={4}>
+                        <View style={[styles.chatAvatar, { backgroundColor: C.surface3 }]} />
+                      </Pressable>
                     )}
                   </View>
                   <View style={styles.giftContent}>
@@ -614,9 +629,13 @@ export default function LiveStreamScreen() {
                 <View style={[styles.chatMsg, item.username === "You" && styles.chatMsgMine]}>
                   {item.username !== "You" && (
                     item.avatar ? (
-                      <Image source={{ uri: item.avatar }} style={styles.chatAvatar} contentFit="cover" />
+                      <Pressable onPress={() => navigateToUserOrLiverProfile({ displayName: item.username })} hitSlop={4}>
+                        <Image source={{ uri: item.avatar }} style={styles.chatAvatar} contentFit="cover" />
+                      </Pressable>
                     ) : (
-                      <View style={[styles.chatAvatar, { backgroundColor: C.surface3 }]} />
+                      <Pressable onPress={() => navigateToUserOrLiverProfile({ displayName: item.username })} hitSlop={4}>
+                        <View style={[styles.chatAvatar, { backgroundColor: C.surface3 }]} />
+                      </Pressable>
                     )
                   )}
                   <View style={[styles.chatBubble, item.username === "You" && styles.chatBubbleMine]}>

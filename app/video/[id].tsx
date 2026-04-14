@@ -21,6 +21,7 @@ import { C } from "@/constants/colors";
 import { VIDEOS } from "@/constants/data";
 import { useAuth } from "@/lib/auth";
 import { apiRequest } from "@/lib/query-client";
+import { navigateFromVideoCreatorRow, navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { usePlayingVideo } from "@/lib/playing-video-context";
 import { webScrollStyle } from "@/constants/layout";
 
@@ -363,11 +364,16 @@ export default function VideoDetailScreen() {
           <View style={styles.commentsPreview}>
             {comments.map((c) => (
               <View key={c.id} style={styles.commentItem}>
-                <Image
-                  source={{ uri: c.profileImageUrl ?? undefined }}
-                  style={styles.commentAvatar}
-                  contentFit="cover"
-                />
+                <Pressable
+                  onPress={() => navigateToUserOrLiverProfile({ userId: c.userId })}
+                  hitSlop={4}
+                >
+                  <Image
+                    source={{ uri: c.profileImageUrl ?? undefined }}
+                    style={styles.commentAvatar}
+                    contentFit="cover"
+                  />
+                </Pressable>
                 <View style={styles.commentContent}>
                   <Text style={styles.commentName}>{c.displayName ?? "User"}</Text>
                   <Text style={styles.commentText} numberOfLines={1}>
@@ -437,28 +443,9 @@ export default function VideoDetailScreen() {
         <View style={styles.creatorSection}>
           <Pressable
             style={styles.creatorRow}
-            onPress={() => {
-              const type = (video as any).creatorType;
-              const cid = (video as any).creatorId;
-              if (type === "user" && typeof cid === "number") {
-                router.push(`/user/${cid}`);
-                return;
-              }
-              if (type === "liver" && typeof cid === "number") {
-                router.push(`/livers/${cid}`);
-                return;
-              }
-              if (!video?.creator) return;
-              apiRequest("GET", `/api/profile/by-name/${encodeURIComponent(video.creator)}`)
-                .then((res) => res.json())
-                .then(({ type: t, id: i }: { type: "user" | "liver"; id: number }) => {
-                  if (t === "user") router.push(`/user/${i}`);
-                  else router.push(`/livers/${i}`);
-                })
-                .catch(() => {});
-            }}
+            onPress={() => navigateFromVideoCreatorRow(video as any)}
           >
-            <Image source={{ uri: video.avatar }} style={styles.creatorAvatar} contentFit="cover" pointerEvents="none" />
+            <Image source={{ uri: video.avatar }} style={styles.creatorAvatar} contentFit="cover" />
             <View style={styles.creatorInfo}>
               <Text style={styles.creatorName}>{video.creator}</Text>
               <Text style={styles.creatorCommunity}>{video.community}</Text>

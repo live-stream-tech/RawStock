@@ -24,6 +24,7 @@ import { AppLogo } from "@/components/AppLogo";
 import { CreatorPromoBanner } from "@/components/CreatorPromoBanner";
 import { COMMUNITIES, VIDEOS } from "@/constants/data";
 import { apiRequest } from "@/lib/query-client";
+import { navigateToUserOrLiverProfile, navigateFromVideoCreatorRow } from "@/lib/navigate-profile";
 import { useAuth } from "@/lib/auth";
 import { webScrollStyle } from "@/constants/layout";
 
@@ -130,6 +131,7 @@ type QueueItem = {
   videoDurationSecs: number;
   addedBy: string;
   addedByAvatar: string | null;
+  addedByUserId?: number | null;
   isPlayed: boolean;
 };
 
@@ -149,6 +151,8 @@ type JukeboxData = {
 
 type VideoEditor = {
   id: number;
+  /** 登録ユーザー（API の video_editors 行） */
+  userId?: number | null;
   name: string;
   avatar: string;
   bio: string;
@@ -290,9 +294,19 @@ function EmbeddedJukebox({ communityId }: { communityId: number }) {
               {state.currentVideoTitle}
             </Text>
             {addedByItem && (
-              <Text style={jukeStyles.addedBy} numberOfLines={1}>
-                Added by {addedByItem.addedBy}
-              </Text>
+              <Pressable
+                onPress={() =>
+                  navigateToUserOrLiverProfile({
+                    userId: (addedByItem as QueueItem).addedByUserId ?? null,
+                    displayName: (addedByItem as QueueItem).addedByUserId ? null : addedByItem.addedBy,
+                  })
+                }
+                hitSlop={4}
+              >
+                <Text style={jukeStyles.addedBy} numberOfLines={1}>
+                  Added by {addedByItem.addedBy}
+                </Text>
+              </Pressable>
             )}
             <View style={jukeStyles.progressRow}>
               <View style={jukeStyles.progressTrack}>
@@ -315,7 +329,9 @@ function EmbeddedJukebox({ communityId }: { communityId: number }) {
         <View style={jukeStyles.commentsWrap}>
           {chat.map((msg) => (
             <View key={msg.id} style={jukeStyles.commentRow}>
-              <Text style={jukeStyles.commentUser}>{msg.username}</Text>
+              <Pressable onPress={() => navigateToUserOrLiverProfile({ displayName: msg.username })} hitSlop={2}>
+                <Text style={jukeStyles.commentUser}>{msg.username}</Text>
+              </Pressable>
               <Text style={jukeStyles.commentText} numberOfLines={1}>{msg.message}</Text>
             </View>
           ))}
@@ -579,13 +595,18 @@ function ThreadDetailContent({
           </View>
         </View>
         <View style={styles.threadDetailMeta}>
-          {thread.author.profileImageUrl ? (
-            <Image source={{ uri: thread.author.profileImageUrl }} style={styles.threadDetailAvatar} contentFit="cover" />
-          ) : (
-            <View style={[styles.threadDetailAvatar, styles.threadAvatarFallback]}>
-              <Text style={styles.threadAvatarInitial}>{(thread.author.displayName ?? "?")[0]}</Text>
-            </View>
-          )}
+          <Pressable
+            onPress={() => navigateToUserOrLiverProfile({ userId: thread.authorUserId })}
+            hitSlop={4}
+          >
+            {thread.author.profileImageUrl ? (
+              <Image source={{ uri: thread.author.profileImageUrl }} style={styles.threadDetailAvatar} contentFit="cover" />
+            ) : (
+              <View style={[styles.threadDetailAvatar, styles.threadAvatarFallback]}>
+                <Text style={styles.threadAvatarInitial}>{(thread.author.displayName ?? "?")[0]}</Text>
+              </View>
+            )}
+          </Pressable>
           <Text style={styles.threadDetailAuthor}>{thread.author.displayName}</Text>
           <Text style={styles.threadDetailDate}>{formatThreadDate(thread.createdAt)}</Text>
         </View>
@@ -594,13 +615,18 @@ function ThreadDetailContent({
       <ScrollView style={webScrollStyle(styles.threadDetailPosts)} showsVerticalScrollIndicator={scrollShowsVertical}>
         {thread.posts.map((p) => (
           <View key={p.id} style={styles.threadPostRow}>
-            {p.author.profileImageUrl ? (
-              <Image source={{ uri: p.author.profileImageUrl }} style={styles.threadPostAvatar} contentFit="cover" />
-            ) : (
-              <View style={[styles.threadPostAvatar, styles.threadAvatarFallback]}>
-                <Text style={styles.threadAvatarInitial}>{(p.author.displayName ?? "?")[0]}</Text>
-              </View>
-            )}
+            <Pressable
+              onPress={() => navigateToUserOrLiverProfile({ userId: p.authorUserId })}
+              hitSlop={4}
+            >
+              {p.author.profileImageUrl ? (
+                <Image source={{ uri: p.author.profileImageUrl }} style={styles.threadPostAvatar} contentFit="cover" />
+              ) : (
+                <View style={[styles.threadPostAvatar, styles.threadAvatarFallback]}>
+                  <Text style={styles.threadAvatarInitial}>{(p.author.displayName ?? "?")[0]}</Text>
+                </View>
+              )}
+            </Pressable>
             <View style={styles.threadPostBody}>
               <Text style={styles.threadPostAuthor}>{p.author.displayName}</Text>
               <Text style={styles.threadPostDate}>{formatThreadDate(p.createdAt)}</Text>
@@ -1000,7 +1026,7 @@ export default function CommunityDetailScreen() {
                   style={styles.staffRow}
                   onPress={() => router.push(`/user/${staffData.admin!.id}`)}
                 >
-                  <Image source={{ uri: staffData.admin.profileImageUrl ?? undefined }} style={styles.staffAvatar} contentFit="cover" pointerEvents="none" />
+                  <Image source={{ uri: staffData.admin.profileImageUrl ?? undefined }} style={styles.staffAvatar} contentFit="cover" />
                   <Text style={styles.staffLabel}>Admin</Text>
                   <Text style={styles.staffName}>{staffData.admin.displayName}</Text>
                   <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
@@ -1013,7 +1039,7 @@ export default function CommunityDetailScreen() {
                     style={styles.staffRow}
                     onPress={() => router.push(`/user/${m.id}`)}
                   >
-                    <Image source={{ uri: m.profileImageUrl ?? undefined }} style={styles.staffAvatar} contentFit="cover" pointerEvents="none" />
+                    <Image source={{ uri: m.profileImageUrl ?? undefined }} style={styles.staffAvatar} contentFit="cover" />
                     <Text style={styles.staffLabel}>Moderator</Text>
                     <Text style={styles.staffName}>{m.displayName}</Text>
                     <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
@@ -1082,27 +1108,10 @@ export default function CommunityDetailScreen() {
                     style={styles.postCreatorPressable}
                     onPress={(e) => {
                       e.stopPropagation();
-                      const type = (video as any).creatorType;
-                      const cid = (video as any).creatorId;
-                      if (type === "user" && typeof cid === "number") {
-                        router.push(`/user/${cid}`);
-                        return;
-                      }
-                      if (type === "liver" && typeof cid === "number") {
-                        router.push(`/livers/${cid}`);
-                        return;
-                      }
-                      if (!video?.creator) return;
-                      apiRequest("GET", `/api/profile/by-name/${encodeURIComponent(video.creator)}`)
-                        .then((res) => res.json())
-                        .then(({ type: t, id: i }: { type: "user" | "liver"; id: number }) => {
-                          if (t === "user") router.push(`/user/${i}`);
-                          else router.push(`/livers/${i}`);
-                        })
-                        .catch(() => {});
+                      navigateFromVideoCreatorRow(video as any);
                     }}
                   >
-                    <Image source={{ uri: video.avatar }} style={styles.postAvatar} contentFit="cover" pointerEvents="none" />
+                    <Image source={{ uri: video.avatar }} style={styles.postAvatar} contentFit="cover" />
                     <View style={styles.postMeta}>
                       <Text style={styles.postCreator}>{video.creator}</Text>
                       <Text style={styles.postTime}>{video.timeAgo}</Text>
@@ -1162,7 +1171,17 @@ export default function CommunityDetailScreen() {
                         const genres = editor.genres.split(",").map((g) => g.trim()).filter(Boolean);
                         return (
                           <View key={editor.id} style={styles.editorCard}>
-                            <Image source={{ uri: editor.avatar }} style={styles.editorAvatar} contentFit="cover" />
+                            <Pressable
+                              onPress={() =>
+                                navigateToUserOrLiverProfile({
+                                  userId: editor.userId ?? null,
+                                  displayName: editor.userId ? null : editor.name,
+                                })
+                              }
+                              hitSlop={4}
+                            >
+                              <Image source={{ uri: editor.avatar }} style={styles.editorAvatar} contentFit="cover" />
+                            </Pressable>
                             <View style={styles.editorBody}>
                               <View style={styles.editorHeaderRow}>
                                 <Text style={styles.editorName} numberOfLines={1}>{editor.name}</Text>
@@ -1267,12 +1286,20 @@ export default function CommunityDetailScreen() {
               <Text style={styles.boardEmpty}>No threads yet</Text>
             ) : (
               threads.map((t) => (
-                <Pressable
-                  key={t.id}
-                  style={styles.boardCard}
-                  onPress={() => setSelectedThreadId(t.id)}
-                >
-                  <View style={styles.boardBody}>
+                <View key={t.id} style={styles.boardCard}>
+                  <Pressable
+                    onPress={() => navigateToUserOrLiverProfile({ userId: t.authorUserId })}
+                    hitSlop={4}
+                  >
+                    {t.author.profileImageUrl ? (
+                      <Image source={{ uri: t.author.profileImageUrl }} style={styles.boardAuthorAvatar} contentFit="cover" />
+                    ) : (
+                      <View style={[styles.boardAuthorAvatar, styles.threadAvatarFallback]}>
+                        <Text style={styles.threadAvatarInitial}>{(t.author.displayName ?? "?")[0]}</Text>
+                      </View>
+                    )}
+                  </Pressable>
+                  <Pressable style={styles.boardBody} onPress={() => setSelectedThreadId(t.id)}>
                     <View style={styles.boardTagRow}>
                       {t.pinned && (
                         <View style={[styles.boardTag, { backgroundColor: C.orange + "33" }]}>
@@ -1286,9 +1313,11 @@ export default function CommunityDetailScreen() {
                     <Text style={styles.boardTitle}>{t.title}</Text>
                     {t.body ? <Text style={styles.boardDetail} numberOfLines={1}>{t.body}</Text> : null}
                     <Text style={styles.boardPostCount}>{t.postCount} replies</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
-                </Pressable>
+                  </Pressable>
+                  <Pressable onPress={() => setSelectedThreadId(t.id)} hitSlop={8} style={{ justifyContent: "center" }}>
+                    <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+                  </Pressable>
+                </View>
               ))
             )}
 
@@ -1464,7 +1493,17 @@ export default function CommunityDetailScreen() {
               <>
                 <View style={styles.requestModalHeader}>
                   <View style={styles.requestModalEditorRow}>
-                    <Image source={{ uri: requestEditor.avatar }} style={styles.requestModalAvatar} contentFit="cover" />
+                    <Pressable
+                      onPress={() =>
+                        navigateToUserOrLiverProfile({
+                          userId: requestEditor.userId ?? null,
+                          displayName: !requestEditor.userId ? requestEditor.name : null,
+                        })
+                      }
+                      hitSlop={6}
+                    >
+                      <Image source={{ uri: requestEditor.avatar }} style={styles.requestModalAvatar} contentFit="cover" />
+                    </Pressable>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.requestModalTitle}>Request {requestEditor.name}</Text>
                       <View style={styles.editorRatingRow}>
@@ -1598,27 +1637,47 @@ export default function CommunityDetailScreen() {
               <ScrollView style={webScrollStyle(styles.staffPickerScroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
                 <Text style={styles.staffPickerSectionTitle}>Admin (1 person)</Text>
                 {members.map((m) => (
-                  <Pressable
+                  <View
                     key={m.id}
                     style={[styles.staffPickerRow, selectedAdminId === m.id && styles.staffPickerRowSelected]}
-                    onPress={() => setSelectedAdminId(selectedAdminId === m.id ? null : m.id)}
                   >
-                    <Image source={{ uri: m.profileImageUrl ?? undefined }} style={styles.staffPickerAvatar} contentFit="cover" />
-                    <Text style={styles.staffPickerName} numberOfLines={1}>{m.displayName}</Text>
-                    {selectedAdminId === m.id && <Ionicons name="checkmark-circle" size={22} color={C.accent} />}
-                  </Pressable>
+                    <Pressable onPress={() => router.push(`/user/${m.id}`)} hitSlop={4}>
+                      <Image source={{ uri: m.profileImageUrl ?? undefined }} style={styles.staffPickerAvatar} contentFit="cover" />
+                    </Pressable>
+                    <Pressable
+                      style={{ flex: 1, justifyContent: "center", minHeight: 44 }}
+                      onPress={() => setSelectedAdminId(selectedAdminId === m.id ? null : m.id)}
+                    >
+                      <Text style={styles.staffPickerName} numberOfLines={1}>{m.displayName}</Text>
+                    </Pressable>
+                    <Pressable onPress={() => setSelectedAdminId(selectedAdminId === m.id ? null : m.id)} hitSlop={8}>
+                      {selectedAdminId === m.id ? <Ionicons name="checkmark-circle" size={22} color={C.accent} /> : <View style={{ width: 22 }} />}
+                    </Pressable>
+                  </View>
                 ))}
                 <Text style={[styles.staffPickerSectionTitle, { marginTop: 16 }]}>Moderators (multiple allowed)</Text>
                 {members.map((m) => (
-                  <Pressable
+                  <View
                     key={`mod-${m.id}`}
                     style={[styles.staffPickerRow, selectedModeratorIds.includes(m.id) && styles.staffPickerRowSelected]}
-                    onPress={() => toggleModerator(m.id)}
                   >
-                    <Image source={{ uri: m.profileImageUrl ?? undefined }} style={styles.staffPickerAvatar} contentFit="cover" />
-                    <Text style={styles.staffPickerName} numberOfLines={1}>{m.displayName}</Text>
-                    {selectedModeratorIds.includes(m.id) && <Ionicons name="checkmark-circle" size={22} color={C.accent} />}
-                  </Pressable>
+                    <Pressable onPress={() => router.push(`/user/${m.id}`)} hitSlop={4}>
+                      <Image source={{ uri: m.profileImageUrl ?? undefined }} style={styles.staffPickerAvatar} contentFit="cover" />
+                    </Pressable>
+                    <Pressable
+                      style={{ flex: 1, justifyContent: "center", minHeight: 44 }}
+                      onPress={() => toggleModerator(m.id)}
+                    >
+                      <Text style={styles.staffPickerName} numberOfLines={1}>{m.displayName}</Text>
+                    </Pressable>
+                    <Pressable onPress={() => toggleModerator(m.id)} hitSlop={8}>
+                      {selectedModeratorIds.includes(m.id) ? (
+                        <Ionicons name="checkmark-circle" size={22} color={C.accent} />
+                      ) : (
+                        <View style={{ width: 22 }} />
+                      )}
+                    </Pressable>
+                  </View>
                 ))}
               </ScrollView>
             )}
@@ -2420,6 +2479,12 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
+  },
+  boardAuthorAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: C.surface3,
   },
   boardBody: { flex: 1, gap: 4 },
   boardTagRow: {

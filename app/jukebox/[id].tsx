@@ -23,6 +23,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { C } from "@/constants/colors";
 import { apiRequest, ApiError } from "@/lib/query-client";
+import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { useAuth } from "@/lib/auth";
 import { Linking } from "react-native";
 import { getApiUrl } from "@/lib/query-client";
@@ -54,6 +55,7 @@ type QueueItem = {
   youtubeId?: string | null;
   addedBy: string;
   addedByAvatar: string | null;
+  addedByUserId?: number | null;
   isPlayed: boolean;
 };
 
@@ -590,7 +592,17 @@ function QueueRow({
           </Text>
           <View style={styles.queueItemVerticalMeta}>
             {item.addedByAvatar ? (
-              <Image source={{ uri: item.addedByAvatar }} style={styles.queueItemAvatar} contentFit="cover" />
+              <Pressable
+                onPress={() =>
+                  navigateToUserOrLiverProfile({
+                    userId: item.addedByUserId ?? null,
+                    displayName: item.addedByUserId ? null : item.addedBy,
+                  })
+                }
+                hitSlop={4}
+              >
+                <Image source={{ uri: item.addedByAvatar }} style={styles.queueItemAvatar} contentFit="cover" />
+              </Pressable>
             ) : null}
             <Text style={styles.queueItemByVertical}>{item.addedBy}</Text>
           </View>
@@ -619,7 +631,17 @@ function QueueRow({
         </Text>
         <View style={styles.queueItemByRow}>
           {item.addedByAvatar ? (
-            <Image source={{ uri: item.addedByAvatar }} style={styles.queueItemAvatar} contentFit="cover" />
+            <Pressable
+              onPress={() =>
+                navigateToUserOrLiverProfile({
+                  userId: item.addedByUserId ?? null,
+                  displayName: item.addedByUserId ? null : item.addedBy,
+                })
+              }
+              hitSlop={4}
+            >
+              <Image source={{ uri: item.addedByAvatar }} style={styles.queueItemAvatar} contentFit="cover" />
+            </Pressable>
           ) : null}
           <Text style={styles.queueItemBy}>{item.addedBy}</Text>
         </View>
@@ -1421,14 +1443,20 @@ export default function JukeboxScreen() {
               removeClippedSubviews={false}
               renderItem={({ item }) => (
                 <View style={[styles.chatMsg, item.username === (user?.name ?? "Guest") && styles.chatMsgMine]}>
-                  {item.username !== (user?.name ?? "Guest") &&
-                    (item.avatar ? (
-                      <Image source={{ uri: item.avatar }} style={styles.chatAvatar} contentFit="cover" />
-                    ) : (
-                      <View style={[styles.chatAvatar, { backgroundColor: C.surface3, alignItems: "center", justifyContent: "center" }]}>
-                        <Ionicons name="person" size={12} color={C.textMuted} />
-                      </View>
-                    ))}
+                  {item.username !== (user?.name ?? "Guest") && (
+                    <Pressable
+                      onPress={() => navigateToUserOrLiverProfile({ displayName: item.username })}
+                      hitSlop={4}
+                    >
+                      {item.avatar ? (
+                        <Image source={{ uri: item.avatar }} style={styles.chatAvatar} contentFit="cover" />
+                      ) : (
+                        <View style={[styles.chatAvatar, { backgroundColor: C.surface3, alignItems: "center", justifyContent: "center" }]}>
+                          <Ionicons name="person" size={12} color={C.textMuted} />
+                        </View>
+                      )}
+                    </Pressable>
+                  )}
                   <View style={[styles.chatBubble, item.username === (user?.name ?? "Guest") && styles.chatBubbleMine]}>
                     {item.username !== (user?.name ?? "Guest") && <Text style={styles.chatUsername}>{item.username}</Text>}
                     <Text style={[styles.chatText, item.username === (user?.name ?? "Guest") && styles.chatTextMine]}>{item.message}</Text>
@@ -1559,13 +1587,18 @@ export default function JukeboxScreen() {
                 renderItem={({ item }) => (
                   <View style={[styles.chatMsg, item.username === (user?.name ?? "Guest") && styles.chatMsgMine]}>
                     {item.username !== (user?.name ?? "Guest") && (
-                      item.avatar ? (
-                        <Image source={{ uri: item.avatar }} style={styles.chatAvatar} contentFit="cover" />
-                      ) : (
-                        <View style={[styles.chatAvatar, { backgroundColor: C.surface3, alignItems: "center", justifyContent: "center" }]}>
-                          <Ionicons name="person" size={12} color={C.textMuted} />
-                        </View>
-                      )
+                      <Pressable
+                        onPress={() => navigateToUserOrLiverProfile({ displayName: item.username })}
+                        hitSlop={4}
+                      >
+                        {item.avatar ? (
+                          <Image source={{ uri: item.avatar }} style={styles.chatAvatar} contentFit="cover" />
+                        ) : (
+                          <View style={[styles.chatAvatar, { backgroundColor: C.surface3, alignItems: "center", justifyContent: "center" }]}>
+                            <Ionicons name="person" size={12} color={C.textMuted} />
+                          </View>
+                        )}
+                      </Pressable>
                     )}
                     <View style={[styles.chatBubble, item.username === (user?.name ?? "Guest") && styles.chatBubbleMine]}>
                       {item.username !== (user?.name ?? "Guest") && (
@@ -1690,13 +1723,18 @@ export default function JukeboxScreen() {
                   renderItem={({ item }) => (
                     <View style={[styles.chatMsg, item.username === (user?.name ?? "Guest") && styles.chatMsgMine]}>
                       {item.username !== (user?.name ?? "Guest") && (
-                        item.avatar ? (
-                          <Image source={{ uri: item.avatar }} style={styles.chatAvatar} contentFit="cover" />
-                        ) : (
-                          <View style={[styles.chatAvatar, { backgroundColor: C.surface3, alignItems: "center", justifyContent: "center" }]}>
-                            <Ionicons name="person" size={12} color={C.textMuted} />
-                          </View>
-                        )
+                        <Pressable
+                          onPress={() => navigateToUserOrLiverProfile({ displayName: item.username })}
+                          hitSlop={4}
+                        >
+                          {item.avatar ? (
+                            <Image source={{ uri: item.avatar }} style={styles.chatAvatar} contentFit="cover" />
+                          ) : (
+                            <View style={[styles.chatAvatar, { backgroundColor: C.surface3, alignItems: "center", justifyContent: "center" }]}>
+                              <Ionicons name="person" size={12} color={C.textMuted} />
+                            </View>
+                          )}
+                        </Pressable>
                       )}
                       <View style={[styles.chatBubble, item.username === (user?.name ?? "Guest") && styles.chatBubbleMine]}>
                         {item.username !== (user?.name ?? "Guest") && (

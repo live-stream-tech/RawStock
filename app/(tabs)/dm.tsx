@@ -14,6 +14,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { C } from "@/constants/colors";
+import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/layout";
 import { MetallicLine } from "@/components/MetallicLine";
 
@@ -25,6 +26,8 @@ type DMItem = {
   time: string;
   unread: number;
   online: boolean;
+  /** DM 相手の users.id（オペレーション用ダミーは 0） */
+  otherUserId?: number;
 };
 
 const PLACEHOLDER = [
@@ -126,17 +129,27 @@ export default function DMScreen() {
         showsVerticalScrollIndicator={scrollShowsVertical}
       >
         {dmList.map((item, index) => (
-          <Pressable
+          <View
             key={item.id}
             style={[styles.dmItem, index < dmList.length - 1 && styles.dmItemBorder]}
-            onPress={() => router.push(`/dm/${item.id}`)}
           >
-            <View style={styles.avatarContainer}>
-              <Image source={{ uri: item.avatar }} style={styles.avatar} contentFit="cover" />
-              {item.online && <View style={styles.onlineDot} />}
-            </View>
+            {item.otherUserId && item.otherUserId > 0 ? (
+              <Pressable
+                style={styles.avatarContainer}
+                onPress={() => navigateToUserOrLiverProfile({ userId: item.otherUserId })}
+                hitSlop={4}
+              >
+                <Image source={{ uri: item.avatar }} style={styles.avatar} contentFit="cover" />
+                {item.online && <View style={styles.onlineDot} />}
+              </Pressable>
+            ) : (
+              <View style={styles.avatarContainer}>
+                <Image source={{ uri: item.avatar }} style={styles.avatar} contentFit="cover" />
+                {item.online && <View style={styles.onlineDot} />}
+              </View>
+            )}
 
-            <View style={styles.content}>
+            <Pressable style={styles.content} onPress={() => router.push(`/dm/${item.id}`)}>
               <View style={styles.topRow}>
                 <Text style={[styles.name, item.unread > 0 && styles.nameUnread]}>{item.name}</Text>
                 <Text style={[styles.time, item.unread > 0 && styles.timeUnread]}>{item.time}</Text>
@@ -154,8 +167,8 @@ export default function DMScreen() {
                   </View>
                 )}
               </View>
-            </View>
-          </Pressable>
+            </Pressable>
+          </View>
         ))}
         <View style={{ height: 100 }} />
       </ScrollView>
