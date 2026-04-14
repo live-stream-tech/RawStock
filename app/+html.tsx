@@ -66,15 +66,6 @@ export default function Root({ children }: PropsWithChildren) {
           /* Desktop web: force slim cyan scrollbars.
              Increase selector specificity under #root to override RN Web defaults. */
           @media (min-width: 768px) and (pointer: fine) {
-            html, body {
-              overflow-y: scroll;
-            }
-            body {
-              overflow-x: hidden;
-            }
-            #root {
-              overflow: visible;
-            }
             #root * {
               scrollbar-width: thin !important;
               scrollbar-color: rgba(0, 255, 204, 0.45) rgba(5, 5, 5, 0.8) !important;
