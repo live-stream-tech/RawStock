@@ -5,11 +5,12 @@ import {
   ScrollView,
   StyleSheet,
   Pressable,
+  TextInput,
   Platform,
   Alert,
   ActivityIndicator,
 } from "react-native";
-import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
+import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
@@ -17,25 +18,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/query-client";
 import { C } from "@/constants/colors";
 import type { RawStockVideoSpec } from "../../shared/rawstock-video-spec";
+import type { AIEditAnalysis, EditPlan } from "../../shared/ai-edit";
 import { webScrollStyle } from "@/constants/layout";
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-type EDLItem = {
-  index: number;
-  startTime: string;
-  endTime: string;
-  type: "cut" | "highlight" | "transition" | "caption";
-  instruction: string;
-  note?: string;
-};
-
-type EditPlan = {
-  title: string;
-  totalDuration: string;
-  summary: string;
-  edl: EDLItem[];
-};
 
 type Job = {
   id: number;
@@ -44,6 +28,9 @@ type Job = {
   prompt: string;
   status: string;
   result: EditPlan | null;
+  analysis: AIEditAnalysis | null;
+  promptUsed: string;
+  revisionPrompt: string | null;
   planMinutes: number | null;
   logoUrl: string | null;
   telop: string | null;
@@ -52,6 +39,7 @@ type Job = {
   revisionCount: number;
   ticketCost: number | null;
   videoSpec: RawStockVideoSpec | null;
+  baseVideoSpec: RawStockVideoSpec | null;
   templatedRenderId: string | null;
   deliveredUrl: string | null;
   deliveredAt: string | null;
@@ -86,6 +74,7 @@ const STATUS_LABELS: Record<string, string> = {
   completed:  "Complete",
   failed:     "Failed",
   approved:   "Approved",
+  rendering:  "Rendering…",
   delivered:  "Delivered",
 };
 
@@ -96,6 +85,8 @@ function getStatusColor(status: string): string {
       return C.accent;
     case "delivered":
       return "#22c55e"; // green
+    case "rendering":
+      return "#60a5fa";
     case "processing":
       return C.amber;
     case "failed":
@@ -116,6 +107,8 @@ export default function AIEditJobScreen() {
   const qc = useQueryClient();
   const [approving, setApproving] = useState(false);
   const [revising, setRevising] = useState(false);
+  const [rendering, setRendering] = useState(false);
+  const [revisionPrompt, setRevisionPrompt] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { data: job, isLoading, isError } = useQuery<Job>({
@@ -137,7 +130,13 @@ export default function AIEditJobScreen() {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [id, isDone]);
+  }, [id, isDone, qc]);
+
+  useEffect(() => {
+    if (job?.revisionPrompt) {
+      setRevisionPrompt(job.revisionPrompt);
+    }
+  }, [job?.revisionPrompt]);
 
   function handleDownload() {
     if (!job?.deliveredUrl) return;
@@ -161,12 +160,38 @@ export default function AIEditJobScreen() {
     setApproving(true);
     try {
       await apiRequest("POST", `/api/ai-edit/jobs/${job.id}/approve`);
+      try {
+        await apiRequest("POST", `/api/ai-edit/jobs/${job.id}/render`);
+      } catch (renderErr: any) {
+        await qc.invalidateQueries({ queryKey: [`/api/ai-edit/jobs/${id}`] });
+        Alert.alert(
+          "Approved",
+          renderErr?.message
+            ? `Your edit plan was approved, but MP4 render could not start yet.\n\n${renderErr.message}`
+            : "Your edit plan was approved, but MP4 render could not start yet.",
+        );
+        return;
+      }
       await qc.invalidateQueries({ queryKey: [`/api/ai-edit/jobs/${id}`] });
-      Alert.alert("Approved", "Your edit plan has been approved and published.");
-    } catch {
-      Alert.alert("Error", "Failed to approve. Please try again.");
+      Alert.alert("Approved", "Your edit plan was approved and MP4 rendering has started.");
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Failed to approve. Please try again.");
     } finally {
       setApproving(false);
+    }
+  }
+
+  async function handleStartRender() {
+    if (!job) return;
+    setRendering(true);
+    try {
+      await apiRequest("POST", `/api/ai-edit/jobs/${job.id}/render`);
+      await qc.invalidateQueries({ queryKey: [`/api/ai-edit/jobs/${id}`] });
+      Alert.alert("Render Started", "MP4 rendering is now in progress.");
+    } catch (e: any) {
+      Alert.alert("Render Failed", e?.message ?? "Failed to start MP4 render.");
+    } finally {
+      setRendering(false);
     }
   }
 
@@ -177,7 +202,7 @@ export default function AIEditJobScreen() {
     const costLabel = isFree ? "free" : `${REVISION_TICKETS} tickets`;
     Alert.alert(
       "Request Revision",
-      `Claude will re-generate the edit plan (${costLabel}). Continue?`,
+      `Claude will re-generate the edit plan (${costLabel}).${revisionPrompt.trim() ? "\n\nYour extra revision notes will be included." : ""} Continue?`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -185,11 +210,14 @@ export default function AIEditJobScreen() {
           onPress: async () => {
             setRevising(true);
             try {
-              const res = await apiRequest("POST", `/api/ai-edit/jobs/${job.id}/revise`);
+              const res = await apiRequest("POST", `/api/ai-edit/jobs/${job.id}/revise`, {
+                revisionPrompt: revisionPrompt.trim() || undefined,
+              });
               if (!res.ok) {
                 const err = (await res.json()) as { error?: string };
                 throw new Error(err.error ?? "Failed to request revision");
               }
+              setRevisionPrompt("");
               await qc.invalidateQueries({ queryKey: [`/api/ai-edit/jobs/${id}`] });
             } catch (e: any) {
               Alert.alert("Error", e?.message ?? "Failed to request revision.");
@@ -270,7 +298,7 @@ export default function AIEditJobScreen() {
               <Text style={[styles.statusText, { color: getStatusColor(status) }]}>
                 {STATUS_LABELS[status] ?? status}
               </Text>
-              {(status === "pending" || status === "processing") && (
+              {(status === "pending" || status === "processing" || status === "rendering") && (
                 <ActivityIndicator size="small" color={C.accent} style={{ marginLeft: 4 }} />
               )}
             </View>
@@ -351,13 +379,21 @@ export default function AIEditJobScreen() {
           </View>
         )}
 
+        {status === "rendering" && (
+          <View style={styles.processingCard}>
+            <Ionicons name="film-outline" size={28} color="#60a5fa" />
+            <Text style={styles.processingTitle}>Templated is rendering your MP4…</Text>
+            <Text style={styles.processingNote}>This screen will keep polling until the finished video is delivered.</Text>
+          </View>
+        )}
+
         {/* ── Failed state ── */}
         {status === "failed" && (
           <View style={styles.failedCard}>
             <Ionicons name="alert-circle" size={32} color={C.live} />
             <Text style={styles.failedTitle}>Processing Failed</Text>
             <Text style={styles.failedNote}>
-              Please try again or check that your video files are accessible.
+              Please try again or check that your video files are accessible. If this attempt charged tickets, they were refunded automatically.
             </Text>
             <Pressable style={styles.retryBtn} onPress={() => router.replace("/ai-edit")}>
               <Text style={styles.retryBtnText}>Try Again</Text>
@@ -366,7 +402,7 @@ export default function AIEditJobScreen() {
         )}
 
         {/* ── EDL Result ── */}
-        {plan && (status === "completed" || status === "approved") && (
+        {plan && status !== "pending" && status !== "processing" && status !== "failed" && (
           <>
             <View style={styles.planHeader}>
               <Text style={styles.planTitle}>{plan.title}</Text>
@@ -375,6 +411,11 @@ export default function AIEditJobScreen() {
                 <Text style={styles.planMetaText}>Total {plan.totalDuration}</Text>
               </View>
               <Text style={styles.planSummary}>{plan.summary}</Text>
+              {job.promptUsed !== job.prompt && (
+                <Text style={styles.planPromptUsed}>
+                  Revision prompt applied: {job.revisionPrompt?.trim() || "Yes"}
+                </Text>
+              )}
             </View>
 
             <Text style={styles.edlSectionLabel}>EDIT DECISION LIST</Text>
@@ -403,6 +444,51 @@ export default function AIEditJobScreen() {
               );
             })}
 
+            {job.analysis && (
+              <View style={styles.analysisCard}>
+                <Text style={styles.analysisTitle}>Render Analysis</Text>
+                <Text style={styles.analysisSubtitle}>
+                  Provider: {job.analysis.provider} · {job.analysis.sources.length} source file{job.analysis.sources.length !== 1 ? "s" : ""}
+                </Text>
+                <View style={styles.analysisRows}>
+                  {job.analysis.sources.map((source) => (
+                    <View key={source.sourceIndex} style={styles.analysisRow}>
+                      <Text style={styles.analysisRowLabel}>Source {source.sourceIndex + 1}</Text>
+                      <Text style={styles.analysisRowValue}>
+                        {Math.round(source.selectedDurationSec)}s selected / {Math.round(source.durationSec)}s total
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+                {job.analysis.warnings.length > 0 && (
+                  <View style={styles.analysisWarnings}>
+                    {job.analysis.warnings.map((warning, idx) => (
+                      <Text key={`${warning}-${idx}`} style={styles.analysisWarningText}>
+                        • {warning}
+                      </Text>
+                    ))}
+                  </View>
+                )}
+              </View>
+            )}
+
+            {(status === "completed" || status === "approved") && (
+              <View style={styles.revisionComposer}>
+                <Text style={styles.revisionComposerTitle}>Revision Notes</Text>
+                <Text style={styles.revisionComposerSub}>
+                  Add specific changes before requesting another AI pass.
+                </Text>
+                <TextInput
+                  value={revisionPrompt}
+                  onChangeText={setRevisionPrompt}
+                  placeholder="Example: keep the intro shorter, use more crowd shots in the chorus."
+                  placeholderTextColor={C.textMuted}
+                  multiline
+                  style={styles.revisionInput}
+                />
+              </View>
+            )}
+
             {/* ── Action buttons ── */}
             {status === "completed" && (
               <View style={styles.actionsRow}>
@@ -410,7 +496,7 @@ export default function AIEditJobScreen() {
                 <Pressable
                   style={[styles.approveBtn, approving && styles.btnDisabled]}
                   onPress={handleApprove}
-                  disabled={approving || revising}
+                  disabled={approving || revising || rendering}
                 >
                   {approving ? (
                     <ActivityIndicator size="small" color="#000" />
@@ -424,9 +510,9 @@ export default function AIEditJobScreen() {
 
                 {/* Revise */}
                 <Pressable
-                  style={[styles.reviseBtn, (revising || approving) && styles.btnDisabled]}
+                  style={[styles.reviseBtn, (revising || approving || rendering) && styles.btnDisabled]}
                   onPress={handleRevise}
-                  disabled={revising || approving}
+                  disabled={revising || approving || rendering}
                 >
                   {revising ? (
                     <ActivityIndicator size="small" color={C.text} />
@@ -449,14 +535,29 @@ export default function AIEditJobScreen() {
               <>
                 <View style={styles.approvedBanner}>
                   <Ionicons name="checkmark-circle" size={18} color={C.accent} />
-                  <Text style={styles.approvedText}>Approved and published</Text>
+                  <Text style={styles.approvedText}>Approved. Rendering can start immediately.</Text>
                 </View>
+
+                <Pressable
+                  style={[styles.renderBtn, rendering && styles.btnDisabled]}
+                  onPress={handleStartRender}
+                  disabled={rendering || revising}
+                >
+                  {rendering ? (
+                    <ActivityIndicator size="small" color="#000" />
+                  ) : (
+                    <Ionicons name="film-outline" size={16} color="#000" />
+                  )}
+                  <Text style={styles.renderBtnText}>
+                    {rendering ? "Starting…" : "Start MP4 Render"}
+                  </Text>
+                </Pressable>
 
                 {/* Still allow revision on approved jobs */}
                 <Pressable
-                  style={[styles.reviseBtn, styles.reviseBtnFull, revising && styles.btnDisabled]}
+                  style={[styles.reviseBtn, styles.reviseBtnFull, (revising || rendering) && styles.btnDisabled]}
                   onPress={handleRevise}
-                  disabled={revising}
+                  disabled={revising || rendering}
                 >
                   {revising ? (
                     <ActivityIndicator size="small" color={C.text} />
@@ -642,6 +743,7 @@ const styles = StyleSheet.create({
   planMeta: { flexDirection: "row", alignItems: "center", gap: 4 },
   planMetaText: { color: C.textSec, fontSize: 12 },
   planSummary: { color: C.textSec, fontSize: 13, lineHeight: 20 },
+  planPromptUsed: { color: C.textMuted, fontSize: 11, lineHeight: 16 },
   edlSectionLabel: {
     color: C.textMuted,
     fontSize: 11,
@@ -687,6 +789,56 @@ const styles = StyleSheet.create({
   edlInstruction: { color: C.text, fontSize: 13, fontWeight: "600", lineHeight: 18 },
   edlNote: { color: C.textMuted, fontSize: 11, lineHeight: 16 },
 
+  analysisCard: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.borderDim,
+    gap: 10,
+  },
+  analysisTitle: { color: C.text, fontSize: 14, fontWeight: "800" },
+  analysisSubtitle: { color: C.textSec, fontSize: 12 },
+  analysisRows: { gap: 8 },
+  analysisRow: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
+  analysisRowLabel: { color: C.text, fontSize: 12, fontWeight: "600" },
+  analysisRowValue: { color: C.textMuted, fontSize: 12, flexShrink: 1, textAlign: "right" },
+  analysisWarnings: {
+    backgroundColor: C.surface3,
+    borderRadius: 10,
+    padding: 10,
+    gap: 6,
+  },
+  analysisWarningText: { color: C.textSec, fontSize: 11, lineHeight: 16 },
+
+  revisionComposer: {
+    marginHorizontal: 16,
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.borderDim,
+    gap: 8,
+  },
+  revisionComposerTitle: { color: C.text, fontSize: 14, fontWeight: "800" },
+  revisionComposerSub: { color: C.textSec, fontSize: 12, lineHeight: 18 },
+  revisionInput: {
+    minHeight: 92,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface3,
+    color: C.text,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    textAlignVertical: "top",
+    fontSize: 13,
+    lineHeight: 18,
+  },
+
   // Actions
   actionsRow: {
     flexDirection: "row",
@@ -705,6 +857,18 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   approveBtnText: { color: "#000", fontSize: 14, fontWeight: "800" },
+  renderBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 10,
+    backgroundColor: "#60a5fa",
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  renderBtnText: { color: "#000", fontSize: 14, fontWeight: "800" },
   reviseBtn: {
     flex: 1,
     flexDirection: "row",

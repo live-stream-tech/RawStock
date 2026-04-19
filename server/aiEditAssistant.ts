@@ -2,25 +2,10 @@
  * AI Edit Assistant — generates an Edit Decision List (EDL) using Claude.
  * Accepts rich job input including multiple videos, logo, telop, audience, and tone.
  */
+import type { AIEditProvider, EditPlan } from "../shared/ai-edit";
 
 const MODEL = "claude-haiku-4-5-20251001";
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
-
-export type EDLItem = {
-  index: number;
-  startTime: string;
-  endTime: string;
-  type: "cut" | "highlight" | "transition" | "caption";
-  instruction: string;
-  note?: string;
-};
-
-export type EditPlan = {
-  title: string;
-  totalDuration: string;
-  summary: string;
-  edl: EDLItem[];
-};
 
 export type EditJobInput = {
   planMinutes: 15 | 30 | 45 | 60;
@@ -30,6 +15,11 @@ export type EditJobInput = {
   targetAudience?: string | null;
   tone?: string | null;
   prompt: string;
+};
+
+export type EditPlanGeneration = {
+  plan: EditPlan;
+  provider: AIEditProvider;
 };
 
 const SYSTEM_PROMPT = `You are a professional video editor AI assistant.
@@ -138,11 +128,25 @@ function buildUserMessage(input: EditJobInput): string {
   return lines.join("\n");
 }
 
-export async function generateEditPlan(input: EditJobInput): Promise<EditPlan> {
+function allowMockEditPlan(): boolean {
+  return process.env.AI_EDIT_ALLOW_MOCK === "1";
+}
+
+function withMockFallback(input: EditJobInput, reason: string): EditPlanGeneration {
+  if (!allowMockEditPlan()) {
+    throw new Error(reason);
+  }
+  console.warn(`[aiEditAssistant] ${reason} — returning mock EDL`);
+  return { plan: getMockEditPlan(input), provider: "mock" };
+}
+
+export async function generateEditPlan(input: EditJobInput): Promise<EditPlanGeneration> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    console.warn("[aiEditAssistant] ANTHROPIC_API_KEY not set — returning mock EDL");
-    return getMockEditPlan(input);
+    return withMockFallback(
+      input,
+      "ANTHROPIC_API_KEY is not set. Set AI_EDIT_ALLOW_MOCK=1 to use mock plans locally",
+    );
   }
 
   const userMessage = buildUserMessage(input);
@@ -166,27 +170,27 @@ export async function generateEditPlan(input: EditJobInput): Promise<EditPlan> {
     if (!res.ok) {
       const errText = await res.text();
       console.error("[aiEditAssistant] Claude API error:", res.status, errText);
-      return getMockEditPlan(input);
+      return withMockFallback(input, `Claude API error (${res.status})`);
     }
 
     const data = (await res.json()) as {
-      content?: Array<{ type: string; text?: string }>;
+      content?: { type: string; text?: string }[];
     };
     const text = data.content?.[0]?.text?.trim() ?? "";
 
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      console.error("[aiEditAssistant] No JSON found in Claude response");
-      return getMockEditPlan(input);
+      return withMockFallback(input, "No JSON found in Claude response");
     }
 
     const parsed = JSON.parse(jsonMatch[0]) as EditPlan;
     if (!parsed.edl || !Array.isArray(parsed.edl)) {
-      return getMockEditPlan(input);
+      return withMockFallback(input, "Claude response did not contain a valid EDL array");
     }
-    return parsed;
+    return { plan: parsed, provider: "anthropic" };
   } catch (e) {
     console.error("[aiEditAssistant] Error calling Claude:", e);
-    return getMockEditPlan(input);
+    const msg = e instanceof Error ? e.message : "Claude call failed";
+    return withMockFallback(input, msg);
   }
 }

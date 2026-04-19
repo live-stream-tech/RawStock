@@ -24,8 +24,8 @@ export const DSL_TO_TEMPLATED_INPUT_VIDEO_PLACEHOLDER = "INPUT_VIDEO_URL";
 export const DSL_TO_TEMPLATED_LOGO_PLACEHOLDER = "INPUT_LOGO_URL";
 
 export interface DslToTemplatedOptions {
-  /** 各 clip の trim が参照する単一ソース動画の URL */
-  inputVideoUrl: string;
+  /** 各 clip が参照できる元ソース動画 URL 一覧 */
+  inputVideoUrls: string[];
   /** Templated 非同期完了通知先（任意） */
   webhookUrl?: string;
   /** `overlays.logo === true` のとき推奨。省略時は {@link DSL_TO_TEMPLATED_LOGO_PLACEHOLDER} */
@@ -113,16 +113,18 @@ export function dslToTemplated(
     throw new Error("dslToTemplated: spec.clips must be non-empty");
   }
 
-  const src = options.inputVideoUrl.trim() || DSL_TO_TEMPLATED_INPUT_VIDEO_PLACEHOLDER;
   const modifications: Record<string, TemplatedModification> = {};
 
   spec.clips.forEach((clip, i) => {
     const n = i + 1;
     const videoKey = `video${n}`;
+    const sourceIndex = clip.sourceIndex ?? 0;
+    const sourceUrl = options.inputVideoUrls[sourceIndex]?.trim();
+    const src = sourceUrl || DSL_TO_TEMPLATED_INPUT_VIDEO_PLACEHOLDER;
     modifications[videoKey] = {
       video: {
         src,
-        trim: [clip.start, clip.end] as const,
+        trim: [clip.sourceStart ?? clip.start, clip.sourceEnd ?? clip.end] as const,
       },
     };
 

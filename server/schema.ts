@@ -867,14 +867,14 @@ export const dailyLogins = pgTable("daily_logins", {
 /**
  * AI Edit Assistant jobs.
  * Claude generates an Edit Decision List (EDL) from a video URL and prompt.
- * status: pending | processing | completed | failed | approved
+ * status: pending | processing | completed | failed | approved | rendering | delivered
  */
 export const aiEditJobs = pgTable("ai_edit_jobs", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull(),
   videoUrl: text("video_url").notNull().default(""),
   prompt: text("prompt").notNull(),
-  status: text("status").notNull().default("pending"), // pending | processing | completed | failed | approved
+  status: text("status").notNull().default("pending"), // pending | processing | completed | failed | approved | rendering | delivered
   result: text("result"), // JSON string of EDL
   // Enhanced AI Edit fields (v2)
   planMinutes: integer("plan_minutes"),      // 15 | 30 | 45 | 60

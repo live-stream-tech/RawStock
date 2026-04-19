@@ -493,6 +493,8 @@ var jukeboxQueue = pgTable("jukebox_queue", {
   youtubeId: text("youtube_id"),
   addedBy: text("added_by").notNull().default("You"),
   addedByAvatar: text("added_by_avatar"),
+  /** 追加したログインユーザー（未ログイン・旧データは NULL） */
+  addedByUserId: integer("added_by_user_id"),
   position: integer("position").notNull().default(0),
   isPlayed: boolean("is_played").default(false),
   createdAt: timestamp("created_at").defaultNow()
@@ -840,7 +842,7 @@ var aiEditJobs = pgTable("ai_edit_jobs", {
   videoUrl: text("video_url").notNull().default(""),
   prompt: text("prompt").notNull(),
   status: text("status").notNull().default("pending"),
-  // pending | processing | completed | failed | approved
+  // pending | processing | completed | failed | approved | rendering | delivered
   result: text("result"),
   // JSON string of EDL
   // Enhanced AI Edit fields (v2)
@@ -1407,11 +1409,23 @@ function buildUserMessage(input) {
   lines.push("", "Editing instructions:", prompt);
   return lines.join("\n");
 }
+function allowMockEditPlan() {
+  return process.env.AI_EDIT_ALLOW_MOCK === "1";
+}
+function withMockFallback(input, reason) {
+  if (!allowMockEditPlan()) {
+    throw new Error(reason);
+  }
+  console.warn(`[aiEditAssistant] ${reason} \u2014 returning mock EDL`);
+  return { plan: getMockEditPlan(input), provider: "mock" };
+}
 async function generateEditPlan(input) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    console.warn("[aiEditAssistant] ANTHROPIC_API_KEY not set \u2014 returning mock EDL");
-    return getMockEditPlan(input);
+    return withMockFallback(
+      input,
+      "ANTHROPIC_API_KEY is not set. Set AI_EDIT_ALLOW_MOCK=1 to use mock plans locally"
+    );
   }
   const userMessage = buildUserMessage(input);
   try {
@@ -1432,23 +1446,23 @@ async function generateEditPlan(input) {
     if (!res.ok) {
       const errText = await res.text();
       console.error("[aiEditAssistant] Claude API error:", res.status, errText);
-      return getMockEditPlan(input);
+      return withMockFallback(input, `Claude API error (${res.status})`);
     }
     const data = await res.json();
     const text2 = data.content?.[0]?.text?.trim() ?? "";
     const jsonMatch = text2.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      console.error("[aiEditAssistant] No JSON found in Claude response");
-      return getMockEditPlan(input);
+      return withMockFallback(input, "No JSON found in Claude response");
     }
     const parsed = JSON.parse(jsonMatch[0]);
     if (!parsed.edl || !Array.isArray(parsed.edl)) {
-      return getMockEditPlan(input);
+      return withMockFallback(input, "Claude response did not contain a valid EDL array");
     }
-    return parsed;
+    return { plan: parsed, provider: "anthropic" };
   } catch (e) {
     console.error("[aiEditAssistant] Error calling Claude:", e);
-    return getMockEditPlan(input);
+    const msg = e instanceof Error ? e.message : "Claude call failed";
+    return withMockFallback(input, msg);
   }
 }
 
@@ -1494,6 +1508,9 @@ function parseClip(raw) {
   try {
     const e = rawStockClipEnergy(energy);
     const intent = raw.intent;
+    const sourceIndex = raw.sourceIndex;
+    const sourceStart = raw.sourceStart;
+    const sourceEnd = raw.sourceEnd;
     const out = {
       start,
       end,
@@ -1502,6 +1519,27 @@ function parseClip(raw) {
     };
     if (typeof intent === "string" && intent.trim()) {
       out.intent = intent.trim();
+    }
+    if (sourceIndex !== void 0) {
+      if (typeof sourceIndex !== "number" || !Number.isInteger(sourceIndex) || sourceIndex < 0) {
+        return null;
+      }
+      out.sourceIndex = sourceIndex;
+    }
+    if (sourceStart !== void 0) {
+      if (typeof sourceStart !== "number" || !Number.isFinite(sourceStart) || sourceStart < 0) {
+        return null;
+      }
+      out.sourceStart = sourceStart;
+    }
+    if (sourceEnd !== void 0) {
+      if (typeof sourceEnd !== "number" || !Number.isFinite(sourceEnd) || sourceEnd < 0) {
+        return null;
+      }
+      out.sourceEnd = sourceEnd;
+    }
+    if (out.sourceStart !== void 0 && out.sourceEnd !== void 0 && out.sourceStart > out.sourceEnd) {
+      return null;
     }
     return out;
   } catch {
@@ -1570,6 +1608,202 @@ function parseStoredVideoSpec(json) {
   }
 }
 
+// server/lib/aiEditArtifacts.ts
+function parseTimestampToSeconds(value) {
+  const match = value.trim().match(/^(\d{1,2}):([0-5]\d)$/);
+  if (!match) return null;
+  const minutes = Number(match[1]);
+  const seconds = Number(match[2]);
+  return minutes * 60 + seconds;
+}
+function clipTypeFromEDL(item, index) {
+  if (item.type === "highlight") return index === 0 ? "hook" : "drop";
+  if (item.type === "transition") return "crowd";
+  if (item.type === "caption") return "chorus";
+  return index === 0 ? "hook" : "chorus";
+}
+function energyFromEDLType(type) {
+  switch (type) {
+    case "highlight":
+      return rawStockClipEnergy(0.9);
+    case "transition":
+      return rawStockClipEnergy(0.35);
+    case "caption":
+      return rawStockClipEnergy(0.45);
+    case "cut":
+    default:
+      return rawStockClipEnergy(0.65);
+  }
+}
+function clipDuration(clip) {
+  const start = clip.sourceStart ?? clip.start;
+  const end = clip.sourceEnd ?? clip.end;
+  return Math.max(0, end - start);
+}
+function buildSegmentsFromPlan(baseSpec, plan) {
+  const clips = [];
+  const segments = [];
+  let outputCursor = 0;
+  for (const [itemIdx, item] of plan.edl.entries()) {
+    const timelineStart = parseTimestampToSeconds(item.startTime);
+    const timelineEnd = parseTimestampToSeconds(item.endTime);
+    if (timelineStart == null || timelineEnd == null || timelineEnd <= timelineStart) {
+      continue;
+    }
+    for (const baseClip of baseSpec.clips) {
+      const overlapStart = Math.max(timelineStart, baseClip.start);
+      const overlapEnd = Math.min(timelineEnd, baseClip.end);
+      if (overlapEnd <= overlapStart) continue;
+      const baseSourceStart = baseClip.sourceStart ?? baseClip.start;
+      const sourceStart = baseSourceStart + (overlapStart - baseClip.start);
+      const sourceEnd = sourceStart + (overlapEnd - overlapStart);
+      const duration = overlapEnd - overlapStart;
+      const clip = {
+        start: outputCursor,
+        end: outputCursor + duration,
+        type: clipTypeFromEDL(item, itemIdx),
+        energy: energyFromEDLType(item.type),
+        intent: item.instruction.trim() || item.note?.trim() || void 0,
+        sourceIndex: baseClip.sourceIndex ?? 0,
+        sourceStart,
+        sourceEnd
+      };
+      clips.push(clip);
+      segments.push({
+        itemIndex: item.index,
+        sourceIndex: clip.sourceIndex ?? 0,
+        outputStartSec: clip.start,
+        outputEndSec: clip.end,
+        sourceStartSec: sourceStart,
+        sourceEndSec: sourceEnd,
+        edlType: item.type
+      });
+      outputCursor += duration;
+    }
+  }
+  return { clips, segments };
+}
+function buildAnalysis(provider, baseSpec, renderSpec, segments) {
+  const sourceDurations = /* @__PURE__ */ new Map();
+  for (const clip of baseSpec.clips) {
+    const sourceIndex = clip.sourceIndex ?? 0;
+    const duration = clipDuration(clip);
+    sourceDurations.set(sourceIndex, (sourceDurations.get(sourceIndex) ?? 0) + duration);
+  }
+  const selectedBySource = /* @__PURE__ */ new Map();
+  for (const segment of segments) {
+    const entry = selectedBySource.get(segment.sourceIndex) ?? { count: 0, duration: 0 };
+    entry.count += 1;
+    entry.duration += Math.max(0, segment.sourceEndSec - segment.sourceStartSec);
+    selectedBySource.set(segment.sourceIndex, entry);
+  }
+  const warnings = [];
+  if (provider === "mock") {
+    warnings.push("AI provider is running in mock mode. Review the edit plan carefully before rendering.");
+  }
+  if (segments.length === 0) {
+    warnings.push("The AI plan did not map to any source segment, so the original order spec is being used.");
+  }
+  if (new Set(renderSpec.clips.map((clip) => clip.sourceIndex ?? 0)).size > 1) {
+    warnings.push("This edit uses multiple source files. Verify the template supports all referenced video layers.");
+  }
+  return {
+    version: 1,
+    provider,
+    renderPath: "templated",
+    renderReady: renderSpec.clips.length > 0,
+    warnings,
+    nextSteps: [
+      "scene_detection",
+      "shot_classification",
+      "audio_beat_detection",
+      "highlight_scoring"
+    ],
+    sources: [...sourceDurations.entries()].sort((a, b) => a[0] - b[0]).map(([sourceIndex, durationSec]) => ({
+      sourceIndex,
+      durationSec,
+      selectedClipCount: selectedBySource.get(sourceIndex)?.count ?? 0,
+      selectedDurationSec: selectedBySource.get(sourceIndex)?.duration ?? 0
+    })),
+    segments
+  };
+}
+function buildAIEditStoredResult(params) {
+  const { plan, promptUsed, provider, baseSpec, revisionPrompt } = params;
+  const { clips, segments } = buildSegmentsFromPlan(baseSpec, plan);
+  const renderSpec = clips.length > 0 ? {
+    clips: sortRawStockClipsByStart(clips),
+    style: baseSpec.style,
+    format: baseSpec.format,
+    overlays: baseSpec.overlays,
+    duration: clips[clips.length - 1]?.end ?? 0
+  } : baseSpec;
+  return {
+    schemaVersion: "ai-edit-result-v1",
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    promptUsed,
+    revisionPrompt: revisionPrompt?.trim() || null,
+    plan,
+    renderSpec,
+    baseSpec,
+    analysis: buildAnalysis(provider, baseSpec, renderSpec, segments)
+  };
+}
+function parseAIEditStoredResult(json) {
+  if (!json?.trim()) return null;
+  try {
+    const parsed = JSON.parse(json);
+    if (parsed?.schemaVersion !== "ai-edit-result-v1") return null;
+    if (!parsed.plan || !Array.isArray(parsed.plan.edl)) return null;
+    if (!parsed.renderSpec || !Array.isArray(parsed.renderSpec.clips)) return null;
+    if (!parsed.baseSpec || !Array.isArray(parsed.baseSpec.clips)) return null;
+    if (!parsed.analysis || !Array.isArray(parsed.analysis.sources) || !Array.isArray(parsed.analysis.segments)) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+// server/lib/aiEditJobQueue.ts
+var pending = [];
+var activeKeys = /* @__PURE__ */ new Set();
+var running = false;
+var MAX_ATTEMPTS = 1;
+async function runQueue() {
+  if (running) return;
+  running = true;
+  try {
+    while (pending.length > 0) {
+      const task = pending.shift();
+      if (!task) continue;
+      try {
+        await task.handler();
+        activeKeys.delete(task.key);
+      } catch (error) {
+        if (task.attempts + 1 < MAX_ATTEMPTS) {
+          pending.push({ ...task, attempts: task.attempts + 1 });
+        } else {
+          activeKeys.delete(task.key);
+          console.error("[ai-edit/queue] job failed permanently:", error);
+        }
+      }
+    }
+  } finally {
+    running = false;
+  }
+}
+function enqueueAIEditJob(key, handler) {
+  if (activeKeys.has(key)) return false;
+  activeKeys.add(key);
+  pending.push({ key, handler, attempts: 0 });
+  void runQueue().catch((error) => {
+    console.error("[ai-edit/queue] job failed:", error);
+  });
+  return true;
+}
+
 // server/lib/dslToTemplated.ts
 var DSL_TO_TEMPLATED_INPUT_VIDEO_PLACEHOLDER = "INPUT_VIDEO_URL";
 var DSL_TO_TEMPLATED_LOGO_PLACEHOLDER = "INPUT_LOGO_URL";
@@ -1630,15 +1864,17 @@ function dslToTemplated(spec, options) {
   if (spec.clips.length === 0) {
     throw new Error("dslToTemplated: spec.clips must be non-empty");
   }
-  const src = options.inputVideoUrl.trim() || DSL_TO_TEMPLATED_INPUT_VIDEO_PLACEHOLDER;
   const modifications = {};
   spec.clips.forEach((clip, i) => {
     const n = i + 1;
     const videoKey = `video${n}`;
+    const sourceIndex = clip.sourceIndex ?? 0;
+    const sourceUrl = options.inputVideoUrls[sourceIndex]?.trim();
+    const src = sourceUrl || DSL_TO_TEMPLATED_INPUT_VIDEO_PLACEHOLDER;
     modifications[videoKey] = {
       video: {
         src,
-        trim: [clip.start, clip.end]
+        trim: [clip.sourceStart ?? clip.start, clip.sourceEnd ?? clip.end]
       }
     };
     if (shouldEmitCaptionForClip(clip, spec.style)) {
@@ -1677,6 +1913,9 @@ function templatedModificationsToLayers(modifications) {
     const layer = {};
     if (mod.video) {
       layer.video_url = mod.video.src;
+      layer.trim = mod.video.trim;
+      layer.trim_start = mod.video.trim[0];
+      layer.trim_end = mod.video.trim[1];
     }
     if (mod.text) {
       layer.text = mod.text.value;
@@ -1686,6 +1925,9 @@ function templatedModificationsToLayers(modifications) {
     }
     if (mod.logo) {
       layer.image_url = mod.logo.src;
+      if (mod.logo.position) {
+        layer.position = mod.logo.position;
+      }
     }
     layers[layerName] = layer;
   }
@@ -5838,6 +6080,7 @@ data: ${data}
   app2.post("/api/jukebox/:communityId/add", async (req, res) => {
     const communityId = paramNum(req, "communityId");
     const { videoId, videoTitle, videoThumbnail, videoDurationSecs, addedBy, addedByAvatar, youtubeId } = req.body;
+    const authUser = await getAuthUser(req);
     const existing = await db.select().from(jukeboxQueue).where(eq2(jukeboxQueue.communityId, communityId)).orderBy(desc(jukeboxQueue.position));
     const nextPos = existing.length > 0 ? existing[0].position + 1 : 1;
     const [item] = await db.insert(jukeboxQueue).values({
@@ -5849,6 +6092,7 @@ data: ${data}
       youtubeId: youtubeId ?? null,
       addedBy: addedBy ?? "You",
       addedByAvatar,
+      addedByUserId: authUser?.id ?? null,
       position: nextPos,
       isPlayed: false
     }).returning();
@@ -7745,6 +7989,115 @@ data: ${data}
   });
   const AI_EDIT_PLAN_TICKETS = { 15: 200, 30: 400, 45: 600, 60: 800 };
   const AI_EDIT_REVISION_TICKETS = 100;
+  const AI_EDIT_RENDERING_STATUS = "rendering";
+  function isEditPlan(value) {
+    return Boolean(
+      value && typeof value === "object" && Array.isArray(value.edl) && typeof value.title === "string"
+    );
+  }
+  function parseStoredEditPlan(json) {
+    if (!json?.trim()) return null;
+    const stored = parseAIEditStoredResult(json);
+    if (stored) return stored.plan;
+    try {
+      const parsed = JSON.parse(json);
+      return isEditPlan(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  function parseJobVideoUrls(job) {
+    if (job.videoUrls) {
+      try {
+        const parsed = JSON.parse(job.videoUrls);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((value) => typeof value === "string").map((value) => value.trim()).filter(Boolean);
+        }
+      } catch {
+      }
+    }
+    return job.videoUrl?.trim() ? [job.videoUrl.trim()] : [];
+  }
+  function getBaseVideoSpec(job) {
+    const stored = parseAIEditStoredResult(job.result ?? null);
+    return stored?.baseSpec ?? parseStoredVideoSpec(job.videoSpec ?? null);
+  }
+  function getRenderVideoSpec(job) {
+    const stored = parseAIEditStoredResult(job.result ?? null);
+    return stored?.renderSpec ?? parseStoredVideoSpec(job.videoSpec ?? null);
+  }
+  async function refundAIEditTickets(params) {
+    const { userId, amount, type, description, referenceId } = params;
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    const key = String(userId);
+    const balRows = await db.select().from(ticketBalances).where(eq2(ticketBalances.userId, key)).limit(1);
+    const currentBalance = balRows[0]?.balance ?? 0;
+    if (balRows.length === 0) {
+      await db.insert(ticketBalances).values({ userId: key, balance: amount });
+    } else {
+      await db.update(ticketBalances).set({ balance: currentBalance + amount, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, key));
+    }
+    await db.insert(ticketTransactions).values({
+      userId: key,
+      amount,
+      type,
+      referenceId,
+      description
+    });
+  }
+  function scheduleAIEditPlanGeneration(params) {
+    const { jobId, revisionPrompt, refundAmount = 0, refundType, refundDescription } = params;
+    enqueueAIEditJob(`ai-edit:${jobId}:${revisionPrompt?.trim() ?? "initial"}`, async () => {
+      const [freshJob] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.id, jobId));
+      if (!freshJob) return;
+      try {
+        const baseSpec = getBaseVideoSpec(freshJob);
+        if (!baseSpec) {
+          throw new Error("AI Edit job has no valid source spec");
+        }
+        const promptUsed = revisionPrompt?.trim() ? `${freshJob.prompt.trim()}
+
+Revision request:
+${revisionPrompt.trim()}` : freshJob.prompt.trim();
+        const videoUrls = parseJobVideoUrls(freshJob);
+        const editInput = {
+          planMinutes: freshJob.planMinutes ?? 15,
+          videoUrls,
+          logoUrl: freshJob.logoUrl,
+          telop: freshJob.telop,
+          targetAudience: freshJob.targetAudience,
+          tone: freshJob.tone,
+          prompt: promptUsed
+        };
+        const generated = await generateEditPlan(editInput);
+        const storedResult = buildAIEditStoredResult({
+          plan: generated.plan,
+          promptUsed,
+          provider: generated.provider,
+          baseSpec,
+          revisionPrompt
+        });
+        await db.update(aiEditJobs).set({
+          status: "completed",
+          result: JSON.stringify(storedResult),
+          videoSpec: JSON.stringify(storedResult.renderSpec),
+          updatedAt: /* @__PURE__ */ new Date()
+        }).where(eq2(aiEditJobs.id, jobId));
+      } catch (error) {
+        console.error("[ai-edit] Processing failed:", error);
+        await db.update(aiEditJobs).set({ status: "failed", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, jobId));
+        if (refundAmount > 0 && refundType && refundDescription) {
+          await refundAIEditTickets({
+            userId: freshJob.userId,
+            amount: refundAmount,
+            type: refundType,
+            description: refundDescription,
+            referenceId: String(freshJob.id)
+          });
+        }
+      }
+    });
+  }
   app2.post("/api/ai-edit/jobs", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -7756,6 +8109,9 @@ data: ${data}
         return res.status(400).json({ error: "Invalid video spec (DSL)" });
       }
       videoSpecJson = normalized;
+    }
+    if (!videoSpecJson) {
+      return res.status(400).json({ error: "AI Edit requires a source spec built from the uploaded videos" });
     }
     if (!planMinutes || !(planMinutes in AI_EDIT_PLAN_TICKETS)) {
       return res.status(400).json({ error: "planMinutes must be 15, 30, 45, or 60" });
@@ -7799,30 +8155,14 @@ data: ${data}
       ticketCost,
       videoSpec: videoSpecJson
     }).returning();
-    (async () => {
-      try {
-        await db.update(aiEditJobs).set({ status: "processing", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, job.id));
-        const editInput = {
-          planMinutes,
-          videoUrls,
-          logoUrl,
-          telop,
-          targetAudience,
-          tone,
-          prompt: prompt.trim()
-        };
-        const plan = await generateEditPlan(editInput);
-        await db.update(aiEditJobs).set({
-          status: "completed",
-          result: JSON.stringify(plan),
-          updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq2(aiEditJobs.id, job.id));
-      } catch (e) {
-        console.error("[ai-edit] Processing failed:", e);
-        await db.update(aiEditJobs).set({ status: "failed", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, job.id));
-      }
-    })();
-    res.json({ id: job.id, status: job.status });
+    await db.update(aiEditJobs).set({ status: "processing", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, job.id));
+    scheduleAIEditPlanGeneration({
+      jobId: job.id,
+      refundAmount: ticketCost,
+      refundType: "refund_ai_edit",
+      refundDescription: `Refund: AI Edit ${planMinutes}min plan (job ${job.id})`
+    });
+    res.json({ id: job.id, status: "processing" });
   });
   app2.get("/api/ai-edit/jobs/:id", async (req, res) => {
     const user = await getAuthUser(req);
@@ -7833,31 +8173,22 @@ data: ${data}
     if (job.userId !== user.id) {
       return res.status(403).json({ error: "Forbidden" });
     }
-    let result = null;
-    if (job.result) {
-      try {
-        result = JSON.parse(job.result);
-      } catch {
-        result = null;
-      }
-    }
-    let parsedVideoUrls = null;
-    if (job.videoUrls) {
-      try {
-        parsedVideoUrls = JSON.parse(job.videoUrls);
-      } catch {
-        parsedVideoUrls = null;
-      }
-    }
-    const videoSpec = parseStoredVideoSpec(job.videoSpec ?? null);
+    const storedResult = parseAIEditStoredResult(job.result ?? null);
+    const result = storedResult?.plan ?? parseStoredEditPlan(job.result ?? null);
+    const parsedVideoUrls = parseJobVideoUrls(job);
+    const videoSpec = storedResult?.renderSpec ?? parseStoredVideoSpec(job.videoSpec ?? null);
+    const baseVideoSpec = storedResult?.baseSpec ?? videoSpec;
     res.json({
       id: job.id,
       userId: job.userId,
       videoUrl: job.videoUrl,
-      videoUrls: parsedVideoUrls,
+      videoUrls: parsedVideoUrls.length > 0 ? parsedVideoUrls : null,
       prompt: job.prompt,
       status: job.status,
       result,
+      analysis: storedResult?.analysis ?? null,
+      promptUsed: storedResult?.promptUsed ?? job.prompt,
+      revisionPrompt: storedResult?.revisionPrompt ?? null,
       planMinutes: job.planMinutes,
       logoUrl: job.logoUrl,
       telop: job.telop,
@@ -7866,6 +8197,7 @@ data: ${data}
       revisionCount: job.revisionCount ?? 0,
       ticketCost: job.ticketCost,
       videoSpec,
+      baseVideoSpec,
       templatedRenderId: job.templatedRenderId ?? null,
       deliveredUrl: job.deliveredUrl ?? null,
       deliveredAt: job.deliveredAt ?? null,
@@ -7890,28 +8222,26 @@ data: ${data}
     if (job.userId !== user.id) {
       return res.status(403).json({ error: "Forbidden" });
     }
-    const spec = parseStoredVideoSpec(job.videoSpec ?? null);
+    if (!["completed", "approved", AI_EDIT_RENDERING_STATUS].includes(job.status)) {
+      return res.status(400).json({ error: "Only completed or approved jobs can be rendered" });
+    }
+    if (job.status === AI_EDIT_RENDERING_STATUS && job.templatedRenderId) {
+      return res.status(409).json({ error: "A render is already in progress for this job" });
+    }
+    if (job.status === "delivered" && job.deliveredUrl?.trim()) {
+      return res.status(409).json({ error: "This job has already been delivered" });
+    }
+    const spec = getRenderVideoSpec(job);
     if (!spec) {
-      return res.status(400).json({ error: "Job has no valid video spec (DSL). Submit the order with spec from the AI Edit form." });
+      return res.status(400).json({ error: "Job has no renderable AI edit spec yet. Wait for the edit plan to finish." });
     }
-    let videoUrls = [];
-    if (job.videoUrls) {
-      try {
-        videoUrls = JSON.parse(job.videoUrls);
-      } catch {
-        videoUrls = [];
-      }
-    }
-    if (videoUrls.length === 0 && job.videoUrl) {
-      videoUrls = [job.videoUrl];
-    }
-    const inputVideoUrl = videoUrls[0]?.trim();
-    if (!inputVideoUrl) {
-      return res.status(400).json({ error: "No source video URL on this job" });
+    const videoUrls = parseJobVideoUrls(job);
+    if (videoUrls.length === 0) {
+      return res.status(400).json({ error: "No source video URLs on this job" });
     }
     const webhookUrl = `${templatedPublicBaseUrl()}/api/webhooks/templated`;
     const renderRequest = dslToTemplated(spec, {
-      inputVideoUrl,
+      inputVideoUrls: videoUrls,
       logoUrl: job.logoUrl ?? void 0,
       webhookUrl,
       async: true
@@ -7931,9 +8261,9 @@ data: ${data}
     const now = /* @__PURE__ */ new Date();
     const syncUrl = renderRes.url?.trim();
     await db.update(aiEditJobs).set({
+      status: syncUrl ? "delivered" : AI_EDIT_RENDERING_STATUS,
       templatedRenderId: renderRes.id,
       ...syncUrl ? {
-        status: "delivered",
         deliveredUrl: syncUrl,
         deliveredAt: now
       } : {},
@@ -8040,6 +8370,7 @@ data: ${data}
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const id = paramNum(req, "id");
+    const { revisionPrompt } = req.body;
     const [job] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.id, id));
     if (!job) return res.status(404).json({ error: "Job not found" });
     if (job.userId !== user.id) {
@@ -8070,31 +8401,21 @@ data: ${data}
       });
     }
     const newRevisionCount = revisionCount + 1;
-    await db.update(aiEditJobs).set({ status: "processing", revisionCount: newRevisionCount, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, id));
-    let videoUrlsArr;
-    try {
-      videoUrlsArr = job.videoUrls ? JSON.parse(job.videoUrls) : [job.videoUrl];
-    } catch {
-      videoUrlsArr = [job.videoUrl];
-    }
-    const reviseInput = {
-      planMinutes: job.planMinutes ?? 15,
-      videoUrls: videoUrlsArr,
-      logoUrl: job.logoUrl,
-      telop: job.telop,
-      targetAudience: job.targetAudience,
-      tone: job.tone,
-      prompt: job.prompt
-    };
-    (async () => {
-      try {
-        const plan = await generateEditPlan(reviseInput);
-        await db.update(aiEditJobs).set({ status: "completed", result: JSON.stringify(plan), updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, id));
-      } catch (e) {
-        console.error("[ai-edit] Revision failed:", e);
-        await db.update(aiEditJobs).set({ status: "failed", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, id));
-      }
-    })();
+    await db.update(aiEditJobs).set({
+      status: "processing",
+      revisionCount: newRevisionCount,
+      templatedRenderId: null,
+      deliveredUrl: null,
+      deliveredAt: null,
+      updatedAt: /* @__PURE__ */ new Date()
+    }).where(eq2(aiEditJobs.id, id));
+    scheduleAIEditPlanGeneration({
+      jobId: id,
+      revisionPrompt,
+      refundAmount: revisionCount >= 1 ? AI_EDIT_REVISION_TICKETS : 0,
+      refundType: "refund_ai_edit_revision",
+      refundDescription: `Refund: AI Edit Revision #${newRevisionCount} (job ${job.id})`
+    });
     res.json({ ok: true, revisionCount: newRevisionCount, free: revisionCount === 0 });
   });
   app2.post("/api/ai-edit/jobs/:id/deliver", async (req, res) => {

@@ -44,6 +44,9 @@ function parseClip(raw: unknown): RawStockClip | null {
   try {
     const e = rawStockClipEnergy(energy);
     const intent = raw.intent;
+    const sourceIndex = raw.sourceIndex;
+    const sourceStart = raw.sourceStart;
+    const sourceEnd = raw.sourceEnd;
     const out: RawStockClip = {
       start,
       end,
@@ -52,6 +55,31 @@ function parseClip(raw: unknown): RawStockClip | null {
     };
     if (typeof intent === "string" && intent.trim()) {
       out.intent = intent.trim();
+    }
+    if (sourceIndex !== undefined) {
+      if (
+        typeof sourceIndex !== "number" ||
+        !Number.isInteger(sourceIndex) ||
+        sourceIndex < 0
+      ) {
+        return null;
+      }
+      out.sourceIndex = sourceIndex;
+    }
+    if (sourceStart !== undefined) {
+      if (typeof sourceStart !== "number" || !Number.isFinite(sourceStart) || sourceStart < 0) {
+        return null;
+      }
+      out.sourceStart = sourceStart;
+    }
+    if (sourceEnd !== undefined) {
+      if (typeof sourceEnd !== "number" || !Number.isFinite(sourceEnd) || sourceEnd < 0) {
+        return null;
+      }
+      out.sourceEnd = sourceEnd;
+    }
+    if (out.sourceStart !== undefined && out.sourceEnd !== undefined && out.sourceStart > out.sourceEnd) {
+      return null;
     }
     return out;
   } catch {

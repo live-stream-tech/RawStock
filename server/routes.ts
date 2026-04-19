@@ -86,7 +86,10 @@ import { getUncachableStripeClient, getStripePublishableKey, createConnectExpres
 import { getCreatorMonthlyRankings, getMonthlyRevenueRank, runMonthlyCreatorAggregation } from "./aggregateRevenue";
 import { judgeReportContent } from "./claudeReport";
 import { generateEditPlan, type EditJobInput } from "./aiEditAssistant";
+import type { EditPlan } from "../shared/ai-edit";
 import { normalizeVideoSpecPayload, parseStoredVideoSpec } from "./lib/parseVideoSpec";
+import { buildAIEditStoredResult, parseAIEditStoredResult } from "./lib/aiEditArtifacts";
+import { enqueueAIEditJob } from "./lib/aiEditJobQueue";
 import { dslToTemplated } from "./lib/dslToTemplated";
 import { createTemplatedRender } from "./lib/templatedClient";
 import { createSignedUploadUrl } from "./r2";
@@ -7729,6 +7732,153 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   const AI_EDIT_PLAN_TICKETS: Record<number, number> = { 15: 200, 30: 400, 45: 600, 60: 800 };
   const AI_EDIT_REVISION_TICKETS = 100;
+  const AI_EDIT_RENDERING_STATUS = "rendering";
+
+  function isEditPlan(value: unknown): value is EditPlan {
+    return Boolean(
+      value &&
+      typeof value === "object" &&
+      Array.isArray((value as EditPlan).edl) &&
+      typeof (value as EditPlan).title === "string",
+    );
+  }
+
+  function parseStoredEditPlan(json: string | null): EditPlan | null {
+    if (!json?.trim()) return null;
+    const stored = parseAIEditStoredResult(json);
+    if (stored) return stored.plan;
+    try {
+      const parsed: unknown = JSON.parse(json);
+      return isEditPlan(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function parseJobVideoUrls(job: InferSelectModel<typeof aiEditJobs>): string[] {
+    if (job.videoUrls) {
+      try {
+        const parsed = JSON.parse(job.videoUrls) as unknown;
+        if (Array.isArray(parsed)) {
+          return parsed
+            .filter((value): value is string => typeof value === "string")
+            .map((value) => value.trim())
+            .filter(Boolean);
+        }
+      } catch {
+        // ignore malformed JSON
+      }
+    }
+    return job.videoUrl?.trim() ? [job.videoUrl.trim()] : [];
+  }
+
+  function getBaseVideoSpec(job: InferSelectModel<typeof aiEditJobs>) {
+    const stored = parseAIEditStoredResult(job.result ?? null);
+    return stored?.baseSpec ?? parseStoredVideoSpec(job.videoSpec ?? null);
+  }
+
+  function getRenderVideoSpec(job: InferSelectModel<typeof aiEditJobs>) {
+    const stored = parseAIEditStoredResult(job.result ?? null);
+    return stored?.renderSpec ?? parseStoredVideoSpec(job.videoSpec ?? null);
+  }
+
+  async function refundAIEditTickets(params: {
+    userId: number;
+    amount: number;
+    type: string;
+    description: string;
+    referenceId: string;
+  }) {
+    const { userId, amount, type, description, referenceId } = params;
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    const key = String(userId);
+    const balRows = await db.select().from(ticketBalances).where(eq(ticketBalances.userId, key)).limit(1);
+    const currentBalance = balRows[0]?.balance ?? 0;
+    if (balRows.length === 0) {
+      await db.insert(ticketBalances).values({ userId: key, balance: amount });
+    } else {
+      await db
+        .update(ticketBalances)
+        .set({ balance: currentBalance + amount, updatedAt: new Date() })
+        .where(eq(ticketBalances.userId, key));
+    }
+    await db.insert(ticketTransactions).values({
+      userId: key,
+      amount,
+      type,
+      referenceId,
+      description,
+    });
+  }
+
+  function scheduleAIEditPlanGeneration(params: {
+    jobId: number;
+    revisionPrompt?: string | null;
+    refundAmount?: number;
+    refundType?: string;
+    refundDescription?: string;
+  }) {
+    const { jobId, revisionPrompt, refundAmount = 0, refundType, refundDescription } = params;
+    enqueueAIEditJob(`ai-edit:${jobId}:${revisionPrompt?.trim() ?? "initial"}`, async () => {
+      const [freshJob] = await db.select().from(aiEditJobs).where(eq(aiEditJobs.id, jobId));
+      if (!freshJob) return;
+
+      try {
+        const baseSpec = getBaseVideoSpec(freshJob);
+        if (!baseSpec) {
+          throw new Error("AI Edit job has no valid source spec");
+        }
+
+        const promptUsed = revisionPrompt?.trim()
+          ? `${freshJob.prompt.trim()}\n\nRevision request:\n${revisionPrompt.trim()}`
+          : freshJob.prompt.trim();
+        const videoUrls = parseJobVideoUrls(freshJob);
+        const editInput: EditJobInput = {
+          planMinutes: (freshJob.planMinutes ?? 15) as 15 | 30 | 45 | 60,
+          videoUrls,
+          logoUrl: freshJob.logoUrl,
+          telop: freshJob.telop,
+          targetAudience: freshJob.targetAudience,
+          tone: freshJob.tone,
+          prompt: promptUsed,
+        };
+        const generated = await generateEditPlan(editInput);
+        const storedResult = buildAIEditStoredResult({
+          plan: generated.plan,
+          promptUsed,
+          provider: generated.provider,
+          baseSpec,
+          revisionPrompt,
+        });
+
+        await db
+          .update(aiEditJobs)
+          .set({
+            status: "completed",
+            result: JSON.stringify(storedResult),
+            videoSpec: JSON.stringify(storedResult.renderSpec),
+            updatedAt: new Date(),
+          } as Partial<InferSelectModel<typeof aiEditJobs>>)
+          .where(eq(aiEditJobs.id, jobId));
+      } catch (error) {
+        console.error("[ai-edit] Processing failed:", error);
+        await db
+          .update(aiEditJobs)
+          .set({ status: "failed", updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
+          .where(eq(aiEditJobs.id, jobId));
+
+        if (refundAmount > 0 && refundType && refundDescription) {
+          await refundAIEditTickets({
+            userId: freshJob.userId,
+            amount: refundAmount,
+            type: refundType,
+            description: refundDescription,
+            referenceId: String(freshJob.id),
+          });
+        }
+      }
+    });
+  }
 
   // POST /api/ai-edit/jobs — charge tickets, create job, start async Claude processing
   app.post("/api/ai-edit/jobs", async (req: Request, res: Response) => {
@@ -7753,6 +7903,9 @@ export async function registerRoutes(app: Express): Promise<void> {
         return res.status(400).json({ error: "Invalid video spec (DSL)" });
       }
       videoSpecJson = normalized;
+    }
+    if (!videoSpecJson) {
+      return res.status(400).json({ error: "AI Edit requires a source spec built from the uploaded videos" });
     }
 
     if (!planMinutes || !(planMinutes in AI_EDIT_PLAN_TICKETS)) {
@@ -7807,43 +7960,18 @@ export async function registerRoutes(app: Express): Promise<void> {
       } as typeof aiEditJobs.$inferInsert)
       .returning();
 
-    // Async Claude processing — do not await
-    (async () => {
-      try {
-        await db
-          .update(aiEditJobs)
-          .set({ status: "processing", updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
-          .where(eq(aiEditJobs.id, job.id));
+    await db
+      .update(aiEditJobs)
+      .set({ status: "processing", updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
+      .where(eq(aiEditJobs.id, job.id));
+    scheduleAIEditPlanGeneration({
+      jobId: job.id,
+      refundAmount: ticketCost,
+      refundType: "refund_ai_edit",
+      refundDescription: `Refund: AI Edit ${planMinutes}min plan (job ${job.id})`,
+    });
 
-        const editInput: EditJobInput = {
-          planMinutes: planMinutes as 15 | 30 | 45 | 60,
-          videoUrls,
-          logoUrl,
-          telop,
-          targetAudience,
-          tone,
-          prompt: prompt.trim(),
-        };
-        const plan = await generateEditPlan(editInput);
-
-        await db
-          .update(aiEditJobs)
-          .set({
-            status: "completed",
-            result: JSON.stringify(plan),
-            updatedAt: new Date(),
-          } as Partial<InferSelectModel<typeof aiEditJobs>>)
-          .where(eq(aiEditJobs.id, job.id));
-      } catch (e) {
-        console.error("[ai-edit] Processing failed:", e);
-        await db
-          .update(aiEditJobs)
-          .set({ status: "failed", updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
-          .where(eq(aiEditJobs.id, job.id));
-      }
-    })();
-
-    res.json({ id: job.id, status: job.status });
+    res.json({ id: job.id, status: "processing" });
   });
 
   // GET /api/ai-edit/jobs/:id — get job status and result (owner only)
@@ -7859,25 +7987,23 @@ export async function registerRoutes(app: Express): Promise<void> {
       return res.status(403).json({ error: "Forbidden" });
     }
 
-    let result = null;
-    if (job.result) {
-      try { result = JSON.parse(job.result); } catch { result = null; }
-    }
-    let parsedVideoUrls: string[] | null = null;
-    if (job.videoUrls) {
-      try { parsedVideoUrls = JSON.parse(job.videoUrls); } catch { parsedVideoUrls = null; }
-    }
-
-    const videoSpec = parseStoredVideoSpec(job.videoSpec ?? null);
+    const storedResult = parseAIEditStoredResult(job.result ?? null);
+    const result = storedResult?.plan ?? parseStoredEditPlan(job.result ?? null);
+    const parsedVideoUrls = parseJobVideoUrls(job);
+    const videoSpec = storedResult?.renderSpec ?? parseStoredVideoSpec(job.videoSpec ?? null);
+    const baseVideoSpec = storedResult?.baseSpec ?? videoSpec;
 
     res.json({
       id: job.id,
       userId: job.userId,
       videoUrl: job.videoUrl,
-      videoUrls: parsedVideoUrls,
+      videoUrls: parsedVideoUrls.length > 0 ? parsedVideoUrls : null,
       prompt: job.prompt,
       status: job.status,
       result,
+      analysis: storedResult?.analysis ?? null,
+      promptUsed: storedResult?.promptUsed ?? job.prompt,
+      revisionPrompt: storedResult?.revisionPrompt ?? null,
       planMinutes: job.planMinutes,
       logoUrl: job.logoUrl,
       telop: job.telop,
@@ -7886,6 +8012,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       revisionCount: job.revisionCount ?? 0,
       ticketCost: job.ticketCost,
       videoSpec,
+      baseVideoSpec,
       templatedRenderId: job.templatedRenderId ?? null,
       deliveredUrl: job.deliveredUrl ?? null,
       deliveredAt: job.deliveredAt ?? null,
@@ -7919,31 +8046,29 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (job.userId !== user.id) {
       return res.status(403).json({ error: "Forbidden" });
     }
+    if (!["completed", "approved", AI_EDIT_RENDERING_STATUS].includes(job.status)) {
+      return res.status(400).json({ error: "Only completed or approved jobs can be rendered" });
+    }
+    if (job.status === AI_EDIT_RENDERING_STATUS && job.templatedRenderId) {
+      return res.status(409).json({ error: "A render is already in progress for this job" });
+    }
+    if (job.status === "delivered" && job.deliveredUrl?.trim()) {
+      return res.status(409).json({ error: "This job has already been delivered" });
+    }
 
-    const spec = parseStoredVideoSpec(job.videoSpec ?? null);
+    const spec = getRenderVideoSpec(job);
     if (!spec) {
-      return res.status(400).json({ error: "Job has no valid video spec (DSL). Submit the order with spec from the AI Edit form." });
+      return res.status(400).json({ error: "Job has no renderable AI edit spec yet. Wait for the edit plan to finish." });
     }
 
-    let videoUrls: string[] = [];
-    if (job.videoUrls) {
-      try {
-        videoUrls = JSON.parse(job.videoUrls) as string[];
-      } catch {
-        videoUrls = [];
-      }
-    }
-    if (videoUrls.length === 0 && job.videoUrl) {
-      videoUrls = [job.videoUrl];
-    }
-    const inputVideoUrl = videoUrls[0]?.trim();
-    if (!inputVideoUrl) {
-      return res.status(400).json({ error: "No source video URL on this job" });
+    const videoUrls = parseJobVideoUrls(job);
+    if (videoUrls.length === 0) {
+      return res.status(400).json({ error: "No source video URLs on this job" });
     }
 
     const webhookUrl = `${templatedPublicBaseUrl()}/api/webhooks/templated`;
     const renderRequest = dslToTemplated(spec, {
-      inputVideoUrl,
+      inputVideoUrls: videoUrls,
       logoUrl: job.logoUrl ?? undefined,
       webhookUrl,
       async: true,
@@ -7972,10 +8097,10 @@ export async function registerRoutes(app: Express): Promise<void> {
     await db
       .update(aiEditJobs)
       .set({
+        status: syncUrl ? "delivered" : AI_EDIT_RENDERING_STATUS,
         templatedRenderId: renderRes.id,
         ...(syncUrl
           ? {
-              status: "delivered",
               deliveredUrl: syncUrl,
               deliveredAt: now,
             }
@@ -8127,6 +8252,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (!user) return res.status(401).json({ error: "Unauthorized" });
 
     const id = paramNum(req, "id");
+    const { revisionPrompt } = req.body as { revisionPrompt?: string };
     const [job] = await db.select().from(aiEditJobs).where(eq(aiEditJobs.id, id));
     if (!job) return res.status(404).json({ error: "Job not found" });
 
@@ -8166,41 +8292,23 @@ export async function registerRoutes(app: Express): Promise<void> {
     const newRevisionCount = revisionCount + 1;
     await db
       .update(aiEditJobs)
-      .set({ status: "processing", revisionCount: newRevisionCount, updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
+      .set({
+        status: "processing",
+        revisionCount: newRevisionCount,
+        templatedRenderId: null,
+        deliveredUrl: null,
+        deliveredAt: null,
+        updatedAt: new Date(),
+      } as Partial<InferSelectModel<typeof aiEditJobs>>)
       .where(eq(aiEditJobs.id, id));
 
-    // Re-generate EDL async
-    let videoUrlsArr: string[];
-    try {
-      videoUrlsArr = job.videoUrls ? JSON.parse(job.videoUrls) : [job.videoUrl];
-    } catch {
-      videoUrlsArr = [job.videoUrl];
-    }
-    const reviseInput: EditJobInput = {
-      planMinutes: (job.planMinutes ?? 15) as 15 | 30 | 45 | 60,
-      videoUrls: videoUrlsArr,
-      logoUrl: job.logoUrl,
-      telop: job.telop,
-      targetAudience: job.targetAudience,
-      tone: job.tone,
-      prompt: job.prompt,
-    };
-
-    (async () => {
-      try {
-        const plan = await generateEditPlan(reviseInput);
-        await db
-          .update(aiEditJobs)
-          .set({ status: "completed", result: JSON.stringify(plan), updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
-          .where(eq(aiEditJobs.id, id));
-      } catch (e) {
-        console.error("[ai-edit] Revision failed:", e);
-        await db
-          .update(aiEditJobs)
-          .set({ status: "failed", updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
-          .where(eq(aiEditJobs.id, id));
-      }
-    })();
+    scheduleAIEditPlanGeneration({
+      jobId: id,
+      revisionPrompt,
+      refundAmount: revisionCount >= 1 ? AI_EDIT_REVISION_TICKETS : 0,
+      refundType: "refund_ai_edit_revision",
+      refundDescription: `Refund: AI Edit Revision #${newRevisionCount} (job ${job.id})`,
+    });
 
     res.json({ ok: true, revisionCount: newRevisionCount, free: revisionCount === 0 });
   });

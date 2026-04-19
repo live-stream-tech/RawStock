@@ -20,6 +20,9 @@ export function templatedModificationsToLayers(
     const layer: Record<string, unknown> = {};
     if (mod.video) {
       layer.video_url = mod.video.src;
+      layer.trim = mod.video.trim;
+      layer.trim_start = mod.video.trim[0];
+      layer.trim_end = mod.video.trim[1];
     }
     if (mod.text) {
       layer.text = mod.text.value;
@@ -29,6 +32,9 @@ export function templatedModificationsToLayers(
     }
     if (mod.logo) {
       layer.image_url = mod.logo.src;
+      if (mod.logo.position) {
+        layer.position = mod.logo.position;
+      }
     }
     layers[layerName] = layer;
   }
