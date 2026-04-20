@@ -24,6 +24,7 @@ import { apiRequest } from "@/lib/query-client";
 import { navigateFromVideoCreatorRow, navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { usePlayingVideo } from "@/lib/playing-video-context";
 import { webScrollStyle } from "@/constants/layout";
+import { TranslateButton } from "@/components/TranslateButton";
 
 type VideoComment = {
   id: number;
@@ -379,6 +380,7 @@ export default function VideoDetailScreen() {
                   <Text style={styles.commentText} numberOfLines={1}>
                     {c.text}
                   </Text>
+                  {c.text ? <TranslateButton text={c.text} compact /> : null}
                 </View>
                 {!isDemo && (
                   <Pressable style={styles.commentReportBtn} onPress={() => openReportModal("comment", c.id)} hitSlop={8}>

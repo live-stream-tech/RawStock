@@ -5,6 +5,24 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { C } from "@/constants/colors";
 import { webScrollStyle } from "@/constants/layout";
+import { PolicyTranslateBanner } from "@/components/PolicyTranslateBanner";
+
+const PAGE_FULL_TEXT = [
+  "RawStock Privacy Policy",
+  "Article 1 — Information We Collect: Account identifiers (Google sign-in, email, display name, profile image, bio); Content (videos, posts, comments, messages, live audio/video); Payment metadata via Stripe (we do not store full card numbers); Technical data (IP, device, cookies, logs); Language detection results stored as last_content_lang; Policy acceptance versions and timestamps; Optional camera processing for AR effects via DeepAR.",
+  "Article 2 — Purpose of Use: To provide and improve the Service, authenticate users, process payments and creator payouts, detect fraud, moderate content, send service notices, and produce aggregated statistics.",
+  "Article 3 — Third-Party Sharing: We do not sell your personal information. We share data with subprocessors as needed, when you consent, when required by law, or to protect vital interests. California residents may opt out of certain sharing under CCPA/CPRA.",
+  "Article 4 — Sub-processors: Neon (database), Cloudflare (CDN/streaming/security), Google (auth and YouTube), Stripe (payments and payouts), Upstash (caching), Anthropic or similar AI providers for moderation, DeepAR or similar for AR effects. Vendors may change.",
+  "Article 5 — Cookies & Analytics: We use cookies for sign-in, preferences, security, and analytics. Limiting cookies may break some features.",
+  "Article 6 — Security: We implement technical and organizational measures appropriate to the risk. No internet transmission is fully secure.",
+  "Article 7 — Access, Correction & Deletion: You may request access, correction, or deletion by emailing info@rawstock.live. We will verify your identity before responding.",
+  "Article 8 — GDPR (EU): EEA users may have rights to access, rectify, erase, restrict processing, object, and data portability, and to lodge a complaint with their supervisory authority.",
+  "Article 8b — UK GDPR & DPA 2018: UK users have similar rights and may lodge complaints with the Information Commissioner's Office (ICO).",
+  "Article 9 — Data Retention: We retain personal data only as long as necessary. After account deletion we typically delete or anonymize within 30 days, except where retention is required by law, for fraud prevention, or for backups.",
+  "Article 10 — Minors: The Service is not directed to children under 13. Users 13–17 require parent or guardian consent.",
+  "Article 11 — Policy Updates: We may update this Policy. Material changes will be communicated through the Service.",
+  "Article 12 — Contact: Hiromi Kanokifu (trade name RawStock), Shibuya Dogenzaka Tokyu Bldg 2F-C, 1-10-8 Dogenzaka, Shibuya, Tokyo 150-0043, Japan. Email: info@rawstock.live.",
+].join("\n\n");
 
 function Article({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -36,6 +54,8 @@ export default function PrivacyScreen() {
       >
         <Text style={styles.docTitle}>RawStock Privacy Policy</Text>
         <Text style={styles.effectiveDate}>Effective: April 4, 2026</Text>
+
+        <PolicyTranslateBanner text={PAGE_FULL_TEXT} srcLang="en" />
 
         <Article title="Article 1 — Information We Collect">
           {

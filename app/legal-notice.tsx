@@ -6,8 +6,24 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { C } from "@/constants/colors";
 import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
+import { PolicyTranslateBanner } from "@/components/PolicyTranslateBanner";
 
 const CONTACT_EMAIL = "info@rawstock.live";
+
+const PAGE_FULL_TEXT = [
+  "Business operator (sole proprietor): Trade name RawStock; Name: Hiromi Kanokifu.",
+  "Address: Shibuya Dogenzaka Tokyu Bldg 2F-C, 1-10-8 Dogenzaka, Shibuya, Tokyo 150-0043, Japan.",
+  "Contact: info@rawstock.live. Phone number is not published; please contact us by email. We aim to respond within three business days.",
+  "Service name: RawStock — Underground Music Marketplace.",
+  "Service description: RawStock connects underground music creators and fans. Users can purchase digital content, book live sessions, and join communities using Tickets (virtual currency).",
+  "Pricing: Ticket and content prices are shown on each page. Purchases are charged in the currency and amount displayed at checkout, including applicable taxes where stated.",
+  "Payment methods: Payments are processed securely via Stripe. Major credit and debit cards accepted where available.",
+  "Delivery: Digital content and Tickets are delivered immediately after successful payment. No physical shipment.",
+  "Refund policy: Because content is digital, sales are generally final. Refunds are not offered after purchase except where required by law or where a paid session is cancelled by the creator.",
+  "Creator payouts: Creators ordinarily receive 90% of applicable revenue, subject to Stripe fees, chargebacks, and the Terms of Service. Payouts require Stripe Connect onboarding and compliance checks.",
+  "Prohibited uses: Unlawful use, illegal content, fraud, harassment, or other Terms of Service violations are prohibited.",
+  "Governing law: Notices and commercial terms are governed by the laws of Japan, without prejudice to mandatory consumer protections in your country of residence.",
+].join("\n\n");
 
 export default function LegalNoticeScreen() {
   const insets = useSafeAreaInsets();
@@ -29,6 +45,8 @@ export default function LegalNoticeScreen() {
         showsHorizontalScrollIndicator={scrollShowsHorizontal}
         contentContainerStyle={styles.content}
       >
+        <PolicyTranslateBanner text={PAGE_FULL_TEXT} srcLang="en" />
+
         <Text style={styles.sectionTitle}>Business operator (sole proprietor)</Text>
         <Text style={styles.body}>Trade name: RawStock</Text>
         <Text style={styles.body}>Name: Hiromi Kanokifu</Text>

@@ -530,9 +530,45 @@ export const users = pgTable("users", {
   termsAcceptedAt: timestamp("terms_accepted_at"),
   privacyAcceptedVersion: text("privacy_accepted_version"),
   privacyAcceptedAt: timestamp("privacy_accepted_at"),
+  // migrations/0022_users_preferred_language.sql — UI・自動翻訳宛先言語（ISO 639-1）。
+  // 注意: lastContentLang は franc 検知結果。preferredLanguage はユーザーの明示選択で別物。
+  preferredLanguage: text("preferred_language"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+// migrations/0023_translations_and_glossary.sql — 自動翻訳キャッシュ
+export const translations = pgTable(
+  "translations",
+  {
+    id: serial("id").primaryKey(),
+    srcLang: text("src_lang").notNull(),
+    dstLang: text("dst_lang").notNull(),
+    /** sha256(normalize(source_text)) の hex */
+    textHash: text("text_hash").notNull(),
+    sourceText: text("source_text").notNull(),
+    translatedText: text("translated_text").notNull(),
+    engine: text("engine").notNull().default("mymemory"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (t) => [unique("translations_unique_idx").on(t.srcLang, t.dstLang, t.textHash)],
+);
+
+// migrations/0023_translations_and_glossary.sql — ブランド・固有名詞ガード用
+export const translationGlossary = pgTable(
+  "translation_glossary",
+  {
+    id: serial("id").primaryKey(),
+    term: text("term").notNull(),
+    /** '*' で全 locale 共通 */
+    locale: text("locale").notNull().default("*"),
+    doNotTranslate: boolean("do_not_translate").notNull().default(true),
+    overrideTranslation: text("override_translation"),
+    scope: text("scope").notNull().default("global"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (t) => [unique("translation_glossary_term_locale_idx").on(t.term, t.locale)],
+);
 
 /** ユーザー間フォロー（フォロワー限定ライブの判定に使用） */
 export const userFollows = pgTable(

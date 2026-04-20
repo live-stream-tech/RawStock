@@ -5,6 +5,19 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { C } from "@/constants/colors";
 import { webScrollStyle } from "@/constants/layout";
+import { PolicyTranslateBanner } from "@/components/PolicyTranslateBanner";
+
+const PAGE_FULL_TEXT = [
+  "RawStock Community Guidelines",
+  "These guidelines apply together with our Terms of Service and Privacy Policy. We may update them; continued use means you accept reasonable changes.",
+  "1. Be respectful — Treat other users with respect. Do not harass, threaten, doxx, or target individuals or groups. Bullying, hate speech, and incitement to violence are not allowed.",
+  "2. Legal and safe content — Do not post, stream, or share content that is illegal where you or viewers are located. This includes non-consensual intimate imagery, sexual content involving minors, trafficking, sale of illegal goods, or instructions for serious harm.",
+  "3. Live streaming — Live content is harder to moderate in real time. You must comply with these guidelines during broadcasts. We may end streams, remove archives, or restrict accounts.",
+  "4. Intellectual property — Only upload or stream content you have the right to use. Respect copyrights, trademarks, and privacy. For U.S. copyright notices, see our DMCA Policy.",
+  "5. Spam and manipulation — No spam, scams, impersonation, artificial engagement, or attempts to manipulate rankings, payments, or security.",
+  "6. Reporting and enforcement — Use in-app report tools. We review reports as promptly as practical. We may warn, remove content, suspend, or permanently ban accounts based on severity and repeat violations.",
+  "7. Contact — Questions: info@rawstock.live",
+].join("\n\n");
 
 function Section({ title, children }: { title: string; children: string }) {
   return (
@@ -36,6 +49,8 @@ export default function CommunityGuidelinesScreen() {
       >
         <Text style={styles.docTitle}>RawStock Community Guidelines</Text>
         <Text style={styles.effectiveDate}>Effective: April 4, 2026</Text>
+
+        <PolicyTranslateBanner text={PAGE_FULL_TEXT} srcLang="en" />
 
         <Text style={styles.intro}>
           These guidelines apply together with our Terms of Service and Privacy Policy. We may update them; continued

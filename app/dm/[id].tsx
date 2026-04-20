@@ -20,6 +20,7 @@ import { C } from "@/constants/colors";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { useAuth } from "@/lib/auth";
+import { TranslateButton } from "@/components/TranslateButton";
 
 type DMItem = {
   id: number;
@@ -221,6 +222,9 @@ export default function DMChatScreen() {
                       {item.text}
                     </Text>
                   </View>
+                  {item.sender === "them" && item.text ? (
+                    <TranslateButton text={item.text} compact />
+                  ) : null}
                   <Text style={[styles.timeText, item.sender === "me" && styles.timeTextMe]}>
                     {formatTime(item.createdAt)}
                   </Text>

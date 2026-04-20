@@ -27,6 +27,7 @@ import { apiRequest } from "@/lib/query-client";
 import { navigateToUserOrLiverProfile, navigateFromVideoCreatorRow } from "@/lib/navigate-profile";
 import { useAuth } from "@/lib/auth";
 import { webScrollStyle } from "@/constants/layout";
+import { TranslateButton } from "@/components/TranslateButton";
 
 type AdData = { title: string; sub: string; cta: string; bg: string; accent: string; thumb: string };
 
@@ -631,6 +632,7 @@ function ThreadDetailContent({
               <Text style={styles.threadPostAuthor}>{p.author.displayName}</Text>
               <Text style={styles.threadPostDate}>{formatThreadDate(p.createdAt)}</Text>
               <Text style={styles.threadPostText}>{p.body}</Text>
+              {p.body ? <TranslateButton text={p.body} compact /> : null}
             </View>
             {canModerate && (
               <Pressable

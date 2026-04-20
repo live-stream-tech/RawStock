@@ -30,6 +30,7 @@ import { getApiUrl } from "@/lib/query-client";
 import { JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY } from "@/lib/useJukeboxPulse";
 import { saveLoginReturn } from "@/lib/login-return";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
+import { TranslateButton } from "@/components/TranslateButton";
 import { webScrollStyle } from "@/constants/layout";
 
 type JukeboxState = {
@@ -1460,6 +1461,9 @@ export default function JukeboxScreen() {
                   <View style={[styles.chatBubble, item.username === (user?.name ?? "Guest") && styles.chatBubbleMine]}>
                     {item.username !== (user?.name ?? "Guest") && <Text style={styles.chatUsername}>{item.username}</Text>}
                     <Text style={[styles.chatText, item.username === (user?.name ?? "Guest") && styles.chatTextMine]}>{item.message}</Text>
+                    {item.username !== (user?.name ?? "Guest") && item.message ? (
+                      <TranslateButton text={item.message} compact />
+                    ) : null}
                   </View>
                 </View>
               )}
@@ -1607,6 +1611,9 @@ export default function JukeboxScreen() {
                       <Text style={[styles.chatText, item.username === (user?.name ?? "Guest") && styles.chatTextMine]}>
                         {item.message}
                       </Text>
+                      {item.username !== (user?.name ?? "Guest") && item.message ? (
+                        <TranslateButton text={item.message} compact />
+                      ) : null}
                     </View>
                   </View>
                 )}
@@ -1743,6 +1750,9 @@ export default function JukeboxScreen() {
                         <Text style={[styles.chatText, item.username === (user?.name ?? "Guest") && styles.chatTextMine]}>
                           {item.message}
                         </Text>
+                        {item.username !== (user?.name ?? "Guest") && item.message ? (
+                          <TranslateButton text={item.message} compact />
+                        ) : null}
                       </View>
                     </View>
                   )}

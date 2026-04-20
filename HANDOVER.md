@@ -30,6 +30,7 @@
 | メール転送 | ImprovMX (mx1/mx2.improvmx.com) |
 | セッションキャッシュ | Upstash Redis |
 | 言語検知 | franc (ISO 639-1) |
+| 自動翻訳 | MyMemory API（無料・キー不要）。`server/lib/translate/` 配下＋`/api/translate` で手動トリガー。glossary・短語スキップ・DBキャッシュ付き |
 
 ---
 
@@ -124,7 +125,7 @@ Vercel では **`VERCEL_URL` が自動注入**され、OAuth のフォールバ�
 
 ## DB マイグレーション状況
 
-最新適用済み: `0015_users_policy_acceptance.sql`
+最新適用済み: `0023_translations_and_glossary.sql`
 
 | ファイル | 内容 |
 |--------|------|
@@ -133,6 +134,8 @@ Vercel では **`VERCEL_URL` が自動注入**され、OAuth のフォールバ�
 | 0013 | users.operations_dm_opened_at |
 | 0014 | users.last_content_lang（franc言語検知） |
 | 0015 | users.terms/privacy_accepted_version/at |
+| 0022 | users.preferred_language（UI/翻訳宛先言語） |
+| 0023 | translations / translation_glossary（自動翻訳キャッシュ＆固有名詞ガード） |
 
 ---
 
@@ -146,6 +149,13 @@ Vercel では **`VERCEL_URL` が自動注入**され、OAuth のフォールバ�
 | `server/r2.ts` | R2ファイルアップロード |
 | `server/redis.ts` | SSEイベントバス + Upstash Redis |
 | `server/langFromText.ts` | franc 言語検知ユーティリティ |
+| `server/lib/translate/index.ts` | 自動翻訳ファサード（短語スキップ→glossary→キャッシュ→MyMemory） |
+| `server/lib/translate/mymemory.ts` | MyMemory 無料翻訳 API クライアント（`MYMEMORY_EMAIL` で枠拡張） |
+| `server/lib/translate/shortText.ts` | 短語スキップ判定（`LiveStock` 単体→家畜の事故防止） |
+| `server/lib/translate/glossary.ts` | ブランド固有名詞の glossary トークン置換 |
+| `components/TranslateButton.tsx` | RN 用 Translate ボタン（DM/コメント/投稿/Jukebox 行に挿入） |
+| `components/PolicyTranslateBanner.tsx` | 法務ページ用「Translate page」バナー＋Disclaimer |
+| `vite-app/app/components/TranslateButton.tsx` | Web 用 Translate ボタン |
 | `api/[...path].ts` | Vercel Serverless エントリポイント |
 | `api/_shared.ts` | Vercel 用 Express アプリ共有ファクトリ |
 | `lib/brand.ts` | ブランドURL一元管理 |

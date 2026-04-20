@@ -95,6 +95,7 @@ import { createTemplatedRender } from "./lib/templatedClient";
 import { createSignedUploadUrl } from "./r2";
 import { moderateContent } from "./moderation";
 import { detectContentLang } from "./langFromText";
+import { translateText } from "./lib/translate";
 import { debugIngestServer } from "./debugIngest";
 import { LEGAL_PRIVACY_VERSION, LEGAL_TERMS_VERSION } from "../constants/legalVersions";
 import { publishJukeboxEvent, redis, jukeboxChannel, subscribeJukeboxEvents } from "./redis";
@@ -180,6 +181,50 @@ function queryStr(req: Request, key: string): string {
   return typeof v === "string" ? v : "";
 }
 
+/** ISO 639-1 として許容する翻訳宛先言語（Auth・自動翻訳の両方で利用） */
+const SUPPORTED_PREFERRED_LANGUAGES = new Set([
+  "en", "ja", "ko", "zh", "es", "fr", "de", "pt", "it", "vi", "th", "id", "ru", "ar",
+]);
+
+function normalizePreferredLanguage(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const lower = value.trim().toLowerCase();
+  if (!lower) return null;
+  // ja-JP のような BCP-47 を ISO 639-1 へ縮約
+  const base = lower.split(/[-_]/u)[0];
+  return SUPPORTED_PREFERRED_LANGUAGES.has(base) ? base : null;
+}
+
+/** Accept-Language ヘッダから第一希望の言語を抽出（preferredLanguage 未指定時のフォールバック） */
+function preferredLanguageFromHeader(req: Request): string | null {
+  const raw = (req.headers["accept-language"] ?? "") as string;
+  if (!raw) return null;
+  const first = raw.split(",")[0]?.trim();
+  return normalizePreferredLanguage(first);
+}
+
+/** 翻訳エンドポイントの簡易レート制限（ユーザーごと、1 分 30 リクエスト） */
+const TRANSLATE_RATE_WINDOW_MS = 60_000;
+const TRANSLATE_RATE_LIMIT = 30;
+const translateRateBuckets = new Map<number, { windowStart: number; count: number }>();
+
+function checkTranslateRateLimit(userId: number): { ok: boolean; retryAfterSec?: number } {
+  const now = Date.now();
+  const bucket = translateRateBuckets.get(userId);
+  if (!bucket || now - bucket.windowStart >= TRANSLATE_RATE_WINDOW_MS) {
+    translateRateBuckets.set(userId, { windowStart: now, count: 1 });
+    return { ok: true };
+  }
+  if (bucket.count >= TRANSLATE_RATE_LIMIT) {
+    const retryAfterSec = Math.ceil(
+      (TRANSLATE_RATE_WINDOW_MS - (now - bucket.windowStart)) / 1000,
+    );
+    return { ok: false, retryAfterSec };
+  }
+  bucket.count += 1;
+  return { ok: true };
+}
+
 async function getAuthUser(req: Request): Promise<{
   id: number;
   displayName: string;
@@ -189,6 +234,7 @@ async function getAuthUser(req: Request): Promise<{
   bio: string;
   stripeConnectId: string | null;
   lastContentLang: string | null;
+  preferredLanguage: string | null;
   termsAcceptedVersion?: string | null;
   termsAcceptedAt?: Date | null;
   privacyAcceptedVersion?: string | null;
@@ -226,6 +272,7 @@ async function getAuthUser(req: Request): Promise<{
       ...user,
       avatar: user.profileImageUrl,
       lastContentLang: user.lastContentLang ?? null,
+      preferredLanguage: (user as { preferredLanguage?: string | null }).preferredLanguage ?? null,
     };
   } catch {
     return null;
@@ -645,6 +692,9 @@ export async function registerRoutes(app: Express): Promise<void> {
     const hash = await bcrypt.hash(password, 10);
     const displayName = name || email.split("@")[0];
     const lineId = `email:${email}`;
+    const preferredLanguage =
+      normalizePreferredLanguage(req.body?.preferredLanguage) ??
+      preferredLanguageFromHeader(req);
     const [user] = await db.insert(users).values({
       lineId,
       displayName,
@@ -652,11 +702,20 @@ export async function registerRoutes(app: Express): Promise<void> {
       passwordHash: hash,
       role: "USER",
       bio: "",
+      preferredLanguage,
     } as typeof users.$inferInsert).returning();
     await promoteAdminByEmail({ id: user.id, email: user.email });
     await sendWelcomeDmIfNeeded(user.id);
     const token = makeToken(user.id);
-    res.json({ token, user: { id: user.id, name: user.displayName, email: user.email } });
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        name: user.displayName,
+        email: user.email,
+        preferredLanguage: user.preferredLanguage ?? null,
+      },
+    });
   });
 
   /** Demo login removed for production launch; keep route so old clients get a clear error. */
@@ -680,8 +739,48 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
     await promoteAdminByEmail({ id: user.id, email: user.email });
     await sendWelcomeDmIfNeeded(user.id);
+    // 既存ユーザーで preferredLanguage 未設定なら、送信値 or Accept-Language で初期化
+    let preferredLanguage = user.preferredLanguage ?? null;
+    if (!preferredLanguage) {
+      const guess =
+        normalizePreferredLanguage(req.body?.preferredLanguage) ??
+        preferredLanguageFromHeader(req);
+      if (guess) {
+        try {
+          await db
+            .update(users)
+            .set({ preferredLanguage: guess, updatedAt: new Date() } as Partial<InferSelectModel<typeof users>>)
+            .where(eq(users.id, user.id));
+          preferredLanguage = guess;
+        } catch (e) {
+          console.warn("login preferredLanguage backfill failed", e);
+        }
+      }
+    } else {
+      // ログインボディで明示指定された場合は上書き許可
+      const explicit = normalizePreferredLanguage(req.body?.preferredLanguage);
+      if (explicit && explicit !== preferredLanguage) {
+        try {
+          await db
+            .update(users)
+            .set({ preferredLanguage: explicit, updatedAt: new Date() } as Partial<InferSelectModel<typeof users>>)
+            .where(eq(users.id, user.id));
+          preferredLanguage = explicit;
+        } catch (e) {
+          console.warn("login preferredLanguage update failed", e);
+        }
+      }
+    }
     const token = makeToken(user.id);
-    res.json({ token, user: { id: user.id, name: user.displayName, email: user.email } });
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        name: user.displayName,
+        email: user.email,
+        preferredLanguage,
+      },
+    });
   });
 
   // ── Auth ──────────────────────────────────────────────
@@ -710,6 +809,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       role: user.role,
       bio: user.bio,
       lastContentLang: user.lastContentLang ?? null,
+      preferredLanguage: user.preferredLanguage ?? null,
       stripeConnectId: user.stripeConnectId ?? null,
       payoutTermsAgreedAt: payoutTermsAt ? new Date(payoutTermsAt).toISOString() : null,
       spotifyUrl: (user as any).spotifyUrl ?? null,
@@ -721,6 +821,93 @@ export async function registerRoutes(app: Express): Promise<void> {
       phoneNumber: (user as any).phoneNumber ?? null,
       pinnedCommunityIds,
       ...policyFieldsForApi(user),
+    });
+  });
+
+  // ── 自動翻訳（手動トリガー） ────────────────────────────────
+  app.get("/api/translate/preferred-language", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    res.json({
+      preferredLanguage: user.preferredLanguage ?? null,
+      lastContentLang: user.lastContentLang ?? null,
+      supported: Array.from(SUPPORTED_PREFERRED_LANGUAGES),
+    });
+  });
+
+  app.patch("/api/translate/preferred-language", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const next = normalizePreferredLanguage(req.body?.preferredLanguage);
+    if (!next) {
+      return res.status(400).json({
+        error: "Unsupported language",
+        supported: Array.from(SUPPORTED_PREFERRED_LANGUAGES),
+      });
+    }
+    await db
+      .update(users)
+      .set({ preferredLanguage: next, updatedAt: new Date() } as Partial<InferSelectModel<typeof users>>)
+      .where(eq(users.id, user.id));
+    res.json({ preferredLanguage: next });
+  });
+
+  app.post("/api/translate", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+
+    const limit = checkTranslateRateLimit(user.id);
+    if (!limit.ok) {
+      if (limit.retryAfterSec) res.setHeader("Retry-After", String(limit.retryAfterSec));
+      return res.status(429).json({
+        error: "Too many translation requests",
+        retryAfterSec: limit.retryAfterSec,
+      });
+    }
+
+    const text = typeof req.body?.text === "string" ? req.body.text : "";
+    if (!text.trim()) {
+      return res.status(400).json({ error: "text is required" });
+    }
+    const MAX_TRANSLATE_LENGTH = 5000;
+    if (text.length > MAX_TRANSLATE_LENGTH) {
+      return res.status(413).json({
+        error: `text exceeds ${MAX_TRANSLATE_LENGTH} chars`,
+      });
+    }
+
+    const explicitDst = normalizePreferredLanguage(req.body?.dstLang);
+    const dstLang = explicitDst ?? user.preferredLanguage ?? preferredLanguageFromHeader(req) ?? "en";
+
+    const explicitSrc = normalizePreferredLanguage(req.body?.srcLang);
+    let srcLang = explicitSrc ?? null;
+    if (!srcLang) {
+      const detected = await detectContentLang(text);
+      srcLang = detected ?? null;
+    }
+    if (!srcLang) {
+      // 検知不能。dstLang と同じと仮定して原文返却（エンジン無駄打ち防止）
+      return res.json({
+        text,
+        srcLang: null,
+        dstLang,
+        skipped: true,
+        skipReason: "src_unknown",
+        engine: "mymemory",
+        fromCache: false,
+      });
+    }
+
+    const result = await translateText({ text, srcLang, dstLang });
+    res.json({
+      text: result.text,
+      srcLang,
+      dstLang,
+      skipped: result.skipped,
+      skipReason: result.skipReason ?? null,
+      fromCache: result.fromCache,
+      engine: result.engine,
+      error: result.error ?? false,
     });
   });
 
