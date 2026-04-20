@@ -121,10 +121,13 @@ export default function VideoDetailScreen() {
 
   const creatorId = (video as any)?.creatorId;
   const creatorType = (video as any)?.creatorType;
+  const ownerUserId = (apiVideo as any)?.userId;
   const isOwner =
     !!apiVideo &&
     !!user &&
-    (creatorType === "user" && typeof creatorId === "number" && creatorId === user.id);
+    ((typeof ownerUserId === "number" && ownerUserId === user.id) ||
+      (creatorType === "user" && typeof creatorId === "number" && creatorId === user.id) ||
+      (typeof video?.creator === "string" && video.creator === user.displayName));
 
   async function handleAddComment() {
     const text = commentText.trim();

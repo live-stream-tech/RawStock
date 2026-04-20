@@ -69,6 +69,8 @@ __export(schema_exports, {
   ticketBalances: () => ticketBalances,
   ticketTransactions: () => ticketTransactions,
   transactions: () => transactions,
+  translationGlossary: () => translationGlossary,
+  translations: () => translations,
   twoShotReservations: () => twoShotReservations,
   userFollows: () => userFollows,
   users: () => users,
@@ -569,9 +571,41 @@ var users = pgTable("users", {
   termsAcceptedAt: timestamp("terms_accepted_at"),
   privacyAcceptedVersion: text("privacy_accepted_version"),
   privacyAcceptedAt: timestamp("privacy_accepted_at"),
+  // migrations/0022_users_preferred_language.sql — UI・自動翻訳宛先言語（ISO 639-1）。
+  // 注意: lastContentLang は franc 検知結果。preferredLanguage はユーザーの明示選択で別物。
+  preferredLanguage: text("preferred_language"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow()
 });
+var translations = pgTable(
+  "translations",
+  {
+    id: serial("id").primaryKey(),
+    srcLang: text("src_lang").notNull(),
+    dstLang: text("dst_lang").notNull(),
+    /** sha256(normalize(source_text)) の hex */
+    textHash: text("text_hash").notNull(),
+    sourceText: text("source_text").notNull(),
+    translatedText: text("translated_text").notNull(),
+    engine: text("engine").notNull().default("mymemory"),
+    createdAt: timestamp("created_at").defaultNow()
+  },
+  (t) => [unique("translations_unique_idx").on(t.srcLang, t.dstLang, t.textHash)]
+);
+var translationGlossary = pgTable(
+  "translation_glossary",
+  {
+    id: serial("id").primaryKey(),
+    term: text("term").notNull(),
+    /** '*' で全 locale 共通 */
+    locale: text("locale").notNull().default("*"),
+    doNotTranslate: boolean("do_not_translate").notNull().default(true),
+    overrideTranslation: text("override_translation"),
+    scope: text("scope").notNull().default("global"),
+    createdAt: timestamp("created_at").defaultNow()
+  },
+  (t) => [unique("translation_glossary_term_locale_idx").on(t.term, t.locale)]
+);
 var userFollows = pgTable(
   "user_follows",
   {
@@ -907,12 +941,12 @@ var db = drizzle(pool, { schema: schema_exports });
 
 // server/routes.ts
 import {
-  eq as eq2,
+  eq as eq3,
   asc as asc2,
   desc,
   count,
   sql as sql3,
-  and as and2,
+  and as and3,
   or,
   gte as gte2,
   lte as lte2,
@@ -1804,6 +1838,47 @@ function enqueueAIEditJob(key, handler) {
   return true;
 }
 
+// shared/withdrawalFees.ts
+var DEFAULT_MIN_NET_TRANSFER_USD_CENTS = 50;
+function computeWithdrawalFeeBreakdown(grossUsdCents, policy) {
+  const minNet = Math.max(
+    1,
+    Math.min(1e7, policy.minNetTransferUsdCents || DEFAULT_MIN_NET_TRANSFER_USD_CENTS)
+  );
+  const gross = Math.floor(grossUsdCents);
+  if (!Number.isFinite(gross) || gross <= 0) {
+    return { feeUsdCents: 0, netTransferUsdCents: 0 };
+  }
+  const bps = Math.max(0, Math.min(1e4, Math.floor(policy.bps)));
+  const fixed = Math.max(0, Math.floor(policy.fixedUsdCents));
+  const variable = Math.ceil(gross * bps / 1e4);
+  const rawFee = variable + fixed;
+  const maxFee = Math.max(0, gross - minNet);
+  const feeUsdCents = Math.min(maxFee, rawFee);
+  const netTransferUsdCents = gross - feeUsdCents;
+  return { feeUsdCents, netTransferUsdCents };
+}
+
+// server/lib/withdrawalFees.ts
+function getWithdrawalFeePolicy() {
+  const bps = Math.min(1e4, Math.max(0, parseInt(process.env.WITHDRAWAL_FEE_BPS ?? "0", 10) || 0));
+  const fixedUsdCents = Math.max(0, parseInt(process.env.WITHDRAWAL_FEE_FIXED_USD_CENTS ?? "0", 10) || 0);
+  const minNetTransferUsdCents = Math.max(
+    1,
+    Math.min(
+      1e7,
+      parseInt(
+        process.env.WITHDRAWAL_MIN_NET_TRANSFER_USD_CENTS ?? String(DEFAULT_MIN_NET_TRANSFER_USD_CENTS),
+        10
+      ) || DEFAULT_MIN_NET_TRANSFER_USD_CENTS
+    )
+  );
+  return { bps, fixedUsdCents, minNetTransferUsdCents };
+}
+function computeWithdrawalFeeBreakdown2(grossUsdCents) {
+  return computeWithdrawalFeeBreakdown(grossUsdCents, getWithdrawalFeePolicy());
+}
+
 // server/lib/dslToTemplated.ts
 var DSL_TO_TEMPLATED_INPUT_VIDEO_PLACEHOLDER = "INPUT_VIDEO_URL";
 var DSL_TO_TEMPLATED_LOGO_PLACEHOLDER = "INPUT_LOGO_URL";
@@ -2170,6 +2245,219 @@ async function detectContentLang(text2) {
   }
 }
 
+// server/lib/translate/index.ts
+import crypto from "node:crypto";
+import { and as and2, eq as eq2 } from "drizzle-orm";
+
+// server/lib/translate/glossary.ts
+var CACHE_TTL_MS = 5 * 60 * 1e3;
+var cache = null;
+async function loadGlossary() {
+  if (cache && Date.now() - cache.loadedAt < CACHE_TTL_MS) {
+    return cache.entries;
+  }
+  try {
+    const rows = await db.select().from(translationGlossary);
+    const entries = rows.map((r) => ({
+      term: r.term,
+      locale: r.locale ?? "*",
+      doNotTranslate: r.doNotTranslate,
+      overrideTranslation: r.overrideTranslation ?? null
+    }));
+    cache = { entries, loadedAt: Date.now() };
+    return entries;
+  } catch (e) {
+    console.warn("loadGlossary failed; using empty glossary", e);
+    return cache?.entries ?? [];
+  }
+}
+var PLACEHOLDER_PREFIX = "__RSGLOSS";
+var PLACEHOLDER_SUFFIX = "__";
+function makePlaceholder(index) {
+  return `${PLACEHOLDER_PREFIX}${index}${PLACEHOLDER_SUFFIX}`;
+}
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+async function maskGlossary(text2, dstLang) {
+  const entries = await loadGlossary();
+  if (entries.length === 0) return { masked: text2, replacements: /* @__PURE__ */ new Map() };
+  const sorted = [...entries].sort((a, b) => b.term.length - a.term.length);
+  let masked = text2;
+  const replacements = /* @__PURE__ */ new Map();
+  let nextIndex = 0;
+  for (const entry of sorted) {
+    if (!entry.term) continue;
+    if (!entry.doNotTranslate && !entry.overrideTranslation) continue;
+    const pattern = new RegExp(`\\b${escapeRegExp(entry.term)}\\b`, "gi");
+    if (!pattern.test(masked)) continue;
+    const placeholder = makePlaceholder(nextIndex++);
+    const restoreTo = entry.overrideTranslation && (entry.locale === "*" || entry.locale === dstLang) ? entry.overrideTranslation : entry.term;
+    masked = masked.replace(new RegExp(`\\b${escapeRegExp(entry.term)}\\b`, "gi"), placeholder);
+    replacements.set(placeholder, restoreTo);
+  }
+  return { masked, replacements };
+}
+function unmaskGlossary(translated, replacements) {
+  if (replacements.size === 0) return translated;
+  let out = translated;
+  for (const [placeholder, value] of replacements) {
+    out = out.replace(new RegExp(escapeRegExp(placeholder), "gi"), value);
+  }
+  return out;
+}
+
+// server/lib/translate/mymemory.ts
+var ENDPOINT = "https://api.mymemory.translated.net/get";
+var MyMemoryError = class extends Error {
+  status;
+  constructor(message, status) {
+    super(message);
+    this.name = "MyMemoryError";
+    this.status = status;
+  }
+};
+function normalizeLang(code) {
+  const lower = code.toLowerCase();
+  if (lower === "zh") return "zh-CN";
+  return lower;
+}
+async function myMemoryTranslate(text2, srcLang, dstLang) {
+  const params = new URLSearchParams();
+  params.set("q", text2);
+  params.set("langpair", `${normalizeLang(srcLang)}|${normalizeLang(dstLang)}`);
+  const email = process.env.MYMEMORY_EMAIL;
+  if (email) params.set("de", email);
+  const url = `${ENDPOINT}?${params.toString()}`;
+  const res = await fetch(url, { method: "GET" });
+  if (!res.ok) {
+    throw new MyMemoryError(`MyMemory HTTP ${res.status}`, res.status);
+  }
+  const json = await res.json().catch(() => null);
+  if (!json || !json.responseData?.translatedText) {
+    throw new MyMemoryError("MyMemory empty response");
+  }
+  if (typeof json.responseStatus === "number" && json.responseStatus >= 400) {
+    throw new MyMemoryError(
+      `MyMemory error ${json.responseStatus}: ${json.responseDetails ?? "unknown"}`,
+      json.responseStatus
+    );
+  }
+  return { translatedText: json.responseData.translatedText };
+}
+
+// server/lib/translate/shortText.ts
+var SHORT_WORD_THRESHOLD = 2;
+var SHORT_VISIBLE_THRESHOLD = 8;
+var NON_TEXTUAL_RE = /^[\s\d\W_]+$/u;
+function shouldSkipTranslation(input) {
+  const trimmed = input.trim();
+  if (!trimmed) return { skip: true, reason: "empty" };
+  if (NON_TEXTUAL_RE.test(trimmed)) {
+    return { skip: true, reason: "non_textual" };
+  }
+  const visibleLength = trimmed.replace(/\s+/g, "").length;
+  if (visibleLength <= SHORT_VISIBLE_THRESHOLD) {
+    return { skip: true, reason: "too_short_visible" };
+  }
+  const wordCount = trimmed.split(/\s+/u).filter(Boolean).length;
+  if (wordCount <= SHORT_WORD_THRESHOLD) {
+    return { skip: true, reason: "too_short_words" };
+  }
+  return { skip: false };
+}
+
+// server/lib/translate/index.ts
+function selectedEngine() {
+  const e = (process.env.TRANSLATE_ENGINE ?? "").toLowerCase();
+  if (e === "mymemory" || e === "") return "mymemory";
+  console.warn(`Unknown TRANSLATE_ENGINE=${e}; falling back to mymemory`);
+  return "mymemory";
+}
+function normalizeForHash(text2) {
+  return text2.trim().replace(/\s+/g, " ");
+}
+function hashText(text2) {
+  return crypto.createHash("sha256").update(normalizeForHash(text2)).digest("hex");
+}
+async function readFromCache(srcLang, dstLang, textHash) {
+  try {
+    const [row] = await db.select({ translatedText: translations.translatedText }).from(translations).where(
+      and2(
+        eq2(translations.srcLang, srcLang),
+        eq2(translations.dstLang, dstLang),
+        eq2(translations.textHash, textHash)
+      )
+    ).limit(1);
+    return row?.translatedText ?? null;
+  } catch (e) {
+    console.warn("translations cache read failed", e);
+    return null;
+  }
+}
+async function writeToCache(args) {
+  try {
+    await db.insert(translations).values({
+      srcLang: args.srcLang,
+      dstLang: args.dstLang,
+      textHash: args.textHash,
+      sourceText: args.sourceText,
+      translatedText: args.translatedText,
+      engine: args.engine
+    }).onConflictDoNothing();
+  } catch (e) {
+    console.warn("translations cache write failed", e);
+  }
+}
+async function translateText(input) {
+  const engine = selectedEngine();
+  const text2 = input.text ?? "";
+  const srcLang = (input.srcLang ?? "").toLowerCase();
+  const dstLang = (input.dstLang ?? "").toLowerCase();
+  if (!srcLang || !dstLang || srcLang === dstLang) {
+    return { text: text2, fromCache: false, skipped: true, skipReason: "same_lang", engine };
+  }
+  const decision = shouldSkipTranslation(text2);
+  if (decision.skip) {
+    return {
+      text: text2,
+      fromCache: false,
+      skipped: true,
+      skipReason: decision.reason ?? "empty",
+      engine
+    };
+  }
+  const textHash = hashText(text2);
+  const cached = await readFromCache(srcLang, dstLang, textHash);
+  if (cached !== null) {
+    return { text: cached, fromCache: true, skipped: false, engine };
+  }
+  const { masked, replacements } = await maskGlossary(text2, dstLang);
+  try {
+    const result = engine === "mymemory" ? await myMemoryTranslate(masked, srcLang, dstLang) : await myMemoryTranslate(masked, srcLang, dstLang);
+    const restored = unmaskGlossary(result.translatedText, replacements);
+    const finalText = restored.trim();
+    if (finalText && finalText !== masked) {
+      await writeToCache({
+        srcLang,
+        dstLang,
+        textHash,
+        sourceText: text2,
+        translatedText: finalText,
+        engine
+      });
+    }
+    return { text: finalText || text2, fromCache: false, skipped: false, engine };
+  } catch (e) {
+    if (e instanceof MyMemoryError) {
+      console.warn("translateText engine error", e.message);
+    } else {
+      console.warn("translateText unexpected error", e);
+    }
+    return { text: text2, fromCache: false, skipped: false, engine, error: true };
+  }
+}
+
 // server/debugIngest.ts
 function debugIngestServer(body, sessionId = "88cb7d") {
   if (process.env.NODE_ENV === "production") return;
@@ -2324,6 +2612,54 @@ function queryStr(req, key) {
   if (Array.isArray(v)) return typeof v[0] === "string" ? v[0] : "";
   return typeof v === "string" ? v : "";
 }
+var SUPPORTED_PREFERRED_LANGUAGES = /* @__PURE__ */ new Set([
+  "en",
+  "ja",
+  "ko",
+  "zh",
+  "es",
+  "fr",
+  "de",
+  "pt",
+  "it",
+  "vi",
+  "th",
+  "id",
+  "ru",
+  "ar"
+]);
+function normalizePreferredLanguage(value) {
+  if (typeof value !== "string") return null;
+  const lower = value.trim().toLowerCase();
+  if (!lower) return null;
+  const base = lower.split(/[-_]/u)[0];
+  return SUPPORTED_PREFERRED_LANGUAGES.has(base) ? base : null;
+}
+function preferredLanguageFromHeader(req) {
+  const raw = req.headers["accept-language"] ?? "";
+  if (!raw) return null;
+  const first = raw.split(",")[0]?.trim();
+  return normalizePreferredLanguage(first);
+}
+var TRANSLATE_RATE_WINDOW_MS = 6e4;
+var TRANSLATE_RATE_LIMIT = 30;
+var translateRateBuckets = /* @__PURE__ */ new Map();
+function checkTranslateRateLimit(userId) {
+  const now = Date.now();
+  const bucket2 = translateRateBuckets.get(userId);
+  if (!bucket2 || now - bucket2.windowStart >= TRANSLATE_RATE_WINDOW_MS) {
+    translateRateBuckets.set(userId, { windowStart: now, count: 1 });
+    return { ok: true };
+  }
+  if (bucket2.count >= TRANSLATE_RATE_LIMIT) {
+    const retryAfterSec = Math.ceil(
+      (TRANSLATE_RATE_WINDOW_MS - (now - bucket2.windowStart)) / 1e3
+    );
+    return { ok: false, retryAfterSec };
+  }
+  bucket2.count += 1;
+  return { ok: true };
+}
 async function getAuthUser(req) {
   const auth = req.headers?.authorization ?? "";
   if (!auth.startsWith("Bearer ")) {
@@ -2342,7 +2678,7 @@ async function getAuthUser(req) {
     const payload = jwt.verify(auth.slice(7), JWT_SECRET);
     if (typeof payload === "string" || !payload || typeof payload.sub !== "number") return null;
     const sub = payload.sub;
-    const [user] = await db.select().from(users).where(eq2(users.id, sub));
+    const [user] = await db.select().from(users).where(eq3(users.id, sub));
     if (!user) return null;
     debugIngestServer({
       sessionId: "88cb7d",
@@ -2356,7 +2692,8 @@ async function getAuthUser(req) {
     return {
       ...user,
       avatar: user.profileImageUrl,
-      lastContentLang: user.lastContentLang ?? null
+      lastContentLang: user.lastContentLang ?? null,
+      preferredLanguage: user.preferredLanguage ?? null
     };
   } catch {
     return null;
@@ -2366,7 +2703,7 @@ async function syncUserLastContentLang(userId, rawText) {
   try {
     const lang = await detectContentLang(rawText);
     if (!lang) return;
-    await db.update(users).set({ lastContentLang: lang, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(users.id, userId));
+    await db.update(users).set({ lastContentLang: lang, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(users.id, userId));
   } catch (e) {
     console.warn("syncUserLastContentLang skipped:", e);
   }
@@ -2405,10 +2742,10 @@ async function promoteAdminByEmail(target) {
   if (target) {
     const normalized = (target.email ?? "").trim().toLowerCase();
     if (normalized !== ADMIN_EMAIL) return;
-    await db.update(users).set({ role: "ADMIN", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(users.id, target.id));
+    await db.update(users).set({ role: "ADMIN", updatedAt: /* @__PURE__ */ new Date() }).where(eq3(users.id, target.id));
     return;
   }
-  await db.update(users).set({ role: "ADMIN", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(users.email, ADMIN_EMAIL));
+  await db.update(users).set({ role: "ADMIN", updatedAt: /* @__PURE__ */ new Date() }).where(eq3(users.email, ADMIN_EMAIL));
 }
 var OPERATIONS_DM_NAME = "Operations Team";
 var OPERATIONS_DM_AVATAR = "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=100&h=100&fit=crop";
@@ -2437,7 +2774,7 @@ var WELCOME_DM_TEXT = [
   "Questions? Reply to this DM anytime."
 ].join("\n");
 async function ensureOperationsDmRow() {
-  const [existing] = await db.select().from(dmMessages).where(eq2(dmMessages.name, OPERATIONS_DM_NAME));
+  const [existing] = await db.select().from(dmMessages).where(eq3(dmMessages.name, OPERATIONS_DM_NAME));
   if (existing) return existing;
   try {
     const previewLine = WELCOME_DM_TEXT.split("\n").find((line) => line.trim().length > 0) ?? "Welcome to RawStock";
@@ -2460,7 +2797,7 @@ async function ensureOperationsDmRow() {
     }
     return created;
   } catch {
-    const [again] = await db.select().from(dmMessages).where(eq2(dmMessages.name, OPERATIONS_DM_NAME));
+    const [again] = await db.select().from(dmMessages).where(eq3(dmMessages.name, OPERATIONS_DM_NAME));
     return again;
   }
 }
@@ -2482,9 +2819,9 @@ function formatDmThreadTime(d) {
 async function sendWelcomeDmIfNeeded(userId) {
   try {
     await db.transaction(async (tx) => {
-      const [claimed] = await tx.update(users).set({ welcomeDmSentAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(and2(eq2(users.id, userId), isNull(users.welcomeDmSentAt))).returning({ id: users.id });
+      const [claimed] = await tx.update(users).set({ welcomeDmSentAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(and3(eq3(users.id, userId), isNull(users.welcomeDmSentAt))).returning({ id: users.id });
       if (!claimed) return;
-      let [operationsDm] = await tx.select().from(dmMessages).where(eq2(dmMessages.name, OPERATIONS_DM_NAME));
+      let [operationsDm] = await tx.select().from(dmMessages).where(eq3(dmMessages.name, OPERATIONS_DM_NAME));
       if (!operationsDm) {
         [operationsDm] = await tx.insert(dmMessages).values({
           name: OPERATIONS_DM_NAME,
@@ -2501,7 +2838,7 @@ async function sendWelcomeDmIfNeeded(userId) {
           time: "Just now",
           unread: (operationsDm.unread ?? 0) + 1,
           online: true
-        }).where(eq2(dmMessages.id, operationsDm.id)).returning();
+        }).where(eq3(dmMessages.id, operationsDm.id)).returning();
         operationsDm = updatedDm ?? operationsDm;
       }
       await tx.insert(dmConversationMessages).values({
@@ -2519,7 +2856,7 @@ var SYSTEM_WALLET_KINDS = ["MODERATOR", "ADMIN", "EVENT_RESERVE", "PLATFORM"];
 async function getOrCreateSystemWallets() {
   const result = {};
   for (const kind of SYSTEM_WALLET_KINDS) {
-    const [w] = await db.select().from(wallets).where(eq2(wallets.kind, kind));
+    const [w] = await db.select().from(wallets).where(eq3(wallets.kind, kind));
     if (w) {
       result[kind] = w.id;
     } else {
@@ -2530,7 +2867,7 @@ async function getOrCreateSystemWallets() {
   return result;
 }
 async function getOrCreateUserWallet(userId, executor = db) {
-  const [w] = await executor.select().from(wallets).where(and2(eq2(wallets.userId, userId), isNull(wallets.kind)));
+  const [w] = await executor.select().from(wallets).where(and3(eq3(wallets.userId, userId), isNull(wallets.kind)));
   if (w) return w.id;
   const [created] = await executor.insert(wallets).values({ userId, kind: null }).returning();
   return created.id;
@@ -2564,18 +2901,18 @@ async function ensureDefaultLevelThresholds(executor = db) {
 }
 async function syncCreatorLevelFromMonthlyProgress(creatorId, yearMonth, executor = db) {
   const thresholds = await ensureDefaultLevelThresholds(executor);
-  const [score] = await executor.select().from(creatorMonthlyScores).where(and2(eq2(creatorMonthlyScores.creatorId, creatorId), eq2(creatorMonthlyScores.yearMonth, yearMonth)));
+  const [score] = await executor.select().from(creatorMonthlyScores).where(and3(eq3(creatorMonthlyScores.creatorId, creatorId), eq3(creatorMonthlyScores.yearMonth, yearMonth)));
   const tipGross = score?.tipGross ?? 0;
   const streamCountMonthly = score?.streamCountMonthly ?? 0;
   const achieved = thresholds.reduce((acc, t) => {
     if (tipGross >= t.requiredTipGross && streamCountMonthly >= t.requiredStreamCount) return Math.max(acc, t.level);
     return acc;
   }, 1);
-  await executor.update(creators).set({ currentLevel: achieved }).where(eq2(creators.id, creatorId));
+  await executor.update(creators).set({ currentLevel: achieved }).where(eq3(creators.id, creatorId));
   return achieved;
 }
 async function upsertCreatorMonthlyRevenue(creatorId, yearMonth, source, grossAmount, executor = db) {
-  const [existing] = await executor.select().from(creatorMonthlyScores).where(and2(eq2(creatorMonthlyScores.creatorId, creatorId), eq2(creatorMonthlyScores.yearMonth, yearMonth)));
+  const [existing] = await executor.select().from(creatorMonthlyScores).where(and3(eq3(creatorMonthlyScores.creatorId, creatorId), eq3(creatorMonthlyScores.yearMonth, yearMonth)));
   if (!existing) {
     await executor.insert(creatorMonthlyScores).values({
       creatorId,
@@ -2589,14 +2926,14 @@ async function upsertCreatorMonthlyRevenue(creatorId, yearMonth, source, grossAm
     tipGross: source === "tip" ? existing.tipGross + grossAmount : existing.tipGross,
     paidLiveGross: source === "tip" ? existing.paidLiveGross : existing.paidLiveGross + grossAmount,
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq2(creatorMonthlyScores.id, existing.id));
+  }).where(eq3(creatorMonthlyScores.id, existing.id));
 }
 async function recordRevenue(walletId, userId, creatorId, amount, source, referenceId, executor = db) {
   const yearMonth = getYearMonth();
   let backRate = 0.9;
   if (source === "tip") {
     const thresholds = await ensureDefaultLevelThresholds(executor);
-    const [creator] = creatorId ? await executor.select().from(creators).where(eq2(creators.id, creatorId)) : [];
+    const [creator] = creatorId ? await executor.select().from(creators).where(eq3(creators.id, creatorId)) : [];
     const level = creator?.currentLevel ?? 1;
     const rate = thresholds.find((t) => t.level === level)?.tipBackRate;
     backRate = typeof rate === "number" ? rate : 0.5;
@@ -2624,22 +2961,29 @@ async function recordRevenue(walletId, userId, creatorId, amount, source, refere
     netAmount
   });
   if (creatorId) {
-    const [creator] = await executor.select().from(creators).where(eq2(creators.id, creatorId));
+    const [creator] = await executor.select().from(creators).where(eq3(creators.id, creatorId));
     if (creator) {
       await executor.update(creators).set({
         revenue: creator.revenue + amount,
         revenueShare: Math.round(backRate * 100)
-      }).where(eq2(creators.id, creatorId));
+      }).where(eq3(creators.id, creatorId));
     }
     await upsertCreatorMonthlyRevenue(creatorId, yearMonth, source, amount, executor);
     await syncCreatorLevelFromMonthlyProgress(creatorId, yearMonth, executor);
   }
 }
 async function creatorRowForUserId(executor, userId) {
-  const [u] = await executor.select({ displayName: users.displayName }).from(users).where(eq2(users.id, userId)).limit(1);
+  const [u] = await executor.select({ displayName: users.displayName }).from(users).where(eq3(users.id, userId)).limit(1);
   if (!u) return void 0;
-  const [row] = await executor.select().from(creators).where(eq2(creators.name, u.displayName)).limit(1);
+  const [row] = await executor.select().from(creators).where(eq3(creators.name, u.displayName)).limit(1);
   return row;
+}
+async function resolveVideoSellerUserId(executor, videoId) {
+  const [row] = await executor.select().from(videos).where(eq3(videos.id, videoId)).limit(1);
+  if (!row || row.hidden) return null;
+  if (row.userId != null && Number.isInteger(row.userId) && row.userId > 0) return row.userId;
+  const [creatorUser] = await executor.select({ id: users.id }).from(users).where(eq3(users.displayName, row.creator)).limit(1);
+  return creatorUser?.id ?? null;
 }
 async function registerRoutes(app2) {
   await promoteAdminByEmail();
@@ -2652,25 +2996,35 @@ async function registerRoutes(app2) {
     if (password.length < 6) {
       return res.status(400).json({ error: "Password must be at least 6 characters" });
     }
-    const [existing] = await db.select().from(users).where(eq2(users.email, email));
+    const [existing] = await db.select().from(users).where(eq3(users.email, email));
     if (existing) {
       return res.status(409).json({ error: "Email already registered" });
     }
     const hash = await bcrypt.hash(password, 10);
     const displayName = name || email.split("@")[0];
     const lineId = `email:${email}`;
+    const preferredLanguage = normalizePreferredLanguage(req.body?.preferredLanguage) ?? preferredLanguageFromHeader(req);
     const [user] = await db.insert(users).values({
       lineId,
       displayName,
       email,
       passwordHash: hash,
       role: "USER",
-      bio: ""
+      bio: "",
+      preferredLanguage
     }).returning();
     await promoteAdminByEmail({ id: user.id, email: user.email });
     await sendWelcomeDmIfNeeded(user.id);
     const token = makeToken(user.id);
-    res.json({ token, user: { id: user.id, name: user.displayName, email: user.email } });
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        name: user.displayName,
+        email: user.email,
+        preferredLanguage: user.preferredLanguage ?? null
+      }
+    });
   });
   app2.post("/api/auth/demo", (_req, res) => {
     return res.status(403).json({ error: "Demo login is disabled", code: "DEMO_DISABLED" });
@@ -2681,7 +3035,7 @@ async function registerRoutes(app2) {
     if (!email || !password) {
       return res.status(400).json({ error: "Email and password are required" });
     }
-    const [user] = await db.select().from(users).where(eq2(users.email, email));
+    const [user] = await db.select().from(users).where(eq3(users.email, email));
     if (!user || !user.passwordHash) {
       return res.status(401).json({ error: "Invalid email or password" });
     }
@@ -2691,15 +3045,45 @@ async function registerRoutes(app2) {
     }
     await promoteAdminByEmail({ id: user.id, email: user.email });
     await sendWelcomeDmIfNeeded(user.id);
+    let preferredLanguage = user.preferredLanguage ?? null;
+    if (!preferredLanguage) {
+      const guess = normalizePreferredLanguage(req.body?.preferredLanguage) ?? preferredLanguageFromHeader(req);
+      if (guess) {
+        try {
+          await db.update(users).set({ preferredLanguage: guess, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(users.id, user.id));
+          preferredLanguage = guess;
+        } catch (e) {
+          console.warn("login preferredLanguage backfill failed", e);
+        }
+      }
+    } else {
+      const explicit = normalizePreferredLanguage(req.body?.preferredLanguage);
+      if (explicit && explicit !== preferredLanguage) {
+        try {
+          await db.update(users).set({ preferredLanguage: explicit, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(users.id, user.id));
+          preferredLanguage = explicit;
+        } catch (e) {
+          console.warn("login preferredLanguage update failed", e);
+        }
+      }
+    }
     const token = makeToken(user.id);
-    res.json({ token, user: { id: user.id, name: user.displayName, email: user.email } });
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        name: user.displayName,
+        email: user.email,
+        preferredLanguage
+      }
+    });
   });
   app2.get("/api/auth/me", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const [u] = await db.select({
       pinnedCommunityIds: users.pinnedCommunityIds
-    }).from(users).where(eq2(users.id, user.id));
+    }).from(users).where(eq3(users.id, user.id));
     let pinnedCommunityIds = [];
     if (u) {
       if (u.pinnedCommunityIds) {
@@ -2720,6 +3104,7 @@ async function registerRoutes(app2) {
       role: user.role,
       bio: user.bio,
       lastContentLang: user.lastContentLang ?? null,
+      preferredLanguage: user.preferredLanguage ?? null,
       stripeConnectId: user.stripeConnectId ?? null,
       payoutTermsAgreedAt: payoutTermsAt ? new Date(payoutTermsAt).toISOString() : null,
       spotifyUrl: user.spotifyUrl ?? null,
@@ -2731,6 +3116,80 @@ async function registerRoutes(app2) {
       phoneNumber: user.phoneNumber ?? null,
       pinnedCommunityIds,
       ...policyFieldsForApi(user)
+    });
+  });
+  app2.get("/api/translate/preferred-language", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    res.json({
+      preferredLanguage: user.preferredLanguage ?? null,
+      lastContentLang: user.lastContentLang ?? null,
+      supported: Array.from(SUPPORTED_PREFERRED_LANGUAGES)
+    });
+  });
+  app2.patch("/api/translate/preferred-language", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const next = normalizePreferredLanguage(req.body?.preferredLanguage);
+    if (!next) {
+      return res.status(400).json({
+        error: "Unsupported language",
+        supported: Array.from(SUPPORTED_PREFERRED_LANGUAGES)
+      });
+    }
+    await db.update(users).set({ preferredLanguage: next, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(users.id, user.id));
+    res.json({ preferredLanguage: next });
+  });
+  app2.post("/api/translate", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const limit = checkTranslateRateLimit(user.id);
+    if (!limit.ok) {
+      if (limit.retryAfterSec) res.setHeader("Retry-After", String(limit.retryAfterSec));
+      return res.status(429).json({
+        error: "Too many translation requests",
+        retryAfterSec: limit.retryAfterSec
+      });
+    }
+    const text2 = typeof req.body?.text === "string" ? req.body.text : "";
+    if (!text2.trim()) {
+      return res.status(400).json({ error: "text is required" });
+    }
+    const MAX_TRANSLATE_LENGTH = 5e3;
+    if (text2.length > MAX_TRANSLATE_LENGTH) {
+      return res.status(413).json({
+        error: `text exceeds ${MAX_TRANSLATE_LENGTH} chars`
+      });
+    }
+    const explicitDst = normalizePreferredLanguage(req.body?.dstLang);
+    const dstLang = explicitDst ?? user.preferredLanguage ?? preferredLanguageFromHeader(req) ?? "en";
+    const explicitSrc = normalizePreferredLanguage(req.body?.srcLang);
+    let srcLang = explicitSrc ?? null;
+    if (!srcLang) {
+      const detected = await detectContentLang(text2);
+      srcLang = detected ?? null;
+    }
+    if (!srcLang) {
+      return res.json({
+        text: text2,
+        srcLang: null,
+        dstLang,
+        skipped: true,
+        skipReason: "src_unknown",
+        engine: "mymemory",
+        fromCache: false
+      });
+    }
+    const result = await translateText({ text: text2, srcLang, dstLang });
+    res.json({
+      text: result.text,
+      srcLang,
+      dstLang,
+      skipped: result.skipped,
+      skipReason: result.skipReason ?? null,
+      fromCache: result.fromCache,
+      engine: result.engine,
+      error: result.error ?? false
     });
   });
   app2.post("/api/auth/accept-policies", async (req, res) => {
@@ -2749,7 +3208,7 @@ async function registerRoutes(app2) {
       patch.privacyAcceptedVersion = LEGAL_PRIVACY_VERSION;
       patch.privacyAcceptedAt = now;
     }
-    const [row] = await db.update(users).set(patch).where(eq2(users.id, user.id)).returning();
+    const [row] = await db.update(users).set(patch).where(eq3(users.id, user.id)).returning();
     res.json({
       ok: true,
       ...policyFieldsForApi(row)
@@ -2759,13 +3218,13 @@ async function registerRoutes(app2) {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const now = /* @__PURE__ */ new Date();
-    await db.update(users).set({ payoutTermsAgreedAt: now, updatedAt: now }).where(eq2(users.id, user.id));
+    await db.update(users).set({ payoutTermsAgreedAt: now, updatedAt: now }).where(eq3(users.id, user.id));
     res.json({ ok: true, payoutTermsAgreedAt: now.toISOString() });
   });
   app2.post("/api/connect/onboard", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const [ptRow] = await db.select({ payoutTermsAgreedAt: users.payoutTermsAgreedAt }).from(users).where(eq2(users.id, user.id));
+    const [ptRow] = await db.select({ payoutTermsAgreedAt: users.payoutTermsAgreedAt }).from(users).where(eq3(users.id, user.id));
     if (!ptRow?.payoutTermsAgreedAt) {
       return res.status(400).json({
         error: "Please accept the creator payout terms. Review them in Payout Settings, then connect Stripe after agreeing."
@@ -2778,7 +3237,7 @@ async function registerRoutes(app2) {
       let accountId = user.stripeConnectId;
       if (!accountId) {
         accountId = await createConnectExpressAccount({ country: "JP" });
-        await db.update(users).set({ stripeConnectId: accountId, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(users.id, user.id));
+        await db.update(users).set({ stripeConnectId: accountId, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(users.id, user.id));
       }
       const url = await createConnectAccountLink({ accountId, returnUrl, refreshUrl });
       res.json({ url, accountId });
@@ -2941,7 +3400,7 @@ async function registerRoutes(app2) {
     if (!Number.isFinite(hostId) || hostId <= 0) {
       return res.status(400).json({ error: "hostId is required" });
     }
-    const [host] = await db.select({ id: users.id }).from(users).where(eq2(users.id, hostId)).limit(1);
+    const [host] = await db.select({ id: users.id }).from(users).where(eq3(users.id, hostId)).limit(1);
     if (!host) return res.status(404).json({ error: "Host not found" });
     return res.json({ hostId, slots: buildMockTwoShotSlots(hostId) });
   });
@@ -2949,7 +3408,7 @@ async function registerRoutes(app2) {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const id = paramNum(req, "id");
-    const [row] = await db.select().from(twoShotReservations).where(eq2(twoShotReservations.id, id)).limit(1);
+    const [row] = await db.select().from(twoShotReservations).where(eq3(twoShotReservations.id, id)).limit(1);
     if (!row) return res.status(404).json({ error: "Not found" });
     if (row.hostUserId !== user.id && row.guestUserId !== user.id) {
       return res.status(403).json({ error: "Forbidden" });
@@ -2966,7 +3425,7 @@ async function registerRoutes(app2) {
     if (hostId === user.id) {
       return res.status(400).json({ error: "You cannot book your own slot" });
     }
-    const [host] = await db.select({ id: users.id }).from(users).where(eq2(users.id, hostId)).limit(1);
+    const [host] = await db.select({ id: users.id }).from(users).where(eq3(users.id, hostId)).limit(1);
     if (!host) return res.status(404).json({ error: "Host not found" });
     const slots = buildMockTwoShotSlots(hostId);
     const slot = slots.find((s) => s.slotKey === slotKey);
@@ -3011,7 +3470,7 @@ async function registerRoutes(app2) {
           guestUserId: String(user.id)
         }
       });
-      await db.update(twoShotReservations).set({ stripeCheckoutSessionId: session.id }).where(eq2(twoShotReservations.id, reservation.id));
+      await db.update(twoShotReservations).set({ stripeCheckoutSessionId: session.id }).where(eq3(twoShotReservations.id, reservation.id));
       return res.json({ url: session.url, sessionId: session.id, reservationId: reservation.id });
     } catch (e) {
       console.error("[checkout/2shot]", e);
@@ -3049,7 +3508,7 @@ async function registerRoutes(app2) {
             await db.update(twoShotReservations).set({
               status: "CONFIRMED",
               stripeCheckoutSessionId: session.id
-            }).where(and2(eq2(twoShotReservations.id, rid), eq2(twoShotReservations.status, "PENDING")));
+            }).where(and3(eq3(twoShotReservations.id, rid), eq3(twoShotReservations.status, "PENDING")));
           }
         }
       }
@@ -3090,7 +3549,7 @@ async function registerRoutes(app2) {
       ...newPhone !== void 0 && { phoneNumber: newPhone },
       ...pinnedJson !== void 0 && { pinnedCommunityIds: pinnedJson },
       updatedAt: /* @__PURE__ */ new Date()
-    }).where(eq2(users.id, user.id)).returning();
+    }).where(eq3(users.id, user.id)).returning();
     const profileTextForLang = (newBio || "").trim() || newName;
     await syncUserLastContentLang(user.id, profileTextForLang);
     const detectedLang = await detectContentLang(profileTextForLang);
@@ -3127,18 +3586,18 @@ async function registerRoutes(app2) {
   app2.delete("/api/auth/account", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const [owned] = await db.select().from(communities).where(eq2(communities.ownerId, user.id)).limit(1);
+    const [owned] = await db.select().from(communities).where(eq3(communities.ownerId, user.id)).limit(1);
     if (owned) {
       return res.status(400).json({ error: "You cannot delete your account while you manage a community. Delete the community first." });
     }
     try {
-      await db.delete(communityMembers).where(eq2(communityMembers.userId, user.id));
-      await db.delete(communityModerators).where(eq2(communityModerators.userId, user.id));
-      await db.delete(communityPollVotes).where(eq2(communityPollVotes.userId, user.id));
-      await db.delete(communityVotes).where(eq2(communityVotes.userId, user.id));
-      await db.update(videos).set({ userId: null }).where(eq2(videos.userId, user.id));
-      await db.delete(videoComments).where(eq2(videoComments.userId, user.id));
-      await db.delete(users).where(eq2(users.id, user.id));
+      await db.delete(communityMembers).where(eq3(communityMembers.userId, user.id));
+      await db.delete(communityModerators).where(eq3(communityModerators.userId, user.id));
+      await db.delete(communityPollVotes).where(eq3(communityPollVotes.userId, user.id));
+      await db.delete(communityVotes).where(eq3(communityVotes.userId, user.id));
+      await db.update(videos).set({ userId: null }).where(eq3(videos.userId, user.id));
+      await db.delete(videoComments).where(eq3(videoComments.userId, user.id));
+      await db.delete(users).where(eq3(users.id, user.id));
       res.json({ ok: true });
     } catch (e) {
       console.error("Account deletion error:", e);
@@ -3148,9 +3607,9 @@ async function registerRoutes(app2) {
   app2.get("/api/profile/by-name/:name", async (req, res) => {
     const name = decodeURIComponent(req.params.name || "");
     if (!name.trim()) return res.status(400).json({ error: "Please provide a name" });
-    const [u] = await db.select({ id: users.id }).from(users).where(eq2(users.displayName, name));
+    const [u] = await db.select({ id: users.id }).from(users).where(eq3(users.displayName, name));
     if (u) return res.json({ type: "user", id: u.id });
-    const [c] = await db.select({ id: creators.id }).from(creators).where(eq2(creators.name, name));
+    const [c] = await db.select({ id: creators.id }).from(creators).where(eq3(creators.name, name));
     if (c) return res.json({ type: "liver", id: c.id });
     return res.status(404).json({ error: "Not found" });
   });
@@ -3169,7 +3628,7 @@ async function registerRoutes(app2) {
       appleMusicUrl: users.appleMusicUrl,
       bandcampUrl: users.bandcampUrl,
       pinnedCommunityIds: users.pinnedCommunityIds
-    }).from(users).where(eq2(users.id, id));
+    }).from(users).where(eq3(users.id, id));
     if (!u) return res.status(404).json({ error: "Not found" });
     let pinnedCommunities = [];
     const pinnedRaw = u.pinnedCommunityIds;
@@ -3188,8 +3647,8 @@ async function registerRoutes(app2) {
       } catch {
       }
     }
-    const [{ c: followersCountRaw }] = await db.select({ c: count() }).from(userFollows).where(eq2(userFollows.followingId, id));
-    const [{ c: followingCountRaw }] = await db.select({ c: count() }).from(userFollows).where(eq2(userFollows.followerId, id));
+    const [{ c: followersCountRaw }] = await db.select({ c: count() }).from(userFollows).where(eq3(userFollows.followingId, id));
+    const [{ c: followingCountRaw }] = await db.select({ c: count() }).from(userFollows).where(eq3(userFollows.followerId, id));
     res.json({
       id: u.id,
       name: u.displayName,
@@ -3214,19 +3673,19 @@ async function registerRoutes(app2) {
     if (!me) return res.status(401).json({ error: "Not authenticated" });
     const targetId = paramNum(req, "id");
     if (!targetId) return res.status(400).json({ error: "Invalid id" });
-    const [row] = await db.select({ id: userFollows.id }).from(userFollows).where(and2(eq2(userFollows.followerId, me.id), eq2(userFollows.followingId, targetId)));
+    const [row] = await db.select({ id: userFollows.id }).from(userFollows).where(and3(eq3(userFollows.followerId, me.id), eq3(userFollows.followingId, targetId)));
     res.json({ isFollowing: !!row });
   });
   app2.get("/api/users/:id/mentor-sessions", async (req, res) => {
     const uid = paramNum(req, "id");
     if (!uid) return res.status(400).json({ error: "Invalid id" });
-    const rows = await db.select().from(mentorSessions).where(and2(eq2(mentorSessions.creatorId, uid), eq2(mentorSessions.isActive, true))).orderBy(desc(mentorSessions.createdAt));
+    const rows = await db.select().from(mentorSessions).where(and3(eq3(mentorSessions.creatorId, uid), eq3(mentorSessions.isActive, true))).orderBy(desc(mentorSessions.createdAt));
     res.json(rows);
   });
   app2.get("/api/users/:id/communities", async (req, res) => {
     const uid = paramNum(req, "id");
     if (!uid) return res.status(400).json({ error: "Invalid id" });
-    const memberships = await db.select({ communityId: communityMembers.communityId }).from(communityMembers).where(eq2(communityMembers.userId, uid));
+    const memberships = await db.select({ communityId: communityMembers.communityId }).from(communityMembers).where(eq3(communityMembers.userId, uid));
     if (memberships.length === 0) return res.json([]);
     const ids = memberships.map((m) => m.communityId);
     const rows = await db.select({
@@ -3245,7 +3704,7 @@ async function registerRoutes(app2) {
       displayName: users.displayName,
       profileImageUrl: users.profileImageUrl,
       bio: users.bio
-    }).from(userFollows).innerJoin(users, eq2(users.id, userFollows.followerId)).where(eq2(userFollows.followingId, targetId));
+    }).from(userFollows).innerJoin(users, eq3(users.id, userFollows.followerId)).where(eq3(userFollows.followingId, targetId));
     res.json(
       rows.map((r) => ({
         id: r.id,
@@ -3264,7 +3723,7 @@ async function registerRoutes(app2) {
       displayName: users.displayName,
       profileImageUrl: users.profileImageUrl,
       bio: users.bio
-    }).from(userFollows).innerJoin(users, eq2(users.id, userFollows.followingId)).where(eq2(userFollows.followerId, targetId));
+    }).from(userFollows).innerJoin(users, eq3(users.id, userFollows.followingId)).where(eq3(userFollows.followerId, targetId));
     res.json(
       rows.map((r) => ({
         id: r.id,
@@ -3281,7 +3740,7 @@ async function registerRoutes(app2) {
     const targetId = paramNum(req, "id");
     if (!targetId) return res.status(400).json({ error: "Invalid id" });
     if (targetId === me.id) return res.status(400).json({ error: "You cannot follow yourself" });
-    const [exists] = await db.select({ id: users.id }).from(users).where(eq2(users.id, targetId));
+    const [exists] = await db.select({ id: users.id }).from(users).where(eq3(users.id, targetId));
     if (!exists) return res.status(404).json({ error: "Not found" });
     await db.insert(userFollows).values({ followerId: me.id, followingId: targetId }).onConflictDoNothing({ target: [userFollows.followerId, userFollows.followingId] });
     res.json({ ok: true });
@@ -3291,7 +3750,7 @@ async function registerRoutes(app2) {
     if (!me) return res.status(401).json({ error: "Not authenticated" });
     const targetId = paramNum(req, "id");
     if (!targetId) return res.status(400).json({ error: "Invalid id" });
-    await db.delete(userFollows).where(and2(eq2(userFollows.followerId, me.id), eq2(userFollows.followingId, targetId)));
+    await db.delete(userFollows).where(and3(eq3(userFollows.followerId, me.id), eq3(userFollows.followingId, targetId)));
     res.json({ ok: true });
   });
   const BASE_URL = resolvePublicAppOrigin();
@@ -3365,7 +3824,7 @@ async function registerRoutes(app2) {
         ...tokenData.refresh_token ? { googleRefreshToken: tokenData.refresh_token } : {},
         ...expiresAt ? { googleTokenExpiresAt: expiresAt } : {}
       };
-      let [existing] = await db.select().from(users).where(eq2(users.lineId, googleKey));
+      let [existing] = await db.select().from(users).where(eq3(users.lineId, googleKey));
       if (!existing) {
         [existing] = await db.insert(users).values({
           lineId: googleKey,
@@ -3383,7 +3842,7 @@ async function registerRoutes(app2) {
           ...tokenUpdate
         };
         if (googleEmail) nextValues.email = googleEmail;
-        [existing] = await db.update(users).set(nextValues).where(eq2(users.id, existing.id)).returning();
+        [existing] = await db.update(users).set(nextValues).where(eq3(users.id, existing.id)).returning();
       }
       await promoteAdminByEmail({ id: existing.id, email: existing.email });
       await sendWelcomeDmIfNeeded(existing.id);
@@ -3470,7 +3929,7 @@ async function registerRoutes(app2) {
     }
   });
   async function getGoogleAccessToken(userId) {
-    const [u] = await db.select().from(users).where(eq2(users.id, userId));
+    const [u] = await db.select().from(users).where(eq3(users.id, userId));
     if (!u || !u.googleRefreshToken) return null;
     const row = u;
     const expiresAt = row.googleTokenExpiresAt ? new Date(row.googleTokenExpiresAt).getTime() : 0;
@@ -3498,7 +3957,7 @@ async function registerRoutes(app2) {
         googleAccessToken: data.access_token,
         ...newExpiresAt ? { googleTokenExpiresAt: newExpiresAt } : {},
         updatedAt: /* @__PURE__ */ new Date()
-      }).where(eq2(users.id, userId));
+      }).where(eq3(users.id, userId));
       return data.access_token;
     } catch {
       return null;
@@ -3630,7 +4089,7 @@ async function registerRoutes(app2) {
   app2.get("/api/communities/me", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const memberships = await db.select({ communityId: communityMembers.communityId }).from(communityMembers).where(eq2(communityMembers.userId, user.id));
+    const memberships = await db.select({ communityId: communityMembers.communityId }).from(communityMembers).where(eq3(communityMembers.userId, user.id));
     if (memberships.length === 0) {
       return res.json([]);
     }
@@ -3640,21 +4099,21 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/communities/:id", async (req, res) => {
     const id = paramNum(req, "id");
-    const [row] = await db.select().from(communities).where(eq2(communities.id, id));
+    const [row] = await db.select().from(communities).where(eq3(communities.id, id));
     if (!row) return res.status(404).json({ message: "Not found" });
     res.json(row);
   });
   app2.get("/api/communities/:id/editors", async (req, res) => {
     const communityId = paramNum(req, "id");
-    const rows = await db.select().from(videoEditors).where(eq2(videoEditors.communityId, communityId)).orderBy(desc(videoEditors.isAvailable), desc(videoEditors.rating));
+    const rows = await db.select().from(videoEditors).where(eq3(videoEditors.communityId, communityId)).orderBy(desc(videoEditors.isAvailable), desc(videoEditors.rating));
     res.json(rows);
   });
   app2.get("/api/communities/:id/creators", async (req, res) => {
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
-    const editors = await db.select().from(videoEditors).where(eq2(videoEditors.communityId, communityId)).orderBy(desc(videoEditors.rating));
-    const livers = await db.select().from(creators).where(eq2(creators.community, community.name)).orderBy(asc2(creators.rank));
+    const editors = await db.select().from(videoEditors).where(eq3(videoEditors.communityId, communityId)).orderBy(desc(videoEditors.rating));
+    const livers = await db.select().from(creators).where(eq3(creators.community, community.name)).orderBy(asc2(creators.rank));
     res.json({
       editors: editors.map((e) => ({ ...e, kind: "editor" })),
       livers: livers.map((l) => ({ ...l, kind: "liver" }))
@@ -3662,10 +4121,10 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/communities/:id/staff", async (req, res) => {
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
-    const admin = community.adminId ? (await db.select().from(users).where(eq2(users.id, community.adminId)))[0] ?? null : null;
-    const modRows = await db.select({ userId: communityModerators.userId }).from(communityModerators).where(eq2(communityModerators.communityId, communityId));
+    const admin = community.adminId ? (await db.select().from(users).where(eq3(users.id, community.adminId)))[0] ?? null : null;
+    const modRows = await db.select({ userId: communityModerators.userId }).from(communityModerators).where(eq3(communityModerators.communityId, communityId));
     const moderatorUsers = modRows.length > 0 ? await db.select().from(users).where(inArray(users.id, modRows.map((r) => r.userId))) : [];
     res.json({
       adminId: community.adminId,
@@ -3679,30 +4138,30 @@ async function registerRoutes(app2) {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
     if (!isAdmin) return res.status(403).json({ error: "Only the community owner can change this" });
     const { adminId, moderatorIds } = req.body;
     if (adminId !== void 0) {
-      await db.update(communities).set({ adminId: adminId ?? null }).where(eq2(communities.id, communityId));
+      await db.update(communities).set({ adminId: adminId ?? null }).where(eq3(communities.id, communityId));
     }
     if (moderatorIds !== void 0 && Array.isArray(moderatorIds)) {
-      await db.delete(communityModerators).where(eq2(communityModerators.communityId, communityId));
+      await db.delete(communityModerators).where(eq3(communityModerators.communityId, communityId));
       for (const uid of moderatorIds) {
         if (Number.isInteger(uid)) {
           await db.insert(communityModerators).values({ communityId, userId: uid });
         }
       }
     }
-    const [updated] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [updated] = await db.select().from(communities).where(eq3(communities.id, communityId));
     res.json(updated);
   });
   app2.get("/api/communities/:id/members", async (req, res) => {
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
-    const rows = await db.select({ userId: communityMembers.userId }).from(communityMembers).where(eq2(communityMembers.communityId, communityId));
+    const rows = await db.select({ userId: communityMembers.userId }).from(communityMembers).where(eq3(communityMembers.communityId, communityId));
     const memberUsers = rows.length > 0 ? await db.select({
       id: users.id,
       displayName: users.displayName,
@@ -3715,9 +4174,9 @@ async function registerRoutes(app2) {
     if (!user) return res.json({ isMember: false });
     const communityId = paramNum(req, "id");
     const rows = await db.select().from(communityMembers).where(
-      and2(
-        eq2(communityMembers.communityId, communityId),
-        eq2(communityMembers.userId, user.id)
+      and3(
+        eq3(communityMembers.communityId, communityId),
+        eq3(communityMembers.userId, user.id)
       )
     );
     res.json({ isMember: rows.length > 0 });
@@ -3726,12 +4185,12 @@ async function registerRoutes(app2) {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const existing = await db.select().from(communityMembers).where(
-      and2(
-        eq2(communityMembers.communityId, communityId),
-        eq2(communityMembers.userId, user.id)
+      and3(
+        eq3(communityMembers.communityId, communityId),
+        eq3(communityMembers.userId, user.id)
       )
     );
     if (existing.length > 0) {
@@ -3741,15 +4200,15 @@ async function registerRoutes(app2) {
       communityId,
       userId: user.id
     });
-    const [c] = await db.select({ m: communities.members }).from(communities).where(eq2(communities.id, communityId));
+    const [c] = await db.select({ m: communities.members }).from(communities).where(eq3(communities.id, communityId));
     if (c) {
-      await db.update(communities).set({ members: c.m + 1 }).where(eq2(communities.id, communityId));
+      await db.update(communities).set({ members: c.m + 1 }).where(eq3(communities.id, communityId));
     }
     res.status(201).json({ ok: true });
   });
   app2.get("/api/communities/:id/threads", async (req, res) => {
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const rows = await db.select({
       id: communityThreads.id,
@@ -3759,10 +4218,10 @@ async function registerRoutes(app2) {
       body: communityThreads.body,
       createdAt: communityThreads.createdAt,
       pinned: communityThreads.pinned
-    }).from(communityThreads).where(eq2(communityThreads.communityId, communityId)).orderBy(desc(communityThreads.pinned), desc(communityThreads.createdAt));
+    }).from(communityThreads).where(eq3(communityThreads.communityId, communityId)).orderBy(desc(communityThreads.pinned), desc(communityThreads.createdAt));
     const postCounts = await Promise.all(
       rows.map(async (t) => {
-        const [c] = await db.select({ n: count() }).from(communityThreadPosts).where(eq2(communityThreadPosts.threadId, t.id));
+        const [c] = await db.select({ n: count() }).from(communityThreadPosts).where(eq3(communityThreadPosts.threadId, t.id));
         return c?.n ?? 0;
       })
     );
@@ -3781,9 +4240,9 @@ async function registerRoutes(app2) {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
-    const memberRows = await db.select().from(communityMembers).where(and2(eq2(communityMembers.communityId, communityId), eq2(communityMembers.userId, user.id)));
+    const memberRows = await db.select().from(communityMembers).where(and3(eq3(communityMembers.communityId, communityId), eq3(communityMembers.userId, user.id)));
     if (memberRows.length === 0) return res.status(403).json({ error: "Join the community first" });
     const { title, body } = req.body;
     if (!title || !title.trim()) return res.status(400).json({ error: "Please enter a title" });
@@ -3803,9 +4262,9 @@ async function registerRoutes(app2) {
   app2.get("/api/communities/:id/threads/:threadId", async (req, res) => {
     const communityId = paramNum(req, "id");
     const threadId = paramNum(req, "threadId");
-    const [thread] = await db.select().from(communityThreads).where(and2(eq2(communityThreads.communityId, communityId), eq2(communityThreads.id, threadId)));
+    const [thread] = await db.select().from(communityThreads).where(and3(eq3(communityThreads.communityId, communityId), eq3(communityThreads.id, threadId)));
     if (!thread) return res.status(404).json({ message: "Not found" });
-    const posts = await db.select().from(communityThreadPosts).where(eq2(communityThreadPosts.threadId, threadId)).orderBy(asc2(communityThreadPosts.createdAt));
+    const posts = await db.select().from(communityThreadPosts).where(eq3(communityThreadPosts.threadId, threadId)).orderBy(asc2(communityThreadPosts.createdAt));
     const authorIds = [thread.authorUserId, ...posts.map((p) => p.authorUserId)];
     const authorRows = await db.select({ id: users.id, displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(users).where(inArray(users.id, authorIds));
     const authorMap = new Map(authorRows.map((a) => [a.id, a]));
@@ -3823,16 +4282,16 @@ async function registerRoutes(app2) {
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const threadId = paramNum(req, "threadId");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
-    const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
+    const [modRow] = await db.select().from(communityModerators).where(and3(eq3(communityModerators.communityId, communityId), eq3(communityModerators.userId, user.id)));
     const isMod = !!modRow;
     if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can delete this" });
-    const [thread] = await db.select().from(communityThreads).where(and2(eq2(communityThreads.communityId, communityId), eq2(communityThreads.id, threadId)));
+    const [thread] = await db.select().from(communityThreads).where(and3(eq3(communityThreads.communityId, communityId), eq3(communityThreads.id, threadId)));
     if (!thread) return res.status(404).json({ message: "Not found" });
-    await db.delete(communityThreadPosts).where(eq2(communityThreadPosts.threadId, threadId));
-    await db.delete(communityThreads).where(eq2(communityThreads.id, threadId));
+    await db.delete(communityThreadPosts).where(eq3(communityThreadPosts.threadId, threadId));
+    await db.delete(communityThreads).where(eq3(communityThreads.id, threadId));
     res.json({ ok: true });
   });
   app2.delete("/api/communities/:id/threads/:threadId/posts/:postId", async (req, res) => {
@@ -3841,15 +4300,15 @@ async function registerRoutes(app2) {
     const communityId = paramNum(req, "id");
     const threadId = paramNum(req, "threadId");
     const postId = paramNum(req, "postId");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
-    const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
+    const [modRow] = await db.select().from(communityModerators).where(and3(eq3(communityModerators.communityId, communityId), eq3(communityModerators.userId, user.id)));
     const isMod = !!modRow;
     if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can delete this" });
-    const [thread] = await db.select().from(communityThreads).where(and2(eq2(communityThreads.communityId, communityId), eq2(communityThreads.id, threadId)));
+    const [thread] = await db.select().from(communityThreads).where(and3(eq3(communityThreads.communityId, communityId), eq3(communityThreads.id, threadId)));
     if (!thread) return res.status(404).json({ message: "Not found" });
-    await db.delete(communityThreadPosts).where(and2(eq2(communityThreadPosts.threadId, threadId), eq2(communityThreadPosts.id, postId)));
+    await db.delete(communityThreadPosts).where(and3(eq3(communityThreadPosts.threadId, threadId), eq3(communityThreadPosts.id, postId)));
     res.json({ ok: true });
   });
   app2.post("/api/communities/:id/threads/:threadId/posts", async (req, res) => {
@@ -3857,9 +4316,9 @@ async function registerRoutes(app2) {
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const threadId = paramNum(req, "threadId");
-    const [thread] = await db.select().from(communityThreads).where(and2(eq2(communityThreads.communityId, communityId), eq2(communityThreads.id, threadId)));
+    const [thread] = await db.select().from(communityThreads).where(and3(eq3(communityThreads.communityId, communityId), eq3(communityThreads.id, threadId)));
     if (!thread) return res.status(404).json({ message: "Not found" });
-    const memberRows = await db.select().from(communityMembers).where(and2(eq2(communityMembers.communityId, communityId), eq2(communityMembers.userId, user.id)));
+    const memberRows = await db.select().from(communityMembers).where(and3(eq3(communityMembers.communityId, communityId), eq3(communityMembers.userId, user.id)));
     if (memberRows.length === 0) return res.status(403).json({ error: "Join the community first" });
     const { body } = req.body;
     if (!body || !body.trim()) return res.status(400).json({ error: "Please enter body text" });
@@ -3879,13 +4338,13 @@ async function registerRoutes(app2) {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
-    const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
+    const [modRow] = await db.select().from(communityModerators).where(and3(eq3(communityModerators.communityId, communityId), eq3(communityModerators.userId, user.id)));
     const isMod = !!modRow;
     if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can access this" });
-    const rows = await db.select().from(jukeboxQueue).where(eq2(jukeboxQueue.communityId, communityId)).orderBy(asc2(jukeboxQueue.position));
+    const rows = await db.select().from(jukeboxQueue).where(eq3(jukeboxQueue.communityId, communityId)).orderBy(asc2(jukeboxQueue.position));
     res.json(rows);
   });
   app2.delete("/api/communities/:id/admin/jukebox-queue/:itemId", async (req, res) => {
@@ -3893,43 +4352,43 @@ async function registerRoutes(app2) {
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const itemId = paramNum(req, "itemId");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
-    const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
+    const [modRow] = await db.select().from(communityModerators).where(and3(eq3(communityModerators.communityId, communityId), eq3(communityModerators.userId, user.id)));
     const isMod = !!modRow;
     if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can perform this action" });
-    const [item] = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.id, itemId)));
+    const [item] = await db.select().from(jukeboxQueue).where(and3(eq3(jukeboxQueue.communityId, communityId), eq3(jukeboxQueue.id, itemId)));
     if (!item) return res.status(404).json({ message: "Not found" });
-    await db.delete(jukeboxQueue).where(eq2(jukeboxQueue.id, itemId));
+    await db.delete(jukeboxQueue).where(eq3(jukeboxQueue.id, itemId));
     res.json({ ok: true });
   });
   app2.get("/api/communities/:id/admin/ads", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
-    const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
+    const [modRow] = await db.select().from(communityModerators).where(and3(eq3(communityModerators.communityId, communityId), eq3(communityModerators.userId, user.id)));
     const isMod = !!modRow;
     if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can access this" });
-    const rows = await db.select().from(communityAds).where(and2(eq2(communityAds.communityId, communityId), eq2(communityAds.status, "approved"))).orderBy(asc2(communityAds.startDate));
+    const rows = await db.select().from(communityAds).where(and3(eq3(communityAds.communityId, communityId), eq3(communityAds.status, "approved"))).orderBy(asc2(communityAds.startDate));
     res.json(rows);
   });
   app2.get("/api/communities/:id/admin/reports", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
-    const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
+    const [modRow] = await db.select().from(communityModerators).where(and3(eq3(communityModerators.communityId, communityId), eq3(communityModerators.userId, user.id)));
     const isMod = !!modRow;
     if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can access this" });
-    const videoIdsInCommunity = await db.select({ id: videos.id }).from(videos).where(eq2(videos.communityId, communityId));
+    const videoIdsInCommunity = await db.select({ id: videos.id }).from(videos).where(eq3(videos.communityId, communityId));
     const vidSet = new Set(videoIdsInCommunity.map((v) => v.id));
-    const byName = await db.select({ id: videos.id }).from(videos).where(eq2(videos.community, community.name));
+    const byName = await db.select({ id: videos.id }).from(videos).where(eq3(videos.community, community.name));
     byName.forEach((v) => vidSet.add(v.id));
     const allReports = await db.select().from(reports).orderBy(desc(reports.createdAt));
     const filtered = [];
@@ -3937,9 +4396,9 @@ async function registerRoutes(app2) {
       if (r.contentType === "video") {
         if (vidSet.has(r.contentId)) filtered.push(r);
       } else if (r.contentType === "comment") {
-        const [cm] = await db.select({ videoId: videoComments.videoId }).from(videoComments).where(eq2(videoComments.id, r.contentId));
+        const [cm] = await db.select({ videoId: videoComments.videoId }).from(videoComments).where(eq3(videoComments.id, r.contentId));
         if (cm) {
-          const [v] = await db.select({ id: videos.id, communityId: videos.communityId, community: videos.community }).from(videos).where(eq2(videos.id, cm.videoId));
+          const [v] = await db.select({ id: videos.id, communityId: videos.communityId, community: videos.community }).from(videos).where(eq3(videos.id, cm.videoId));
           if (v && (v.communityId === communityId || v.community === community.name)) filtered.push(r);
         }
       }
@@ -3951,33 +4410,33 @@ async function registerRoutes(app2) {
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const reportId = paramNum(req, "reportId");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
-    const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
+    const [modRow] = await db.select().from(communityModerators).where(and3(eq3(communityModerators.communityId, communityId), eq3(communityModerators.userId, user.id)));
     const isMod = !!modRow;
     if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can perform this action" });
-    const [report] = await db.select().from(reports).where(eq2(reports.id, reportId));
+    const [report] = await db.select().from(reports).where(eq3(reports.id, reportId));
     if (!report) return res.status(404).json({ error: "Report not found" });
-    const vidSet = new Set((await db.select({ id: videos.id }).from(videos).where(eq2(videos.communityId, communityId))).map((v) => v.id));
-    const byName = await db.select({ id: videos.id }).from(videos).where(eq2(videos.community, community.name));
+    const vidSet = new Set((await db.select({ id: videos.id }).from(videos).where(eq3(videos.communityId, communityId))).map((v) => v.id));
+    const byName = await db.select({ id: videos.id }).from(videos).where(eq3(videos.community, community.name));
     byName.forEach((v) => vidSet.add(v.id));
     let allowed = false;
     if (report.contentType === "video") allowed = vidSet.has(report.contentId);
     else if (report.contentType === "comment") {
-      const [cm] = await db.select({ videoId: videoComments.videoId }).from(videoComments).where(eq2(videoComments.id, report.contentId));
+      const [cm] = await db.select({ videoId: videoComments.videoId }).from(videoComments).where(eq3(videoComments.id, report.contentId));
       if (cm) {
-        const [v] = await db.select({ communityId: videos.communityId, community: videos.community }).from(videos).where(eq2(videos.id, cm.videoId));
+        const [v] = await db.select({ communityId: videos.communityId, community: videos.community }).from(videos).where(eq3(videos.id, cm.videoId));
         allowed = !!v && (v.communityId === communityId || v.community === community.name);
       }
     }
     if (!allowed) return res.status(403).json({ error: "This report does not belong to this community" });
     if (report.contentType === "video") {
-      await db.update(videos).set({ hidden: true }).where(eq2(videos.id, report.contentId));
+      await db.update(videos).set({ hidden: true }).where(eq3(videos.id, report.contentId));
     } else if (report.contentType === "comment") {
-      await db.update(videoComments).set({ hidden: true }).where(eq2(videoComments.id, report.contentId));
+      await db.update(videoComments).set({ hidden: true }).where(eq3(videoComments.id, report.contentId));
     }
-    await db.update(reports).set({ status: "hidden" }).where(eq2(reports.id, reportId));
+    await db.update(reports).set({ status: "hidden" }).where(eq3(reports.id, reportId));
     res.json({ ok: true });
   });
   app2.patch("/api/communities/:id/admin/reports/:reportId/dismiss", async (req, res) => {
@@ -3985,40 +4444,40 @@ async function registerRoutes(app2) {
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const reportId = paramNum(req, "reportId");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
-    const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
+    const [modRow] = await db.select().from(communityModerators).where(and3(eq3(communityModerators.communityId, communityId), eq3(communityModerators.userId, user.id)));
     const isMod = !!modRow;
     if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can perform this action" });
-    const [report] = await db.select().from(reports).where(eq2(reports.id, reportId));
+    const [report] = await db.select().from(reports).where(eq3(reports.id, reportId));
     if (!report) return res.status(404).json({ error: "Report not found" });
-    const vidSet = new Set((await db.select({ id: videos.id }).from(videos).where(eq2(videos.communityId, communityId))).map((v) => v.id));
-    const byName = await db.select({ id: videos.id }).from(videos).where(eq2(videos.community, community.name));
+    const vidSet = new Set((await db.select({ id: videos.id }).from(videos).where(eq3(videos.communityId, communityId))).map((v) => v.id));
+    const byName = await db.select({ id: videos.id }).from(videos).where(eq3(videos.community, community.name));
     byName.forEach((v) => vidSet.add(v.id));
     let allowed = false;
     if (report.contentType === "video") allowed = vidSet.has(report.contentId);
     else if (report.contentType === "comment") {
-      const [cm] = await db.select({ videoId: videoComments.videoId }).from(videoComments).where(eq2(videoComments.id, report.contentId));
+      const [cm] = await db.select({ videoId: videoComments.videoId }).from(videoComments).where(eq3(videoComments.id, report.contentId));
       if (cm) {
-        const [v] = await db.select({ communityId: videos.communityId, community: videos.community }).from(videos).where(eq2(videos.id, cm.videoId));
+        const [v] = await db.select({ communityId: videos.communityId, community: videos.community }).from(videos).where(eq3(videos.id, cm.videoId));
         allowed = !!v && (v.communityId === communityId || v.community === community.name);
       }
     }
     if (!allowed) return res.status(403).json({ error: "This report does not belong to this community" });
-    await db.update(reports).set({ status: "reviewed" }).where(eq2(reports.id, reportId));
+    await db.update(reports).set({ status: "reviewed" }).where(eq3(reports.id, reportId));
     res.json({ ok: true });
   });
   app2.get("/api/communities/:id/polls", async (req, res) => {
     const user = await getAuthUser(req);
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
-    const polls = await db.select().from(communityPolls).where(eq2(communityPolls.communityId, communityId)).orderBy(desc(communityPolls.createdAt));
+    const polls = await db.select().from(communityPolls).where(eq3(communityPolls.communityId, communityId)).orderBy(desc(communityPolls.createdAt));
     const result = await Promise.all(
       polls.map(async (p) => {
-        const opts = await db.select().from(communityPollOptions).where(eq2(communityPollOptions.pollId, p.id)).orderBy(asc2(communityPollOptions.order));
-        const votes = await db.select().from(communityPollVotes).where(eq2(communityPollVotes.pollId, p.id));
+        const opts = await db.select().from(communityPollOptions).where(eq3(communityPollOptions.pollId, p.id)).orderBy(asc2(communityPollOptions.order));
+        const votes = await db.select().from(communityPollVotes).where(eq3(communityPollVotes.pollId, p.id));
         const voteCounts = opts.map((o) => ({ optionId: o.id, text: o.text, count: votes.filter((v) => v.optionId === o.id).length }));
         let myVoteOptionId = null;
         if (user) {
@@ -4034,9 +4493,9 @@ async function registerRoutes(app2) {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
-    const memberRows = await db.select().from(communityMembers).where(and2(eq2(communityMembers.communityId, communityId), eq2(communityMembers.userId, user.id)));
+    const memberRows = await db.select().from(communityMembers).where(and3(eq3(communityMembers.communityId, communityId), eq3(communityMembers.userId, user.id)));
     if (memberRows.length === 0) return res.status(403).json({ error: "Join the community first" });
     const { question, options } = req.body;
     if (!question || !question.trim()) return res.status(400).json({ error: "Please enter a question" });
@@ -4064,13 +4523,13 @@ async function registerRoutes(app2) {
     const pollId = paramNum(req, "pollId");
     const { optionId } = req.body;
     if (!optionId) return res.status(400).json({ error: "optionId is required" });
-    const [poll] = await db.select().from(communityPolls).where(and2(eq2(communityPolls.communityId, communityId), eq2(communityPolls.id, pollId)));
+    const [poll] = await db.select().from(communityPolls).where(and3(eq3(communityPolls.communityId, communityId), eq3(communityPolls.id, pollId)));
     if (!poll) return res.status(404).json({ message: "Not found" });
-    const [opt] = await db.select().from(communityPollOptions).where(and2(eq2(communityPollOptions.pollId, pollId), eq2(communityPollOptions.id, optionId)));
+    const [opt] = await db.select().from(communityPollOptions).where(and3(eq3(communityPollOptions.pollId, pollId), eq3(communityPollOptions.id, optionId)));
     if (!opt) return res.status(404).json({ message: "Option not found" });
-    const memberRows = await db.select().from(communityMembers).where(and2(eq2(communityMembers.communityId, communityId), eq2(communityMembers.userId, user.id)));
+    const memberRows = await db.select().from(communityMembers).where(and3(eq3(communityMembers.communityId, communityId), eq3(communityMembers.userId, user.id)));
     if (memberRows.length === 0) return res.status(403).json({ error: "Join the community first" });
-    const existing = await db.select().from(communityPollVotes).where(and2(eq2(communityPollVotes.pollId, pollId), eq2(communityPollVotes.userId, user.id)));
+    const existing = await db.select().from(communityPollVotes).where(and3(eq3(communityPollVotes.pollId, pollId), eq3(communityPollVotes.userId, user.id)));
     if (existing.length > 0) return res.status(400).json({ error: "You have already voted" });
     await db.insert(communityPollVotes).values({
       pollId,
@@ -4096,7 +4555,7 @@ async function registerRoutes(app2) {
       const maxT = parseInt(String(maxTicketsStr), 10);
       if (!Number.isNaN(maxT) && maxT > 0) {
         filters.push(
-          and2(isNotNull(videoEditors.pricePerMinute), lte2(videoEditors.pricePerMinute, maxT))
+          and3(isNotNull(videoEditors.pricePerMinute), lte2(videoEditors.pricePerMinute, maxT))
         );
       }
     }
@@ -4106,7 +4565,7 @@ async function registerRoutes(app2) {
       const minS = parseInt(String(minShareStr), 10);
       if (!Number.isNaN(minS) && minS >= 1 && minS <= 100) {
         filters.push(
-          and2(isNotNull(videoEditors.revenueSharePercent), gte2(videoEditors.revenueSharePercent, minS))
+          and3(isNotNull(videoEditors.revenueSharePercent), gte2(videoEditors.revenueSharePercent, minS))
         );
       }
     }
@@ -4123,7 +4582,7 @@ async function registerRoutes(app2) {
       const arrayLit = "ARRAY[" + tagList.map((t) => "'" + t.replace(/'/g, "''") + "'").join(",") + "]::text[]";
       filters.push(sql3`${videoEditors.styleTags} && ${sql3.raw(arrayLit)}`);
     }
-    let rows = filters.length > 0 ? await db.select().from(videoEditors).where(and2(...filters)) : await db.select().from(videoEditors);
+    let rows = filters.length > 0 ? await db.select().from(videoEditors).where(and3(...filters)) : await db.select().from(videoEditors);
     const genreTerms = parseGenresQueryParam(req.query.genres);
     if (genreTerms.length > 0) {
       rows = rows.filter((e) => {
@@ -4147,12 +4606,12 @@ async function registerRoutes(app2) {
   app2.get("/api/editors/me", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const [row] = await db.select().from(videoEditors).where(eq2(videoEditors.userId, user.id)).limit(1);
+    const [row] = await db.select().from(videoEditors).where(eq3(videoEditors.userId, user.id)).limit(1);
     return res.json(row ?? null);
   });
   app2.get("/api/editors/:id", async (req, res) => {
     const id = paramNum(req, "id");
-    const [editor] = await db.select().from(videoEditors).where(eq2(videoEditors.id, id));
+    const [editor] = await db.select().from(videoEditors).where(eq3(videoEditors.id, id));
     if (!editor) return res.status(404).json({ error: "Not found" });
     res.json(editor);
   });
@@ -4165,7 +4624,7 @@ async function registerRoutes(app2) {
     if (priceType !== "per_minute" && priceType !== "revenue_share") {
       return res.status(400).json({ error: "Invalid pricing type" });
     }
-    const [editor] = await db.select().from(videoEditors).where(eq2(videoEditors.id, editorId));
+    const [editor] = await db.select().from(videoEditors).where(eq3(videoEditors.id, editorId));
     if (!editor) {
       return res.status(404).json({ error: "Editor not found" });
     }
@@ -4199,7 +4658,7 @@ async function registerRoutes(app2) {
   app2.post("/api/editors", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const taken = await db.select().from(videoEditors).where(eq2(videoEditors.userId, user.id)).limit(1);
+    const taken = await db.select().from(videoEditors).where(eq3(videoEditors.userId, user.id)).limit(1);
     if (taken.length > 0) {
       return res.status(409).json({ error: "Already registered as a video editor" });
     }
@@ -4208,7 +4667,7 @@ async function registerRoutes(app2) {
     if (communityId == null || !Number.isFinite(communityId)) {
       return res.status(400).json({ error: "communityId is required" });
     }
-    const [comm] = await db.select({ id: communities.id }).from(communities).where(eq2(communities.id, communityId));
+    const [comm] = await db.select({ id: communities.id }).from(communities).where(eq3(communities.id, communityId));
     if (!comm) return res.status(400).json({ error: "Community not found" });
     const pricingRow = {
       priceType: String(body.priceType ?? ""),
@@ -4220,7 +4679,7 @@ async function registerRoutes(app2) {
     const styleTags = normalizeEditorStyleTagSlugs(
       Array.isArray(body.styleTags) ? body.styleTags.map((x) => String(x)) : []
     );
-    const [u] = await db.select().from(users).where(eq2(users.id, user.id));
+    const [u] = await db.select().from(users).where(eq3(users.id, user.id));
     if (!u) return res.status(404).json({ error: "User not found" });
     const deliveryDays = typeof body.deliveryDays === "number" && body.deliveryDays > 0 ? Math.min(90, Math.floor(body.deliveryDays)) : 3;
     const [created] = await db.insert(videoEditors).values({
@@ -4242,12 +4701,12 @@ async function registerRoutes(app2) {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const id = paramNum(req, "id");
-    const [editor] = await db.select().from(videoEditors).where(eq2(videoEditors.id, id));
+    const [editor] = await db.select().from(videoEditors).where(eq3(videoEditors.id, id));
     if (!editor) return res.status(404).json({ error: "Not found" });
     if (editor.userId !== user.id) return res.status(403).json({ error: "You cannot edit this" });
     const body = req.body;
     const communityId = body.communityId ?? editor.communityId;
-    const [comm] = await db.select({ id: communities.id }).from(communities).where(eq2(communities.id, communityId));
+    const [comm] = await db.select({ id: communities.id }).from(communities).where(eq3(communities.id, communityId));
     if (!comm) return res.status(400).json({ error: "Community not found" });
     const pricingRow = {
       priceType: String(body.priceType ?? editor.priceType),
@@ -4272,8 +4731,8 @@ async function registerRoutes(app2) {
       pricePerMinute: pricingRow.pricePerMinute,
       revenueSharePercent: pricingRow.revenueSharePercent,
       styleTags
-    }).where(eq2(videoEditors.id, id));
-    const [updated] = await db.select().from(videoEditors).where(eq2(videoEditors.id, id));
+    }).where(eq3(videoEditors.id, id));
+    const [updated] = await db.select().from(videoEditors).where(eq3(videoEditors.id, id));
     return res.json(updated);
   });
   app2.post("/api/communities", async (req, res) => {
@@ -4322,36 +4781,36 @@ async function registerRoutes(app2) {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     if (community.ownerId !== user.id) {
       return res.status(403).json({ error: "Only the creator can delete this community" });
     }
     try {
-      const threadRows = await db.select({ id: communityThreads.id }).from(communityThreads).where(eq2(communityThreads.communityId, communityId));
+      const threadRows = await db.select({ id: communityThreads.id }).from(communityThreads).where(eq3(communityThreads.communityId, communityId));
       const threadIds = threadRows.map((t) => t.id);
       if (threadIds.length > 0) {
         await db.delete(communityThreadPosts).where(inArray(communityThreadPosts.threadId, threadIds));
       }
-      await db.delete(communityThreads).where(eq2(communityThreads.communityId, communityId));
-      const pollRows = await db.select({ id: communityPolls.id }).from(communityPolls).where(eq2(communityPolls.communityId, communityId));
+      await db.delete(communityThreads).where(eq3(communityThreads.communityId, communityId));
+      const pollRows = await db.select({ id: communityPolls.id }).from(communityPolls).where(eq3(communityPolls.communityId, communityId));
       const pollIds = pollRows.map((p) => p.id);
       if (pollIds.length > 0) {
         await db.delete(communityPollVotes).where(inArray(communityPollVotes.pollId, pollIds));
         await db.delete(communityPollOptions).where(inArray(communityPollOptions.pollId, pollIds));
       }
-      await db.delete(communityPolls).where(eq2(communityPolls.communityId, communityId));
-      await db.delete(communityVotes).where(eq2(communityVotes.communityId, communityId));
-      await db.delete(communityAds).where(eq2(communityAds.communityId, communityId));
-      await db.delete(communityModerators).where(eq2(communityModerators.communityId, communityId));
-      await db.delete(communityMembers).where(eq2(communityMembers.communityId, communityId));
-      await db.delete(jukeboxRequestCounts).where(eq2(jukeboxRequestCounts.communityId, communityId));
-      await db.delete(jukeboxChat).where(eq2(jukeboxChat.communityId, communityId));
-      await db.delete(jukeboxQueue).where(eq2(jukeboxQueue.communityId, communityId));
-      await db.delete(jukeboxState).where(eq2(jukeboxState.communityId, communityId));
-      await db.delete(videoEditors).where(eq2(videoEditors.communityId, communityId));
-      await db.update(videos).set({ communityId: null }).where(eq2(videos.communityId, communityId));
-      await db.delete(communities).where(eq2(communities.id, communityId));
+      await db.delete(communityPolls).where(eq3(communityPolls.communityId, communityId));
+      await db.delete(communityVotes).where(eq3(communityVotes.communityId, communityId));
+      await db.delete(communityAds).where(eq3(communityAds.communityId, communityId));
+      await db.delete(communityModerators).where(eq3(communityModerators.communityId, communityId));
+      await db.delete(communityMembers).where(eq3(communityMembers.communityId, communityId));
+      await db.delete(jukeboxRequestCounts).where(eq3(jukeboxRequestCounts.communityId, communityId));
+      await db.delete(jukeboxChat).where(eq3(jukeboxChat.communityId, communityId));
+      await db.delete(jukeboxQueue).where(eq3(jukeboxQueue.communityId, communityId));
+      await db.delete(jukeboxState).where(eq3(jukeboxState.communityId, communityId));
+      await db.delete(videoEditors).where(eq3(videoEditors.communityId, communityId));
+      await db.update(videos).set({ communityId: null }).where(eq3(videos.communityId, communityId));
+      await db.delete(communities).where(eq3(communities.id, communityId));
       res.json({ ok: true });
     } catch (e) {
       console.error("Community deletion error:", e);
@@ -4365,7 +4824,7 @@ async function registerRoutes(app2) {
   app2.get("/api/community-ads/pricing", async (req, res) => {
     const cid = Number(queryStr(req, "communityId")) || 0;
     if (!cid) return res.status(400).json({ error: "communityId is required" });
-    const [community] = await db.select().from(communities).where(eq2(communities.id, cid));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, cid));
     if (!community) return res.status(404).json({ error: "Community not found" });
     const memberCount = community.members;
     const dailyRate = memberCount * DAILY_RATE_PER_MEMBER;
@@ -4384,10 +4843,10 @@ async function registerRoutes(app2) {
     const end = queryStr(req, "end");
     if (!cid || !start || !end) return res.status(400).json({ error: "communityId, start, and end are required" });
     const conflicts = await db.select({ id: communityAds.id, startDate: communityAds.startDate, endDate: communityAds.endDate }).from(communityAds).where(
-      and2(
-        eq2(communityAds.communityId, cid),
+      and3(
+        eq3(communityAds.communityId, cid),
         inArray(communityAds.status, ["pending", "moderator_approved", "approved"]),
-        and2(
+        and3(
           lte2(communityAds.startDate, end),
           gte2(communityAds.endDate, start)
         )
@@ -4398,7 +4857,7 @@ async function registerRoutes(app2) {
   app2.post("/api/community-ads", async (req, res) => {
     const { communityId: bodyCommunityId, companyName, contactName, email, bannerUrl, linkUrl, startDate, endDate, agreedToTerms } = req.body;
     const cid = Number(bodyCommunityId) || 0;
-    const [community] = await db.select().from(communities).where(eq2(communities.id, cid));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, cid));
     if (!community) return res.status(404).json({ error: "Community not found" });
     const company = (companyName ?? "").trim();
     const contact = (contactName ?? "").trim();
@@ -4431,10 +4890,10 @@ async function registerRoutes(app2) {
       return res.status(400).json({ error: `End date must be within ${MAX_MONTHS_AHEAD} months` });
     }
     const conflicts = await db.select({ id: communityAds.id }).from(communityAds).where(
-      and2(
-        eq2(communityAds.communityId, cid),
+      and3(
+        eq3(communityAds.communityId, cid),
         inArray(communityAds.status, ["pending", "moderator_approved", "approved"]),
-        and2(lte2(communityAds.startDate, end), gte2(communityAds.endDate, start))
+        and3(lte2(communityAds.startDate, end), gte2(communityAds.endDate, start))
       )
     );
     if (conflicts.length > 0) {
@@ -4461,10 +4920,10 @@ async function registerRoutes(app2) {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const cid = paramNum(req, "communityId");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, cid));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, cid));
     if (!community) return res.status(404).json({ error: "Community not found" });
     if (community.adminId !== user.id) return res.status(403).json({ error: "Only the community owner can change this" });
-    const mods = await db.select({ userId: communityModerators.userId, displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(communityModerators).leftJoin(users, eq2(communityModerators.userId, users.id)).where(eq2(communityModerators.communityId, cid));
+    const mods = await db.select({ userId: communityModerators.userId, displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(communityModerators).leftJoin(users, eq3(communityModerators.userId, users.id)).where(eq3(communityModerators.communityId, cid));
     let distribution = {};
     const rawDist = community.revenueDistribution;
     if (rawDist) {
@@ -4490,7 +4949,7 @@ async function registerRoutes(app2) {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const cid = paramNum(req, "communityId");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, cid));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, cid));
     if (!community) return res.status(404).json({ error: "Community not found" });
     if (community.adminId !== user.id) return res.status(403).json({ error: "Only the community owner can change this" });
     const { distribution } = req.body;
@@ -4501,7 +4960,7 @@ async function registerRoutes(app2) {
     if (Math.abs(total - 100) > 1) {
       return res.status(400).json({ error: `Distribution must total 100% (currently ${total}%)` });
     }
-    await db.update(communities).set({ revenueDistribution: JSON.stringify(distribution) }).where(eq2(communities.id, cid));
+    await db.update(communities).set({ revenueDistribution: JSON.stringify(distribution) }).where(eq3(communities.id, cid));
     res.json({ ok: true });
   });
   app2.post("/api/genre-owners/assign", async (req, res) => {
@@ -4518,9 +4977,9 @@ async function registerRoutes(app2) {
     const results = [];
     for (const [genreId, topCommunity] of byGenre.entries()) {
       if (!topCommunity.adminId) continue;
-      const existing = await db.select().from(genreOwners).where(eq2(genreOwners.genreId, genreId));
+      const existing = await db.select().from(genreOwners).where(eq3(genreOwners.genreId, genreId));
       if (existing.length > 0) {
-        await db.update(genreOwners).set({ ownerUserId: topCommunity.adminId, assignedCommunityId: topCommunity.id, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(genreOwners.genreId, genreId));
+        await db.update(genreOwners).set({ ownerUserId: topCommunity.adminId, assignedCommunityId: topCommunity.id, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(genreOwners.genreId, genreId));
       } else {
         await db.insert(genreOwners).values({
           genreId,
@@ -4535,8 +4994,8 @@ async function registerRoutes(app2) {
   app2.get("/api/community-ads/review", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const ownedRows = await db.select({ id: communities.id }).from(communities).where(eq2(communities.adminId, user.id));
-    const modRows = await db.select({ communityId: communityModerators.communityId }).from(communityModerators).where(eq2(communityModerators.userId, user.id));
+    const ownedRows = await db.select({ id: communities.id }).from(communities).where(eq3(communities.adminId, user.id));
+    const modRows = await db.select({ communityId: communityModerators.communityId }).from(communityModerators).where(eq3(communityModerators.userId, user.id));
     const communityIds = /* @__PURE__ */ new Set();
     ownedRows.forEach((r) => communityIds.add(r.id));
     modRows.forEach((r) => communityIds.add(r.communityId));
@@ -4544,7 +5003,7 @@ async function registerRoutes(app2) {
       return res.json([]);
     }
     const ids = Array.from(communityIds);
-    const ads = await db.select().from(communityAds).where(and2(inArray(communityAds.communityId, ids), inArray(communityAds.status, ["pending", "moderator_approved"]))).orderBy(desc(communityAds.createdAt));
+    const ads = await db.select().from(communityAds).where(and3(inArray(communityAds.communityId, ids), inArray(communityAds.status, ["pending", "moderator_approved"]))).orderBy(desc(communityAds.createdAt));
     const commList = await db.select({ id: communities.id, name: communities.name, adminId: communities.adminId }).from(communities).where(inArray(communities.id, ids));
     const commMap = new Map(commList.map((c) => [c.id, c]));
     const result = ads.map((ad) => ({
@@ -4558,39 +5017,39 @@ async function registerRoutes(app2) {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const id = paramNum(req, "id");
-    const [ad] = await db.select().from(communityAds).where(eq2(communityAds.id, id));
+    const [ad] = await db.select().from(communityAds).where(eq3(communityAds.id, id));
     if (!ad) return res.status(404).json({ error: "Application not found" });
     if (ad.status !== "pending") return res.status(400).json({ error: "This application has already been processed" });
-    const [mod] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, ad.communityId), eq2(communityModerators.userId, user.id)));
+    const [mod] = await db.select().from(communityModerators).where(and3(eq3(communityModerators.communityId, ad.communityId), eq3(communityModerators.userId, user.id)));
     if (!mod) return res.status(403).json({ error: "Only moderators of this community can approve this" });
-    await db.update(communityAds).set({ status: "moderator_approved", approvedByModerator: user.id }).where(eq2(communityAds.id, id));
+    await db.update(communityAds).set({ status: "moderator_approved", approvedByModerator: user.id }).where(eq3(communityAds.id, id));
     res.json({ ok: true });
   });
   app2.patch("/api/community-ads/:id/approve", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const id = paramNum(req, "id");
-    const [ad] = await db.select().from(communityAds).where(eq2(communityAds.id, id));
+    const [ad] = await db.select().from(communityAds).where(eq3(communityAds.id, id));
     if (!ad) return res.status(404).json({ error: "Application not found" });
     if (ad.status !== "moderator_approved") return res.status(400).json({ error: "The owner can approve after moderator approval" });
-    const [community] = await db.select().from(communities).where(eq2(communities.id, ad.communityId));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, ad.communityId));
     if (!community || community.adminId !== user.id) return res.status(403).json({ error: "Only the owner can give final approval" });
-    await db.update(communityAds).set({ status: "approved", approvedByOwner: user.id }).where(eq2(communityAds.id, id));
+    await db.update(communityAds).set({ status: "approved", approvedByOwner: user.id }).where(eq3(communityAds.id, id));
     res.json({ ok: true });
   });
   app2.patch("/api/community-ads/:id/reject", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const id = paramNum(req, "id");
-    const [ad] = await db.select().from(communityAds).where(eq2(communityAds.id, id));
+    const [ad] = await db.select().from(communityAds).where(eq3(communityAds.id, id));
     if (!ad) return res.status(404).json({ error: "Application not found" });
     if (ad.status === "approved" || ad.status === "rejected") return res.status(400).json({ error: "Already processed" });
-    const [community] = await db.select().from(communities).where(eq2(communities.id, ad.communityId));
-    const [mod] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, ad.communityId), eq2(communityModerators.userId, user.id)));
+    const [community] = await db.select().from(communities).where(eq3(communities.id, ad.communityId));
+    const [mod] = await db.select().from(communityModerators).where(and3(eq3(communityModerators.communityId, ad.communityId), eq3(communityModerators.userId, user.id)));
     const isOwner = community?.adminId === user.id;
     const isMod = !!mod;
     if (!isOwner && !isMod) return res.status(403).json({ error: "Only owners or moderators can reject" });
-    await db.update(communityAds).set({ status: "rejected" }).where(eq2(communityAds.id, id));
+    await db.update(communityAds).set({ status: "rejected" }).where(eq3(communityAds.id, id));
     res.json({ ok: true });
   });
   const REPORT_REASONS = ["spam", "harassment", "inappropriate", "other"];
@@ -4605,11 +5064,11 @@ async function registerRoutes(app2) {
     }
     let contentText;
     if (type === "video") {
-      const [video] = await db.select().from(videos).where(eq2(videos.id, cid));
+      const [video] = await db.select().from(videos).where(eq3(videos.id, cid));
       if (!video) return res.status(404).json({ error: "Target not found" });
       contentText = video.title ?? "";
     } else {
-      const [comment] = await db.select().from(videoComments).where(eq2(videoComments.id, cid));
+      const [comment] = await db.select().from(videoComments).where(eq3(videoComments.id, cid));
       if (!comment) return res.status(404).json({ error: "Target not found" });
       contentText = comment.text ?? "";
     }
@@ -4625,9 +5084,9 @@ async function registerRoutes(app2) {
     }).returning();
     if (verdict === "clear_violation") {
       if (type === "video") {
-        await db.update(videos).set({ hidden: true }).where(eq2(videos.id, cid));
+        await db.update(videos).set({ hidden: true }).where(eq3(videos.id, cid));
       } else {
-        await db.update(videoComments).set({ hidden: true }).where(eq2(videoComments.id, cid));
+        await db.update(videoComments).set({ hidden: true }).where(eq3(videoComments.id, cid));
       }
     }
     res.status(201).json(report);
@@ -4683,12 +5142,12 @@ async function registerRoutes(app2) {
     res.status(201).json(row);
   });
   app2.get("/api/concerts", async (_req, res) => {
-    const rows = await db.select().from(concerts).where(eq2(concerts.status, "published")).orderBy(desc(concerts.concertDate), desc(concerts.createdAt));
+    const rows = await db.select().from(concerts).where(eq3(concerts.status, "published")).orderBy(desc(concerts.concertDate), desc(concerts.createdAt));
     res.json(rows);
   });
   app2.get("/api/concerts/:id", async (req, res) => {
     const id = paramNum(req, "id");
-    const [row] = await db.select().from(concerts).where(eq2(concerts.id, id));
+    const [row] = await db.select().from(concerts).where(eq3(concerts.id, id));
     if (!row) return res.status(404).json({ error: "Show not found" });
     res.json(row);
   });
@@ -4696,9 +5155,9 @@ async function registerRoutes(app2) {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const concertId = paramNum(req, "id");
-    const [concert] = await db.select().from(concerts).where(eq2(concerts.id, concertId));
+    const [concert] = await db.select().from(concerts).where(eq3(concerts.id, concertId));
     if (!concert) return res.status(404).json({ error: "Show not found" });
-    const existing = await db.select().from(concertStaff).where(and2(eq2(concertStaff.concertId, concertId), eq2(concertStaff.staffUserId, user.id)));
+    const existing = await db.select().from(concertStaff).where(and3(eq3(concertStaff.concertId, concertId), eq3(concertStaff.staffUserId, user.id)));
     if (existing.length > 0) {
       return res.status(400).json({ error: "Already applied" });
     }
@@ -4714,12 +5173,12 @@ async function registerRoutes(app2) {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const concertId = paramNum(req, "id");
-    const [concert] = await db.select().from(concerts).where(eq2(concerts.id, concertId));
+    const [concert] = await db.select().from(concerts).where(eq3(concerts.id, concertId));
     if (!concert) return res.status(404).json({ error: "Show not found" });
     if (concert.artistUserId !== user.id) {
       return res.status(403).json({ error: "Only the artist can view applications" });
     }
-    const rows = await db.select().from(concertStaff).where(eq2(concertStaff.concertId, concertId)).orderBy(desc(concertStaff.createdAt));
+    const rows = await db.select().from(concertStaff).where(eq3(concertStaff.concertId, concertId)).orderBy(desc(concertStaff.createdAt));
     res.json(rows);
   });
   app2.get("/api/concerts/:id/staff-req", async (req, res) => {
@@ -4735,14 +5194,14 @@ async function registerRoutes(app2) {
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const concertId = paramNum(req, "id");
     const staffId = paramNum(req, "staffId");
-    const [concert] = await db.select().from(concerts).where(eq2(concerts.id, concertId));
+    const [concert] = await db.select().from(concerts).where(eq3(concerts.id, concertId));
     if (!concert) return res.status(404).json({ error: "Show not found" });
     if (concert.artistUserId !== user.id) {
       return res.status(403).json({ error: "Only the artist can approve" });
     }
-    const [staff] = await db.select().from(concertStaff).where(and2(eq2(concertStaff.id, staffId), eq2(concertStaff.concertId, concertId)));
+    const [staff] = await db.select().from(concertStaff).where(and3(eq3(concertStaff.id, staffId), eq3(concertStaff.concertId, concertId)));
     if (!staff) return res.status(404).json({ error: "Request not found" });
-    const [updated] = await db.update(concertStaff).set({ status: "approved" }).where(eq2(concertStaff.id, staffId)).returning();
+    const [updated] = await db.update(concertStaff).set({ status: "approved" }).where(eq3(concertStaff.id, staffId)).returning();
     res.json(updated);
   });
   app2.patch("/api/concerts/:id/staff/:staffId/reject", async (req, res) => {
@@ -4750,14 +5209,14 @@ async function registerRoutes(app2) {
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const concertId = paramNum(req, "id");
     const staffId = paramNum(req, "staffId");
-    const [concert] = await db.select().from(concerts).where(eq2(concerts.id, concertId));
+    const [concert] = await db.select().from(concerts).where(eq3(concerts.id, concertId));
     if (!concert) return res.status(404).json({ error: "Show not found" });
     if (concert.artistUserId !== user.id) {
       return res.status(403).json({ error: "Only the artist can reject" });
     }
-    const [staff] = await db.select().from(concertStaff).where(and2(eq2(concertStaff.id, staffId), eq2(concertStaff.concertId, concertId)));
+    const [staff] = await db.select().from(concertStaff).where(and3(eq3(concertStaff.id, staffId), eq3(concertStaff.concertId, concertId)));
     if (!staff) return res.status(404).json({ error: "Request not found" });
-    const [updated] = await db.update(concertStaff).set({ status: "rejected" }).where(eq2(concertStaff.id, staffId)).returning();
+    const [updated] = await db.update(concertStaff).set({ status: "rejected" }).where(eq3(concertStaff.id, staffId)).returning();
     res.json(updated);
   });
   const GENRE_MIN_AMOUNT = 7e3;
@@ -4818,32 +5277,32 @@ async function registerRoutes(app2) {
   app2.get("/api/genre-ads/review", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const ownerRows = await db.select().from(genreOwners).where(eq2(genreOwners.ownerUserId, user.id));
+    const ownerRows = await db.select().from(genreOwners).where(eq3(genreOwners.ownerUserId, user.id));
     if (ownerRows.length === 0) return res.json([]);
     const genreIds = ownerRows.map((o) => o.genreId);
-    const rows = await db.select().from(genreAds).where(and2(inArray(genreAds.genreId, genreIds), eq2(genreAds.status, "pending"))).orderBy(desc(genreAds.createdAt));
+    const rows = await db.select().from(genreAds).where(and3(inArray(genreAds.genreId, genreIds), eq3(genreAds.status, "pending"))).orderBy(desc(genreAds.createdAt));
     res.json(rows);
   });
   app2.patch("/api/genre-ads/:id/approve", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const id = paramNum(req, "id");
-    const [ad] = await db.select().from(genreAds).where(eq2(genreAds.id, id));
+    const [ad] = await db.select().from(genreAds).where(eq3(genreAds.id, id));
     if (!ad) return res.status(404).json({ error: "Application not found" });
-    const [owner] = await db.select().from(genreOwners).where(and2(eq2(genreOwners.genreId, ad.genreId), eq2(genreOwners.ownerUserId, user.id)));
+    const [owner] = await db.select().from(genreOwners).where(and3(eq3(genreOwners.genreId, ad.genreId), eq3(genreOwners.ownerUserId, user.id)));
     if (!owner) return res.status(403).json({ error: "You are not the genre manager" });
-    await db.update(genreAds).set({ status: "approved" }).where(eq2(genreAds.id, id));
+    await db.update(genreAds).set({ status: "approved" }).where(eq3(genreAds.id, id));
     res.json({ ok: true });
   });
   app2.patch("/api/genre-ads/:id/reject", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const id = paramNum(req, "id");
-    const [ad] = await db.select().from(genreAds).where(eq2(genreAds.id, id));
+    const [ad] = await db.select().from(genreAds).where(eq3(genreAds.id, id));
     if (!ad) return res.status(404).json({ error: "Application not found" });
-    const [owner] = await db.select().from(genreOwners).where(and2(eq2(genreOwners.genreId, ad.genreId), eq2(genreOwners.ownerUserId, user.id)));
+    const [owner] = await db.select().from(genreOwners).where(and3(eq3(genreOwners.genreId, ad.genreId), eq3(genreOwners.ownerUserId, user.id)));
     if (!owner) return res.status(403).json({ error: "You are not the genre manager" });
-    await db.update(genreAds).set({ status: "rejected" }).where(eq2(genreAds.id, id));
+    await db.update(genreAds).set({ status: "rejected" }).where(eq3(genreAds.id, id));
     res.json({ ok: true });
   });
   app2.post("/api/cron/update-genre-owners", async (_req, res) => {
@@ -4857,9 +5316,9 @@ async function registerRoutes(app2) {
       ).orderBy(desc(communities.members)).limit(1);
       const top = rows[0];
       if (!top || !top.adminId) continue;
-      const existing = await db.select().from(genreOwners).where(eq2(genreOwners.genreId, gid)).limit(1);
+      const existing = await db.select().from(genreOwners).where(eq3(genreOwners.genreId, gid)).limit(1);
       if (existing.length > 0) {
-        await db.update(genreOwners).set({ ownerUserId: top.adminId, updatedAt: sql3`now()` }).where(eq2(genreOwners.genreId, gid));
+        await db.update(genreOwners).set({ ownerUserId: top.adminId, updatedAt: sql3`now()` }).where(eq3(genreOwners.genreId, gid));
       } else {
         await db.insert(genreOwners).values({ genreId: gid, ownerUserId: top.adminId });
       }
@@ -4870,30 +5329,30 @@ async function registerRoutes(app2) {
     const user = await getAdminUserOrReject(req, res);
     if (!user) return;
     const showAll = req.query.all === "1";
-    const rows = await db.select().from(reports).where(showAll ? void 0 : eq2(reports.status, "pending")).orderBy(desc(reports.createdAt));
+    const rows = await db.select().from(reports).where(showAll ? void 0 : eq3(reports.status, "pending")).orderBy(desc(reports.createdAt));
     res.json(rows);
   });
   app2.patch("/api/admin/reports/:id/hide", async (req, res) => {
     const user = await getAdminUserOrReject(req, res);
     if (!user) return;
     const id = paramNum(req, "id");
-    const [report] = await db.select().from(reports).where(eq2(reports.id, id));
+    const [report] = await db.select().from(reports).where(eq3(reports.id, id));
     if (!report) return res.status(404).json({ error: "Report not found" });
     if (report.contentType === "video") {
-      await db.update(videos).set({ hidden: true }).where(eq2(videos.id, report.contentId));
+      await db.update(videos).set({ hidden: true }).where(eq3(videos.id, report.contentId));
     } else if (report.contentType === "comment") {
-      await db.update(videoComments).set({ hidden: true }).where(eq2(videoComments.id, report.contentId));
+      await db.update(videoComments).set({ hidden: true }).where(eq3(videoComments.id, report.contentId));
     }
-    await db.update(reports).set({ status: "hidden" }).where(eq2(reports.id, id));
+    await db.update(reports).set({ status: "hidden" }).where(eq3(reports.id, id));
     res.json({ ok: true });
   });
   app2.patch("/api/admin/reports/:id/dismiss", async (req, res) => {
     const user = await getAdminUserOrReject(req, res);
     if (!user) return;
     const id = paramNum(req, "id");
-    const [report] = await db.select().from(reports).where(eq2(reports.id, id));
+    const [report] = await db.select().from(reports).where(eq3(reports.id, id));
     if (!report) return res.status(404).json({ error: "Report not found" });
-    await db.update(reports).set({ status: "reviewed" }).where(eq2(reports.id, id));
+    await db.update(reports).set({ status: "reviewed" }).where(eq3(reports.id, id));
     res.json({ ok: true });
   });
   app2.get("/api/admin/stats", async (req, res) => {
@@ -4944,7 +5403,7 @@ async function registerRoutes(app2) {
     if (role === void 0 && isBanned === void 0) {
       return res.status(400).json({ error: "No updatable fields provided" });
     }
-    const [updated] = await db.update(users).set(nextValues).where(eq2(users.id, targetUserId)).returning({
+    const [updated] = await db.update(users).set(nextValues).where(eq3(users.id, targetUserId)).returning({
       id: users.id,
       displayName: users.displayName,
       email: users.email,
@@ -4978,7 +5437,7 @@ async function registerRoutes(app2) {
     const hidden = typeof req.body?.hidden === "boolean" ? req.body.hidden : true;
     const [updated] = await db.update(videos).set({
       hidden
-    }).where(eq2(videos.id, videoId)).returning({
+    }).where(eq3(videos.id, videoId)).returning({
       id: videos.id,
       title: videos.title,
       hidden: videos.hidden,
@@ -4992,11 +5451,11 @@ async function registerRoutes(app2) {
     if (!admin) return;
     const videoId = paramNum(req, "id");
     if (!videoId) return res.status(400).json({ error: "Invalid content id" });
-    await db.delete(savedVideos).where(eq2(savedVideos.videoId, videoId));
-    await db.delete(videoComments).where(eq2(videoComments.videoId, videoId));
-    await db.delete(reports).where(and2(eq2(reports.contentType, "video"), eq2(reports.contentId, videoId)));
-    await db.delete(jukeboxQueue).where(eq2(jukeboxQueue.videoId, videoId));
-    const deleted = await db.delete(videos).where(eq2(videos.id, videoId)).returning({ id: videos.id });
+    await db.delete(savedVideos).where(eq3(savedVideos.videoId, videoId));
+    await db.delete(videoComments).where(eq3(videoComments.videoId, videoId));
+    await db.delete(reports).where(and3(eq3(reports.contentType, "video"), eq3(reports.contentId, videoId)));
+    await db.delete(jukeboxQueue).where(eq3(jukeboxQueue.videoId, videoId));
+    const deleted = await db.delete(videos).where(eq3(videos.id, videoId)).returning({ id: videos.id });
     if (deleted.length === 0) return res.status(404).json({ error: "Content not found" });
     res.json({ ok: true, id: videoId });
   });
@@ -5059,7 +5518,7 @@ async function registerRoutes(app2) {
   app2.get("/api/videos", async (req, res) => {
     const genreId = req.query?.genre;
     const communityIdParam = req.query?.communityId;
-    let rows = await db.select().from(videos).where(and2(eq2(videos.isRanked, false), eq2(videos.hidden, false))).orderBy(desc(videos.createdAt));
+    let rows = await db.select().from(videos).where(and3(eq3(videos.isRanked, false), eq3(videos.hidden, false))).orderBy(desc(videos.createdAt));
     rows = rows.filter((r) => r.visibility !== "draft" && r.visibility !== "my_page_only");
     const names = Array.from(new Set(rows.map((r) => r.creator)));
     const userMap = /* @__PURE__ */ new Map();
@@ -5083,12 +5542,12 @@ async function registerRoutes(app2) {
   app2.get("/api/videos/my", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const rows = await db.select().from(videos).where(or(eq2(videos.creator, user.displayName), eq2(videos.userId, user.id))).orderBy(desc(videos.createdAt));
+    const rows = await db.select().from(videos).where(or(eq3(videos.creator, user.displayName), eq3(videos.userId, user.id))).orderBy(desc(videos.createdAt));
     const filtered = rows.filter((r) => !r.hidden);
     res.json(filtered);
   });
   app2.get("/api/videos/ranked", async (_req, res) => {
-    const rows = await db.select().from(videos).where(and2(eq2(videos.postType, "work"), eq2(videos.hidden, false))).orderBy(asc2(videos.rank));
+    const rows = await db.select().from(videos).where(and3(eq3(videos.postType, "work"), eq3(videos.hidden, false))).orderBy(asc2(videos.rank));
     res.json(rows);
   });
   app2.get("/api/videos/saved", async (req, res) => {
@@ -5102,7 +5561,7 @@ async function registerRoutes(app2) {
       community: videos.community,
       views: videos.views,
       createdAt: videos.createdAt
-    }).from(savedVideos).innerJoin(videos, eq2(videos.id, savedVideos.videoId)).where(and2(eq2(savedVideos.userId, user.id), eq2(videos.hidden, false))).orderBy(desc(savedVideos.createdAt));
+    }).from(savedVideos).innerJoin(videos, eq3(videos.id, savedVideos.videoId)).where(and3(eq3(savedVideos.userId, user.id), eq3(videos.hidden, false))).orderBy(desc(savedVideos.createdAt));
     const timeAgoList = rows.map((r) => ({
       ...r,
       timeAgo: r.createdAt ? formatTimeAgo(r.createdAt) : "Just now"
@@ -5112,18 +5571,18 @@ async function registerRoutes(app2) {
   app2.get("/api/videos/:id", async (req, res) => {
     const id = paramNum(req, "id");
     const authUser = await getAuthUser(req);
-    const [row] = await db.select().from(videos).where(eq2(videos.id, id));
+    const [row] = await db.select().from(videos).where(eq3(videos.id, id));
     if (!row || row.hidden) return res.status(404).json({ message: "Not found" });
     const vis = row.visibility;
     const isOwner = authUser && (row.userId === authUser.id || row.creator === authUser.displayName);
     if (vis === "draft" && !isOwner) return res.status(404).json({ message: "Not found" });
     if (vis === "my_page_only" && !isOwner) return res.status(404).json({ message: "Not found" });
     const timeAgo = row.createdAt ? formatTimeAgo(row.createdAt) : row.timeAgo;
-    const [creatorUser] = await db.select({ id: users.id }).from(users).where(eq2(users.displayName, row.creator));
-    const [creatorLiver] = !creatorUser ? await db.select({ id: creators.id }).from(creators).where(eq2(creators.name, row.creator)) : [];
+    const [creatorUser] = await db.select({ id: users.id }).from(users).where(eq3(users.displayName, row.creator));
+    const [creatorLiver] = !creatorUser ? await db.select({ id: creators.id }).from(creators).where(eq3(creators.name, row.creator)) : [];
     const creatorType = creatorUser ? "user" : creatorLiver ? "liver" : null;
-    const creatorId = row.userId ?? creatorUser?.id ?? creatorLiver?.id ?? null;
-    res.json({ ...row, timeAgo, creatorType, creatorId });
+    const creatorId = row.userId ?? creatorUser?.id ?? null;
+    res.json({ ...row, timeAgo, creatorType, creatorId, creatorLiverProfileId: creatorLiver?.id ?? null });
   });
   app2.get("/api/videos/:id/comments", async (req, res) => {
     const videoId = paramNum(req, "id");
@@ -5135,7 +5594,7 @@ async function registerRoutes(app2) {
       createdAt: videoComments.createdAt,
       displayName: users.displayName,
       profileImageUrl: users.profileImageUrl
-    }).from(videoComments).leftJoin(users, eq2(users.id, videoComments.userId)).where(and2(eq2(videoComments.videoId, videoId), eq2(videoComments.hidden, false))).orderBy(asc2(videoComments.createdAt));
+    }).from(videoComments).leftJoin(users, eq3(users.id, videoComments.userId)).where(and3(eq3(videoComments.videoId, videoId), eq3(videoComments.hidden, false))).orderBy(asc2(videoComments.createdAt));
     res.json(rows);
   });
   app2.post("/api/videos/:id/comments", async (req, res) => {
@@ -5190,7 +5649,7 @@ async function registerRoutes(app2) {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const id = paramNum(req, "id");
-    const [video] = await db.select().from(videos).where(eq2(videos.id, id));
+    const [video] = await db.select().from(videos).where(eq3(videos.id, id));
     if (!video) return res.status(404).json({ message: "Not found" });
     const isOwner = video.userId === user.id || video.creator === user.displayName;
     if (!isOwner) return res.status(403).json({ error: "You do not have permission to edit" });
@@ -5209,26 +5668,26 @@ async function registerRoutes(app2) {
       if (vis !== "community") updates.communityId = null;
     }
     if (Object.keys(updates).length === 0) return res.json(video);
-    const [updated] = await db.update(videos).set(updates).where(eq2(videos.id, id)).returning();
+    const [updated] = await db.update(videos).set(updates).where(eq3(videos.id, id)).returning();
     res.json(updated);
   });
   app2.delete("/api/videos/:id", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const id = paramNum(req, "id");
-    const [video] = await db.select().from(videos).where(eq2(videos.id, id));
+    const [video] = await db.select().from(videos).where(eq3(videos.id, id));
     if (!video) return res.status(404).json({ message: "Not found" });
     const isOwner = video.userId === user.id || video.creator === user.displayName;
     if (!isOwner) return res.status(403).json({ error: "You do not have permission to delete" });
-    await db.delete(videoComments).where(eq2(videoComments.videoId, id));
-    await db.delete(videos).where(eq2(videos.id, id));
+    await db.delete(videoComments).where(eq3(videoComments.videoId, id));
+    await db.delete(videos).where(eq3(videos.id, id));
     res.json({ ok: true });
   });
   app2.post("/api/videos/:id/save", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const videoId = paramNum(req, "id");
-    const [video] = await db.select().from(videos).where(eq2(videos.id, videoId));
+    const [video] = await db.select().from(videos).where(eq3(videos.id, videoId));
     if (!video || video.hidden) return res.status(404).json({ message: "Not found" });
     const vis = video.visibility;
     const isOwner = video.userId === user.id || video.creator === user.displayName;
@@ -5244,24 +5703,24 @@ async function registerRoutes(app2) {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const videoId = paramNum(req, "id");
-    await db.delete(savedVideos).where(and2(eq2(savedVideos.userId, user.id), eq2(savedVideos.videoId, videoId)));
+    await db.delete(savedVideos).where(and3(eq3(savedVideos.userId, user.id), eq3(savedVideos.videoId, videoId)));
     res.json({ ok: true });
   });
   app2.get("/api/videos/:id/saved", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.json({ saved: false });
     const videoId = paramNum(req, "id");
-    const [row] = await db.select().from(savedVideos).where(and2(eq2(savedVideos.userId, user.id), eq2(savedVideos.videoId, videoId)));
+    const [row] = await db.select().from(savedVideos).where(and3(eq3(savedVideos.userId, user.id), eq3(savedVideos.videoId, videoId)));
     res.json({ saved: !!row });
   });
   app2.get("/api/users/:id/posts", async (req, res) => {
     const userId = paramNum(req, "id");
-    const [targetUser] = await db.select({ id: users.id, displayName: users.displayName }).from(users).where(eq2(users.id, userId));
+    const [targetUser] = await db.select({ id: users.id, displayName: users.displayName }).from(users).where(eq3(users.id, userId));
     if (!targetUser) return res.status(404).json({ message: "Not found" });
     const rows = await db.select().from(videos).where(
-      and2(
-        or(eq2(videos.userId, userId), eq2(videos.creator, targetUser.displayName)),
-        eq2(videos.hidden, false)
+      and3(
+        or(eq3(videos.userId, userId), eq3(videos.creator, targetUser.displayName)),
+        eq3(videos.hidden, false)
       )
     ).orderBy(desc(videos.createdAt));
     const filtered = rows.filter((r) => {
@@ -5271,7 +5730,7 @@ async function registerRoutes(app2) {
     res.json(filtered);
   });
   app2.get("/api/live-streams", async (_req, res) => {
-    const rows = await db.select().from(liveStreams).where(eq2(liveStreams.isLive, true)).orderBy(desc(liveStreams.viewers));
+    const rows = await db.select().from(liveStreams).where(eq3(liveStreams.isLive, true)).orderBy(desc(liveStreams.viewers));
     res.json(rows);
   });
   app2.get("/api/creators", async (_req, res) => {
@@ -5280,15 +5739,15 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/booking-sessions", async (req, res) => {
     const category = queryStr(req, "category");
-    const rows = category && category !== "all" ? await db.select().from(bookingSessions).where(eq2(bookingSessions.category, category)) : await db.select().from(bookingSessions);
+    const rows = category && category !== "all" ? await db.select().from(bookingSessions).where(eq3(bookingSessions.category, category)) : await db.select().from(bookingSessions);
     res.json(rows);
   });
   app2.post("/api/booking-sessions/:id/book", async (req, res) => {
     const id = paramNum(req, "id");
-    const [session] = await db.select().from(bookingSessions).where(eq2(bookingSessions.id, id));
+    const [session] = await db.select().from(bookingSessions).where(eq3(bookingSessions.id, id));
     if (!session) return res.status(404).json({ message: "Not found" });
     if (session.spotsLeft <= 0) return res.status(400).json({ message: "Fully booked" });
-    const [updated] = await db.update(bookingSessions).set({ spotsLeft: session.spotsLeft - 1 }).where(eq2(bookingSessions.id, id)).returning();
+    const [updated] = await db.update(bookingSessions).set({ spotsLeft: session.spotsLeft - 1 }).where(eq3(bookingSessions.id, id)).returning();
     res.json(updated);
   });
   app2.post("/api/dm/open", async (req, res) => {
@@ -5300,11 +5759,11 @@ async function registerRoutes(app2) {
       return res.status(400).json({ error: "peerUserId is required" });
     }
     if (peer === me.id) return res.status(400).json({ error: "You cannot DM yourself" });
-    const [peerUser] = await db.select({ id: users.id }).from(users).where(eq2(users.id, peer));
+    const [peerUser] = await db.select({ id: users.id }).from(users).where(eq3(users.id, peer));
     if (!peerUser) return res.status(404).json({ error: "User not found" });
     const u1 = Math.min(me.id, peer);
     const u2 = Math.max(me.id, peer);
-    let [th] = await db.select().from(dmThreads).where(and2(eq2(dmThreads.user1Id, u1), eq2(dmThreads.user2Id, u2)));
+    let [th] = await db.select().from(dmThreads).where(and3(eq3(dmThreads.user1Id, u1), eq3(dmThreads.user2Id, u2)));
     if (!th) {
       [th] = await db.insert(dmThreads).values({ user1Id: u1, user2Id: u2 }).returning();
     }
@@ -5313,11 +5772,11 @@ async function registerRoutes(app2) {
   app2.get("/api/dm-messages", async (req, res) => {
     const me = await getAuthUser(req);
     if (!me) return res.json([]);
-    const threads = await db.select().from(dmThreads).where(or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id))).orderBy(desc(dmThreads.updatedAt));
+    const threads = await db.select().from(dmThreads).where(or(eq3(dmThreads.user1Id, me.id), eq3(dmThreads.user2Id, me.id))).orderBy(desc(dmThreads.updatedAt));
     const out = [];
     for (const t of threads) {
       const peerId = t.user1Id === me.id ? t.user2Id : t.user1Id;
-      const [peer] = await db.select({ displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(users).where(eq2(users.id, peerId));
+      const [peer] = await db.select({ displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(users).where(eq3(users.id, peerId));
       if (!peer) continue;
       out.push({
         id: t.id,
@@ -5334,7 +5793,7 @@ async function registerRoutes(app2) {
     const [{ welcomeDmSentAt, operationsDmOpenedAt }] = await db.select({
       welcomeDmSentAt: users.welcomeDmSentAt,
       operationsDmOpenedAt: users.operationsDmOpenedAt
-    }).from(users).where(eq2(users.id, me.id));
+    }).from(users).where(eq3(users.id, me.id));
     if (opsDm) {
       const preview = (opsDm.lastMessage ?? "").split("\n").find((line) => line.trim().length > 0) ?? opsDm.lastMessage ?? "";
       const opsUnread = welcomeDmSentAt && !operationsDmOpenedAt ? 1 : 0;
@@ -5357,29 +5816,29 @@ async function registerRoutes(app2) {
     const me = await getAuthUser(req);
     if (me && rawId > 0) {
       const [th] = await db.select().from(dmThreads).where(
-        and2(
-          eq2(dmThreads.id, rawId),
-          or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id))
+        and3(
+          eq3(dmThreads.id, rawId),
+          or(eq3(dmThreads.user1Id, me.id), eq3(dmThreads.user2Id, me.id))
         )
       );
       if (th) return res.json({ ok: true });
     }
-    const [updated] = await db.update(dmMessages).set({ unread: 0 }).where(eq2(dmMessages.id, legacyDmId)).returning();
+    const [updated] = await db.update(dmMessages).set({ unread: 0 }).where(eq3(dmMessages.id, legacyDmId)).returning();
     if (me) {
-      const [legacyMeta] = await db.select({ name: dmMessages.name }).from(dmMessages).where(eq2(dmMessages.id, legacyDmId));
+      const [legacyMeta] = await db.select({ name: dmMessages.name }).from(dmMessages).where(eq3(dmMessages.id, legacyDmId));
       if (legacyMeta?.name === OPERATIONS_DM_NAME) {
-        await db.update(users).set({ operationsDmOpenedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq2(users.id, me.id));
+        await db.update(users).set({ operationsDmOpenedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq3(users.id, me.id));
       }
     }
     res.json(updated ?? { ok: true });
   });
   app2.get("/api/notifications/unread-count", async (_req, res) => {
-    const [{ count: count2 }] = await db.select({ count: sql3`count(*)::int` }).from(notifications).where(eq2(notifications.isRead, false));
+    const [{ count: count2 }] = await db.select({ count: sql3`count(*)::int` }).from(notifications).where(eq3(notifications.isRead, false));
     res.json({ count: count2 ?? 0 });
   });
   app2.get("/api/notifications", async (req, res) => {
     const type = queryStr(req, "type");
-    const rows = type && type !== "all" ? await db.select().from(notifications).where(eq2(notifications.type, type)).orderBy(desc(notifications.createdAt)) : await db.select().from(notifications).orderBy(desc(notifications.createdAt));
+    const rows = type && type !== "all" ? await db.select().from(notifications).where(eq3(notifications.type, type)).orderBy(desc(notifications.createdAt)) : await db.select().from(notifications).orderBy(desc(notifications.createdAt));
     res.json(rows);
   });
   app2.post("/api/notifications/read-all", async (_req, res) => {
@@ -5388,18 +5847,18 @@ async function registerRoutes(app2) {
   });
   app2.post("/api/notifications/:id/read", async (req, res) => {
     const id = paramNum(req, "id");
-    const [updated] = await db.update(notifications).set({ isRead: true }).where(eq2(notifications.id, id)).returning();
+    const [updated] = await db.update(notifications).set({ isRead: true }).where(eq3(notifications.id, id)).returning();
     res.json(updated);
   });
   app2.get("/api/live-streams/:id", async (req, res) => {
     const id = paramNum(req, "id");
-    const [stream] = await db.select().from(liveStreams).where(eq2(liveStreams.id, id));
+    const [stream] = await db.select().from(liveStreams).where(eq3(liveStreams.id, id));
     if (!stream) return res.status(404).json({ error: "Not found" });
     res.json(stream);
   });
   app2.get("/api/live-streams/:id/chat", async (req, res) => {
     const id = paramNum(req, "id");
-    const msgs = await db.select().from(liveStreamChat).where(eq2(liveStreamChat.streamId, id)).orderBy(asc2(liveStreamChat.createdAt));
+    const msgs = await db.select().from(liveStreamChat).where(eq3(liveStreamChat.streamId, id)).orderBy(asc2(liveStreamChat.createdAt));
     res.json(msgs);
   });
   app2.post("/api/live-streams/:id/chat", async (req, res) => {
@@ -5428,11 +5887,11 @@ async function registerRoutes(app2) {
     const legacyDmId = rawId < 0 ? -rawId : rawId;
     if (rawId > 0) {
       const [th] = await db.select().from(dmThreads).where(
-        and2(eq2(dmThreads.id, rawId), or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id)))
+        and3(eq3(dmThreads.id, rawId), or(eq3(dmThreads.user1Id, me.id), eq3(dmThreads.user2Id, me.id)))
       );
       if (th) {
         const peerId = th.user1Id === me.id ? th.user2Id : th.user1Id;
-        const [peer] = await db.select({ displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(users).where(eq2(users.id, peerId));
+        const [peer] = await db.select({ displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(users).where(eq3(users.id, peerId));
         if (!peer) return res.status(404).json({ error: "Not found" });
         return res.json({
           name: peer.displayName ?? "User",
@@ -5441,7 +5900,7 @@ async function registerRoutes(app2) {
         });
       }
     }
-    const [legacyDm] = await db.select().from(dmMessages).where(eq2(dmMessages.id, legacyDmId));
+    const [legacyDm] = await db.select().from(dmMessages).where(eq3(dmMessages.id, legacyDmId));
     if (!legacyDm) return res.status(404).json({ error: "Not found" });
     res.json({
       name: legacyDm.name,
@@ -5456,10 +5915,10 @@ async function registerRoutes(app2) {
     const legacyDmId = rawId < 0 ? -rawId : rawId;
     if (rawId > 0) {
       const [th] = await db.select().from(dmThreads).where(
-        and2(eq2(dmThreads.id, rawId), or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id)))
+        and3(eq3(dmThreads.id, rawId), or(eq3(dmThreads.user1Id, me.id), eq3(dmThreads.user2Id, me.id)))
       );
       if (th) {
-        const rows = await db.select().from(dmThreadMessages).where(eq2(dmThreadMessages.threadId, rawId)).orderBy(asc2(dmThreadMessages.createdAt));
+        const rows = await db.select().from(dmThreadMessages).where(eq3(dmThreadMessages.threadId, rawId)).orderBy(asc2(dmThreadMessages.createdAt));
         return res.json(
           rows.map((m) => ({
             id: m.id,
@@ -5473,7 +5932,7 @@ async function registerRoutes(app2) {
         );
       }
     }
-    const msgs = await db.select().from(dmConversationMessages).where(eq2(dmConversationMessages.dmId, legacyDmId)).orderBy(asc2(dmConversationMessages.createdAt));
+    const msgs = await db.select().from(dmConversationMessages).where(eq3(dmConversationMessages.dmId, legacyDmId)).orderBy(asc2(dmConversationMessages.createdAt));
     res.json(msgs);
   });
   app2.post("/api/dm-messages/:id/conversation", async (req, res) => {
@@ -5485,7 +5944,7 @@ async function registerRoutes(app2) {
     if (!text2.trim()) return res.status(400).json({ error: "Please enter a message" });
     if (rawId > 0) {
       const [th] = await db.select().from(dmThreads).where(
-        and2(eq2(dmThreads.id, rawId), or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id)))
+        and3(eq3(dmThreads.id, rawId), or(eq3(dmThreads.user1Id, me.id), eq3(dmThreads.user2Id, me.id)))
       );
       if (th) {
         const [msg2] = await db.insert(dmThreadMessages).values({
@@ -5496,7 +5955,7 @@ async function registerRoutes(app2) {
         await db.update(dmThreads).set({
           lastMessagePreview: text2.trim().slice(0, 200),
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq2(dmThreads.id, rawId));
+        }).where(eq3(dmThreads.id, rawId));
         await syncUserLastContentLang(me.id, text2.trim());
         return res.json({
           id: msg2.id,
@@ -5515,7 +5974,7 @@ async function registerRoutes(app2) {
       text: text2.trim(),
       isRead: true
     }).returning();
-    await db.update(dmMessages).set({ lastMessage: text2.trim(), unread: 0 }).where(eq2(dmMessages.id, legacyDmId));
+    await db.update(dmMessages).set({ lastMessage: text2.trim(), unread: 0 }).where(eq3(dmMessages.id, legacyDmId));
     await syncUserLastContentLang(me.id, text2.trim());
     res.json({
       ...msg,
@@ -5528,7 +5987,7 @@ async function registerRoutes(app2) {
       communityId: jukeboxState.communityId,
       communityName: communities.name,
       trackTitle: jukeboxState.currentVideoTitle
-    }).from(jukeboxState).innerJoin(communities, eq2(communities.id, jukeboxState.communityId)).where(eq2(jukeboxState.isPlaying, true));
+    }).from(jukeboxState).innerJoin(communities, eq3(communities.id, jukeboxState.communityId)).where(eq3(jukeboxState.isPlaying, true));
     const active = playingRows.filter((r) => (r.trackTitle ?? "").trim().length > 0).map((r) => ({
       communityId: r.communityId,
       communityName: r.communityName,
@@ -5537,7 +5996,7 @@ async function registerRoutes(app2) {
     const idleRows = await db.select({
       communityId: jukeboxState.communityId,
       communityName: communities.name
-    }).from(jukeboxState).innerJoin(communities, eq2(communities.id, jukeboxState.communityId)).where(eq2(jukeboxState.isPlaying, false));
+    }).from(jukeboxState).innerJoin(communities, eq3(communities.id, jukeboxState.communityId)).where(eq3(jukeboxState.isPlaying, false));
     const activeIds = new Set(active.map((a) => a.communityId));
     const recruiting = idleRows.filter((r) => !activeIds.has(r.communityId)).map((r) => ({
       communityId: r.communityId,
@@ -5548,8 +6007,8 @@ async function registerRoutes(app2) {
   app2.get("/api/jukebox/:communityId", async (req, res) => {
     const communityId = paramNum(req, "communityId");
     const now = /* @__PURE__ */ new Date();
-    const [stateRaw] = await db.select().from(jukeboxState).where(eq2(jukeboxState.communityId, communityId));
-    const queue = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position));
+    const [stateRaw] = await db.select().from(jukeboxState).where(eq3(jukeboxState.communityId, communityId));
+    const queue = await db.select().from(jukeboxQueue).where(and3(eq3(jukeboxQueue.communityId, communityId), eq3(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position));
     let state = stateRaw ?? null;
     let queueModified = false;
     if (state && state.currentVideoDurationSecs && state.currentVideoDurationSecs > 0 && state.startedAt) {
@@ -5559,7 +6018,7 @@ async function registerRoutes(app2) {
           (q) => state.currentVideoYoutubeId && q.youtubeId === state.currentVideoYoutubeId || state.currentVideoId != null && q.videoId === state.currentVideoId
         );
         if (currentItem) {
-          await db.update(jukeboxQueue).set({ isPlayed: true }).where(eq2(jukeboxQueue.id, currentItem.id));
+          await db.update(jukeboxQueue).set({ isPlayed: true }).where(eq3(jukeboxQueue.id, currentItem.id));
           queueModified = true;
         }
         const next = queue.find((q) => !q.isPlayed && q.id !== currentItem?.id);
@@ -5598,13 +6057,13 @@ async function registerRoutes(app2) {
             currentVideoDurationSecs: 0,
             currentVideoYoutubeId: null,
             isPlaying: false
-          }).where(eq2(jukeboxState.communityId, communityId)).returning();
+          }).where(eq3(jukeboxState.communityId, communityId)).returning();
           state = updated;
         }
       }
     }
-    const queueToReturn = queueModified ? await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position)) : queue;
-    const chat = await db.select().from(jukeboxChat).where(eq2(jukeboxChat.communityId, communityId)).orderBy(desc(jukeboxChat.createdAt)).limit(30).then((rows) => rows.reverse());
+    const queueToReturn = queueModified ? await db.select().from(jukeboxQueue).where(and3(eq3(jukeboxQueue.communityId, communityId), eq3(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position)) : queue;
+    const chat = await db.select().from(jukeboxChat).where(eq3(jukeboxChat.communityId, communityId)).orderBy(desc(jukeboxChat.createdAt)).limit(30).then((rows) => rows.reverse());
     let elapsedSecs = 0;
     if (state?.startedAt && (state.currentVideoDurationSecs ?? 0) > 0) {
       elapsedSecs = Math.max(
@@ -5634,7 +6093,7 @@ async function registerRoutes(app2) {
     res.flushHeaders();
     res.write("event: ping\ndata: {}\n\n");
     try {
-      const [currentState] = await db.select().from(jukeboxState).where(eq2(jukeboxState.communityId, communityId));
+      const [currentState] = await db.select().from(jukeboxState).where(eq3(jukeboxState.communityId, communityId));
       if (currentState) {
         const elapsed = currentState.isPlaying && currentState.startedAt ? (Date.now() - new Date(currentState.startedAt).getTime()) / 1e3 : 0;
         const stateData = { ...currentState, elapsedSecs: Math.max(0, elapsed) };
@@ -5643,7 +6102,7 @@ data: ${JSON.stringify({ type: "state_update", data: stateData, ts: Date.now() }
 
 `);
       }
-      const currentQueue = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position));
+      const currentQueue = await db.select().from(jukeboxQueue).where(and3(eq3(jukeboxQueue.communityId, communityId), eq3(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position));
       res.write(`event: queue_update
 data: ${JSON.stringify({ type: "queue_update", data: currentQueue, ts: Date.now() })}
 
@@ -5685,19 +6144,19 @@ data: ${data}
     if (vis === "followers") {
       if (hostId == null) return true;
       if (!viewer) return false;
-      const [f] = await db.select({ id: userFollows.id }).from(userFollows).where(and2(eq2(userFollows.followerId, viewer.id), eq2(userFollows.followingId, hostId)));
+      const [f] = await db.select({ id: userFollows.id }).from(userFollows).where(and3(eq3(userFollows.followerId, viewer.id), eq3(userFollows.followingId, hostId)));
       return !!f;
     }
     if (vis === "community") {
       const cid = srow.restrictedCommunityId;
       if (cid == null) return false;
       if (!viewer) return false;
-      const [m] = await db.select({ id: communityMembers.id }).from(communityMembers).where(and2(eq2(communityMembers.userId, viewer.id), eq2(communityMembers.communityId, cid)));
+      const [m] = await db.select({ id: communityMembers.id }).from(communityMembers).where(and3(eq3(communityMembers.userId, viewer.id), eq3(communityMembers.communityId, cid)));
       return !!m;
     }
     if (vis === "paid") {
       if (!viewer) return false;
-      const [access] = await db.select({ id: streamPaidAccess.id }).from(streamPaidAccess).where(and2(eq2(streamPaidAccess.streamId, srow.id), eq2(streamPaidAccess.viewerUserId, viewer.id))).limit(1);
+      const [access] = await db.select({ id: streamPaidAccess.id }).from(streamPaidAccess).where(and3(eq3(streamPaidAccess.streamId, srow.id), eq3(streamPaidAccess.viewerUserId, viewer.id))).limit(1);
       return !!access;
     }
     return true;
@@ -5770,7 +6229,7 @@ data: ${data}
       if (!Number.isFinite(cid)) {
         return res.status(400).json({ error: "restrictedCommunityId is required for community-only streams" });
       }
-      const [mem] = await db.select({ id: communityMembers.id }).from(communityMembers).where(and2(eq2(communityMembers.userId, user.id), eq2(communityMembers.communityId, cid)));
+      const [mem] = await db.select({ id: communityMembers.id }).from(communityMembers).where(and3(eq3(communityMembers.userId, user.id), eq3(communityMembers.communityId, cid)));
       if (!mem) {
         return res.status(403).json({ error: "You are not a member of the selected community" });
       }
@@ -5856,12 +6315,12 @@ data: ${data}
   app2.get("/api/stream/:id", async (req, res) => {
     const id = paramNum(req, "id");
     if (!id) return res.status(400).json({ error: "Invalid id" });
-    const [srow] = await db.select().from(streams).where(eq2(streams.id, id));
+    const [srow] = await db.select().from(streams).where(eq3(streams.id, id));
     if (srow) {
       let creator = "Host";
       let avatar = "";
       if (srow.hostUserId != null) {
-        const [u] = await db.select().from(users).where(eq2(users.id, srow.hostUserId));
+        const [u] = await db.select().from(users).where(eq3(users.id, srow.hostUserId));
         if (u) {
           creator = u.displayName ?? creator;
           avatar = u.profileImageUrl ?? "";
@@ -5874,7 +6333,7 @@ data: ${data}
       const hid = srow.hostUserId;
       let isFollowingHost = false;
       if (viewer && hid != null && viewer.id !== hid) {
-        const [f] = await db.select({ id: userFollows.id }).from(userFollows).where(and2(eq2(userFollows.followerId, viewer.id), eq2(userFollows.followingId, hid)));
+        const [f] = await db.select({ id: userFollows.id }).from(userFollows).where(and3(eq3(userFollows.followerId, viewer.id), eq3(userFollows.followingId, hid)));
         isFollowingHost = !!f;
       }
       return res.json({
@@ -5901,7 +6360,7 @@ data: ${data}
         isFollowingHost: viewer && hid != null && viewer.id !== hid ? isFollowingHost : false
       });
     }
-    const [live] = await db.select().from(liveStreams).where(eq2(liveStreams.id, id));
+    const [live] = await db.select().from(liveStreams).where(eq3(liveStreams.id, id));
     if (!live) return res.status(404).json({ error: "Not found" });
     return res.json({
       id: live.id,
@@ -5928,7 +6387,7 @@ data: ${data}
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const id = paramNum(req, "id");
-    const [row] = await db.select().from(streams).where(eq2(streams.id, id));
+    const [row] = await db.select().from(streams).where(eq3(streams.id, id));
     if (!row) return res.status(404).json({ error: "Not found" });
     if (row.hostUserId != null && row.hostUserId !== user.id) {
       return res.status(403).json({ error: "Forbidden" });
@@ -5939,14 +6398,14 @@ data: ${data}
       startedAt: now,
       endedAt: null,
       currentViewers: 0
-    }).where(eq2(streams.id, id)).returning();
+    }).where(eq3(streams.id, id)).returning();
     res.json(updated);
   });
   app2.post("/api/stream/:id/end", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const id = paramNum(req, "id");
-    const [row] = await db.select().from(streams).where(eq2(streams.id, id));
+    const [row] = await db.select().from(streams).where(eq3(streams.id, id));
     if (!row) return res.status(404).json({ error: "Not found" });
     if (row.hostUserId != null && row.hostUserId !== user.id) {
       return res.status(403).json({ error: "Forbidden" });
@@ -5955,12 +6414,12 @@ data: ${data}
     const [updated] = await db.update(streams).set({
       isLive: false,
       endedAt: now
-    }).where(eq2(streams.id, id)).returning();
+    }).where(eq3(streams.id, id)).returning();
     res.json(updated);
   });
   app2.post("/api/stream/:id/join", async (req, res) => {
     const id = paramNum(req, "id");
-    const [srow] = await db.select().from(streams).where(eq2(streams.id, id));
+    const [srow] = await db.select().from(streams).where(eq3(streams.id, id));
     if (srow) {
       const viewer = await getAuthUser(req);
       const allowed = await canViewerAccessLiveStream(srow, viewer);
@@ -5978,20 +6437,20 @@ data: ${data}
           code: "STREAM_ACCESS_DENIED"
         });
       }
-      const [updated] = await db.update(streams).set({ currentViewers: sql3`${streams.currentViewers} + 1` }).where(eq2(streams.id, id)).returning();
+      const [updated] = await db.update(streams).set({ currentViewers: sql3`${streams.currentViewers} + 1` }).where(eq3(streams.id, id)).returning();
       return res.json({ viewerCount: updated.currentViewers, currentViewers: updated.currentViewers });
     }
-    const [live] = await db.select().from(liveStreams).where(eq2(liveStreams.id, id));
+    const [live] = await db.select().from(liveStreams).where(eq3(liveStreams.id, id));
     if (!live) return res.status(404).json({ error: "Not found" });
     const next = Math.max(0, live.viewers + 1);
-    await db.update(liveStreams).set({ viewers: next }).where(eq2(liveStreams.id, id));
+    await db.update(liveStreams).set({ viewers: next }).where(eq3(liveStreams.id, id));
     return res.json({ viewerCount: next, currentViewers: next });
   });
   app2.post("/api/stream/:id/join-paid", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const id = paramNum(req, "id");
-    const [srow] = await db.select().from(streams).where(eq2(streams.id, id));
+    const [srow] = await db.select().from(streams).where(eq3(streams.id, id));
     if (!srow) return res.status(404).json({ error: "Not found" });
     if ((srow.visibility ?? "public") !== "paid") {
       return res.status(400).json({ error: "Stream is not paid" });
@@ -6005,14 +6464,14 @@ data: ${data}
     try {
       let currentViewers = srow.currentViewers;
       await db.transaction(async (tx) => {
-        const existingAccess = await tx.select({ id: streamPaidAccess.id }).from(streamPaidAccess).where(and2(eq2(streamPaidAccess.streamId, id), eq2(streamPaidAccess.viewerUserId, user.id))).limit(1);
+        const existingAccess = await tx.select({ id: streamPaidAccess.id }).from(streamPaidAccess).where(and3(eq3(streamPaidAccess.streamId, id), eq3(streamPaidAccess.viewerUserId, user.id))).limit(1);
         if (existingAccess.length > 0) {
-          const [updated2] = await tx.update(streams).set({ currentViewers: sql3`${streams.currentViewers} + 1` }).where(eq2(streams.id, id)).returning();
+          const [updated2] = await tx.update(streams).set({ currentViewers: sql3`${streams.currentViewers} + 1` }).where(eq3(streams.id, id)).returning();
           currentViewers = updated2.currentViewers;
           return;
         }
         const userId = String(user.id);
-        const balRows = await tx.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
+        const balRows = await tx.select().from(ticketBalances).where(eq3(ticketBalances.userId, userId)).limit(1);
         const currentBalance = balRows[0]?.balance ?? 0;
         if (currentBalance < ticketPrice) {
           const err = new Error("INSUFFICIENT_TICKETS");
@@ -6023,7 +6482,7 @@ data: ${data}
         if (balRows.length === 0) {
           await tx.insert(ticketBalances).values({ userId, balance: newBalance });
         } else {
-          await tx.update(ticketBalances).set({ balance: newBalance, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
+          await tx.update(ticketBalances).set({ balance: newBalance, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(ticketBalances.userId, userId));
         }
         const [spendTx] = await tx.insert(ticketTransactions).values({
           userId,
@@ -6047,7 +6506,7 @@ data: ${data}
           "paid_live",
           String(spendTx.id)
         );
-        const [updated] = await tx.update(streams).set({ currentViewers: sql3`${streams.currentViewers} + 1` }).where(eq2(streams.id, id)).returning();
+        const [updated] = await tx.update(streams).set({ currentViewers: sql3`${streams.currentViewers} + 1` }).where(eq3(streams.id, id)).returning();
         currentViewers = updated.currentViewers;
       });
       return res.json({ ok: true, currentViewers });
@@ -6065,23 +6524,23 @@ data: ${data}
   });
   app2.post("/api/stream/:id/leave", async (req, res) => {
     const id = paramNum(req, "id");
-    const [srow] = await db.select().from(streams).where(eq2(streams.id, id));
+    const [srow] = await db.select().from(streams).where(eq3(streams.id, id));
     if (srow) {
       const next2 = Math.max(0, srow.currentViewers - 1);
-      const [updated] = await db.update(streams).set({ currentViewers: next2 }).where(eq2(streams.id, id)).returning();
+      const [updated] = await db.update(streams).set({ currentViewers: next2 }).where(eq3(streams.id, id)).returning();
       return res.json({ viewerCount: updated.currentViewers, currentViewers: updated.currentViewers });
     }
-    const [live] = await db.select().from(liveStreams).where(eq2(liveStreams.id, id));
+    const [live] = await db.select().from(liveStreams).where(eq3(liveStreams.id, id));
     if (!live) return res.status(404).json({ error: "Not found" });
     const next = Math.max(0, live.viewers - 1);
-    await db.update(liveStreams).set({ viewers: next }).where(eq2(liveStreams.id, id));
+    await db.update(liveStreams).set({ viewers: next }).where(eq3(liveStreams.id, id));
     return res.json({ viewerCount: next, currentViewers: next });
   });
   app2.post("/api/jukebox/:communityId/add", async (req, res) => {
     const communityId = paramNum(req, "communityId");
     const { videoId, videoTitle, videoThumbnail, videoDurationSecs, addedBy, addedByAvatar, youtubeId } = req.body;
     const authUser = await getAuthUser(req);
-    const existing = await db.select().from(jukeboxQueue).where(eq2(jukeboxQueue.communityId, communityId)).orderBy(desc(jukeboxQueue.position));
+    const existing = await db.select().from(jukeboxQueue).where(eq3(jukeboxQueue.communityId, communityId)).orderBy(desc(jukeboxQueue.position));
     const nextPos = existing.length > 0 ? existing[0].position + 1 : 1;
     const [item] = await db.insert(jukeboxQueue).values({
       communityId,
@@ -6096,7 +6555,7 @@ data: ${data}
       position: nextPos,
       isPlayed: false
     }).returning();
-    const [stateRow] = await db.select().from(jukeboxState).where(eq2(jukeboxState.communityId, communityId));
+    const [stateRow] = await db.select().from(jukeboxState).where(eq3(jukeboxState.communityId, communityId));
     const isCurrentlyPlaying = !!(stateRow?.isPlaying && (stateRow.currentVideoId != null || stateRow.currentVideoYoutubeId));
     const hasUnplayed = existing.some((q) => !q.isPlayed);
     if (!hasUnplayed && !isCurrentlyPlaying) {
@@ -6125,13 +6584,13 @@ data: ${data}
         }
       });
     }
-    const updatedQueue = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position));
+    const updatedQueue = await db.select().from(jukeboxQueue).where(and3(eq3(jukeboxQueue.communityId, communityId), eq3(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position));
     await publishJukeboxEvent(communityId, {
       type: "queue_update",
       data: updatedQueue
     });
     if (!hasUnplayed && !isCurrentlyPlaying) {
-      const [newState] = await db.select().from(jukeboxState).where(eq2(jukeboxState.communityId, communityId));
+      const [newState] = await db.select().from(jukeboxState).where(eq3(jukeboxState.communityId, communityId));
       if (newState) {
         await publishJukeboxEvent(communityId, {
           type: "state_update",
@@ -6143,8 +6602,8 @@ data: ${data}
   });
   app2.post("/api/jukebox/:communityId/next", async (req, res) => {
     const communityId = paramNum(req, "communityId");
-    const [stateRaw] = await db.select().from(jukeboxState).where(eq2(jukeboxState.communityId, communityId));
-    const queue = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position));
+    const [stateRaw] = await db.select().from(jukeboxState).where(eq3(jukeboxState.communityId, communityId));
+    const queue = await db.select().from(jukeboxQueue).where(and3(eq3(jukeboxQueue.communityId, communityId), eq3(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position));
     let currentItemId = null;
     if (stateRaw?.currentVideoId != null || stateRaw?.currentVideoYoutubeId) {
       const currentItem = queue.find(
@@ -6152,7 +6611,7 @@ data: ${data}
       );
       if (currentItem) {
         currentItemId = currentItem.id;
-        await db.update(jukeboxQueue).set({ isPlayed: true }).where(eq2(jukeboxQueue.id, currentItem.id));
+        await db.update(jukeboxQueue).set({ isPlayed: true }).where(eq3(jukeboxQueue.id, currentItem.id));
       }
     }
     const next = queue.find((q) => !q.isPlayed && q.id !== currentItemId);
@@ -6189,16 +6648,16 @@ data: ${data}
         currentVideoDurationSecs: 0,
         currentVideoYoutubeId: null,
         isPlaying: false
-      }).where(eq2(jukeboxState.communityId, communityId));
+      }).where(eq3(jukeboxState.communityId, communityId));
     }
-    const [latestState] = await db.select().from(jukeboxState).where(eq2(jukeboxState.communityId, communityId));
+    const [latestState] = await db.select().from(jukeboxState).where(eq3(jukeboxState.communityId, communityId));
     if (latestState) {
       await publishJukeboxEvent(communityId, {
         type: "state_update",
         data: latestState
       });
     }
-    const latestQueue = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position));
+    const latestQueue = await db.select().from(jukeboxQueue).where(and3(eq3(jukeboxQueue.communityId, communityId), eq3(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position));
     await publishJukeboxEvent(communityId, {
       type: "queue_update",
       data: latestQueue
@@ -6211,12 +6670,12 @@ data: ${data}
     if (!durationSecs || typeof durationSecs !== "number" || durationSecs <= 0) {
       return res.status(400).json({ error: "durationSecs must be a positive number" });
     }
-    const [current] = await db.select({ currentVideoDurationSecs: jukeboxState.currentVideoDurationSecs }).from(jukeboxState).where(eq2(jukeboxState.communityId, communityId));
+    const [current] = await db.select({ currentVideoDurationSecs: jukeboxState.currentVideoDurationSecs }).from(jukeboxState).where(eq3(jukeboxState.communityId, communityId));
     if (!current) return res.status(404).json({ error: "jukebox state not found" });
     if (current.currentVideoDurationSecs && current.currentVideoDurationSecs > 0) {
       return res.json({ ok: true, updated: false });
     }
-    await db.update(jukeboxState).set({ currentVideoDurationSecs: durationSecs }).where(eq2(jukeboxState.communityId, communityId));
+    await db.update(jukeboxState).set({ currentVideoDurationSecs: durationSecs }).where(eq3(jukeboxState.communityId, communityId));
     res.json({ ok: true, updated: true });
   });
   app2.post("/api/jukebox/:communityId/chat", async (req, res) => {
@@ -6243,9 +6702,9 @@ data: ${data}
     const communityId = paramNum(req, "communityId");
     const itemId = paramNum(req, "itemId");
     const addedBy = req.query.addedBy || req.body?.addedBy || null;
-    const [item] = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.id, itemId)));
+    const [item] = await db.select().from(jukeboxQueue).where(and3(eq3(jukeboxQueue.communityId, communityId), eq3(jukeboxQueue.id, itemId)));
     if (!item) return res.status(404).json({ error: "Item not found" });
-    const [stateRow] = await db.select().from(jukeboxState).where(eq2(jukeboxState.communityId, communityId));
+    const [stateRow] = await db.select().from(jukeboxState).where(eq3(jukeboxState.communityId, communityId));
     const isCurrentlyPlaying = stateRow?.isPlaying && (item.youtubeId && item.youtubeId === stateRow.currentVideoYoutubeId || item.videoId != null && item.videoId === stateRow.currentVideoId);
     if (isCurrentlyPlaying) {
       return res.status(400).json({ error: "Cannot remove the currently playing track" });
@@ -6253,13 +6712,13 @@ data: ${data}
     if (addedBy && item.addedBy !== addedBy) {
       return res.status(403).json({ error: "You can only remove your own requests" });
     }
-    await db.delete(jukeboxQueue).where(eq2(jukeboxQueue.id, itemId));
+    await db.delete(jukeboxQueue).where(eq3(jukeboxQueue.id, itemId));
     res.json({ ok: true });
   });
   app2.get("/api/mentor/session/:id", async (req, res) => {
     const id = paramNum(req, "id");
     if (!id) return res.status(400).json({ error: "invalid_session_id" });
-    const [session] = await db.select().from(mentorSessions).where(and2(eq2(mentorSessions.id, id), eq2(mentorSessions.isActive, true)));
+    const [session] = await db.select().from(mentorSessions).where(and3(eq3(mentorSessions.id, id), eq3(mentorSessions.isActive, true)));
     if (!session) return res.status(404).json({ error: "session_not_found" });
     return res.json({
       ...session,
@@ -6269,7 +6728,7 @@ data: ${data}
   app2.get("/api/availability/:userId", async (req, res) => {
     const userId = paramNum(req, "userId");
     if (!userId) return res.status(400).json({ error: "invalid_user_id" });
-    const rows = await db.select().from(liverAvailability).where(eq2(liverAvailability.liverId, userId)).orderBy(asc2(liverAvailability.date), asc2(liverAvailability.startTime));
+    const rows = await db.select().from(liverAvailability).where(eq3(liverAvailability.liverId, userId)).orderBy(asc2(liverAvailability.date), asc2(liverAvailability.startTime));
     return res.json(rows);
   });
   app2.post("/api/mentor/bookings", async (req, res) => {
@@ -6279,7 +6738,7 @@ data: ${data}
     const sid = typeof sessionId === "number" && Number.isFinite(sessionId) ? sessionId : parseInt(String(sessionId ?? ""), 10);
     if (!sid) return res.status(400).json({ error: "session_not_found" });
     if (!scheduledAt) return res.status(400).json({ error: "scheduled_at_required" });
-    const [sessionRow] = await db.select().from(mentorSessions).where(and2(eq2(mentorSessions.id, sid), eq2(mentorSessions.isActive, true)));
+    const [sessionRow] = await db.select().from(mentorSessions).where(and3(eq3(mentorSessions.id, sid), eq3(mentorSessions.isActive, true)));
     if (!sessionRow) return res.status(404).json({ error: "session_not_found" });
     const parsedPrice = Number(sessionRow.price);
     if (!Number.isInteger(parsedPrice) || parsedPrice <= 0) {
@@ -6291,7 +6750,7 @@ data: ${data}
       if (!parsedSlotId || !Number.isFinite(parsedSlotId)) {
         return res.status(400).json({ error: "invalid_slot_id" });
       }
-      const [slot] = await db.select().from(liverAvailability).where(and2(eq2(liverAvailability.id, parsedSlotId), eq2(liverAvailability.liverId, sessionRow.creatorId)));
+      const [slot] = await db.select().from(liverAvailability).where(and3(eq3(liverAvailability.id, parsedSlotId), eq3(liverAvailability.liverId, sessionRow.creatorId)));
       if (!slot) return res.status(404).json({ error: "slot_not_found" });
       if (slot.bookedSlots >= slot.maxSlots) return res.status(409).json({ error: "slot_full" });
     }
@@ -6299,7 +6758,7 @@ data: ${data}
       let bookingId = 0;
       await db.transaction(async (tx) => {
         const userId = String(user.id);
-        const balRows = await tx.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
+        const balRows = await tx.select().from(ticketBalances).where(eq3(ticketBalances.userId, userId)).limit(1);
         const currentBalance = balRows[0]?.balance ?? 0;
         if (currentBalance < parsedPrice) {
           const err = new Error("INSUFFICIENT_TICKETS");
@@ -6308,9 +6767,9 @@ data: ${data}
         }
         if (parsedSlotId != null) {
           const slotRows = await tx.update(liverAvailability).set({ bookedSlots: sql3`${liverAvailability.bookedSlots} + 1` }).where(
-            and2(
-              eq2(liverAvailability.id, parsedSlotId),
-              eq2(liverAvailability.liverId, sessionRow.creatorId),
+            and3(
+              eq3(liverAvailability.id, parsedSlotId),
+              eq3(liverAvailability.liverId, sessionRow.creatorId),
               sql3`${liverAvailability.bookedSlots} < ${liverAvailability.maxSlots}`
             )
           ).returning({ id: liverAvailability.id });
@@ -6322,7 +6781,7 @@ data: ${data}
         if (balRows.length === 0) {
           await tx.insert(ticketBalances).values({ userId, balance: newBalance });
         } else {
-          await tx.update(ticketBalances).set({ balance: newBalance, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
+          await tx.update(ticketBalances).set({ balance: newBalance, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(ticketBalances.userId, userId));
         }
         const [booking] = await tx.insert(mentorBookings).values({
           sessionId: sid,
@@ -6384,7 +6843,7 @@ data: ${data}
   });
   app2.get("/api/mentor/:streamId/bookings", async (req, res) => {
     const streamId = paramNum(req, "streamId");
-    const rows = await db.select().from(mentorBookings).where(eq2(mentorBookings.streamId, streamId)).orderBy(asc2(mentorBookings.queuePosition));
+    const rows = await db.select().from(mentorBookings).where(eq3(mentorBookings.streamId, streamId)).orderBy(asc2(mentorBookings.queuePosition));
     res.json(rows);
   });
   app2.get("/api/mentor/:streamId/queue-count", async (req, res) => {
@@ -6400,7 +6859,7 @@ data: ${data}
       const stripe = await getUncachableStripeClient();
       const [{ total }] = await db.select({ total: count() }).from(mentorBookings).where(sql3`stream_id = ${streamId} AND status IN ('paid','waiting','notified')`);
       const queuePos = Number(total) + 1;
-      const [stream] = await db.select().from(liveStreams).where(eq2(liveStreams.id, streamId));
+      const [stream] = await db.select().from(liveStreams).where(eq3(liveStreams.id, streamId));
       const streamTitle = stream?.title ?? "Two-shot photo session";
       const creatorName = stream?.creator ?? "Creator";
       const baseUrl = "https://rawstock.live";
@@ -6457,7 +6916,7 @@ data: ${data}
       if (session.payment_status !== "paid") {
         return res.status(400).json({ error: "Payment not completed" });
       }
-      const [booking] = await db.select().from(mentorBookings).where(eq2(mentorBookings.stripeSessionId, sessionId));
+      const [booking] = await db.select().from(mentorBookings).where(eq3(mentorBookings.stripeSessionId, sessionId));
       if (!booking) return res.status(404).json({ error: "Booking not found" });
       if (booking.status === "paid") return res.json({ ok: true, booking });
       const metadata = session.metadata ?? {};
@@ -6465,16 +6924,16 @@ data: ${data}
       const slotId = slotIdRaw && slotIdRaw.trim() ? parseInt(slotIdRaw, 10) : NaN;
       let mentorSessionForBooking = null;
       if (booking.sessionId != null) {
-        const [mentorSession] = await db.select().from(mentorSessions).where(eq2(mentorSessions.id, booking.sessionId));
+        const [mentorSession] = await db.select().from(mentorSessions).where(eq3(mentorSessions.id, booking.sessionId));
         mentorSessionForBooking = mentorSession ?? null;
       }
       if (booking.sessionId != null && Number.isFinite(slotId) && slotId > 0) {
         const creatorId = mentorSessionForBooking?.creatorId;
         if (!creatorId) return res.status(404).json({ error: "session_not_found" });
         const updatedSlots = await db.update(liverAvailability).set({ bookedSlots: sql3`${liverAvailability.bookedSlots} + 1` }).where(
-          and2(
-            eq2(liverAvailability.id, slotId),
-            eq2(liverAvailability.liverId, creatorId),
+          and3(
+            eq3(liverAvailability.id, slotId),
+            eq3(liverAvailability.liverId, creatorId),
             sql3`${liverAvailability.bookedSlots} < ${liverAvailability.maxSlots}`
           )
         ).returning();
@@ -6485,23 +6944,23 @@ data: ${data}
       await db.update(mentorBookings).set({
         status: "paid",
         stripePaymentIntentId: session.payment_intent
-      }).where(eq2(mentorBookings.stripeSessionId, sessionId));
+      }).where(eq3(mentorBookings.stripeSessionId, sessionId));
       if (booking.sessionId != null) {
         if (mentorSessionForBooking) {
-          const [creatorUser] = await db.select().from(users).where(eq2(users.id, mentorSessionForBooking.creatorId));
+          const [creatorUser] = await db.select().from(users).where(eq3(users.id, mentorSessionForBooking.creatorId));
           if (creatorUser) {
             const walletId = await getOrCreateUserWallet(creatorUser.id);
-            const [creatorRow] = await db.select().from(creators).where(eq2(creators.name, creatorUser.displayName));
+            const [creatorRow] = await db.select().from(creators).where(eq3(creators.name, creatorUser.displayName));
             await recordRevenue(walletId, creatorUser.id, creatorRow?.id ?? null, booking.price, "mentor", String(booking.id));
           }
         }
       } else if (booking.streamId != null) {
-        const [stream] = await db.select().from(liveStreams).where(eq2(liveStreams.id, booking.streamId));
+        const [stream] = await db.select().from(liveStreams).where(eq3(liveStreams.id, booking.streamId));
         if (stream) {
-          const [creatorUser] = await db.select().from(users).where(eq2(users.displayName, stream.creator));
+          const [creatorUser] = await db.select().from(users).where(eq3(users.displayName, stream.creator));
           if (creatorUser) {
             const walletId = await getOrCreateUserWallet(creatorUser.id);
-            const [creatorRow] = await db.select().from(creators).where(eq2(creators.name, stream.creator));
+            const [creatorRow] = await db.select().from(creators).where(eq3(creators.name, stream.creator));
             await recordRevenue(walletId, creatorUser.id, creatorRow?.id ?? null, booking.price, "mentor", String(booking.id));
           }
         }
@@ -6513,12 +6972,12 @@ data: ${data}
   });
   app2.post("/api/mentor/:bookingId/notify", async (req, res) => {
     const bookingId = paramNum(req, "bookingId");
-    await db.update(mentorBookings).set({ status: "notified", notifiedAt: /* @__PURE__ */ new Date() }).where(eq2(mentorBookings.id, bookingId));
+    await db.update(mentorBookings).set({ status: "notified", notifiedAt: /* @__PURE__ */ new Date() }).where(eq3(mentorBookings.id, bookingId));
     res.json({ ok: true });
   });
   app2.post("/api/mentor/:bookingId/complete", async (req, res) => {
     const bookingId = paramNum(req, "bookingId");
-    await db.update(mentorBookings).set({ status: "completed", completedAt: /* @__PURE__ */ new Date() }).where(eq2(mentorBookings.id, bookingId));
+    await db.update(mentorBookings).set({ status: "completed", completedAt: /* @__PURE__ */ new Date() }).where(eq3(mentorBookings.id, bookingId));
     res.json({ ok: true });
   });
   app2.post("/api/mentor/:bookingId/cancel", async (req, res) => {
@@ -6529,13 +6988,13 @@ data: ${data}
       cancelledAt: /* @__PURE__ */ new Date(),
       cancelReason: reason ?? "User cancelled",
       refundable: !isSelfCancel
-    }).where(eq2(mentorBookings.id, bookingId));
+    }).where(eq3(mentorBookings.id, bookingId));
     res.json({ ok: true });
   });
   app2.get("/api/mentor/my-sessions", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const rows = await db.select().from(mentorSessions).where(eq2(mentorSessions.creatorId, user.id)).orderBy(desc(mentorSessions.createdAt));
+    const rows = await db.select().from(mentorSessions).where(eq3(mentorSessions.creatorId, user.id)).orderBy(desc(mentorSessions.createdAt));
     res.json(rows);
   });
   app2.post("/api/mentor/sessions", async (req, res) => {
@@ -6559,7 +7018,7 @@ data: ${data}
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const id = paramNum(req, "id");
-    const [existing] = await db.select().from(mentorSessions).where(eq2(mentorSessions.id, id));
+    const [existing] = await db.select().from(mentorSessions).where(eq3(mentorSessions.id, id));
     if (!existing || existing.creatorId !== user.id) return res.status(403).json({ error: "Forbidden" });
     const { title, category, description, price, duration, maxParticipants } = req.body;
     const [row] = await db.update(mentorSessions).set({
@@ -6570,25 +7029,25 @@ data: ${data}
       duration: duration ?? existing.duration,
       maxParticipants: maxParticipants ?? existing.maxParticipants,
       updatedAt: /* @__PURE__ */ new Date()
-    }).where(eq2(mentorSessions.id, id)).returning();
+    }).where(eq3(mentorSessions.id, id)).returning();
     res.json(row);
   });
   app2.delete("/api/mentor/sessions/:id", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const id = paramNum(req, "id");
-    const [existing] = await db.select().from(mentorSessions).where(eq2(mentorSessions.id, id));
+    const [existing] = await db.select().from(mentorSessions).where(eq3(mentorSessions.id, id));
     if (!existing || existing.creatorId !== user.id) return res.status(403).json({ error: "Forbidden" });
-    await db.update(mentorSessions).set({ isActive: false, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(mentorSessions.id, id));
+    await db.update(mentorSessions).set({ isActive: false, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(mentorSessions.id, id));
     res.json({ ok: true });
   });
   app2.get("/api/mentor/creator-bookings", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const mySessions = await db.select({ id: mentorSessions.id }).from(mentorSessions).where(eq2(mentorSessions.creatorId, user.id));
+    const mySessions = await db.select({ id: mentorSessions.id }).from(mentorSessions).where(eq3(mentorSessions.creatorId, user.id));
     if (mySessions.length === 0) return res.json([]);
     const sessionIds = mySessions.map((s) => s.id);
-    const bookingRows = await db.select().from(mentorBookings).where(and2(
+    const bookingRows = await db.select().from(mentorBookings).where(and3(
       inArray(mentorBookings.sessionId, sessionIds),
       sql3`${mentorBookings.status} NOT IN ('cancelled')`
     )).orderBy(desc(mentorBookings.createdAt));
@@ -6605,7 +7064,7 @@ data: ${data}
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const bookingId = paramNum(req, "bookingId");
-    const [booking] = await db.select().from(mentorBookings).where(eq2(mentorBookings.id, bookingId));
+    const [booking] = await db.select().from(mentorBookings).where(eq3(mentorBookings.id, bookingId));
     if (!booking) return res.status(404).json({ error: "Booking not found" });
     if (booking.whipUrl) {
       return res.json({ whipUrl: booking.whipUrl, whepUrl: booking.whepUrl });
@@ -6632,12 +7091,12 @@ data: ${data}
     const { uid, webRTC, webRTCPlayback } = cfData.result;
     const whipUrl = webRTC.url;
     const whepUrl = webRTCPlayback.url;
-    await db.update(mentorBookings).set({ status: "in_progress", whipUrl, whepUrl, cfStreamUid: uid }).where(eq2(mentorBookings.id, bookingId));
+    await db.update(mentorBookings).set({ status: "in_progress", whipUrl, whepUrl, cfStreamUid: uid }).where(eq3(mentorBookings.id, bookingId));
     res.json({ whipUrl, whepUrl });
   });
   app2.get("/api/mentor/bookings/:bookingId/join", async (req, res) => {
     const bookingId = paramNum(req, "bookingId");
-    const [booking] = await db.select().from(mentorBookings).where(eq2(mentorBookings.id, bookingId));
+    const [booking] = await db.select().from(mentorBookings).where(eq3(mentorBookings.id, bookingId));
     if (!booking) return res.status(404).json({ error: "Booking not found" });
     if (!booking.whepUrl) return res.status(409).json({ error: "Session not started yet" });
     res.json({ whepUrl: booking.whepUrl });
@@ -6646,7 +7105,7 @@ data: ${data}
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const bookingId = paramNum(req, "bookingId");
-    const [booking] = await db.select().from(mentorBookings).where(eq2(mentorBookings.id, bookingId));
+    const [booking] = await db.select().from(mentorBookings).where(eq3(mentorBookings.id, bookingId));
     if (!booking) return res.status(404).json({ error: "Booking not found" });
     if (booking.cfStreamUid && CLOUDFLARE_ACCOUNT_ID && CLOUDFLARE_STREAM_TOKEN) {
       await fetch(
@@ -6658,7 +7117,7 @@ data: ${data}
       ).catch(() => {
       });
     }
-    await db.update(mentorBookings).set({ status: "completed", completedAt: /* @__PURE__ */ new Date() }).where(eq2(mentorBookings.id, bookingId));
+    await db.update(mentorBookings).set({ status: "completed", completedAt: /* @__PURE__ */ new Date() }).where(eq3(mentorBookings.id, bookingId));
     res.json({ ok: true });
   });
   app2.post("/api/revenue/record", async (req, res) => {
@@ -6671,7 +7130,7 @@ data: ${data}
       return res.status(400).json({ error: "source must be tip, paid_live, or mentor" });
     }
     const walletId = await getOrCreateUserWallet(user.id);
-    const [creatorRow] = await db.select().from(creators).where(eq2(creators.name, user.displayName));
+    const [creatorRow] = await db.select().from(creators).where(eq3(creators.name, user.displayName));
     await recordRevenue(walletId, user.id, creatorRow?.id ?? null, amount, src, referenceId ?? null);
     res.status(201).json({ ok: true, amount, source: src });
   });
@@ -6679,12 +7138,13 @@ data: ${data}
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Sign-in required" });
     const userId = `user-${user.id}`;
-    const earningRows = await db.select().from(earnings).where(eq2(earnings.userId, userId));
-    const withdrawalRows = await db.select().from(withdrawals).where(eq2(withdrawals.userId, userId));
+    const earningRows = await db.select().from(earnings).where(eq3(earnings.userId, userId));
+    const withdrawalRows = await db.select().from(withdrawals).where(eq3(withdrawals.userId, userId));
     const totalEarned = earningRows.reduce((s, e) => s + e.netAmount, 0);
     const totalWithdrawn = withdrawalRows.filter((w) => w.status === "completed").reduce((s, w) => s + w.amount, 0);
     const pendingWithdrawal = withdrawalRows.filter((w) => w.status === "pending" || w.status === "processing").reduce((s, w) => s + w.amount, 0);
     const available = totalEarned - totalWithdrawn - pendingWithdrawal;
+    const withdrawalFeePolicy = getWithdrawalFeePolicy();
     const now = /* @__PURE__ */ new Date();
     const monthly = [];
     for (let i = 5; i >= 0; i--) {
@@ -6696,13 +7156,13 @@ data: ${data}
       }).reduce((s, e) => s + e.netAmount, 0);
       monthly.push({ month: label, amount: monthTotal });
     }
-    res.json({ totalEarned, totalWithdrawn, pendingWithdrawal, available, monthly });
+    res.json({ totalEarned, totalWithdrawn, pendingWithdrawal, available, monthly, withdrawalFeePolicy });
   });
   app2.get("/api/revenue/earnings", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Sign-in required" });
     const userId = `user-${user.id}`;
-    const rows = await db.select().from(earnings).where(eq2(earnings.userId, userId)).orderBy(desc(earnings.createdAt));
+    const rows = await db.select().from(earnings).where(eq3(earnings.userId, userId)).orderBy(desc(earnings.createdAt));
     res.json(rows);
   });
   app2.get("/api/revenue/monthly-rank", async (req, res) => {
@@ -6726,7 +7186,7 @@ data: ${data}
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Sign-in required" });
     const userId = `user-${user.id}`;
-    const rows = await db.select().from(withdrawals).where(eq2(withdrawals.userId, userId)).orderBy(desc(withdrawals.requestedAt));
+    const rows = await db.select().from(withdrawals).where(eq3(withdrawals.userId, userId)).orderBy(desc(withdrawals.requestedAt));
     res.json(rows);
   });
   app2.post("/api/revenue/withdraw", async (req, res) => {
@@ -6748,36 +7208,55 @@ data: ${data}
     if (!connectAccount?.charges_enabled) {
       return res.status(400).json({ error: "Stripe Connect account charges are not enabled" });
     }
-    const earningRows = await db.select().from(earnings).where(eq2(earnings.userId, userId));
-    const withdrawalRows = await db.select().from(withdrawals).where(eq2(withdrawals.userId, userId));
+    const earningRows = await db.select().from(earnings).where(eq3(earnings.userId, userId));
+    const withdrawalRows = await db.select().from(withdrawals).where(eq3(withdrawals.userId, userId));
     const totalEarned = earningRows.reduce((s, e) => s + e.netAmount, 0);
     const totalUsed = withdrawalRows.filter((w) => w.status !== "failed").reduce((s, w) => s + w.amount, 0);
     const available = totalEarned - totalUsed;
     if (amountUsdCents > available) {
       return res.status(400).json({ error: "Requested amount exceeds available balance" });
     }
+    const { feeUsdCents, netTransferUsdCents } = computeWithdrawalFeeBreakdown2(amountUsdCents);
+    const policy = getWithdrawalFeePolicy();
+    if (netTransferUsdCents < policy.minNetTransferUsdCents) {
+      return res.status(400).json({
+        error: "After payout fees, the transfer would be below the minimum. Increase the withdrawal amount.",
+        minNetTransferUsdCents: policy.minNetTransferUsdCents,
+        feeUsdCents,
+        netTransferUsdCents
+      });
+    }
     const [row] = await db.insert(withdrawals).values({ userId, amount: amountUsdCents, bankName, bankBranch, accountType, accountNumber, accountName, status: "pending" }).returning();
     try {
       const { transferId } = await createTransferToConnectedAccount({
-        amountUsdCents,
+        amountUsdCents: netTransferUsdCents,
         destinationAccountId: user.stripeConnectId,
         metadata: {
           withdrawalId: String(row.id),
-          userId
+          userId,
+          grossUsdCents: String(amountUsdCents),
+          feeUsdCents: String(feeUsdCents)
         }
       });
+      const feeNote = feeUsdCents > 0 ? `feeUsdCents=${feeUsdCents} netTransferUsdCents=${netTransferUsdCents} ` : "";
       const [completedRow] = await db.update(withdrawals).set({
         status: "completed",
         processedAt: /* @__PURE__ */ new Date(),
-        note: `Stripe transfer completed: ${transferId}`
-      }).where(eq2(withdrawals.id, row.id)).returning();
-      return res.json(completedRow);
+        note: `${feeNote}Stripe transfer completed: ${transferId}`
+      }).where(eq3(withdrawals.id, row.id)).returning();
+      return res.json({
+        ...completedRow,
+        grossWithdrawUsdCents: amountUsdCents,
+        feeUsdCents,
+        netTransferUsdCents,
+        stripeTransferId: transferId
+      });
     } catch (error) {
       await db.update(withdrawals).set({
         status: "failed",
         processedAt: /* @__PURE__ */ new Date(),
         note: `Stripe transfer failed: ${error?.message ?? "unknown_error"}`
-      }).where(eq2(withdrawals.id, row.id));
+      }).where(eq3(withdrawals.id, row.id));
       return res.status(500).json({ error: error?.message ?? "Stripe transfer failed" });
     }
   });
@@ -6796,7 +7275,7 @@ data: ${data}
     const month = queryStr(req, "month") || getYearMonth();
     let rows = await db.select().from(creators).orderBy(asc2(creators.rank));
     if (rankingType === "overall" || rankingType === "paid_live") {
-      const scores = await db.select().from(creatorMonthlyScores).where(eq2(creatorMonthlyScores.yearMonth, month));
+      const scores = await db.select().from(creatorMonthlyScores).where(eq3(creatorMonthlyScores.yearMonth, month));
       const rankMap = /* @__PURE__ */ new Map();
       scores.forEach((s) => {
         rankMap.set(
@@ -6821,7 +7300,7 @@ data: ${data}
       rows = rows.filter((r) => r.satisfactionScore >= ms);
     }
     if (date) {
-      const avail = await db.select().from(liverAvailability).where(eq2(liverAvailability.date, date));
+      const avail = await db.select().from(liverAvailability).where(eq3(liverAvailability.date, date));
       const availIds = new Set(avail.map((a) => a.liverId));
       rows = rows.filter((r) => availIds.has(r.id));
     }
@@ -6829,20 +7308,20 @@ data: ${data}
   });
   app2.get("/api/livers/:id", async (req, res) => {
     const id = paramNum(req, "id");
-    const [liver] = await db.select().from(creators).where(eq2(creators.id, id));
+    const [liver] = await db.select().from(creators).where(eq3(creators.id, id));
     if (!liver) return res.status(404).json({ error: "Not found" });
     res.json(liver);
   });
   app2.get("/api/livers/me/level-progress", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Sign-in required" });
-    const [creator] = await db.select().from(creators).where(eq2(creators.name, user.displayName));
+    const [creator] = await db.select().from(creators).where(eq3(creators.name, user.displayName));
     if (!creator) {
       return res.status(404).json({ error: "Creator registration required" });
     }
     const month = queryStr(req, "month") || getYearMonth();
     await ensureDefaultLevelThresholds();
-    const [score] = await db.select().from(creatorMonthlyScores).where(and2(eq2(creatorMonthlyScores.creatorId, creator.id), eq2(creatorMonthlyScores.yearMonth, month)));
+    const [score] = await db.select().from(creatorMonthlyScores).where(and3(eq3(creatorMonthlyScores.creatorId, creator.id), eq3(creatorMonthlyScores.yearMonth, month)));
     const tipGrossThisMonth = score?.tipGross ?? 0;
     const streamCountThisMonth = score?.streamCountMonthly ?? 0;
     const level = await syncCreatorLevelFromMonthlyProgress(creator.id, month);
@@ -6870,15 +7349,15 @@ data: ${data}
   app2.post("/api/livers/me/streams/record", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Sign-in required" });
-    const [creator] = await db.select().from(creators).where(eq2(creators.name, user.displayName));
+    const [creator] = await db.select().from(creators).where(eq3(creators.name, user.displayName));
     if (!creator) return res.status(404).json({ error: "Creator registration required" });
     const month = getYearMonth();
-    const [score] = await db.select().from(creatorMonthlyScores).where(and2(eq2(creatorMonthlyScores.creatorId, creator.id), eq2(creatorMonthlyScores.yearMonth, month)));
+    const [score] = await db.select().from(creatorMonthlyScores).where(and3(eq3(creatorMonthlyScores.creatorId, creator.id), eq3(creatorMonthlyScores.yearMonth, month)));
     if (score) {
       await db.update(creatorMonthlyScores).set({
         streamCountMonthly: score.streamCountMonthly + 1,
         updatedAt: /* @__PURE__ */ new Date()
-      }).where(eq2(creatorMonthlyScores.id, score.id));
+      }).where(eq3(creatorMonthlyScores.id, score.id));
     } else {
       await db.insert(creatorMonthlyScores).values({
         creatorId: creator.id,
@@ -6886,14 +7365,14 @@ data: ${data}
         streamCountMonthly: 1
       });
     }
-    await db.update(creators).set({ streamCount: creator.streamCount + 1 }).where(eq2(creators.id, creator.id));
+    await db.update(creators).set({ streamCount: creator.streamCount + 1 }).where(eq3(creators.id, creator.id));
     const newLevel = await syncCreatorLevelFromMonthlyProgress(creator.id, month);
     res.status(201).json({ ok: true, month, currentLevel: newLevel });
   });
   app2.get("/api/profile/roles", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const rows = await db.select().from(creators).where(eq2(creators.name, user.displayName));
+    const rows = await db.select().from(creators).where(eq3(creators.name, user.displayName));
     const isEditor = rows.some((r) => r.category === "editor");
     const isMentor = rows.some((r) => r.category === "mentor");
     res.json({ isEditor, isMentor });
@@ -6908,9 +7387,9 @@ data: ${data}
     const category = role === "editor" ? "editor" : "mentor";
     const communityLabel = role === "editor" ? "Video editor" : "Mentor session creator";
     const existing = await db.select().from(creators).where(
-      and2(
-        eq2(creators.name, user.displayName),
-        eq2(creators.category, category)
+      and3(
+        eq3(creators.name, user.displayName),
+        eq3(creators.category, category)
       )
     );
     if (existing.length > 0) {
@@ -6937,7 +7416,7 @@ data: ${data}
   });
   app2.get("/api/livers/:id/reviews", async (req, res) => {
     const id = paramNum(req, "id");
-    const rows = await db.select().from(liverReviews).where(eq2(liverReviews.liverId, id)).orderBy(desc(liverReviews.createdAt));
+    const rows = await db.select().from(liverReviews).where(eq3(liverReviews.liverId, id)).orderBy(desc(liverReviews.createdAt));
     res.json(rows);
   });
   app2.post("/api/livers/:id/reviews", async (req, res) => {
@@ -6957,7 +7436,7 @@ data: ${data}
       comment,
       sessionDate: sessionDate ?? (/* @__PURE__ */ new Date()).toISOString().slice(0, 10)
     }).returning();
-    const allReviews = await db.select().from(liverReviews).where(eq2(liverReviews.liverId, id));
+    const allReviews = await db.select().from(liverReviews).where(eq3(liverReviews.liverId, id));
     const avgOverall = allReviews.reduce((s, r) => s + r.overallScore, 0) / allReviews.length;
     const avgSatisfaction = allReviews.reduce((s, r) => s + r.satisfactionScore, 0) / allReviews.length;
     const avgAttendance = allReviews.reduce((s, r) => s + r.attendanceScore, 0) / allReviews.length;
@@ -6965,12 +7444,12 @@ data: ${data}
       heatScore: parseFloat(avgOverall.toFixed(1)),
       satisfactionScore: parseFloat(avgSatisfaction.toFixed(1)),
       attendanceRate: parseFloat(avgAttendance.toFixed(1))
-    }).where(eq2(creators.id, id));
+    }).where(eq3(creators.id, id));
     res.status(201).json(row);
   });
   app2.get("/api/livers/:id/availability", async (req, res) => {
     const id = paramNum(req, "id");
-    const rows = await db.select().from(liverAvailability).where(eq2(liverAvailability.liverId, id)).orderBy(asc2(liverAvailability.date), asc2(liverAvailability.startTime));
+    const rows = await db.select().from(liverAvailability).where(eq3(liverAvailability.liverId, id)).orderBy(asc2(liverAvailability.date), asc2(liverAvailability.startTime));
     res.json(rows);
   });
   app2.post("/api/livers/:id/availability", async (req, res) => {
@@ -6990,7 +7469,7 @@ data: ${data}
   });
   app2.delete("/api/livers/:id/availability/:slotId", async (req, res) => {
     const slotId = paramNum(req, "slotId");
-    await db.delete(liverAvailability).where(eq2(liverAvailability.id, slotId));
+    await db.delete(liverAvailability).where(eq3(liverAvailability.id, slotId));
     res.json({ ok: true });
   });
   app2.post("/api/seed", async (_req, res) => {
@@ -7307,7 +7786,7 @@ data: ${data}
     res.json({ ok: true, created: insertedCreators.length });
   });
   app2.post("/api/seed-editors", async (_req, res) => {
-    const [idolCommunity] = await db.select({ id: communities.id }).from(communities).where(eq2(communities.name, "Underground Idols"));
+    const [idolCommunity] = await db.select({ id: communities.id }).from(communities).where(eq3(communities.name, "Underground Idols"));
     const defaultCommunityId = idolCommunity?.id ?? 1;
     let insertedBase = 0;
     let insertedBoth = 0;
@@ -7451,7 +7930,7 @@ data: ${data}
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const userId = String(user.id);
-    const rows = await db.select().from(coinBalances).where(eq2(coinBalances.userId, userId)).limit(1);
+    const rows = await db.select().from(coinBalances).where(eq3(coinBalances.userId, userId)).limit(1);
     const balance = rows[0]?.balance ?? 0;
     return res.json({ balance });
   });
@@ -7462,10 +7941,10 @@ data: ${data}
     if (isNaN(communityId)) return res.status(400).json({ error: "communityId required" });
     const userId = String(user.id);
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    const rows = await db.select().from(jukeboxRequestCounts).where(and2(
-      eq2(jukeboxRequestCounts.userId, userId),
-      eq2(jukeboxRequestCounts.communityId, communityId),
-      eq2(jukeboxRequestCounts.date, today)
+    const rows = await db.select().from(jukeboxRequestCounts).where(and3(
+      eq3(jukeboxRequestCounts.userId, userId),
+      eq3(jukeboxRequestCounts.communityId, communityId),
+      eq3(jukeboxRequestCounts.date, today)
     )).limit(1);
     const count2 = rows[0]?.count ?? 0;
     const freeRemaining = Math.max(0, FREE_REQUESTS_PER_DAY - count2);
@@ -7478,13 +7957,13 @@ data: ${data}
     if (!communityId) return res.status(400).json({ error: "communityId required" });
     const userId = String(user.id);
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    const balRows = await db.select().from(coinBalances).where(eq2(coinBalances.userId, userId)).limit(1);
+    const balRows = await db.select().from(coinBalances).where(eq3(coinBalances.userId, userId)).limit(1);
     const currentBalance = balRows[0]?.balance ?? 0;
     if (currentBalance < 1) return res.status(402).json({ error: "Insufficient coins", balance: currentBalance });
     if (balRows.length === 0) {
       await db.insert(coinBalances).values({ userId, balance: -1 });
     } else {
-      await db.update(coinBalances).set({ balance: currentBalance - 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(coinBalances.userId, userId));
+      await db.update(coinBalances).set({ balance: currentBalance - 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(coinBalances.userId, userId));
     }
     await db.insert(coinTransactions).values({
       userId,
@@ -7493,15 +7972,15 @@ data: ${data}
       referenceId: queueItemId ? String(queueItemId) : null,
       description: `Jukebox request in community ${communityId}`
     });
-    const countRows = await db.select().from(jukeboxRequestCounts).where(and2(
-      eq2(jukeboxRequestCounts.userId, userId),
-      eq2(jukeboxRequestCounts.communityId, communityId),
-      eq2(jukeboxRequestCounts.date, today)
+    const countRows = await db.select().from(jukeboxRequestCounts).where(and3(
+      eq3(jukeboxRequestCounts.userId, userId),
+      eq3(jukeboxRequestCounts.communityId, communityId),
+      eq3(jukeboxRequestCounts.date, today)
     )).limit(1);
     if (countRows.length === 0) {
       await db.insert(jukeboxRequestCounts).values({ userId, communityId, date: today, count: 1 });
     } else {
-      await db.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(jukeboxRequestCounts.id, countRows[0].id));
+      await db.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(jukeboxRequestCounts.id, countRows[0].id));
     }
     return res.json({ success: true, newBalance: currentBalance - 1 });
   });
@@ -7512,15 +7991,15 @@ data: ${data}
     if (!communityId) return res.status(400).json({ error: "communityId required" });
     const userId = String(user.id);
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    const countRows = await db.select().from(jukeboxRequestCounts).where(and2(
-      eq2(jukeboxRequestCounts.userId, userId),
-      eq2(jukeboxRequestCounts.communityId, communityId),
-      eq2(jukeboxRequestCounts.date, today)
+    const countRows = await db.select().from(jukeboxRequestCounts).where(and3(
+      eq3(jukeboxRequestCounts.userId, userId),
+      eq3(jukeboxRequestCounts.communityId, communityId),
+      eq3(jukeboxRequestCounts.date, today)
     )).limit(1);
     if (countRows.length === 0) {
       await db.insert(jukeboxRequestCounts).values({ userId, communityId, date: today, count: 1 });
     } else {
-      await db.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(jukeboxRequestCounts.id, countRows[0].id));
+      await db.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(jukeboxRequestCounts.id, countRows[0].id));
     }
     return res.json({ success: true });
   });
@@ -7532,12 +8011,12 @@ data: ${data}
     const userId = String(user.id);
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     const COIN_PRICE_USD = 30;
-    const walletRows = await db.select().from(wallets).where(eq2(wallets.userId, user.id)).limit(1);
+    const walletRows = await db.select().from(wallets).where(eq3(wallets.userId, user.id)).limit(1);
     const walletBalance = walletRows[0]?.balanceAvailable ?? 0;
     if (walletBalance < COIN_PRICE_USD) {
       return res.status(402).json({ error: "Insufficient revenue balance", balance: walletBalance });
     }
-    await db.update(wallets).set({ balanceAvailable: walletBalance - COIN_PRICE_USD, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(wallets.userId, user.id));
+    await db.update(wallets).set({ balanceAvailable: walletBalance - COIN_PRICE_USD, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(wallets.userId, user.id));
     await db.insert(coinTransactions).values({
       userId,
       amount: -1,
@@ -7545,15 +8024,15 @@ data: ${data}
       referenceId: queueItemId ? String(queueItemId) : null,
       description: `Revenue balance used for jukebox request in community ${communityId} ($${(COIN_PRICE_USD / 100).toFixed(2)})`
     });
-    const countRows = await db.select().from(jukeboxRequestCounts).where(and2(
-      eq2(jukeboxRequestCounts.userId, userId),
-      eq2(jukeboxRequestCounts.communityId, communityId),
-      eq2(jukeboxRequestCounts.date, today)
+    const countRows = await db.select().from(jukeboxRequestCounts).where(and3(
+      eq3(jukeboxRequestCounts.userId, userId),
+      eq3(jukeboxRequestCounts.communityId, communityId),
+      eq3(jukeboxRequestCounts.date, today)
     )).limit(1);
     if (countRows.length === 0) {
       await db.insert(jukeboxRequestCounts).values({ userId, communityId, date: today, count: 1 });
     } else {
-      await db.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(jukeboxRequestCounts.id, countRows[0].id));
+      await db.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(jukeboxRequestCounts.id, countRows[0].id));
     }
     return res.json({ success: true, newWalletBalance: walletBalance - COIN_PRICE_USD });
   });
@@ -7615,20 +8094,20 @@ data: ${data}
       if (!coins || metaUserId !== String(user.id)) {
         return res.status(400).json({ error: "Invalid session" });
       }
-      const existing = await db.select().from(coinTransactions).where(and2(
-        eq2(coinTransactions.userId, String(user.id)),
-        eq2(coinTransactions.referenceId, sessionId)
+      const existing = await db.select().from(coinTransactions).where(and3(
+        eq3(coinTransactions.userId, String(user.id)),
+        eq3(coinTransactions.referenceId, sessionId)
       )).limit(1);
       if (existing.length > 0) {
-        const balRows2 = await db.select().from(coinBalances).where(eq2(coinBalances.userId, String(user.id))).limit(1);
+        const balRows2 = await db.select().from(coinBalances).where(eq3(coinBalances.userId, String(user.id))).limit(1);
         return res.json({ success: true, alreadyGranted: true, balance: balRows2[0]?.balance ?? 0 });
       }
-      const balRows = await db.select().from(coinBalances).where(eq2(coinBalances.userId, String(user.id))).limit(1);
+      const balRows = await db.select().from(coinBalances).where(eq3(coinBalances.userId, String(user.id))).limit(1);
       const currentBalance = balRows[0]?.balance ?? 0;
       if (balRows.length === 0) {
         await db.insert(coinBalances).values({ userId: String(user.id), balance: coins });
       } else {
-        await db.update(coinBalances).set({ balance: currentBalance + coins, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(coinBalances.userId, String(user.id)));
+        await db.update(coinBalances).set({ balance: currentBalance + coins, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(coinBalances.userId, String(user.id)));
       }
       await db.insert(coinTransactions).values({
         userId: String(user.id),
@@ -7650,7 +8129,7 @@ data: ${data}
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const userId = String(user.id);
-    const rows = await db.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
+    const rows = await db.select().from(ticketBalances).where(eq3(ticketBalances.userId, userId)).limit(1);
     return res.json({ balance: rows[0]?.balance ?? 0 });
   });
   app2.get("/api/tickets/request-count", async (req, res) => {
@@ -7660,10 +8139,10 @@ data: ${data}
     if (isNaN(communityId)) return res.status(400).json({ error: "communityId required" });
     const userId = String(user.id);
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    const rows = await db.select().from(jukeboxRequestCounts).where(and2(
-      eq2(jukeboxRequestCounts.userId, userId),
-      eq2(jukeboxRequestCounts.communityId, communityId),
-      eq2(jukeboxRequestCounts.date, today)
+    const rows = await db.select().from(jukeboxRequestCounts).where(and3(
+      eq3(jukeboxRequestCounts.userId, userId),
+      eq3(jukeboxRequestCounts.communityId, communityId),
+      eq3(jukeboxRequestCounts.date, today)
     )).limit(1);
     const count2 = rows[0]?.count ?? 0;
     const freeRemaining = Math.max(0, FREE_JUKEBOX_PER_DAY - count2);
@@ -7676,15 +8155,15 @@ data: ${data}
     if (!communityId) return res.status(400).json({ error: "communityId required" });
     const userId = String(user.id);
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    const countRows = await db.select().from(jukeboxRequestCounts).where(and2(
-      eq2(jukeboxRequestCounts.userId, userId),
-      eq2(jukeboxRequestCounts.communityId, communityId),
-      eq2(jukeboxRequestCounts.date, today)
+    const countRows = await db.select().from(jukeboxRequestCounts).where(and3(
+      eq3(jukeboxRequestCounts.userId, userId),
+      eq3(jukeboxRequestCounts.communityId, communityId),
+      eq3(jukeboxRequestCounts.date, today)
     )).limit(1);
     if (countRows.length === 0) {
       await db.insert(jukeboxRequestCounts).values({ userId, communityId, date: today, count: 1 });
     } else {
-      await db.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(jukeboxRequestCounts.id, countRows[0].id));
+      await db.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(jukeboxRequestCounts.id, countRows[0].id));
     }
     return res.json({ success: true });
   });
@@ -7698,12 +8177,12 @@ data: ${data}
     try {
       let newBalance = 0;
       await db.transaction(async (tx) => {
-        const [comm] = await tx.select().from(communities).where(eq2(communities.id, communityId)).limit(1);
+        const [comm] = await tx.select().from(communities).where(eq3(communities.id, communityId)).limit(1);
         const creatorUserId = comm?.ownerId ?? comm?.adminId;
         if (!creatorUserId) {
           throw new Error("COMMUNITY_NO_OWNER");
         }
-        const balRows = await tx.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
+        const balRows = await tx.select().from(ticketBalances).where(eq3(ticketBalances.userId, userId)).limit(1);
         const currentBalance = balRows[0]?.balance ?? 0;
         if (currentBalance < TICKETS_PER_JUKEBOX) {
           const err = new Error("INSUFFICIENT_TICKETS");
@@ -7714,7 +8193,7 @@ data: ${data}
         if (balRows.length === 0) {
           await tx.insert(ticketBalances).values({ userId, balance: newBalance });
         } else {
-          await tx.update(ticketBalances).set({ balance: newBalance, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
+          await tx.update(ticketBalances).set({ balance: newBalance, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(ticketBalances.userId, userId));
         }
         const [spendTx] = await tx.insert(ticketTransactions).values({
           userId,
@@ -7735,16 +8214,16 @@ data: ${data}
           tx
         );
         const countRows = await tx.select().from(jukeboxRequestCounts).where(
-          and2(
-            eq2(jukeboxRequestCounts.userId, userId),
-            eq2(jukeboxRequestCounts.communityId, communityId),
-            eq2(jukeboxRequestCounts.date, today)
+          and3(
+            eq3(jukeboxRequestCounts.userId, userId),
+            eq3(jukeboxRequestCounts.communityId, communityId),
+            eq3(jukeboxRequestCounts.date, today)
           )
         ).limit(1);
         if (countRows.length === 0) {
           await tx.insert(jukeboxRequestCounts).values({ userId, communityId, date: today, count: 1 });
         } else {
-          await tx.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(jukeboxRequestCounts.id, countRows[0].id));
+          await tx.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(jukeboxRequestCounts.id, countRows[0].id));
         }
       });
       return res.json({ success: true, newBalance });
@@ -7767,19 +8246,61 @@ data: ${data}
   app2.post("/api/tickets/spend", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { amount, type, referenceId, description, creatorId } = req.body;
+    const { amount, type, referenceId, description, creatorId, videoId: rawVideoId } = req.body;
     if (!amount || amount <= 0) return res.status(400).json({ error: "amount must be positive" });
     if (!type) return res.status(400).json({ error: "type required" });
     const userId = String(user.id);
     const revenueTypes = /* @__PURE__ */ new Set(["spend_session", "spend_gift", "spend_jukebox", "spend_tip"]);
     const needsRevenueRecord = revenueTypes.has(type);
-    if (needsRevenueRecord && (!Number.isInteger(creatorId) || creatorId <= 0)) {
+    let videoIdForGift = null;
+    if (rawVideoId !== void 0 && rawVideoId !== null && String(rawVideoId).trim() !== "") {
+      const v = typeof rawVideoId === "number" ? rawVideoId : parseInt(String(rawVideoId), 10);
+      if (Number.isFinite(v) && v > 0) videoIdForGift = v;
+    }
+    if (type === "spend_gift" && videoIdForGift == null && referenceId != null && /^\d+$/.test(String(referenceId).trim())) {
+      const v = parseInt(String(referenceId).trim(), 10);
+      if (Number.isFinite(v) && v > 0) videoIdForGift = v;
+    }
+    if (needsRevenueRecord && type !== "spend_gift" && (!Number.isInteger(creatorId) || creatorId <= 0)) {
       return res.status(400).json({ error: "creatorId required for revenue-eligible spend type" });
+    }
+    if (needsRevenueRecord && type === "spend_gift" && videoIdForGift == null && (!Number.isInteger(creatorId) || creatorId <= 0)) {
+      return res.status(400).json({ error: "videoId or creatorId required for video purchase (spend_gift)" });
     }
     try {
       let newBalance = 0;
       await db.transaction(async (tx) => {
-        const balRows = await tx.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
+        let payoutCreatorUserId = null;
+        if (needsRevenueRecord) {
+          if (type === "spend_gift") {
+            if (videoIdForGift != null) {
+              const sellerId = await resolveVideoSellerUserId(tx, videoIdForGift);
+              if (!sellerId) {
+                const err = new Error("VIDEO_SELLER_NOT_FOUND");
+                throw err;
+              }
+              const [vrow] = await tx.select({ price: videos.price, hidden: videos.hidden }).from(videos).where(eq3(videos.id, videoIdForGift)).limit(1);
+              if (!vrow || vrow.hidden) {
+                throw new Error("VIDEO_NOT_FOUND");
+              }
+              const expected = vrow.price ?? 0;
+              if (expected <= 0) {
+                throw new Error("VIDEO_NOT_PAID");
+              }
+              if (amount !== expected) {
+                const err = new Error("VIDEO_PRICE_MISMATCH");
+                err.meta = { expected };
+                throw err;
+              }
+              payoutCreatorUserId = sellerId;
+            } else {
+              payoutCreatorUserId = Number(creatorId);
+            }
+          } else {
+            payoutCreatorUserId = Number(creatorId);
+          }
+        }
+        const balRows = await tx.select().from(ticketBalances).where(eq3(ticketBalances.userId, userId)).limit(1);
         const currentBalance = balRows[0]?.balance ?? 0;
         if (currentBalance < amount) {
           const err = new Error("INSUFFICIENT_TICKETS");
@@ -7790,7 +8311,7 @@ data: ${data}
         if (balRows.length === 0) {
           await tx.insert(ticketBalances).values({ userId, balance: newBalance });
         } else {
-          await tx.update(ticketBalances).set({ balance: newBalance, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
+          await tx.update(ticketBalances).set({ balance: newBalance, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(ticketBalances.userId, userId));
         }
         const [spendTx] = await tx.insert(ticketTransactions).values({
           userId,
@@ -7799,12 +8320,11 @@ data: ${data}
           referenceId: referenceId ?? null,
           description: description ?? null
         }).returning({ id: ticketTransactions.id });
-        if (needsRevenueRecord) {
-          const creatorUserId = Number(creatorId);
-          const walletId = await getOrCreateUserWallet(creatorUserId, tx);
-          const creatorRow = await creatorRowForUserId(tx, creatorUserId);
+        if (needsRevenueRecord && payoutCreatorUserId != null) {
+          const walletId = await getOrCreateUserWallet(payoutCreatorUserId, tx);
+          const creatorRow = await creatorRowForUserId(tx, payoutCreatorUserId);
           const source = type === "spend_tip" ? "tip" : "paid_live";
-          await recordRevenue(walletId, creatorUserId, creatorRow?.id ?? null, amount, source, String(spendTx.id), tx);
+          await recordRevenue(walletId, payoutCreatorUserId, creatorRow?.id ?? null, amount, source, String(spendTx.id), tx);
         }
       });
       return res.json({ success: true, newBalance });
@@ -7812,6 +8332,15 @@ data: ${data}
       if (e?.message === "INSUFFICIENT_TICKETS") {
         const meta = e?.meta ?? {};
         return res.status(402).json({ error: "Insufficient tickets", balance: meta.balance ?? 0, required: meta.required ?? amount });
+      }
+      if (e?.message === "VIDEO_SELLER_NOT_FOUND" || e?.message === "VIDEO_NOT_FOUND") {
+        return res.status(404).json({ error: "Video or seller not found for payout" });
+      }
+      if (e?.message === "VIDEO_NOT_PAID") {
+        return res.status(400).json({ error: "Video has no ticket price" });
+      }
+      if (e?.message === "VIDEO_PRICE_MISMATCH") {
+        return res.status(400).json({ error: "Amount does not match video price", expected: e?.meta?.expected });
       }
       console.error("[tickets/spend] failed:", e);
       return res.status(500).json({ error: "Failed to spend tickets" });
@@ -7874,20 +8403,20 @@ data: ${data}
       if (!tickets || metaUserId !== String(user.id)) {
         return res.status(400).json({ error: "Invalid session" });
       }
-      const existing = await db.select().from(ticketTransactions).where(and2(
-        eq2(ticketTransactions.userId, String(user.id)),
-        eq2(ticketTransactions.referenceId, sessionId)
+      const existing = await db.select().from(ticketTransactions).where(and3(
+        eq3(ticketTransactions.userId, String(user.id)),
+        eq3(ticketTransactions.referenceId, sessionId)
       )).limit(1);
       if (existing.length > 0) {
-        const balRows2 = await db.select().from(ticketBalances).where(eq2(ticketBalances.userId, String(user.id))).limit(1);
+        const balRows2 = await db.select().from(ticketBalances).where(eq3(ticketBalances.userId, String(user.id))).limit(1);
         return res.json({ success: true, alreadyGranted: true, balance: balRows2[0]?.balance ?? 0 });
       }
-      const balRows = await db.select().from(ticketBalances).where(eq2(ticketBalances.userId, String(user.id))).limit(1);
+      const balRows = await db.select().from(ticketBalances).where(eq3(ticketBalances.userId, String(user.id))).limit(1);
       const currentBalance = balRows[0]?.balance ?? 0;
       if (balRows.length === 0) {
         await db.insert(ticketBalances).values({ userId: String(user.id), balance: tickets });
       } else {
-        await db.update(ticketBalances).set({ balance: currentBalance + tickets, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, String(user.id)));
+        await db.update(ticketBalances).set({ balance: currentBalance + tickets, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(ticketBalances.userId, String(user.id)));
       }
       await db.insert(ticketTransactions).values({
         userId: String(user.id),
@@ -7907,7 +8436,7 @@ data: ${data}
   });
   app2.get("/api/platform-banners", async (_req, res) => {
     try {
-      const rows = await db.select().from(bannerAds).where(eq2(bannerAds.isActive, true)).orderBy(asc2(bannerAds.displayOrder), desc(bannerAds.createdAt));
+      const rows = await db.select().from(bannerAds).where(eq3(bannerAds.isActive, true)).orderBy(asc2(bannerAds.displayOrder), desc(bannerAds.createdAt));
       res.json(rows);
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -7947,7 +8476,7 @@ data: ${data}
       if (description !== void 0) updates.description = description;
       if (isActive !== void 0) updates.isActive = isActive;
       if (displayOrder !== void 0) updates.displayOrder = displayOrder;
-      const [row] = await db.update(bannerAds).set(updates).where(eq2(bannerAds.id, id)).returning();
+      const [row] = await db.update(bannerAds).set(updates).where(eq3(bannerAds.id, id)).returning();
       if (!row) return res.status(404).json({ error: "Not found" });
       res.json(row);
     } catch (e) {
@@ -7960,7 +8489,7 @@ data: ${data}
     if (user.role !== "ADMIN") return res.status(403).json({ error: "Only admins can perform this action" });
     const id = paramNum(req, "id");
     try {
-      await db.delete(bannerAds).where(eq2(bannerAds.id, id));
+      await db.delete(bannerAds).where(eq3(bannerAds.id, id));
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -7972,7 +8501,7 @@ data: ${data}
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     try {
       await db.insert(dailyLogins).values({ userId: user.id, date: today }).onConflictDoNothing();
-      const [{ cnt }] = await db.select({ cnt: count() }).from(dailyLogins).where(eq2(dailyLogins.date, today));
+      const [{ cnt }] = await db.select({ cnt: count() }).from(dailyLogins).where(eq3(dailyLogins.date, today));
       res.json({ date: today, count: Number(cnt) });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -7981,7 +8510,7 @@ data: ${data}
   app2.get("/api/daily-login/count", async (_req, res) => {
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     try {
-      const [{ cnt }] = await db.select({ cnt: count() }).from(dailyLogins).where(eq2(dailyLogins.date, today));
+      const [{ cnt }] = await db.select({ cnt: count() }).from(dailyLogins).where(eq3(dailyLogins.date, today));
       res.json({ date: today, count: Number(cnt) });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -8030,12 +8559,12 @@ data: ${data}
     const { userId, amount, type, description, referenceId } = params;
     if (!Number.isFinite(amount) || amount <= 0) return;
     const key = String(userId);
-    const balRows = await db.select().from(ticketBalances).where(eq2(ticketBalances.userId, key)).limit(1);
+    const balRows = await db.select().from(ticketBalances).where(eq3(ticketBalances.userId, key)).limit(1);
     const currentBalance = balRows[0]?.balance ?? 0;
     if (balRows.length === 0) {
       await db.insert(ticketBalances).values({ userId: key, balance: amount });
     } else {
-      await db.update(ticketBalances).set({ balance: currentBalance + amount, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, key));
+      await db.update(ticketBalances).set({ balance: currentBalance + amount, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(ticketBalances.userId, key));
     }
     await db.insert(ticketTransactions).values({
       userId: key,
@@ -8048,7 +8577,7 @@ data: ${data}
   function scheduleAIEditPlanGeneration(params) {
     const { jobId, revisionPrompt, refundAmount = 0, refundType, refundDescription } = params;
     enqueueAIEditJob(`ai-edit:${jobId}:${revisionPrompt?.trim() ?? "initial"}`, async () => {
-      const [freshJob] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.id, jobId));
+      const [freshJob] = await db.select().from(aiEditJobs).where(eq3(aiEditJobs.id, jobId));
       if (!freshJob) return;
       try {
         const baseSpec = getBaseVideoSpec(freshJob);
@@ -8082,10 +8611,10 @@ ${revisionPrompt.trim()}` : freshJob.prompt.trim();
           result: JSON.stringify(storedResult),
           videoSpec: JSON.stringify(storedResult.renderSpec),
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq2(aiEditJobs.id, jobId));
+        }).where(eq3(aiEditJobs.id, jobId));
       } catch (error) {
         console.error("[ai-edit] Processing failed:", error);
-        await db.update(aiEditJobs).set({ status: "failed", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, jobId));
+        await db.update(aiEditJobs).set({ status: "failed", updatedAt: /* @__PURE__ */ new Date() }).where(eq3(aiEditJobs.id, jobId));
         if (refundAmount > 0 && refundType && refundDescription) {
           await refundAIEditTickets({
             userId: freshJob.userId,
@@ -8124,7 +8653,7 @@ ${revisionPrompt.trim()}` : freshJob.prompt.trim();
     }
     const ticketCost = AI_EDIT_PLAN_TICKETS[planMinutes];
     const userId = String(user.id);
-    const balRows = await db.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
+    const balRows = await db.select().from(ticketBalances).where(eq3(ticketBalances.userId, userId)).limit(1);
     const currentBalance = balRows[0]?.balance ?? 0;
     if (currentBalance < ticketCost) {
       return res.status(402).json({ error: "Insufficient tickets", balance: currentBalance, required: ticketCost });
@@ -8132,7 +8661,7 @@ ${revisionPrompt.trim()}` : freshJob.prompt.trim();
     if (balRows.length === 0) {
       await db.insert(ticketBalances).values({ userId, balance: -ticketCost });
     } else {
-      await db.update(ticketBalances).set({ balance: currentBalance - ticketCost, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
+      await db.update(ticketBalances).set({ balance: currentBalance - ticketCost, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(ticketBalances.userId, userId));
     }
     await db.insert(ticketTransactions).values({
       userId,
@@ -8155,7 +8684,7 @@ ${revisionPrompt.trim()}` : freshJob.prompt.trim();
       ticketCost,
       videoSpec: videoSpecJson
     }).returning();
-    await db.update(aiEditJobs).set({ status: "processing", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, job.id));
+    await db.update(aiEditJobs).set({ status: "processing", updatedAt: /* @__PURE__ */ new Date() }).where(eq3(aiEditJobs.id, job.id));
     scheduleAIEditPlanGeneration({
       jobId: job.id,
       refundAmount: ticketCost,
@@ -8168,7 +8697,7 @@ ${revisionPrompt.trim()}` : freshJob.prompt.trim();
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const id = paramNum(req, "id");
-    const [job] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.id, id));
+    const [job] = await db.select().from(aiEditJobs).where(eq3(aiEditJobs.id, id));
     if (!job) return res.status(404).json({ error: "Job not found" });
     if (job.userId !== user.id) {
       return res.status(403).json({ error: "Forbidden" });
@@ -8217,7 +8746,7 @@ ${revisionPrompt.trim()}` : freshJob.prompt.trim();
       return res.status(503).json({ error: "Templated is not configured (TEMPLATED_API_KEY)" });
     }
     const id = paramNum(req, "id");
-    const [job] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.id, id));
+    const [job] = await db.select().from(aiEditJobs).where(eq3(aiEditJobs.id, id));
     if (!job) return res.status(404).json({ error: "Job not found" });
     if (job.userId !== user.id) {
       return res.status(403).json({ error: "Forbidden" });
@@ -8268,10 +8797,10 @@ ${revisionPrompt.trim()}` : freshJob.prompt.trim();
         deliveredAt: now
       } : {},
       updatedAt: now
-    }).where(eq2(aiEditJobs.id, id));
+    }).where(eq3(aiEditJobs.id, id));
     if (syncUrl) {
       try {
-        const [owner] = await db.select().from(users).where(eq2(users.id, job.userId));
+        const [owner] = await db.select().from(users).where(eq3(users.id, job.userId));
         await db.insert(notifications).values({
           type: "ai_edit_delivered",
           title: "Your edited video is ready",
@@ -8307,7 +8836,7 @@ ${revisionPrompt.trim()}` : freshJob.prompt.trim();
         if (Number.isFinite(n)) jobId = n;
       }
       if (jobId == null && typeof body.id === "string") {
-        const [row] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.templatedRenderId, body.id));
+        const [row] = await db.select().from(aiEditJobs).where(eq3(aiEditJobs.templatedRenderId, body.id));
         if (row) jobId = row.id;
       }
       if (jobId == null) {
@@ -8316,11 +8845,11 @@ ${revisionPrompt.trim()}` : freshJob.prompt.trim();
       }
       if (!succeeded || !url?.trim()) {
         if (statusRaw === "failed" || statusRaw === "error") {
-          await db.update(aiEditJobs).set({ status: "failed", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, jobId));
+          await db.update(aiEditJobs).set({ status: "failed", updatedAt: /* @__PURE__ */ new Date() }).where(eq3(aiEditJobs.id, jobId));
         }
         return res.status(200).json({ ok: true, ignored: true });
       }
-      const [job] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.id, jobId));
+      const [job] = await db.select().from(aiEditJobs).where(eq3(aiEditJobs.id, jobId));
       if (!job) {
         return res.status(200).json({ ok: false, reason: "job_missing" });
       }
@@ -8330,9 +8859,9 @@ ${revisionPrompt.trim()}` : freshJob.prompt.trim();
         deliveredUrl: url.trim(),
         deliveredAt: now,
         updatedAt: now
-      }).where(eq2(aiEditJobs.id, jobId));
+      }).where(eq3(aiEditJobs.id, jobId));
       try {
-        const [owner] = await db.select().from(users).where(eq2(users.id, job.userId));
+        const [owner] = await db.select().from(users).where(eq3(users.id, job.userId));
         await db.insert(notifications).values({
           type: "ai_edit_delivered",
           title: "Your edited video is ready",
@@ -8355,7 +8884,7 @@ ${revisionPrompt.trim()}` : freshJob.prompt.trim();
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const id = paramNum(req, "id");
-    const [job] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.id, id));
+    const [job] = await db.select().from(aiEditJobs).where(eq3(aiEditJobs.id, id));
     if (!job) return res.status(404).json({ error: "Job not found" });
     if (job.userId !== user.id) {
       return res.status(403).json({ error: "Forbidden" });
@@ -8363,7 +8892,7 @@ ${revisionPrompt.trim()}` : freshJob.prompt.trim();
     if (job.status !== "completed") {
       return res.status(400).json({ error: "Only completed jobs can be approved" });
     }
-    await db.update(aiEditJobs).set({ status: "approved", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, id));
+    await db.update(aiEditJobs).set({ status: "approved", updatedAt: /* @__PURE__ */ new Date() }).where(eq3(aiEditJobs.id, id));
     res.json({ ok: true, id, status: "approved" });
   });
   app2.post("/api/ai-edit/jobs/:id/revise", async (req, res) => {
@@ -8371,7 +8900,7 @@ ${revisionPrompt.trim()}` : freshJob.prompt.trim();
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const id = paramNum(req, "id");
     const { revisionPrompt } = req.body;
-    const [job] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.id, id));
+    const [job] = await db.select().from(aiEditJobs).where(eq3(aiEditJobs.id, id));
     if (!job) return res.status(404).json({ error: "Job not found" });
     if (job.userId !== user.id) {
       return res.status(403).json({ error: "Forbidden" });
@@ -8382,7 +8911,7 @@ ${revisionPrompt.trim()}` : freshJob.prompt.trim();
     const revisionCount = job.revisionCount ?? 0;
     if (revisionCount >= 1) {
       const userId = String(user.id);
-      const balRows = await db.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
+      const balRows = await db.select().from(ticketBalances).where(eq3(ticketBalances.userId, userId)).limit(1);
       const currentBalance = balRows[0]?.balance ?? 0;
       if (currentBalance < AI_EDIT_REVISION_TICKETS) {
         return res.status(402).json({ error: "Insufficient tickets", balance: currentBalance, required: AI_EDIT_REVISION_TICKETS });
@@ -8390,7 +8919,7 @@ ${revisionPrompt.trim()}` : freshJob.prompt.trim();
       if (balRows.length === 0) {
         await db.insert(ticketBalances).values({ userId, balance: -AI_EDIT_REVISION_TICKETS });
       } else {
-        await db.update(ticketBalances).set({ balance: currentBalance - AI_EDIT_REVISION_TICKETS, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
+        await db.update(ticketBalances).set({ balance: currentBalance - AI_EDIT_REVISION_TICKETS, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(ticketBalances.userId, userId));
       }
       await db.insert(ticketTransactions).values({
         userId,
@@ -8408,7 +8937,7 @@ ${revisionPrompt.trim()}` : freshJob.prompt.trim();
       deliveredUrl: null,
       deliveredAt: null,
       updatedAt: /* @__PURE__ */ new Date()
-    }).where(eq2(aiEditJobs.id, id));
+    }).where(eq3(aiEditJobs.id, id));
     scheduleAIEditPlanGeneration({
       jobId: id,
       revisionPrompt,
@@ -8426,7 +8955,7 @@ ${revisionPrompt.trim()}` : freshJob.prompt.trim();
     if (!deliveredUrl?.trim()) {
       return res.status(400).json({ error: "deliveredUrl is required" });
     }
-    const [job] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.id, id));
+    const [job] = await db.select().from(aiEditJobs).where(eq3(aiEditJobs.id, id));
     if (!job) return res.status(404).json({ error: "Job not found" });
     if (job.status === "delivered") {
       return res.status(409).json({ error: "This job has already been delivered" });
@@ -8440,9 +8969,9 @@ ${revisionPrompt.trim()}` : freshJob.prompt.trim();
       deliveredUrl: deliveredUrl.trim(),
       deliveredAt: now,
       updatedAt: now
-    }).where(eq2(aiEditJobs.id, id));
+    }).where(eq3(aiEditJobs.id, id));
     try {
-      const [owner] = await db.select().from(users).where(eq2(users.id, job.userId));
+      const [owner] = await db.select().from(users).where(eq3(users.id, job.userId));
       await db.insert(notifications).values({
         type: "ai_edit_delivered",
         title: "Your edited video is ready",

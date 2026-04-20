@@ -90,6 +90,7 @@ import type { EditPlan } from "../shared/ai-edit";
 import { normalizeVideoSpecPayload, parseStoredVideoSpec } from "./lib/parseVideoSpec";
 import { buildAIEditStoredResult, parseAIEditStoredResult } from "./lib/aiEditArtifacts";
 import { enqueueAIEditJob } from "./lib/aiEditJobQueue";
+import { computeWithdrawalFeeBreakdown, getWithdrawalFeePolicy } from "./lib/withdrawalFees";
 import { dslToTemplated } from "./lib/dslToTemplated";
 import { createTemplatedRender } from "./lib/templatedClient";
 import { createSignedUploadUrl } from "./r2";
@@ -670,6 +671,19 @@ async function creatorRowForUserId(executor: DbOrTx, userId: number) {
   if (!u) return undefined;
   const [row] = await executor.select().from(creators).where(eq(creators.name, u.displayName)).limit(1);
   return row;
+}
+
+/** 有料動画の売上分配先 users.id（videos.user_id 優先、無ければ creator 表示名で users を照会）。hidden は除外 */
+async function resolveVideoSellerUserId(executor: DbOrTx, videoId: number): Promise<number | null> {
+  const [row] = await executor.select().from(videos).where(eq(videos.id, videoId)).limit(1);
+  if (!row || row.hidden) return null;
+  if (row.userId != null && Number.isInteger(row.userId) && row.userId > 0) return row.userId;
+  const [creatorUser] = await executor
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.displayName, row.creator))
+    .limit(1);
+  return creatorUser?.id ?? null;
 }
 
 export async function registerRoutes(app: Express): Promise<void> {
@@ -4116,8 +4130,9 @@ export async function registerRoutes(app: Express): Promise<void> {
     const [creatorUser] = await db.select({ id: users.id }).from(users).where(eq(users.displayName, row.creator));
     const [creatorLiver] = !creatorUser ? await db.select({ id: creators.id }).from(creators).where(eq(creators.name, row.creator)) : [];
     const creatorType = creatorUser ? "user" : creatorLiver ? "liver" : null;
-    const creatorId = (row as any).userId ?? creatorUser?.id ?? creatorLiver?.id ?? null;
-    res.json({ ...row, timeAgo, creatorType, creatorId });
+    /** チケット分配・ウォレット用は必ず users.id（creators.id を混在させない） */
+    const creatorId = (row as any).userId ?? creatorUser?.id ?? null;
+    res.json({ ...row, timeAgo, creatorType, creatorId, creatorLiverProfileId: creatorLiver?.id ?? null });
   });
 
   /** 動画コメント一覧（非表示コメントは除外) */
@@ -6351,6 +6366,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       .filter((w) => w.status === "pending" || w.status === "processing")
       .reduce((s, w) => s + w.amount, 0);
     const available = totalEarned - totalWithdrawn - pendingWithdrawal;
+    const withdrawalFeePolicy = getWithdrawalFeePolicy();
 
     // monthly breakdown (last 6 months)
     const now = new Date();
@@ -6367,7 +6383,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       monthly.push({ month: label, amount: monthTotal });
     }
 
-    res.json({ totalEarned, totalWithdrawn, pendingWithdrawal, available, monthly });
+    res.json({ totalEarned, totalWithdrawn, pendingWithdrawal, available, monthly, withdrawalFeePolicy });
   });
 
   app.get("/api/revenue/earnings", async (req: Request, res: Response) => {
@@ -6443,29 +6459,51 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (amountUsdCents > available) {
       return res.status(400).json({ error: "Requested amount exceeds available balance" });
     }
+    const { feeUsdCents, netTransferUsdCents } = computeWithdrawalFeeBreakdown(amountUsdCents);
+    const policy = getWithdrawalFeePolicy();
+    if (netTransferUsdCents < policy.minNetTransferUsdCents) {
+      return res.status(400).json({
+        error: "After payout fees, the transfer would be below the minimum. Increase the withdrawal amount.",
+        minNetTransferUsdCents: policy.minNetTransferUsdCents,
+        feeUsdCents,
+        netTransferUsdCents,
+      });
+    }
     const [row] = await db
       .insert(withdrawals)
       .values({ userId, amount: amountUsdCents, bankName, bankBranch, accountType, accountNumber, accountName, status: "pending" } as typeof withdrawals.$inferInsert)
       .returning();
     try {
       const { transferId } = await createTransferToConnectedAccount({
-        amountUsdCents,
+        amountUsdCents: netTransferUsdCents,
         destinationAccountId: user.stripeConnectId,
         metadata: {
           withdrawalId: String(row.id),
           userId,
+          grossUsdCents: String(amountUsdCents),
+          feeUsdCents: String(feeUsdCents),
         },
       });
+      const feeNote =
+        feeUsdCents > 0
+          ? `feeUsdCents=${feeUsdCents} netTransferUsdCents=${netTransferUsdCents} `
+          : "";
       const [completedRow] = await db
         .update(withdrawals)
         .set({
           status: "completed",
           processedAt: new Date(),
-          note: `Stripe transfer completed: ${transferId}`,
+          note: `${feeNote}Stripe transfer completed: ${transferId}`,
         })
         .where(eq(withdrawals.id, row.id))
         .returning();
-      return res.json(completedRow);
+      return res.json({
+        ...completedRow,
+        grossWithdrawUsdCents: amountUsdCents,
+        feeUsdCents,
+        netTransferUsdCents,
+        stripeTransferId: transferId,
+      });
     } catch (error: any) {
       await db
         .update(withdrawals)
@@ -7641,25 +7679,75 @@ export async function registerRoutes(app: Express): Promise<void> {
   app.post("/api/tickets/spend", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { amount, type, referenceId, description, creatorId } = req.body as {
+    const { amount, type, referenceId, description, creatorId, videoId: rawVideoId } = req.body as {
       amount: number;
       type: string;
       referenceId?: string;
       description?: string;
       creatorId?: number;
+      videoId?: number | string;
     };
     if (!amount || amount <= 0) return res.status(400).json({ error: "amount must be positive" });
     if (!type) return res.status(400).json({ error: "type required" });
     const userId = String(user.id);
     const revenueTypes = new Set(["spend_session", "spend_gift", "spend_jukebox", "spend_tip"]);
     const needsRevenueRecord = revenueTypes.has(type);
-    if (needsRevenueRecord && (!Number.isInteger(creatorId) || (creatorId as number) <= 0)) {
+
+    let videoIdForGift: number | null = null;
+    if (rawVideoId !== undefined && rawVideoId !== null && String(rawVideoId).trim() !== "") {
+      const v = typeof rawVideoId === "number" ? rawVideoId : parseInt(String(rawVideoId), 10);
+      if (Number.isFinite(v) && v > 0) videoIdForGift = v;
+    }
+    if (type === "spend_gift" && videoIdForGift == null && referenceId != null && /^\d+$/.test(String(referenceId).trim())) {
+      const v = parseInt(String(referenceId).trim(), 10);
+      if (Number.isFinite(v) && v > 0) videoIdForGift = v;
+    }
+
+    if (needsRevenueRecord && type !== "spend_gift" && (!Number.isInteger(creatorId) || (creatorId as number) <= 0)) {
       return res.status(400).json({ error: "creatorId required for revenue-eligible spend type" });
+    }
+    if (needsRevenueRecord && type === "spend_gift" && videoIdForGift == null && (!Number.isInteger(creatorId) || (creatorId as number) <= 0)) {
+      return res.status(400).json({ error: "videoId or creatorId required for video purchase (spend_gift)" });
     }
 
     try {
       let newBalance = 0;
       await db.transaction(async (tx) => {
+        let payoutCreatorUserId: number | null = null;
+        if (needsRevenueRecord) {
+          if (type === "spend_gift") {
+            if (videoIdForGift != null) {
+              const sellerId = await resolveVideoSellerUserId(tx, videoIdForGift);
+              if (!sellerId) {
+                const err = new Error("VIDEO_SELLER_NOT_FOUND");
+                throw err;
+              }
+              const [vrow] = await tx
+                .select({ price: videos.price, hidden: videos.hidden })
+                .from(videos)
+                .where(eq(videos.id, videoIdForGift))
+                .limit(1);
+              if (!vrow || vrow.hidden) {
+                throw new Error("VIDEO_NOT_FOUND");
+              }
+              const expected = vrow.price ?? 0;
+              if (expected <= 0) {
+                throw new Error("VIDEO_NOT_PAID");
+              }
+              if (amount !== expected) {
+                const err = new Error("VIDEO_PRICE_MISMATCH");
+                (err as any).meta = { expected };
+                throw err;
+              }
+              payoutCreatorUserId = sellerId;
+            } else {
+              payoutCreatorUserId = Number(creatorId);
+            }
+          } else {
+            payoutCreatorUserId = Number(creatorId);
+          }
+        }
+
         const balRows = await tx.select().from(ticketBalances).where(eq(ticketBalances.userId, userId)).limit(1);
         const currentBalance = balRows[0]?.balance ?? 0;
         if (currentBalance < amount) {
@@ -7689,12 +7777,11 @@ export async function registerRoutes(app: Express): Promise<void> {
           })
           .returning({ id: ticketTransactions.id });
 
-        if (needsRevenueRecord) {
-          const creatorUserId = Number(creatorId);
-          const walletId = await getOrCreateUserWallet(creatorUserId, tx);
-          const creatorRow = await creatorRowForUserId(tx, creatorUserId);
+        if (needsRevenueRecord && payoutCreatorUserId != null) {
+          const walletId = await getOrCreateUserWallet(payoutCreatorUserId, tx);
+          const creatorRow = await creatorRowForUserId(tx, payoutCreatorUserId);
           const source: RevenueSource = type === "spend_tip" ? "tip" : "paid_live";
-          await recordRevenue(walletId, creatorUserId, creatorRow?.id ?? null, amount, source, String(spendTx.id), tx);
+          await recordRevenue(walletId, payoutCreatorUserId, creatorRow?.id ?? null, amount, source, String(spendTx.id), tx);
         }
       });
       return res.json({ success: true, newBalance });
@@ -7702,6 +7789,15 @@ export async function registerRoutes(app: Express): Promise<void> {
       if (e?.message === "INSUFFICIENT_TICKETS") {
         const meta = e?.meta ?? {};
         return res.status(402).json({ error: "Insufficient tickets", balance: meta.balance ?? 0, required: meta.required ?? amount });
+      }
+      if (e?.message === "VIDEO_SELLER_NOT_FOUND" || e?.message === "VIDEO_NOT_FOUND") {
+        return res.status(404).json({ error: "Video or seller not found for payout" });
+      }
+      if (e?.message === "VIDEO_NOT_PAID") {
+        return res.status(400).json({ error: "Video has no ticket price" });
+      }
+      if (e?.message === "VIDEO_PRICE_MISMATCH") {
+        return res.status(400).json({ error: "Amount does not match video price", expected: e?.meta?.expected });
       }
       console.error("[tickets/spend] failed:", e);
       return res.status(500).json({ error: "Failed to spend tickets" });

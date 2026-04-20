@@ -17,6 +17,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import * as ImagePicker from "expo-image-picker";
 import { C } from "@/constants/colors";
+import { DM_USAGE_GUIDE_BODY, DM_USAGE_GUIDE_TITLE } from "@/constants/dmUsageGuide";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { useAuth } from "@/lib/auth";
@@ -184,6 +185,17 @@ export default function DMChatScreen() {
           </Pressable>
         </View>
 
+        {/* 運営案内: DB には保存せず、全 DM で 1 ブロックのみ常時表示 */}
+        <View style={styles.usageBanner} accessibilityLabel={`${DM_USAGE_GUIDE_TITLE}。${DM_USAGE_GUIDE_BODY}`}>
+          <View style={styles.usageBannerIconWrap}>
+            <Ionicons name="book-outline" size={16} color={C.accent} />
+          </View>
+          <View style={styles.usageBannerTextCol}>
+            <Text style={styles.usageBannerTitle}>{DM_USAGE_GUIDE_TITLE}</Text>
+            <Text style={styles.usageBannerBody}>{DM_USAGE_GUIDE_BODY}</Text>
+          </View>
+        </View>
+
         {/* Messages */}
         <FlatList
           ref={flatListRef}
@@ -300,6 +312,39 @@ const styles = StyleSheet.create({
   headerName: { color: C.text, fontSize: 15, fontWeight: "700" },
   headerStatus: { color: C.green, fontSize: 11, marginTop: 1 },
   menuBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
+
+  usageBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: C.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+  },
+  usageBannerIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: C.accent + "18",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 1,
+  },
+  usageBannerTextCol: { flex: 1, minWidth: 0 },
+  usageBannerTitle: {
+    color: C.accent,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+    marginBottom: 4,
+  },
+  usageBannerBody: {
+    color: C.textSec,
+    fontSize: 11,
+    lineHeight: 16,
+  },
 
   list: { flex: 1 },
   listContent: {

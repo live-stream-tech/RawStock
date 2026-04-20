@@ -97,11 +97,12 @@
 
 | 変数名 | 用途 |
 |--------|------|
-| `ANTHROPIC_API_KEY` | 通報の AI モデレーション（`server/moderation.ts` 等） |
+| `ANTHROPIC_API_KEY` | **AI Edit** の Claude EDL 生成（`server/aiEditAssistant.ts`）、通報モデレーション（`server/moderation.ts` 等） |
 | `TEMPLATED_API_KEY` | AI Edit の外部レンダー（Templated.io） |
 | `TEMPLATED_WEBHOOK_BASE_URL` | Templated の完了 webhook のコールバック先オリジン（未設定時は `FRONTEND_URL` 等） |
 | `ADMIN_EMAIL` | 管理者メール（特定の管理系挙動） |
 | `WEGLOT_API_KEY` | サイト翻訳（設定時のみ有効） |
+| `MYMEMORY_EMAIL` | 自動翻訳 MyMemory の日次枠拡張（`de` パラメータ・任意） |
 | `EXPO_PUBLIC_DEEPAR_KEY` | DeepAR（配信背景ぼかし等） |
 | `PUBLIC_LOGO_URL` / `PUBLIC_HERO_*` / `PUBLIC_LP_*` / `PUBLIC_FEATURE_*` | LP・ブランド画像の上書き（`lib/brand.ts`） |
 
@@ -162,6 +163,56 @@ Vercel では **`VERCEL_URL` が自動注入**され、OAuth のフォールバ�
 | `lib/auth.tsx` | フロント認証コンテキスト |
 | `lib/query-client.ts` | React Query + API設定 |
 | `vercel.json` | Vercelビルド・ルーティング設定 |
+| `app/ai-edit/index.tsx` | AI Edit オーダー画面（R2 アップロード→`POST /api/ai-edit/jobs`） |
+| `app/ai-edit/[id].tsx` | ジョブ詳細（5 秒ポーリング・承認・Templated レンダー・改稿） |
+| `lib/ai-edit/buildOrderVideoSpec.ts` | フォーム入力（トーン・尺）→`RawStockVideoSpec`（クライアント正規化 DSL） |
+| `server/aiEditAssistant.ts` | Claude Haiku で EDL（EditPlan JSON）生成。`ANTHROPIC_API_KEY` 未設定時はモック |
+| `server/lib/aiEditArtifacts.ts` | EDL と元 spec を突き合わせ `clips` / `analysis` / `renderSpec` を組み立て |
+| `server/lib/aiEditJobQueue.ts` | インプロセス FIFO キュー（永続化なし。サーバレス複数インスタンスでは共有されない） |
+| `server/lib/dslToTemplated.ts` | `RawStockVideoSpec`→Templated.io 向けレンダーリクエスト |
+| `server/lib/templatedClient.ts` | Templated Create Render 等の HTTP クライアント |
+
+---
+
+## AI Edit Assistant（動画編集オーダー）
+
+クリエイターが素材動画と指示を送り、**Claude が EDL（編集指示リスト）**を出し、サーバが **`RawStockVideoSpec` に落とし込み**、任意で **Templated.io で MP4 レンダー**する機能。DB テーブルは `ai_edit_jobs`（`server/schema.ts`）。
+
+### クライアント（Expo Router）
+
+| 画面 | パス相当 | 主な処理 |
+|------|-----------|-----------|
+| オーダー | `app/ai-edit/index.tsx` | 認証後、`POST /api/upload-url`→PUT で R2 に素材アップロード。`buildOrderVideoSpec()` で初期 `spec` を生成し、`POST /api/ai-edit/jobs`（`planMinutes`, `videoUrls`, `logoUrl`, `telop`, `targetAudience`, `tone`, `prompt`, `spec`）→成功で `router.replace(/ai-edit/:id)` |
+| 詳細 | `app/ai-edit/[id].tsx` | `useQuery` で `GET /api/ai-edit/jobs/:id`。`completed`/`failed`/`approved`/`delivered` になるまで **5 秒間隔で invalidate（ポーリング）**。承認時は `POST .../approve` の直後に `POST .../render`。単独レンダーは `POST .../render`。改稿は `POST .../revise`（1 回目無料、2 回目以降 100 チケット・サーバ定数と一致）。納品済み URL は `deliveredUrl` でダウンロード |
+
+### サーバー API（`server/routes.ts` 付近）
+
+| メソッド | パス | 内容 |
+|----------|------|------|
+| `POST` | `/api/ai-edit/jobs` | チケット事前減算、`ai_edit_jobs` 挿入、`processing` へ。`scheduleAIEditPlanGeneration` を `enqueueAIEditJob` に載せる |
+| `GET` | `/api/ai-edit/jobs/:id` | オーナーのみ。`result` / `videoSpec` / `status` 等 |
+| `POST` | `/api/ai-edit/jobs/:id/approve` | `completed`→`approved` |
+| `POST` | `/api/ai-edit/jobs/:id/render` | `dslToTemplated` + `createTemplatedRender`。webhook は `TEMPLATED_WEBHOOK_BASE_URL` または `FRONTEND_URL` 由来の **`/api/webhooks/templated`** |
+| `POST` | `/api/webhooks/templated` | Templated 完了通知。`deliveredUrl`・`delivered` 更新・通知 |
+| `POST` | `/api/ai-edit/jobs/:id/revise` | 改稿チケット処理のうえ `processing` に戻し、再度 Claude パイプライン |
+| `POST` | `/api/ai-edit/jobs/:id/deliver` | 手動納品 URL（エディター用途。通常フローは Templated 経由） |
+
+### サーバー処理チェーン（要約）
+
+1. `generateEditPlan`（`server/aiEditAssistant.ts`）… ユーザープロンプト＋尺・トーン等から **EDL 付き JSON**  
+2. `buildAIEditStoredResult`（`server/lib/aiEditArtifacts.ts`）… **EDL を元の `videoSpec` と重ね**、レンダー用 `renderSpec` と分析 JSON を `result` に保存  
+3. `POST .../render` … **`TEMPLATED_API_KEY` 必須**。同期で URL が返れば即 `delivered`、非同期なら webhook 待ち  
+
+### 環境変数
+
+- **必須級**: `DATABASE_URL`, チケット周りは既存の Stripe/Ticket 系と同じ DB  
+- **AI 生成**: `ANTHROPIC_API_KEY`（未設定だとモック EDL。`AI_EDIT_ALLOW_MOCK=1` の説明はコード参照）  
+- **MP4 レンダー**: `TEMPLATED_API_KEY`、webhook 到達先の **`TEMPLATED_WEBHOOK_BASE_URL` または `FRONTEND_URL`**（Templated がインターネットから叩ける公開 URL であること）
+
+### 注意（運用・設計）
+
+- **`aiEditJobQueue` は同一 Node プロセス内のメモリキュー**である。Vercel Serverless でインスタンスが分裂すると「ジョブを投げたインスタンス以外でワーカーが動かない」時間帯があり得る。恒久対策が必要なら **キュー基盤（SQS / QStash 等）への移行**が検討ポイント。  
+- Stripe Webhook のパスは **`/api/webhook/stripe`**（`webhook` 単数）。Templated は **`/api/webhooks/templated`**（`webhooks` 複数形）で別物。
 
 ---
 
