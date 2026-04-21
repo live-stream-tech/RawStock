@@ -593,6 +593,81 @@
     .math-dim { color: var(--text3); font-size: 11px; }
     .rev-note { font-size: 12px; color: var(--text3); margin-top: 16px; line-height: 1.6; }
 
+    /* ── PAYMENT FLOW ─────────────────────────────── */
+    .flow-simple-wrap {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      align-items: center;
+      margin-top: 20px;
+    }
+    @media (max-width: 900px) { .flow-simple-wrap { grid-template-columns: 1fr; } }
+    .flow-step-card {
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      border-radius: var(--radius);
+      padding: 16px 14px;
+      min-height: 122px;
+      position: relative;
+    }
+    .flow-step-no {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      background: var(--accent);
+      color: #000;
+      font-size: 12px;
+      font-weight: 800;
+      margin-bottom: 10px;
+    }
+    .flow-step-title {
+      font-family: "Barlow Condensed", sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: 0.04em;
+      margin-bottom: 6px;
+      line-height: 1.2;
+    }
+    html[lang="ja"] .flow-step-title {
+      font-family: "Noto Sans JP", sans-serif;
+      letter-spacing: 0;
+      font-size: 14px;
+    }
+    .flow-step-desc {
+      color: var(--text2);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    .flow-arrow {
+      position: absolute;
+      top: 50%;
+      right: -16px;
+      transform: translateY(-50%);
+      color: var(--accent);
+      font-size: 20px;
+      font-weight: 700;
+      pointer-events: none;
+    }
+    @media (max-width: 900px) {
+      .flow-arrow {
+        position: static;
+        display: block;
+        transform: none;
+        margin-top: 8px;
+        text-align: center;
+      }
+    }
+    .flow-note {
+      margin-top: 12px;
+      color: var(--text3);
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
     /* ── TICKETS ──────────────────────────────────── */
     .ticket-grid {
       display: grid;
@@ -1045,6 +1120,39 @@
         </div>
       </div>
     </div>
+  </section>
+
+  <!-- ── PAYMENT FLOW ─────────────────────────────── -->
+  <section class="section container" id="payment-flow">
+    <div class="section-label"><span class="only-en">Payment flow</span><span class="only-ja">決済フロー</span></div>
+    <h2><span class="only-en">How money moves in RawStock.</span><span class="only-ja">RawStock内でのお金の流れ</span></h2>
+    <p class="section-desc"><span class="only-en">Simple view: buy tickets, spend in-app, creator revenue is recorded, then payout via Stripe Connect.</span><span class="only-ja">チケット購入 → アプリ内消費 → 収益記録 → Stripe Connect出金、の4ステップです。</span></p>
+    <div class="flow-simple-wrap">
+      <article class="flow-step-card">
+        <div class="flow-step-no">1</div>
+        <div class="flow-step-title"><span class="only-en">Buy tickets</span><span class="only-ja">チケット購入</span></div>
+        <div class="flow-step-desc"><span class="only-en">Fans purchase ticket packs with Stripe Checkout (USD).</span><span class="only-ja">ファンがStripe Checkout（USD）でチケットを購入。</span></div>
+        <span class="flow-arrow">→</span>
+      </article>
+      <article class="flow-step-card">
+        <div class="flow-step-no">2</div>
+        <div class="flow-step-title"><span class="only-en">Spend in app</span><span class="only-ja">アプリ内で消費</span></div>
+        <div class="flow-step-desc"><span class="only-en">Tickets are spent on tips, paid live access, AI edit, and more.</span><span class="only-ja">投げ銭・有料ライブ・AI編集などでチケットを消費。</span></div>
+        <span class="flow-arrow">→</span>
+      </article>
+      <article class="flow-step-card">
+        <div class="flow-step-no">3</div>
+        <div class="flow-step-title"><span class="only-en">Revenue recorded</span><span class="only-ja">収益を計上</span></div>
+        <div class="flow-step-desc"><span class="only-en">Creator-side net revenue is calculated and stored in-app.</span><span class="only-ja">クリエイター取り分（net）を計算して台帳に記録。</span></div>
+        <span class="flow-arrow">→</span>
+      </article>
+      <article class="flow-step-card">
+        <div class="flow-step-no">4</div>
+        <div class="flow-step-title"><span class="only-en">Withdraw payout</span><span class="only-ja">出金（換金）</span></div>
+        <div class="flow-step-desc"><span class="only-en">Creators withdraw to Stripe Connect accounts after verification.</span><span class="only-ja">本人確認後、Stripe Connect口座へ出金。</span></div>
+      </article>
+    </div>
+    <p class="flow-note"><span class="only-en">Tips use level-based rates (50–80%). Paid live / mentor uses 90/10 split. Payout fees may apply depending on your settings.</span><span class="only-ja">投げ銭はレベル別還元（50〜80%）、有料ライブ・メンタリングは9:1。出金時は設定に応じて手数料が適用される場合があります。</span></p>
   </section>
 
   <!-- ── TICKETS ────────────────────────────────────── -->
