@@ -5786,10 +5786,11 @@ async function registerRoutes(app2) {
       hasBucket,
       userId: user.id
     });
-    const { fileName, contentType } = req.body;
-    if (!fileName || !contentType) {
-      return res.status(400).json({ error: "fileName and contentType are required" });
+    const { fileName, contentType: rawContentType } = req.body;
+    if (!fileName) {
+      return res.status(400).json({ error: "fileName is required" });
     }
+    const contentType = typeof rawContentType === "string" && rawContentType.trim().length > 0 ? rawContentType.trim() : "application/octet-stream";
     const safeName = String(fileName).replace(/[^a-zA-Z0-9_.-]/g, "_");
     const key = `rawstock_${Date.now()}_${safeName}`;
     try {

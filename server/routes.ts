@@ -4199,14 +4199,20 @@ export async function registerRoutes(app: Express): Promise<void> {
       userId: user.id,
     });
 
-    const { fileName, contentType } = req.body as {
+    const { fileName, contentType: rawContentType } = req.body as {
       fileName?: string;
       contentType?: string;
     };
 
-    if (!fileName || !contentType) {
-      return res.status(400).json({ error: "fileName and contentType are required" });
+    if (!fileName) {
+      return res.status(400).json({ error: "fileName is required" });
     }
+
+    /** ブラウザが video/* で空文字を返すことがある。署名と PUT ヘッダを一致させるため octet-stream に落とす */
+    const contentType =
+      typeof rawContentType === "string" && rawContentType.trim().length > 0
+        ? rawContentType.trim()
+        : "application/octet-stream";
 
     const safeName = String(fileName).replace(/[^a-zA-Z0-9_.-]/g, "_");
     const key = `rawstock_${Date.now()}_${safeName}`;
