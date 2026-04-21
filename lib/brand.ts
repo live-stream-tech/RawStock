@@ -2,9 +2,9 @@
 const DEFAULT_RAWSTOCK_LOGO_URL =
   "https://d2xsxph8kpxj0f.cloudfront.net/310519663449879480/M2pBP9b9EdXaS65j3mPhNW/RawStock_logo_3fd8a263.webp";
 
-/** Royalty-free loop (Mixkit). Replace via PUBLIC_HERO_VIDEO_URL for production. */
+/** Default hero loop. Replace via PUBLIC_HERO_VIDEO_URL for production. */
 const DEFAULT_HERO_VIDEO_URL =
-  "https://assets.mixkit.co/videos/preview/mixkit-people-dancing-at-a-concert-1754-large.mp4";
+  "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
 
 const DEFAULT_HERO_POSTER_URL =
   "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=1920&q=80";
