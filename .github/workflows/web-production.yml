@@ -1,0 +1,45 @@
+# Vercel の「Git からの自動デプロイ」が動かないときの切り分け用。
+# - 毎回 main と同じビルドが GitHub 上で走る（成功すればコードはビルド可能）
+# - 任意: Vercel の Deploy Hook URL をリポジトリシークレット VERCEL_DEPLOY_HOOK に入れると、
+#   このワークフロー完了後に本番デプロイを HTTP で起動できる（Vercel → Project → Settings → Deploy Hooks）
+name: Web production build
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: web-production-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Expo web export (matches vercel.json buildCommand first step)
+        run: npx expo export --platform web
+
+      - name: Post-export (matches vercel.json buildCommand remainder)
+        run: node scripts/inject-sw-version.js && cp public/favi.png dist/favi.png && cp public/teamz.html dist/teamz.html
+
+      - name: Optional Vercel Deploy Hook
+        env:
+          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+        run: |
+          if [ -n "$VERCEL_DEPLOY_HOOK" ]; then
+            echo "POST deploy hook…"
+            curl -fsS -X POST "$VERCEL_DEPLOY_HOOK"
+          else
+            echo "VERCEL_DEPLOY_HOOK unset — skipping hook (add secret to trigger Vercel when Git integration fails)."
+          fi
