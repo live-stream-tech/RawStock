@@ -15,7 +15,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { C } from "@/constants/colors";
-import { COMMUNITIES } from "@/constants/data";
 import { webScrollStyle } from "@/constants/layout";
 
 type MemberItem = { id: number; displayName: string; profileImageUrl: string | null };
@@ -36,8 +35,7 @@ export default function CommunityMembersScreen() {
     enabled: !Number.isNaN(communityId),
   });
 
-  const communityName =
-    community?.name ?? COMMUNITIES.find((c) => Number(c.id) === communityId)?.name ?? "Community";
+  const communityName = community?.name ?? "Community";
 
   return (
     <View style={[styles.container, { paddingTop: topInset + 12 }]}>

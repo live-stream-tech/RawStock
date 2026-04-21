@@ -19,7 +19,7 @@ export default function LiveAnnouncementsScreen() {
         <Pressable style={styles.backBtn} onPress={() => router.back()} hitSlop={8}>
           <Ionicons name="chevron-back" size={24} color={C.text} />
         </Pressable>
-        <Text style={styles.title}>世界のライブ告知</Text>
+        <Text style={styles.title}>Global live feed</Text>
         <View style={{ width: 40 }} />
       </View>
       <GlobalLiveAnnouncementsFeed bottomInset={bottomInset} />

@@ -542,7 +542,7 @@ export default function LiveScreen() {
         <Ionicons name="search-outline" size={18} color={C.textMuted} />
         <TextInput
           style={styles.liveSearchInput}
-          placeholder={activeTab === "feed" ? "告知をキーワード検索" : "Search artists & shows"}
+          placeholder={activeTab === "feed" ? "Search announcements…" : "Search artists & shows"}
           placeholderTextColor={C.textMuted}
           value={liveSearch}
           onChangeText={setLiveSearch}
@@ -576,7 +576,7 @@ export default function LiveScreen() {
         >
           <Ionicons name="earth-outline" size={13} color={activeTab === "feed" ? C.accent : C.textMuted} />
           <Text style={[styles.tabText, activeTab === "feed" && styles.tabTextActive]} numberOfLines={1}>
-            世界の告知
+            Global feed
           </Text>
         </Pressable>
       </View>

@@ -22,7 +22,6 @@ import { C } from "@/constants/colors";
 import { formatEditorRevenueShareLabel, formatEditorTicketsPerMinute, PRICE_PER_TICKET_USD } from "@/constants/tickets";
 import { AppLogo } from "@/components/AppLogo";
 import { CreatorPromoBanner } from "@/components/CreatorPromoBanner";
-import { COMMUNITIES, VIDEOS } from "@/constants/data";
 import { apiRequest } from "@/lib/query-client";
 import { navigateToUserOrLiverProfile, navigateFromVideoCreatorRow } from "@/lib/navigate-profile";
 import { useAuth } from "@/lib/auth";
@@ -690,22 +689,16 @@ export default function CommunityDetailScreen() {
   const { user, token, requireAuth } = useAuth();
   const numericId = Number(id);
 
-  const { data: apiCommunity } = useQuery<any>({
+  const { data: apiCommunity, isLoading: communityLoading } = useQuery<any>({
     queryKey: [`/api/communities/${numericId}`],
     enabled: !Number.isNaN(numericId),
   });
 
-  const community =
-    apiCommunity ??
-    COMMUNITIES.find((c) => c.id === id) ??
-    COMMUNITIES[0];
-
-  const communityId = Number(community.id ?? numericId);
-  const ad = getAd(community.name);
+  const communityId = numericId;
   const bottomInset = Platform.OS === "web" ? 34 : 0;
-  const announceBoard = isMusicGenreCommunityCategory(
-    typeof community?.category === "string" ? community.category : undefined,
-  );
+  const categoryForBoard =
+    typeof apiCommunity?.category === "string" ? apiCommunity.category : undefined;
+  const announceBoard = isMusicGenreCommunityCategory(categoryForBoard);
 
   type StaffData = {
     adminId: number | null;
@@ -717,7 +710,7 @@ export default function CommunityDetailScreen() {
 
   const { data: meMemberData } = useQuery<{ isMember: boolean }>({
     queryKey: [`/api/communities/${communityId}/members/me`],
-    enabled: !!user?.id,
+    enabled: !!user?.id && communityId > 0,
   });
   useEffect(() => {
     if (meMemberData?.isMember !== undefined) setFollowing(meMemberData.isMember);
@@ -753,6 +746,7 @@ export default function CommunityDetailScreen() {
 
   const { data: staffData } = useQuery<StaffData>({
     queryKey: [`/api/communities/${communityId}/staff`],
+    enabled: communityId > 0,
   });
   const [staffModalVisible, setStaffModalVisible] = useState(false);
   const { data: members = [], isLoading: membersLoading } = useQuery<MemberItem[]>({
@@ -773,10 +767,12 @@ export default function CommunityDetailScreen() {
 
   const { data: editors = [], isLoading: editorsLoading } = useQuery<VideoEditor[]>({
     queryKey: [`/api/communities/${communityId}/editors`],
+    enabled: communityId > 0,
   });
 
   const { data: creatorsData, isLoading: creatorsLoading } = useQuery<CommunityCreatorsResponse>({
     queryKey: [`/api/communities/${communityId}/creators`],
+    enabled: communityId > 0,
   });
 
   const topEditors = [...editors].sort((a, b) => b.rating - a.rating).slice(0, 3);
@@ -805,10 +801,11 @@ export default function CommunityDetailScreen() {
     refetchInterval: !!selectedThreadId ? 15000 : false,
   });
 
-  const usingDemoVideos = apiVideos.length === 0;
-  const timelineVideos = usingDemoVideos
-    ? VIDEOS.slice(0, 4)
-    : (apiVideos as any[]).filter((v) => v.community === community.name);
+  const timelineVideos = useMemo(() => {
+    const name = apiCommunity?.name;
+    if (!name) return [];
+    return (apiVideos as any[]).filter((v) => v.community === name);
+  }, [apiVideos, apiCommunity?.name]);
 
   const createThreadMutation = useMutation({
     mutationFn: async () => {
@@ -910,6 +907,38 @@ export default function CommunityDetailScreen() {
       setSendingRequest(false);
     }
   };
+
+  const idInvalid = !id || Number.isNaN(numericId) || numericId <= 0;
+  if (idInvalid) {
+    return (
+      <View style={[styles.container, { paddingTop: (Platform.OS === "web" ? 67 : insets.top) + 24, paddingHorizontal: 20 }]}>
+        <Text style={{ color: C.text, fontSize: 16, fontWeight: "700" }}>Invalid community</Text>
+        <Pressable style={{ marginTop: 16 }} onPress={() => router.back()}>
+          <Text style={{ color: C.accent, fontWeight: "600" }}>Go back</Text>
+        </Pressable>
+      </View>
+    );
+  }
+  if (communityLoading) {
+    return (
+      <View style={[styles.container, { flex: 1, justifyContent: "center", alignItems: "center" }]}>
+        <ActivityIndicator size="large" color={C.accent} />
+      </View>
+    );
+  }
+  if (!apiCommunity) {
+    return (
+      <View style={[styles.container, { paddingTop: (Platform.OS === "web" ? 67 : insets.top) + 24, paddingHorizontal: 20 }]}>
+        <Text style={{ color: C.text, fontSize: 16, fontWeight: "700" }}>Community not found</Text>
+        <Pressable style={{ marginTop: 16 }} onPress={() => router.back()}>
+          <Text style={{ color: C.accent, fontWeight: "600" }}>Go back</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  const community = apiCommunity;
+  const ad = getAd(community.name ?? "");
 
   return (
     <View style={[styles.container, { paddingBottom: bottomInset }]}>

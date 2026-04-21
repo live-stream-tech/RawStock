@@ -25,6 +25,8 @@ export const communities = pgTable("communities", {
   adminId: integer("admin_id"),
   /** 作成者＝初代管理人（users.id） */
   ownerId: integer("owner_id"),
+  /** RawStock 公式ハブ（一覧で先頭固定・`reset-official-communities` が true にする） */
+  isOfficial: boolean("is_official").notNull().default(false),
   /** 広告収益分配設定（JSON: { userId: 比率% }。管理人+モデレーター間の70%分配内訳） */
   revenueDistribution: text("revenue_distribution"),
 });
