@@ -18,6 +18,12 @@
       "maxDuration": 300
     }
   },
+  "crons": [
+    {
+      "path": "/api/cron/ai-edit-process?limit=5",
+      "schedule": "*/3 * * * *"
+    }
+  ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/[...path]" },
     { "source": "/lp", "destination": "/api/[...path]" },

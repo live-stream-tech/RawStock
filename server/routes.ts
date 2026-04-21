@@ -56,6 +56,7 @@ import {
   bannerAds,
   dailyLogins,
   aiEditJobs,
+  editingRequests,
   userFollows,
   dmThreads,
   dmThreadMessages,
@@ -90,6 +91,8 @@ import type { EditPlan } from "../shared/ai-edit";
 import { normalizeVideoSpecPayload, parseStoredVideoSpec } from "./lib/parseVideoSpec";
 import { buildAIEditStoredResult, parseAIEditStoredResult } from "./lib/aiEditArtifacts";
 import { enqueueAIEditJob } from "./lib/aiEditJobQueue";
+import { claimAndProcessNextPendingAIEditJob, runAIEditPlanWorker, useAIEditMemoryQueue } from "./lib/aiEditPlanWorker";
+import { creditTicketsFromTicketCheckoutSession } from "./lib/stripeTicketPurchase";
 import { computeWithdrawalFeeBreakdown, getWithdrawalFeePolicy } from "./lib/withdrawalFees";
 import { dslToTemplated } from "./lib/dslToTemplated";
 import { createTemplatedRender } from "./lib/templatedClient";
@@ -105,8 +108,12 @@ import bcrypt from "bcryptjs";
 import type Stripe from "stripe";
 
 const JWT_SECRET = process.env.SESSION_SECRET ?? "livestage-dev-secret";
-const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID ?? "";
-const CLOUDFLARE_STREAM_TOKEN = process.env.CLOUDFLARE_STREAM_TOKEN ?? process.env.CLOUDFLARE_API_TOKEN ?? "";
+const CLOUDFLARE_ACCOUNT_ID = (process.env.CLOUDFLARE_ACCOUNT_ID ?? "").trim();
+const CLOUDFLARE_STREAM_TOKEN = (() => {
+  const fromStream = (process.env.CLOUDFLARE_STREAM_TOKEN ?? "").trim();
+  if (fromStream) return fromStream;
+  return (process.env.CLOUDFLARE_API_TOKEN ?? "").trim();
+})();
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
 
 /**
@@ -1318,6 +1325,11 @@ export async function registerRoutes(app: Express): Promise<void> {
                 stripeCheckoutSessionId: session.id,
               } as Partial<InferSelectModel<typeof twoShotReservations>>)
               .where(and(eq(twoShotReservations.id, rid), eq(twoShotReservations.status, "PENDING")));
+          }
+        } else if (metaType === "ticket_purchase" || (session.metadata?.tickets && session.metadata?.userId)) {
+          const ticketCredit = await creditTicketsFromTicketCheckoutSession(db, session);
+          if (ticketCredit.ok && !ticketCredit.alreadyGranted) {
+            console.info("[webhook/stripe] ticket_purchase credited", { sessionId: session.id, userId: ticketCredit.userId });
           }
         }
       }
@@ -2756,7 +2768,14 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json(editor);
   });
 
+  const EDITOR_REQUEST_TICKET_FEE = 200;
+
   app.post("/api/editors/:id/request", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) {
+      return res.status(401).json({ error: "Sign in required to submit a paid edit request" });
+    }
+
     const editorId = paramNum(req, "id");
     const { requesterName, title, description, priceType, budget, deadline } = req.body as {
       requesterName?: string;
@@ -2782,37 +2801,99 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (editor.priceType !== "both" && editor.priceType !== priceType) {
       return res.status(400).json({ error: "This editor does not support the selected pricing type" });
     }
+    if (editor.userId == null || !Number.isInteger(editor.userId) || editor.userId <= 0) {
+      return res.status(400).json({ error: "This editor cannot receive paid requests (no linked account)" });
+    }
 
-    const user = await getAuthUser(req);
-    const requestUserId = user ? `user-${user.id}` : "guest";
-    const requestUserName = requesterName ?? user?.displayName ?? "Guest User";
+    const requestUserId = `user-${user.id}`;
+    const requestUserName = requesterName ?? user.displayName ?? "User";
 
-    const [requestRow] = await db
-      .insert(videoEditRequests)
-      .values({
-        editorId,
-        requesterId: requestUserId,
-        requesterName: requestUserName,
-        title,
-        description,
-        priceType,
-        budget: budget ?? null,
-        deadline: deadline ?? null,
-      } as typeof videoEditRequests.$inferInsert)
-      .returning();
+    try {
+      const result = await db.transaction(async (tx) => {
+        const buyerId = String(user.id);
+        const fee = EDITOR_REQUEST_TICKET_FEE;
+        const balRows = await tx.select().from(ticketBalances).where(eq(ticketBalances.userId, buyerId)).limit(1);
+        const cur = balRows[0]?.balance ?? 0;
+        if (cur < fee) {
+          const err = new Error("INSUFFICIENT_TICKETS");
+          (err as any).meta = { balance: cur, required: fee };
+          throw err;
+        }
+        const newBal = cur - fee;
+        if (balRows.length === 0) {
+          await tx.insert(ticketBalances).values({ userId: buyerId, balance: newBal });
+        } else {
+          await tx
+            .update(ticketBalances)
+            .set({ balance: newBal, updatedAt: new Date() })
+            .where(eq(ticketBalances.userId, buyerId));
+        }
 
-    // 通知テーブルに編集者向けの通知を追加（エディタIDはタイトル/本文に含める)
-    await db.insert(notifications).values({
-      type: "editor_request",
-      title: `Edit request from ${requestUserName}`,
-      body: `${title} (editor ID: ${editorId})`,
-      amount: budget ?? null,
-      avatar: editor.avatar ?? null,
-      thumbnail: null,
-      timeAgo: "Just now",
-    } as typeof notifications.$inferInsert);
+        const [spendTx] = await tx
+          .insert(ticketTransactions)
+          .values({
+            userId: buyerId,
+            amount: -fee,
+            type: "spend_editor_request",
+            referenceId: `editor:${editorId}`,
+            description: `Editor request: ${title}`,
+          } as typeof ticketTransactions.$inferInsert)
+          .returning({ id: ticketTransactions.id });
 
-    res.status(201).json(requestRow);
+        const [requestRow] = await tx
+          .insert(videoEditRequests)
+          .values({
+            editorId,
+            requesterId: requestUserId,
+            requesterName: requestUserName,
+            title,
+            description,
+            priceType,
+            budget: budget ?? null,
+            deadline: deadline ?? null,
+          } as typeof videoEditRequests.$inferInsert)
+          .returning();
+
+        await tx.insert(editingRequests).values({
+          userId: requestUserId,
+          videoUrl: null,
+          performanceDate: deadline ?? null,
+          instructions: description,
+          ticketFee: fee,
+          ticketTransactionId: String(spendTx.id),
+          status: "pending",
+        } as typeof editingRequests.$inferInsert);
+
+        const walletId = await getOrCreateUserWallet(editor.userId, tx);
+        const creatorRow = await creatorRowForUserId(tx, editor.userId);
+        await recordRevenue(walletId, editor.userId, creatorRow?.id ?? null, fee, "paid_live", String(spendTx.id), tx);
+
+        return requestRow;
+      });
+
+      await db.insert(notifications).values({
+        type: "editor_request",
+        title: `Edit request from ${requestUserName}`,
+        body: `${title} (editor ID: ${editorId})`,
+        amount: budget ?? null,
+        avatar: editor.avatar ?? null,
+        thumbnail: null,
+        timeAgo: "Just now",
+      } as typeof notifications.$inferInsert);
+
+      res.status(201).json(result);
+    } catch (e: any) {
+      if (e?.message === "INSUFFICIENT_TICKETS") {
+        const meta = e?.meta ?? {};
+        return res.status(402).json({
+          error: "Insufficient tickets",
+          balance: meta.balance ?? 0,
+          required: meta.required ?? EDITOR_REQUEST_TICKET_FEE,
+        });
+      }
+      console.error("[editors/request]", e);
+      return res.status(500).json({ error: e?.message ?? "Request failed" });
+    }
   });
 
   app.post("/api/editors", async (req: Request, res: Response) => {
@@ -7839,6 +7920,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         success_url: `${origin}/tickets?session_id={CHECKOUT_SESSION_ID}&tickets=${ticketCount}`,
         cancel_url: `${origin}/tickets`,
         metadata: {
+          type: "ticket_purchase",
           userId: String(user.id),
           tickets: String(ticketCount),
         },
@@ -7860,43 +7942,21 @@ export async function registerRoutes(app: Express): Promise<void> {
     try {
       const stripe = await getUncachableStripeClient();
       const session = await stripe.checkout.sessions.retrieve(sessionId);
-      if (session.payment_status !== "paid") {
-        return res.status(402).json({ error: "Payment not completed" });
-      }
       const tickets = parseInt(session.metadata?.tickets ?? "0");
       const metaUserId = session.metadata?.userId;
       if (!tickets || metaUserId !== String(user.id)) {
         return res.status(400).json({ error: "Invalid session" });
       }
 
-      const existing = await db.select().from(ticketTransactions)
-        .where(and(
-          eq(ticketTransactions.userId, String(user.id)),
-          eq(ticketTransactions.referenceId, sessionId)
-        )).limit(1);
-      if (existing.length > 0) {
-        const balRows = await db.select().from(ticketBalances).where(eq(ticketBalances.userId, String(user.id))).limit(1);
-        return res.json({ success: true, alreadyGranted: true, balance: balRows[0]?.balance ?? 0 });
+      const credited = await creditTicketsFromTicketCheckoutSession(db, session);
+      if (!credited.ok) {
+        if (credited.reason === "not_paid") {
+          return res.status(402).json({ error: "Payment not completed" });
+        }
+        return res.status(400).json({ error: "Invalid session" });
       }
 
-      const balRows = await db.select().from(ticketBalances).where(eq(ticketBalances.userId, String(user.id))).limit(1);
-      const currentBalance = balRows[0]?.balance ?? 0;
-      if (balRows.length === 0) {
-        await db.insert(ticketBalances).values({ userId: String(user.id), balance: tickets });
-      } else {
-        await db.update(ticketBalances).set({ balance: currentBalance + tickets, updatedAt: new Date() })
-          .where(eq(ticketBalances.userId, String(user.id)));
-      }
-
-      await db.insert(ticketTransactions).values({
-        userId: String(user.id),
-        amount: tickets,
-        type: "purchase",
-        referenceId: sessionId,
-        description: `Purchased ${tickets} tickets via Stripe`,
-      });
-
-      return res.json({ success: true, newBalance: currentBalance + tickets });
+      return res.json({ success: true, alreadyGranted: credited.alreadyGranted, newBalance: credited.newBalance });
     } catch (err) {
       console.error("Verify ticket purchase error:", err);
       return res.status(500).json({ error: "Failed to verify purchase" });
@@ -8102,65 +8162,18 @@ export async function registerRoutes(app: Express): Promise<void> {
     refundDescription?: string;
   }) {
     const { jobId, revisionPrompt, refundAmount = 0, refundType, refundDescription } = params;
-    enqueueAIEditJob(`ai-edit:${jobId}:${revisionPrompt?.trim() ?? "initial"}`, async () => {
-      const [freshJob] = await db.select().from(aiEditJobs).where(eq(aiEditJobs.id, jobId));
-      if (!freshJob) return;
-
-      try {
-        const baseSpec = getBaseVideoSpec(freshJob);
-        if (!baseSpec) {
-          throw new Error("AI Edit job has no valid source spec");
-        }
-
-        const promptUsed = revisionPrompt?.trim()
-          ? `${freshJob.prompt.trim()}\n\nRevision request:\n${revisionPrompt.trim()}`
-          : freshJob.prompt.trim();
-        const videoUrls = parseJobVideoUrls(freshJob);
-        const editInput: EditJobInput = {
-          planMinutes: (freshJob.planMinutes ?? 15) as 15 | 30 | 45 | 60,
-          videoUrls,
-          logoUrl: freshJob.logoUrl,
-          telop: freshJob.telop,
-          targetAudience: freshJob.targetAudience,
-          tone: freshJob.tone,
-          prompt: promptUsed,
-        };
-        const generated = await generateEditPlan(editInput);
-        const storedResult = buildAIEditStoredResult({
-          plan: generated.plan,
-          promptUsed,
-          provider: generated.provider,
-          baseSpec,
-          revisionPrompt,
-        });
-
-        await db
-          .update(aiEditJobs)
-          .set({
-            status: "completed",
-            result: JSON.stringify(storedResult),
-            videoSpec: JSON.stringify(storedResult.renderSpec),
-            updatedAt: new Date(),
-          } as Partial<InferSelectModel<typeof aiEditJobs>>)
-          .where(eq(aiEditJobs.id, jobId));
-      } catch (error) {
-        console.error("[ai-edit] Processing failed:", error);
-        await db
-          .update(aiEditJobs)
-          .set({ status: "failed", updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
-          .where(eq(aiEditJobs.id, jobId));
-
-        if (refundAmount > 0 && refundType && refundDescription) {
-          await refundAIEditTickets({
-            userId: freshJob.userId,
-            amount: refundAmount,
-            type: refundType,
-            description: refundDescription,
-            referenceId: String(freshJob.id),
-          });
-        }
-      }
-    });
+    if (!useAIEditMemoryQueue()) {
+      return;
+    }
+    void (async () => {
+      await db
+        .update(aiEditJobs)
+        .set({ status: "processing", updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
+        .where(eq(aiEditJobs.id, jobId));
+      enqueueAIEditJob(`ai-edit:${jobId}:${revisionPrompt?.trim() ?? "initial"}`, async () => {
+        await runAIEditPlanWorker({ jobId, revisionPrompt, refundAmount, refundType, refundDescription });
+      });
+    })();
   }
 
   // POST /api/ai-edit/jobs — charge tickets, create job, start async Claude processing
@@ -8243,10 +8256,6 @@ export async function registerRoutes(app: Express): Promise<void> {
       } as typeof aiEditJobs.$inferInsert)
       .returning();
 
-    await db
-      .update(aiEditJobs)
-      .set({ status: "processing", updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
-      .where(eq(aiEditJobs.id, job.id));
     scheduleAIEditPlanGeneration({
       jobId: job.id,
       refundAmount: ticketCost,
@@ -8254,7 +8263,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       refundDescription: `Refund: AI Edit ${planMinutes}min plan (job ${job.id})`,
     });
 
-    res.json({ id: job.id, status: "processing" });
+    res.json({ id: job.id, status: job.status });
   });
 
   // GET /api/ai-edit/jobs/:id — get job status and result (owner only)
@@ -8576,7 +8585,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     await db
       .update(aiEditJobs)
       .set({
-        status: "processing",
+        status: "pending",
         revisionCount: newRevisionCount,
         templatedRenderId: null,
         deliveredUrl: null,
@@ -8651,4 +8660,24 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json({ ok: true, id, status: "delivered", deliveredUrl: deliveredUrl.trim() });
   });
 
+  /** Vercel Cron 等: pending の AI Edit をバッチ処理（`CRON_SECRET` または `AI_EDIT_CRON_SECRET` の Bearer と一致） */
+  app.get("/api/cron/ai-edit-process", async (req: Request, res: Response) => {
+    const expected =
+      process.env.CRON_SECRET?.trim() || process.env.AI_EDIT_CRON_SECRET?.trim() || "";
+    if (!expected) {
+      return res.status(503).json({ error: "CRON_SECRET or AI_EDIT_CRON_SECRET is not configured" });
+    }
+    const auth = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
+    if (auth !== `Bearer ${expected}`) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const limit = Math.min(15, Math.max(1, parseInt(String(req.query.limit ?? "5"), 10) || 5));
+    let processed = 0;
+    for (let i = 0; i < limit; i++) {
+      const r = await claimAndProcessNextPendingAIEditJob();
+      if (!r.processed) break;
+      processed++;
+    }
+    res.json({ ok: true, processed });
+  });
 }

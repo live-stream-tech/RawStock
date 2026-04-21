@@ -103,7 +103,6 @@
 | `ADMIN_EMAIL` | 管理者メール（特定の管理系挙動） |
 | `WEGLOT_API_KEY` | サイト翻訳（設定時のみ有効） |
 | `MYMEMORY_EMAIL` | 自動翻訳 MyMemory の日次枠拡張（`de` パラメータ・任意） |
-| `EXPO_PUBLIC_DEEPAR_KEY` | DeepAR（配信背景ぼかし等） |
 | `PUBLIC_LOGO_URL` / `PUBLIC_HERO_*` / `PUBLIC_LP_*` / `PUBLIC_FEATURE_*` | LP・ブランド画像の上書き（`lib/brand.ts`） |
 
 Vercel では **`VERCEL_URL` が自動注入**され、OAuth のフォールバックに使われます（手動設定不要）。
@@ -126,7 +125,7 @@ Vercel では **`VERCEL_URL` が自動注入**され、OAuth のフォールバ�
 
 ## DB マイグレーション状況
 
-最新適用済み: `0023_translations_and_glossary.sql`
+最新適用済み: `0024_editing_requests.sql`（未適用環境は順に `0023` まで適用後に実行）
 
 | ファイル | 内容 |
 |--------|------|
@@ -137,6 +136,7 @@ Vercel では **`VERCEL_URL` が自動注入**され、OAuth のフォールバ�
 | 0015 | users.terms/privacy_accepted_version/at |
 | 0022 | users.preferred_language（UI/翻訳宛先言語） |
 | 0023 | translations / translation_glossary（自動翻訳キャッシュ＆固有名詞ガード） |
+| 0024 | editing_requests（プロ編集依頼のチケット手数料・参照トランザクション） |
 
 ---
 
@@ -211,7 +211,7 @@ Vercel では **`VERCEL_URL` が自動注入**され、OAuth のフォールバ�
 
 ### 注意（運用・設計）
 
-- **`aiEditJobQueue` は同一 Node プロセス内のメモリキュー**である。Vercel Serverless でインスタンスが分裂すると「ジョブを投げたインスタンス以外でワーカーが動かない」時間帯があり得る。恒久対策が必要なら **キュー基盤（SQS / QStash 等）への移行**が検討ポイント。  
+- **`aiEditJobQueue`**: ローカル／非 Vercelでは同一プロセス内メモリ FIFO。**Vercel 本番**では既定でオフになり、ジョブは `pending` のまま **`GET /api/cron/ai-edit-process`**（Bearer `CRON_SECRET` または `AI_EDIT_CRON_SECRET`）が DB 上の `pending` を `FOR UPDATE` で取り上げて処理。`vercel.json` に cron 定義あり。さらに耐久が必要なら **SQS / QStash** への移行が次の段階。  
 - Stripe Webhook のパスは **`/api/webhook/stripe`**（`webhook` 単数）。Templated は **`/api/webhooks/templated`**（`webhooks` 複数形）で別物。
 
 ---
@@ -220,7 +220,7 @@ Vercel では **`VERCEL_URL` が自動注入**され、OAuth のフォールバ�
 
 | 問題 | 状況 |
 |------|------|
-| Cloudflare Stream 403 エラー | `CLOUDFLARE_STREAM_TOKEN` に Account→Stream→Edit 権限があることは確認済み。本番動作未確認。 |
+| Cloudflare Stream 403 エラー | `CLOUDFLARE_STREAM_TOKEN` に Account→Stream→Edit 権限があることは確認済み。本番動作未確認。**切り分け**: (1) トークンが Global API Key ではなく Account Scoped か (2) `CLOUDFLARE_ACCOUNT_ID` と Stream ダッシュボードの Account が一致するか (3) 署名付き URL / WHEP の生成 API が参照している video UID が同一アカウントか (4) R2 経由の公開 URL と Stream のオリジン制限の干渉がないか。 |
 | DATABASE_URL の外部アクセス | Vercel からアクセス可能かどうか要確認。Replit内部DBの場合は Neon/Supabase 等への移行が必要。 |
 | Google OAuth コールバックURL | 詳細は下節「Google OAuth」。`redirect_uri_mismatch` は GCP の URI と `FRONTEND_URL` 由来の `callbackUrl` の不一致が典型 |
 
@@ -318,8 +318,18 @@ npx vercel env add EXPO_PUBLIC_DOMAIN preview <ブランチ名> --value "https:/
 
 - 本番キー使用中（USD建て）
 - Ticket通貨: 🎟 1 ticket = $0.01
-- 収益分配: クリエイター90% / プラットフォーム10%
-- 決済フローは主に **Stripe Checkout セッション作成 → 成功 URL から戻る → API で `session_id` を検証**する形（`server/routes.ts` 内の Checkout / confirm 系）。**専用の `POST /api/stripe/webhook`（Stripe Signing secret）ルートは現状のコードベースには無い** — Webhook 運用が必要なら別途実装・ドキュメント化が必要。
+- 収益分配: クリエイター90% / プラットフォーム10%（`recordRevenue` の `paid_live` / `mentor` 等。投げ銭はレベル連動）
+- **チケット購入**: `POST /api/tickets/create-checkout` の Checkout に `metadata.type = ticket_purchase` を付与。付与の主経路は **`POST /api/tickets/verify-purchase`**（クライアントが成功 URL から `session_id` を送る）。**冪等バックアップ**: `POST /api/webhook/stripe` の `checkout.session.completed` で同じ付与ロジックを実行（`STRIPE_WEBHOOK_SECRET` 必須・署名検証済み）。二重付与は `ticket_transactions.referenceId = session.id` で防止。
+- **Webhook エンドポイント**: **`/api/webhook/stripe`**（`webhook` 単数）。`two_shot_reservation` の確定とチケット付与を処理。Templated は **`/api/webhooks/templated`**（複数形）で別物。
+- **出金手数料（任意）**: `.env` の `WITHDRAWAL_FEE_BPS` / `WITHDRAWAL_FEE_FIXED_USD_CENTS`（換金者負担で Transfer 前に差し引き）。`GET /api/revenue/summary` の `withdrawalFeePolicy` を参照。
+
+---
+
+## AI Edit（Vercel / 本番ワーカー）
+
+- **メモリキュー**（`AI_EDIT_USE_MEMORY_QUEUE=1` または非 Vercel）: 従来どおり同一プロセスで即時処理。
+- **本番 Vercel 既定**（`VERCEL=1` かつ `AI_EDIT_USE_MEMORY_QUEUE` 未設定）: ジョブは **`pending`** のまま保存。**`GET /api/cron/ai-edit-process`**（`Authorization: Bearer $CRON_SECRET` または `AI_EDIT_CRON_SECRET`）が `pending` を取り上げて Claude 処理。`vercel.json` の `crons` で数分毎に叩く想定。
+- ローカルで「本番と同じ cron のみ」にしたい場合は `AI_EDIT_USE_MEMORY_QUEUE=0` を明示。
 
 ---
 

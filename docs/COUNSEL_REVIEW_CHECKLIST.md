@@ -14,7 +14,7 @@ This document supports the baseline review described in [LEGAL.md](./LEGAL.md). 
 | 1 | Governing law & jurisdiction | Are Japan governing law + Tokyo courts appropriate for all user segments? When must local mandatory consumer protections override forum selection? | |
 | 2 | UK / EU | Does the service trigger UK Online Safety Act duties, EU DSA, or GDPR-only obligations beyond current Privacy Policy articles? | |
 | 3 | US / DMCA | Is the [DMCA policy](../app/dmca.tsx) text sufficient? Does operational handling match [DMCA_RUNBOOK.md](./DMCA_RUNBOOK.md)? Repeat infringer policy adequate? | |
-| 4 | Privacy & subprocessors | Does disclosure match actual flows (Neon, Cloudflare, Google, Stripe, Upstash, Anthropic, DeepAR, on-device `franc` language detection)? Any gap for cross-border transfer mechanisms? | |
+| 4 | Privacy & subprocessors | Does disclosure match actual flows (Neon, Cloudflare, Google, Stripe, Upstash, Anthropic, on-device `franc` language detection)? Any gap for cross-border transfer mechanisms? | |
 | 5 | Children | Terms state age 13+ with parental consent 13–17. Is self-certification enough for target markets? | |
 | 6 | Platform / creator liability | For Stripe Connect, tickets, paid video, and live: who is merchant of record / seller for consumer law (Japan 特商法, EU, etc.)? | |
 | 7 | Moderation & reports | Are reporting, takedown timelines, and appeals described consistently across Terms and Community Guidelines? | |

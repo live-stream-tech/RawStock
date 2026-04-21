@@ -814,7 +814,7 @@ export const ticketBalances = pgTable("ticket_balances", {
 
 /**
  * Audit log of all ticket movements.
- * type: purchase | spend_jukebox | spend_session | spend_gift | revenue_convert | refund
+ * type: purchase | spend_jukebox | spend_session | spend_gift | spend_editor_request | spend_ai_edit | revenue_convert | refund
  */
 export const ticketTransactions = pgTable("ticket_transactions", {
   id: serial("id").primaryKey(),

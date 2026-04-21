@@ -22,7 +22,7 @@ const PAGE_FULL_TEXT = [
   "5. Prohibited Conduct — No illegal activity, hate speech, harassment, sexually explicit content in violation of policy, IP infringement, technical abuse, or dangerous live streams. See our Community Guidelines.",
   "6. Live Streaming & UGC — Live streams are user-generated content. We may moderate, interrupt, or terminate streams that violate these Terms or applicable law.",
   "7. Payments, Subscriptions & Virtual Gifts — Purchases of paid content, tickets, or virtual gifts are final and non-refundable unless required by applicable law (for example, certain consumer rights in the EU or UK).",
-  "8. Revenue Sharing — Payouts are subject to identity verification (KYC) and tax reporting. Creators receive 90% of applicable direct sales revenue. We may withhold payouts for suspected fraud or violations.",
+  "8. Revenue Sharing — Payouts are subject to identity verification (KYC) and tax reporting. Creators receive 90% of applicable direct sales revenue. We may apply a configurable processing fee on withdrawals (deducted from the requested gross before Stripe transfer), in addition to Stripe's own connected-account fees. We may withhold payouts for suspected fraud or violations.",
   "9. Disclaimer of Warranties & Limitation of Liability — The Service is provided AS IS without warranties. Our total liability shall not exceed the greater of (a) amounts paid in the prior 12 months or (b) 10,000 JPY, except where liability cannot be limited by mandatory law.",
   "10. Privacy & Data Protection — Our data practices are described in our Privacy Policy, addressing CCPA/CPRA, GDPR, and UK GDPR where applicable.",
   "11. Termination — We may suspend or terminate your account if you violate these Terms or harm other users or the Service.",
@@ -138,7 +138,7 @@ export default function TermsScreen() {
 
         <Article title="8. Revenue Sharing (Creators)">
           {
-            "Payouts are subject to identity verification (KYC) and tax reporting as required by Stripe and applicable law (e.g., IRS Forms W-9 / W-8BEN where relevant). Unless we notify you otherwise, creators receive 90% of applicable direct sales revenue, with platform fees retained by us. We may withhold or reverse payouts for suspected fraud, chargebacks, or violations of these Terms. Tax reporting and filing are your responsibility."
+            "Payouts are subject to identity verification (KYC) and tax reporting as required by Stripe and applicable law (e.g., IRS Forms W-9 / W-8BEN where relevant). Unless we notify you otherwise, creators receive 90% of applicable direct sales revenue, with platform fees retained by us. Withdrawals may incur an additional platform processing fee (configured as a percentage and/or fixed amount in USD cents) withheld from the gross amount you request before funds are transferred to your Stripe Connect account; Stripe may charge separate fees on payouts to your bank. We may withhold or reverse payouts for suspected fraud, chargebacks, or violations of these Terms. Tax reporting and filing are your responsibility."
           }
         </Article>
 

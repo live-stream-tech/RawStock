@@ -19,8 +19,6 @@ export type BroadcastCopy = {
   pwaGateBtn: string;
   readyLabel: string;
   titlePlaceholder: string;
-  deeparTitle: string;
-  deeparSub: string;
   stopStream: string;
   goLive: string;
   allowCameraFirst: string;
@@ -48,8 +46,6 @@ const COPY: BroadcastCopy = {
   pwaGateBtn: "Allow camera & microphone",
   readyLabel: "Ready to go live",
   titlePlaceholder: "Stream title (required)",
-  deeparTitle: "Background blur (DeepAR)",
-  deeparSub: "Turn off to use the raw camera only.",
   stopStream: "End broadcast",
   goLive: "Go live",
   allowCameraFirst: "Allow camera first",
