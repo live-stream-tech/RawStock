@@ -1,8 +1,9 @@
 import React, { useState } from "react";
-import { View, Text, Pressable, StyleSheet, ActivityIndicator } from "react-native";
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, Platform } from "react-native";
 import { router } from "expo-router";
 import { C } from "@/constants/colors";
 import { useAuth } from "@/lib/auth";
+import { isPwaStandalone } from "@/lib/pwa-standalone";
 
 /**
  * Shown when the user's accepted Terms / Privacy versions are older than `constants/legalVersions`.
@@ -30,6 +31,12 @@ export function PolicyReacceptanceBanner() {
       <Text style={styles.body}>
         Please read the updated documents and agree before you continue. See Terms / Privacy for details.
       </Text>
+      {Platform.OS === "web" && isPwaStandalone() ? (
+        <Text style={styles.pwaHint}>
+          From the home screen app: use the ← back arrow on each policy page to return. Swiping away or force-quitting
+          closes RawStock entirely.
+        </Text>
+      ) : null}
       <View style={styles.row}>
         <Pressable onPress={() => router.push("/terms")} style={styles.linkBtn}>
           <Text style={styles.linkText}>Terms</Text>
@@ -63,6 +70,12 @@ const styles = StyleSheet.create({
   },
   title: { color: C.text, fontSize: 13, fontWeight: "700", marginBottom: 6 },
   body: { color: C.textMuted, fontSize: 12, lineHeight: 18, marginBottom: 10 },
+  pwaHint: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 11,
+    lineHeight: 16,
+    marginBottom: 10,
+  },
   row: { flexDirection: "row", gap: 12, marginBottom: 10 },
   linkBtn: { paddingVertical: 4 },
   linkText: { color: C.accent, fontSize: 13, textDecorationLine: "underline" },

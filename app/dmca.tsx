@@ -2,7 +2,7 @@ import React from "react";
 import { View, Text, ScrollView, StyleSheet, Pressable, Platform, Linking } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { routerBackOrTabHome } from "@/lib/routerSafeBack";
 import { C } from "@/constants/colors";
 import { webScrollStyle } from "@/constants/layout";
 import { PolicyTranslateBanner } from "@/components/PolicyTranslateBanner";
@@ -27,7 +27,13 @@ export default function DmcaScreen() {
   return (
     <View style={[styles.container, { paddingTop: topInset }]}>
       <View style={styles.header}>
-        <Pressable style={styles.backBtn} onPress={() => router.back()}>
+        <Pressable
+          style={styles.backBtn}
+          onPress={() => routerBackOrTabHome()}
+          hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+        >
           <Ionicons name="chevron-back" size={22} color={C.text} />
         </Pressable>
         <Text style={styles.headerTitle}>DMCA Policy</Text>
