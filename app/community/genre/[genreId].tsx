@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Pressable,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
@@ -15,7 +16,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { C } from "@/constants/colors";
 import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/layout";
 import { AppLogo } from "@/components/AppLogo";
-import { COMMUNITIES } from "@/constants/data";
 import { useQuery } from "@tanstack/react-query";
 import { GENRE_TO_CATEGORY } from "@/lib/communityGenreBoard";
 
@@ -100,15 +100,17 @@ export default function GenreScreen() {
 
   const genre = GENRE_DATA[genreId ?? ""] ?? null;
 
-  const { data: apiCommunities = [] } = useQuery<any[]>({
+  const { data: apiCommunities = [], isLoading: communitiesLoading } = useQuery<any[]>({
     queryKey: [`/api/communities${genreId ? `?genre=${genreId}` : ""}`],
     enabled: !!genreId,
   });
 
-  const usingDemo = apiCommunities.length === 0;
-  const source = usingDemo ? COMMUNITIES : apiCommunities;
-  const communities = genreId ? filterCommunitiesByGenre(source, genreId) : source;
-  const sortedCommunities = [...communities].sort((a, b) => (b.members ?? 0) - (a.members ?? 0));
+  const communities = genreId ? filterCommunitiesByGenre(apiCommunities, genreId) : apiCommunities;
+  const sortedCommunities = [...communities].sort((a, b) => {
+    const o = Number(!!b.isOfficial) - Number(!!a.isOfficial);
+    if (o !== 0) return o;
+    return (b.members ?? 0) - (a.members ?? 0);
+  });
 
   const ad: AdData = (genreId ? GENRE_ADS[genreId] : undefined) ?? DEFAULT_AD;
 
@@ -164,7 +166,9 @@ export default function GenreScreen() {
             </Pressable>
         </View>
 
-        {sortedCommunities.length === 0 ? (
+        {communitiesLoading ? (
+          <ActivityIndicator color={C.accent} style={{ marginVertical: 32 }} />
+        ) : sortedCommunities.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="people-outline" size={48} color={C.textMuted} />
             <Text style={styles.emptyText}>No communities in this genre yet</Text>
@@ -179,6 +183,11 @@ export default function GenreScreen() {
               >
                 <Image source={{ uri: item.thumbnail }} style={styles.communityCardImage} contentFit="cover" />
                 <View style={styles.communityCardOverlay} />
+                {item.isOfficial ? (
+                  <View style={styles.officialChip}>
+                    <Text style={styles.officialChipText}>OFFICIAL</Text>
+                  </View>
+                ) : null}
                 {item.online && (
                   <View style={styles.onlineChip}>
                     <View style={styles.onlineDot} />
@@ -297,6 +306,23 @@ const styles = StyleSheet.create({
   communityCardOverlay: {
     ...StyleSheet.absoluteFillObject as any,
     backgroundColor: "rgba(0,0,0,0.35)",
+  },
+  officialChip: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    backgroundColor: "rgba(0,0,0,0.75)",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: C.accent + "99",
+  },
+  officialChipText: {
+    color: C.accent,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.5,
   },
   onlineChip: {
     position: "absolute",

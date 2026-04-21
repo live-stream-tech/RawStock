@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   TextInput,
   FlatList,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
@@ -19,7 +20,6 @@ import { C } from "@/constants/colors";
 import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/layout";
 import { MetallicLine } from "@/components/MetallicLine";
 import { AppLogo } from "@/components/AppLogo";
-import { COMMUNITIES, RANKED_VIDEOS } from "@/constants/data";
 import { useQuery } from "@tanstack/react-query";
 
 const GENRES = [
@@ -30,37 +30,15 @@ const GENRES = [
   { id: "ai", name: "AI Music", icon: "hardware-chip-outline" as const, count: 389, color: "#00BFA5" },
 ];
 
-const PURCHASE_TABS = ["Weekly", "Monthly", "All Time"] as const;
-type PurchaseTab = typeof PURCHASE_TABS[number];
-
-const PURCHASE_EXTRAS = [
-  {
-    id: "p4",
-    rank: 4,
-    title: "Underground Idol Live — Full Cut",
-    creator: "Underground Scene",
-    community: "Underground Scene",
-    views: 28100,
-    timeAgo: "2d ago",
-    duration: "52:10",
-    price: 1500,
-    thumbnail: "https://images.unsplash.com/photo-1524503033411-c9566986fc8f?w=400&h=225&fit=crop",
-    avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=50&h=50&fit=crop",
-  },
-  {
-    id: "p5",
-    rank: 5,
-    title: "Pro Performer Talk Masterclass",
-    creator: "Night Scene",
-    community: "Night Scene",
-    views: 19870,
-    timeAgo: "4d ago",
-    duration: "35:44",
-    price: 2000,
-    thumbnail: "https://images.unsplash.com/photo-1566737236500-c8ac43014a67?w=400&h=225&fit=crop",
-    avatar: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=50&h=50&fit=crop",
-  },
-];
+type CommunityRow = {
+  id: number;
+  name: string;
+  members: number;
+  thumbnail: string;
+  online?: boolean;
+  category?: string;
+  isOfficial?: boolean;
+};
 
 function formatNum(n: number): string {
   if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
@@ -79,7 +57,7 @@ function RankBadge({ rank }: { rank: number }) {
   );
 }
 
-function CommunityRankCard({ item, index }: { item: typeof COMMUNITIES[0]; index: number }) {
+function CommunityRankCard({ item, index }: { item: CommunityRow; index: number }) {
   return (
     <Pressable
       style={styles.rankCard}
@@ -88,6 +66,11 @@ function CommunityRankCard({ item, index }: { item: typeof COMMUNITIES[0]; index
       <Image source={{ uri: item.thumbnail }} style={styles.rankCardImage} contentFit="cover" />
       <View style={styles.rankCardOverlay} />
       <RankBadge rank={index + 1} />
+      {item.isOfficial ? (
+        <View style={styles.officialChip}>
+          <Text style={styles.officialChipText}>OFFICIAL</Text>
+        </View>
+      ) : null}
       {item.online && (
         <View style={styles.onlineChip}>
           <View style={styles.onlineDot} />
@@ -105,19 +88,11 @@ function CommunityRankCard({ item, index }: { item: typeof COMMUNITIES[0]; index
   );
 }
 
-function PurchaseRankCard({
-  item,
-  isDemo,
-}: {
-  item: (typeof RANKED_VIDEOS[0]) | (typeof PURCHASE_EXTRAS[0]) | any;
-  isDemo: boolean;
-}) {
+function PurchaseRankCard({ item }: { item: any }) {
   return (
     <Pressable
       style={styles.purchaseCard}
-      onPress={() =>
-        router.push(isDemo ? (`/video/${item.id}?demo=1` as any) : (`/video/${item.id}` as any))
-      }
+      onPress={() => router.push(`/video/${item.id}` as any)}
     >
       <Image source={{ uri: item.thumbnail }} style={styles.purchaseCardImage} contentFit="cover" />
       <View style={styles.purchaseCardOverlay} />
@@ -151,29 +126,29 @@ export default function CommunityScreen() {
   const topInset = getTabTopInset(insets);
   const bottomInset = getTabBottomInset();
   const [search, setSearch] = useState("");
-  const [purchaseTab, setPurchaseTab] = useState<PurchaseTab>("Weekly");
 
-  const { data: apiCommunities = [] } = useQuery<any[]>({
+  const { data: apiCommunities = [], isLoading: communitiesLoading } = useQuery<any[]>({
     queryKey: ["/api/communities"],
   });
 
-  const usingDemoCommunities = apiCommunities.length === 0;
-  const sourceCommunities = usingDemoCommunities ? COMMUNITIES : apiCommunities;
-  const sortedCommunities = [...sourceCommunities].sort((a, b) => b.members - a.members);
+  const { sortedOfficial, sortedRest, sortedAll } = useMemo(() => {
+    const sorted = [...apiCommunities].sort((a, b) => {
+      const o = Number(!!b.isOfficial) - Number(!!a.isOfficial);
+      if (o !== 0) return o;
+      return (b.members ?? 0) - (a.members ?? 0);
+    });
+    return {
+      sortedAll: sorted,
+      sortedOfficial: sorted.filter((c) => c.isOfficial),
+      sortedRest: sorted.filter((c) => !c.isOfficial),
+    };
+  }, [apiCommunities]);
 
-  const { data: rankedApiVideos = [] } = useQuery<any[]>({
+  const { data: rankedApiVideos = [], isLoading: rankedLoading } = useQuery<any[]>({
     queryKey: ["/api/videos/ranked"],
   });
 
-  const usingDemoRanked = rankedApiVideos.length === 0;
-
-  const purchaseData = usingDemoRanked
-    ? purchaseTab === "All Time"
-      ? [...RANKED_VIDEOS, ...PURCHASE_EXTRAS]
-      : purchaseTab === "Monthly"
-      ? [...RANKED_VIDEOS.slice(1), PURCHASE_EXTRAS[0], RANKED_VIDEOS[0]]
-      : [...RANKED_VIDEOS, PURCHASE_EXTRAS[1]]
-    : rankedApiVideos;
+  const purchaseData = rankedApiVideos;
 
   const filteredGenres = search
     ? GENRES.filter((g) => g.name.includes(search))
@@ -188,8 +163,8 @@ export default function CommunityScreen() {
       <Pressable style={styles.globalAnnounceCta} onPress={() => router.push("/live-announcements")}>
         <Ionicons name="earth-outline" size={22} color={C.accent} />
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={styles.globalAnnounceTitle}>世界のライブ告知フィード</Text>
-          <Text style={styles.globalAnnounceSub}>全コミュニティの掲示板から横断表示 · タップで開く</Text>
+          <Text style={styles.globalAnnounceTitle}>Global live announcements</Text>
+          <Text style={styles.globalAnnounceSub}>Browse board posts across communities · tap to open</Text>
         </View>
         <Ionicons name="chevron-forward" size={20} color={C.textMuted} />
       </Pressable>
@@ -231,51 +206,73 @@ export default function CommunityScreen() {
           </View>
         </View>
 
+        {sortedOfficial.length > 0 ? (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionAccent} />
+              <Text style={styles.sectionTitle}>Official hubs</Text>
+            </View>
+            {communitiesLoading ? (
+              <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
+            ) : (
+              <FlatList
+                data={sortedOfficial}
+                keyExtractor={(item) => String(item.id)}
+                horizontal
+                showsHorizontalScrollIndicator={scrollShowsHorizontal}
+                contentContainerStyle={styles.hList}
+                renderItem={({ item, index }) => (
+                  <CommunityRankCard item={item} index={index} />
+                )}
+              />
+            )}
+          </View>
+        ) : null}
+
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionAccent} />
-            <Text style={styles.sectionTitle}>Top Communities</Text>
+            <Text style={styles.sectionTitle}>
+              {sortedOfficial.length > 0 ? "More communities" : "Top communities"}
+            </Text>
           </View>
-          <FlatList
-            data={sortedCommunities}
-            keyExtractor={(item) => item.id}
-            horizontal
-            showsHorizontalScrollIndicator={scrollShowsHorizontal}
-            contentContainerStyle={styles.hList}
-            renderItem={({ item, index }) => (
-              <CommunityRankCard item={item} index={index} />
-            )}
-          />
+          {communitiesLoading ? (
+            <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
+          ) : sortedAll.length === 0 ? (
+            <Text style={styles.emptyInline}>No communities yet</Text>
+          ) : (
+            <FlatList
+              data={sortedOfficial.length > 0 ? sortedRest : sortedAll}
+              keyExtractor={(item) => String(item.id)}
+              horizontal
+              showsHorizontalScrollIndicator={scrollShowsHorizontal}
+              contentContainerStyle={styles.hList}
+              renderItem={({ item, index }) => (
+                <CommunityRankCard item={item} index={index} />
+              )}
+            />
+          )}
         </View>
 
         <View style={styles.section}>
-          <View style={styles.sectionHeaderRow}>
-            <View style={styles.sectionHeaderLeft}>
-              <View style={styles.sectionAccent} />
-              <Text style={styles.sectionTitle}>Jukebox Chart</Text>
-            </View>
-            <View style={styles.tabPills}>
-              {PURCHASE_TABS.map((tab) => (
-                <Pressable
-                  key={tab}
-                  style={[styles.tabPill, purchaseTab === tab && styles.tabPillActive]}
-                  onPress={() => setPurchaseTab(tab)}
-                >
-                  <Text style={[styles.tabPillText, purchaseTab === tab && styles.tabPillTextActive]}>
-                    {tab}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionAccent} />
+            <Text style={styles.sectionTitle}>Jukebox chart</Text>
           </View>
-          <FlatList
-            data={purchaseData}
-            keyExtractor={(item) => item.id + purchaseTab}
-            horizontal
-            showsHorizontalScrollIndicator={scrollShowsHorizontal}
-            contentContainerStyle={styles.hList}
-            renderItem={({ item }) => <PurchaseRankCard item={item} isDemo={usingDemoRanked} />}
-          />
+          {rankedLoading ? (
+            <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
+          ) : purchaseData.length === 0 ? (
+            <Text style={styles.emptyInline}>No chart entries yet</Text>
+          ) : (
+            <FlatList
+              data={purchaseData}
+              keyExtractor={(item) => String(item.id)}
+              horizontal
+              showsHorizontalScrollIndicator={scrollShowsHorizontal}
+              contentContainerStyle={styles.hList}
+              renderItem={({ item }) => <PurchaseRankCard item={item} />}
+            />
+          )}
         </View>
 
         <View style={{ height: 100 }} />
@@ -355,19 +352,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginTop: 20,
   },
-  sectionHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    marginBottom: 8,
-    marginTop: 20,
-  },
-  sectionHeaderLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
   sectionAccent: {
     width: 3,
     height: 16,
@@ -432,6 +416,23 @@ const styles = StyleSheet.create({
   rankBadgeText: {
     fontSize: 11,
     fontWeight: "800",
+  },
+  officialChip: {
+    position: "absolute",
+    top: 36,
+    left: 8,
+    backgroundColor: "rgba(0,0,0,0.75)",
+    borderRadius: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: C.accent + "99",
+  },
+  officialChipText: {
+    color: C.accent,
+    fontSize: 8,
+    fontWeight: "900",
+    letterSpacing: 0.6,
   },
   onlineChip: {
     position: "absolute",
@@ -539,28 +540,10 @@ const styles = StyleSheet.create({
     fontSize: 10,
     flex: 1,
   },
-  tabPills: {
-    flexDirection: "row",
-    backgroundColor: C.surface,
-    borderRadius: 3,
-    padding: 2,
-    gap: 2,
-  },
-  tabPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 2,
-  },
-  tabPillActive: {
-    backgroundColor: C.accent,
-  },
-  tabPillText: {
+  emptyInline: {
     color: C.textMuted,
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  tabPillTextActive: {
-    color: "#fff",
-    fontWeight: "700",
+    fontSize: 13,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
 });

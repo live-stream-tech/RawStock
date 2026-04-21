@@ -34,7 +34,7 @@ type Props = {
 function formatWhen(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 export function GlobalLiveAnnouncementsFeed({ searchQuery = "", onSearchQueryChange, bottomInset = 0 }: Props) {
@@ -66,7 +66,7 @@ export function GlobalLiveAnnouncementsFeed({ searchQuery = "", onSearchQueryCha
 
   const intro = useMemo(
     () =>
-      "各コミュニティの掲示板から、配信・ライブ・イベントっぽい告知を横断表示しています。ここを起点に世界中の告知を追えます。",
+      "Cross-community board posts that look like streams, lives, or events. Use this feed to scan announcements from everywhere on RawStock.",
     [],
   );
 
@@ -77,7 +77,7 @@ export function GlobalLiveAnnouncementsFeed({ searchQuery = "", onSearchQueryCha
           <Ionicons name="search-outline" size={18} color={C.textMuted} />
           <TextInput
             style={styles.searchInput}
-            placeholder="コミュニティ名・タイトル・本文で検索"
+            placeholder="Search by community, title, or body"
             placeholderTextColor={C.textMuted}
             value={localQ}
             onChangeText={setLocalQ}
@@ -98,19 +98,19 @@ export function GlobalLiveAnnouncementsFeed({ searchQuery = "", onSearchQueryCha
       <Pressable style={[styles.filterChip, liveOnly && styles.filterChipOn]} onPress={() => setLiveOnly((v) => !v)}>
         <Ionicons name="radio-outline" size={16} color={liveOnly ? "#000" : C.textMuted} />
         <Text style={[styles.filterChipText, liveOnly && styles.filterChipTextOn]}>
-          配信・ライブ関連っぽい告知に絞る
+          Live / stream-like posts only
         </Text>
       </Pressable>
 
       <View style={styles.toolbar}>
-        <Text style={styles.countLabel}>{isLoading ? "…" : `${data.length} 件`}</Text>
+        <Text style={styles.countLabel}>{isLoading ? "…" : `${data.length} posts`}</Text>
         <Pressable onPress={() => refetch()} hitSlop={8} style={styles.refreshBtn}>
           {isFetching ? <ActivityIndicator size="small" color={C.accent} /> : <Ionicons name="refresh" size={20} color={C.accent} />}
         </Pressable>
       </View>
 
       {isError ? (
-        <Text style={styles.errorText}>読み込みに失敗しました。ネットワークを確認してください。</Text>
+        <Text style={styles.errorText}>Could not load the feed. Check your connection and try again.</Text>
       ) : null}
 
       <ScrollView
@@ -123,7 +123,7 @@ export function GlobalLiveAnnouncementsFeed({ searchQuery = "", onSearchQueryCha
             <ActivityIndicator color={C.accent} size="large" />
           </View>
         ) : data.length === 0 ? (
-          <Text style={styles.empty}>該当する告知がありません。検索語を変えるか、フィルタをオフにしてください。</Text>
+          <Text style={styles.empty}>No matching posts. Try different keywords or turn off the live filter.</Text>
         ) : (
           data.map((item) => (
             <Pressable
@@ -149,7 +149,7 @@ export function GlobalLiveAnnouncementsFeed({ searchQuery = "", onSearchQueryCha
                 {item.pinned ? (
                   <View style={styles.pinBadge}>
                     <Ionicons name="pin" size={11} color={C.orange} />
-                    <Text style={styles.pinText}>固定</Text>
+                    <Text style={styles.pinText}>Pinned</Text>
                   </View>
                 ) : null}
                 <Text style={styles.title} numberOfLines={3}>

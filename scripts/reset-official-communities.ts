@@ -228,8 +228,8 @@ async function main() {
       const adminUserId = adminUserIds[i % adminUserIds.length];
       const commRes = await client.query(
         `INSERT INTO communities
-          (name, members, thumbnail, online, category, admin_id, owner_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+          (name, members, thumbnail, online, category, admin_id, owner_id, is_official)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, true)
          RETURNING id`,
         [
           community.name,
