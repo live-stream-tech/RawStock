@@ -337,3 +337,34 @@ npx vercel env add EXPO_PUBLIC_DOMAIN preview <ブランチ名> --value "https:/
 
 - lineId: `demo_account`, userId: 160
 - 本番環境では無効化済み
+
+---
+
+## 公式コミュニティ再構築（運用）
+
+- 目的: 既存のダミー系コミュニティを一度クリアし、公式コミュニティ10件へ入れ替える。
+- 実行コマンド: `npm run db:reset-official-communities`
+- 実体スクリプト: `scripts/reset-official-communities.ts`
+
+### 仕様
+
+- コミュニティ関連データ（投稿・Jukebox・広告・動画・関連ランキング等）を削除してから再投入する。
+- 公式コミュニティは以下10件:
+  1. Underground Hip-Hop
+  2. Mainstream Hip-Hop / Dancehall
+  3. Reggae / Dub
+  4. R&B / Neo Soul
+  5. Punk / Hardcore
+  6. Metal / Loud
+  7. Shoegaze / Indie Rock
+  8. Techno / House
+  9. Drum & Bass / UK Bass
+  10. Classical
+- 画像は Unsplash のフリー素材 URL を使用。
+- 各コミュニティに「ライブ情報投稿用」の pinned スレッドを1件自動作成。
+- `ADMIN` / `MODERATOR` ユーザーが存在する場合はローテーションで管理者割当。存在しない場合は最初のユーザーをフォールバック。
+
+### 注意
+
+- 本スクリプトは「差分更新」ではなく「再構築」なので、既存コミュニティに紐づくデータは削除される。
+- 実行前に必要であれば DB バックアップを取得すること。
