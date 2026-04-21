@@ -138,33 +138,48 @@ const OFFICIAL_COMMUNITIES: OfficialCommunity[] = [
   },
 ];
 
-const DELETE_STATEMENTS = [
-  "DELETE FROM reports WHERE content_type IN ('video', 'comment')",
-  "DELETE FROM video_comments",
-  "DELETE FROM community_thread_posts",
-  "DELETE FROM community_poll_votes",
-  "DELETE FROM community_poll_options",
-  "DELETE FROM community_polls",
-  "DELETE FROM community_threads",
-  "DELETE FROM jukebox_queue",
-  "DELETE FROM jukebox_state",
-  "DELETE FROM jukebox_chat",
-  "DELETE FROM videos",
-  "DELETE FROM community_moderators",
-  "DELETE FROM community_members",
-  "DELETE FROM community_votes",
-  "DELETE FROM community_ads",
-  "DELETE FROM video_editors",
-  "DELETE FROM communities",
-  "DELETE FROM genre_ads",
-  "DELETE FROM genre_owners",
-  "DELETE FROM liver_reviews",
-  "DELETE FROM liver_availability",
-  "DELETE FROM mentor_bookings",
-  "DELETE FROM booking_sessions",
-  "DELETE FROM live_streams",
-  "DELETE FROM creators",
+const DELETE_STATEMENTS: Array<{ table: string; sql: string }> = [
+  { table: "reports", sql: "DELETE FROM reports WHERE content_type IN ('video', 'comment')" },
+  { table: "video_comments", sql: "DELETE FROM video_comments" },
+  { table: "community_thread_posts", sql: "DELETE FROM community_thread_posts" },
+  { table: "community_poll_votes", sql: "DELETE FROM community_poll_votes" },
+  { table: "community_poll_options", sql: "DELETE FROM community_poll_options" },
+  { table: "community_polls", sql: "DELETE FROM community_polls" },
+  { table: "community_threads", sql: "DELETE FROM community_threads" },
+  { table: "jukebox_queue", sql: "DELETE FROM jukebox_queue" },
+  { table: "jukebox_state", sql: "DELETE FROM jukebox_state" },
+  { table: "jukebox_chat", sql: "DELETE FROM jukebox_chat" },
+  { table: "videos", sql: "DELETE FROM videos" },
+  { table: "community_moderators", sql: "DELETE FROM community_moderators" },
+  { table: "community_members", sql: "DELETE FROM community_members" },
+  { table: "community_votes", sql: "DELETE FROM community_votes" },
+  { table: "community_ads", sql: "DELETE FROM community_ads" },
+  { table: "video_editors", sql: "DELETE FROM video_editors" },
+  { table: "communities", sql: "DELETE FROM communities" },
+  { table: "genre_ads", sql: "DELETE FROM genre_ads" },
+  { table: "genre_owners", sql: "DELETE FROM genre_owners" },
+  { table: "liver_reviews", sql: "DELETE FROM liver_reviews" },
+  { table: "liver_availability", sql: "DELETE FROM liver_availability" },
+  { table: "mentor_bookings", sql: "DELETE FROM mentor_bookings" },
+  { table: "booking_sessions", sql: "DELETE FROM booking_sessions" },
+  { table: "live_streams", sql: "DELETE FROM live_streams" },
+  { table: "creators", sql: "DELETE FROM creators" },
 ];
+
+async function deleteIfTableExists(
+  client: Awaited<ReturnType<Pool["connect"]>>,
+  table: string,
+  sql: string
+) {
+  const existsRes = await client.query("SELECT to_regclass($1) AS table_name", [table]);
+  const exists = Boolean(existsRes.rows[0]?.table_name);
+  if (!exists) {
+    console.log(`  - ${table}: テーブル未作成のためスキップ`);
+    return;
+  }
+  const res = await client.query(sql);
+  console.log(`  ✓ ${table}: ${res.rowCount ?? 0} 行削除`);
+}
 
 async function pickAdminUserIds(): Promise<number[]> {
   const client = await pool.connect();
@@ -203,10 +218,8 @@ async function main() {
     await client.query("BEGIN");
 
     console.log("🧹 既存コミュニティ関連データを削除中...");
-    for (const sql of DELETE_STATEMENTS) {
-      const res = await client.query(sql);
-      const table = sql.match(/DELETE FROM (\w+)/)?.[1] ?? "?";
-      console.log(`  ✓ ${table}: ${res.rowCount ?? 0} 行削除`);
+    for (const item of DELETE_STATEMENTS) {
+      await deleteIfTableExists(client, item.table, item.sql);
     }
 
     console.log("\n🏘️ 公式コミュニティ10件を投入中...");
