@@ -24,6 +24,7 @@
     "api:audit": "node scripts/audit-api-routes.mjs",
     "db:push": "drizzle-kit push",
     "db:seed-demo": "npx tsx scripts/seed-demo.ts",
+    "db:reset-official-communities": "npx tsx scripts/reset-official-communities.ts",
     "db:wipe-demo": "npx tsx server/scripts/wipe-communities-genres-videos.ts",
     "start": "npx expo start",
     "lint": "npx expo lint",
