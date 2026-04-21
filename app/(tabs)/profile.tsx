@@ -883,22 +883,22 @@ export default function ProfileScreen() {
         {searchDebounced.length > 0 && searchResults.length > 0 && (
           <View style={styles.searchResults}>
             {searchResults.slice(0, 8).map((liver) => (
-              <Pressable
-                key={liver.id}
-                style={styles.searchResultRow}
-                onPress={() => router.push(`/livers/${liver.id}`)}
-              >
-                <Image source={{ uri: liver.avatar }} style={styles.searchResultAvatar} contentFit="cover" />
-                <View style={styles.searchResultBody}>
+              <View key={liver.id} style={styles.searchResultRow}>
+                <Pressable onPress={() => router.push(`/livers/${liver.id}`)} hitSlop={4}>
+                  <Image source={{ uri: liver.avatar }} style={styles.searchResultAvatar} contentFit="cover" />
+                </Pressable>
+                <Pressable style={styles.searchResultBody} onPress={() => router.push(`/livers/${liver.id}`)}>
                   <Text style={styles.searchResultName} numberOfLines={1}>
                     {liver.name}
                   </Text>
                   <Text style={styles.searchResultMeta} numberOfLines={1}>
                     {liver.community} / {liver.category}
                   </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
-              </Pressable>
+                </Pressable>
+                <Pressable onPress={() => router.push(`/livers/${liver.id}`)} hitSlop={8}>
+                  <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+                </Pressable>
+              </View>
             ))}
           </View>
         )}

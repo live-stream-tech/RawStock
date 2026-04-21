@@ -6,7 +6,7 @@
     "node": "20.x"
   },
   "scripts": {
-    "postinstall": "patch-package && node scripts/sync-deepar-assets.mjs",
+    "postinstall": "patch-package",
     "dev": "npx expo start --localhost",
     "dev:local": "concurrently --names \"server,expo\" --prefix-colors \"cyan,green\" \"npm run server:dev\" \"npm run expo:dev\"",
     "web": "npx expo start --web --localhost",
@@ -47,7 +47,6 @@
     "@upstash/redis": "^1.37.0",
     "@vercel/node": "^3.2.0",
     "bcryptjs": "^3.0.3",
-    "deepar": "^5.6.21",
     "dotenv": "^17.3.1",
     "drizzle-orm": "^0.39.3",
     "drizzle-zod": "^0.7.1",

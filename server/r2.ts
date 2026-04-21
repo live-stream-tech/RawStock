@@ -19,12 +19,16 @@ const r2Client =
           accessKeyId,
           secretAccessKey,
         },
+        // R2 / S3 互換では path-style が安定（署名 URL とブラウザ PUT の不一致を防ぐ）
+        forcePathStyle: true,
       })
     : null;
 
 export async function createSignedUploadUrl(key: string, contentType: string) {
   if (!r2Client || !endpoint || !bucket) {
-    throw new Error("R2 クライアントが正しく設定されていません");
+    throw new Error(
+      "R2 is not configured. Set R2_ENDPOINT, R2_BUCKET_NAME, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY.",
+    );
   }
 
   const cmd = new PutObjectCommand({
@@ -35,7 +39,11 @@ export async function createSignedUploadUrl(key: string, contentType: string) {
 
   const uploadUrl = await getSignedUrl(r2Client, cmd, { expiresIn: 60 * 5 });
 
-  const publicUrl = `${endpoint.replace(/\/$/, "")}/${bucket}/${key}`;
+  /** ブラウザから読める公開 URL（R2.dev / カスタムドメイン）。未設定時は API エンドポイント直下の path-style URL */
+  const publicBase = process.env.R2_PUBLIC_BASE_URL?.trim();
+  const publicUrl = publicBase
+    ? `${publicBase.replace(/\/$/, "")}/${key}`
+    : `${endpoint.replace(/\/$/, "")}/${bucket}/${key}`;
 
   return { uploadUrl, publicUrl };
 }

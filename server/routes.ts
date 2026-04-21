@@ -50,11 +50,13 @@ import {
   jukeboxRequestCounts,
   ticketBalances,
   ticketTransactions,
+  twoShotReservations,
   streamPaidAccess,
   TICKET_PACKS,
   bannerAds,
   dailyLogins,
   aiEditJobs,
+  editingRequests,
   userFollows,
   dmThreads,
   dmThreadMessages,
@@ -85,17 +87,30 @@ import { getUncachableStripeClient, getStripePublishableKey, createConnectExpres
 import { getCreatorMonthlyRankings, getMonthlyRevenueRank, runMonthlyCreatorAggregation } from "./aggregateRevenue";
 import { judgeReportContent } from "./claudeReport";
 import { generateEditPlan, type EditJobInput } from "./aiEditAssistant";
+import type { EditPlan } from "../shared/ai-edit";
 import { normalizeVideoSpecPayload, parseStoredVideoSpec } from "./lib/parseVideoSpec";
+import { buildAIEditStoredResult, parseAIEditStoredResult } from "./lib/aiEditArtifacts";
+import { enqueueAIEditJob } from "./lib/aiEditJobQueue";
+import {
+  claimAndProcessNextPendingAIEditJob,
+  processAIEditJobInline,
+  runAIEditPlanWorker,
+  useAIEditMemoryQueue,
+} from "./lib/aiEditPlanWorker";
+import { creditTicketsFromTicketCheckoutSession } from "./lib/stripeTicketPurchase";
+import { computeWithdrawalFeeBreakdown, getWithdrawalFeePolicy } from "./lib/withdrawalFees";
 import { dslToTemplated } from "./lib/dslToTemplated";
 import { createTemplatedRender } from "./lib/templatedClient";
 import { createSignedUploadUrl } from "./r2";
 import { moderateContent } from "./moderation";
 import { detectContentLang } from "./langFromText";
+import { translateText } from "./lib/translate";
 import { debugIngestServer } from "./debugIngest";
 import { LEGAL_PRIVACY_VERSION, LEGAL_TERMS_VERSION } from "../constants/legalVersions";
 import { publishJukeboxEvent, redis, jukeboxChannel, subscribeJukeboxEvents } from "./redis";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
+import type Stripe from "stripe";
 
 const JWT_SECRET = process.env.SESSION_SECRET ?? "livestage-dev-secret";
 const CLOUDFLARE_ACCOUNT_ID = (process.env.CLOUDFLARE_ACCOUNT_ID ?? "").trim();
@@ -181,6 +196,50 @@ function queryStr(req: Request, key: string): string {
   return typeof v === "string" ? v : "";
 }
 
+/** ISO 639-1 として許容する翻訳宛先言語（Auth・自動翻訳の両方で利用） */
+const SUPPORTED_PREFERRED_LANGUAGES = new Set([
+  "en", "ja", "ko", "zh", "es", "fr", "de", "pt", "it", "vi", "th", "id", "ru", "ar",
+]);
+
+function normalizePreferredLanguage(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const lower = value.trim().toLowerCase();
+  if (!lower) return null;
+  // ja-JP のような BCP-47 を ISO 639-1 へ縮約
+  const base = lower.split(/[-_]/u)[0];
+  return SUPPORTED_PREFERRED_LANGUAGES.has(base) ? base : null;
+}
+
+/** Accept-Language ヘッダから第一希望の言語を抽出（preferredLanguage 未指定時のフォールバック） */
+function preferredLanguageFromHeader(req: Request): string | null {
+  const raw = (req.headers["accept-language"] ?? "") as string;
+  if (!raw) return null;
+  const first = raw.split(",")[0]?.trim();
+  return normalizePreferredLanguage(first);
+}
+
+/** 翻訳エンドポイントの簡易レート制限（ユーザーごと、1 分 30 リクエスト） */
+const TRANSLATE_RATE_WINDOW_MS = 60_000;
+const TRANSLATE_RATE_LIMIT = 30;
+const translateRateBuckets = new Map<number, { windowStart: number; count: number }>();
+
+function checkTranslateRateLimit(userId: number): { ok: boolean; retryAfterSec?: number } {
+  const now = Date.now();
+  const bucket = translateRateBuckets.get(userId);
+  if (!bucket || now - bucket.windowStart >= TRANSLATE_RATE_WINDOW_MS) {
+    translateRateBuckets.set(userId, { windowStart: now, count: 1 });
+    return { ok: true };
+  }
+  if (bucket.count >= TRANSLATE_RATE_LIMIT) {
+    const retryAfterSec = Math.ceil(
+      (TRANSLATE_RATE_WINDOW_MS - (now - bucket.windowStart)) / 1000,
+    );
+    return { ok: false, retryAfterSec };
+  }
+  bucket.count += 1;
+  return { ok: true };
+}
+
 async function getAuthUser(req: Request): Promise<{
   id: number;
   displayName: string;
@@ -190,6 +249,7 @@ async function getAuthUser(req: Request): Promise<{
   bio: string;
   stripeConnectId: string | null;
   lastContentLang: string | null;
+  preferredLanguage: string | null;
   termsAcceptedVersion?: string | null;
   termsAcceptedAt?: Date | null;
   privacyAcceptedVersion?: string | null;
@@ -227,6 +287,7 @@ async function getAuthUser(req: Request): Promise<{
       ...user,
       avatar: user.profileImageUrl,
       lastContentLang: user.lastContentLang ?? null,
+      preferredLanguage: (user as { preferredLanguage?: string | null }).preferredLanguage ?? null,
     };
   } catch {
     return null;
@@ -626,6 +687,19 @@ async function creatorRowForUserId(executor: DbOrTx, userId: number) {
   return row;
 }
 
+/** 有料動画の売上分配先 users.id（videos.user_id 優先、無ければ creator 表示名で users を照会）。hidden は除外 */
+async function resolveVideoSellerUserId(executor: DbOrTx, videoId: number): Promise<number | null> {
+  const [row] = await executor.select().from(videos).where(eq(videos.id, videoId)).limit(1);
+  if (!row || row.hidden) return null;
+  if (row.userId != null && Number.isInteger(row.userId) && row.userId > 0) return row.userId;
+  const [creatorUser] = await executor
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.displayName, row.creator))
+    .limit(1);
+  return creatorUser?.id ?? null;
+}
+
 export async function registerRoutes(app: Express): Promise<void> {
   await promoteAdminByEmail();
 
@@ -646,6 +720,9 @@ export async function registerRoutes(app: Express): Promise<void> {
     const hash = await bcrypt.hash(password, 10);
     const displayName = name || email.split("@")[0];
     const lineId = `email:${email}`;
+    const preferredLanguage =
+      normalizePreferredLanguage(req.body?.preferredLanguage) ??
+      preferredLanguageFromHeader(req);
     const [user] = await db.insert(users).values({
       lineId,
       displayName,
@@ -653,11 +730,20 @@ export async function registerRoutes(app: Express): Promise<void> {
       passwordHash: hash,
       role: "USER",
       bio: "",
+      preferredLanguage,
     } as typeof users.$inferInsert).returning();
     await promoteAdminByEmail({ id: user.id, email: user.email });
     await sendWelcomeDmIfNeeded(user.id);
     const token = makeToken(user.id);
-    res.json({ token, user: { id: user.id, name: user.displayName, email: user.email } });
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        name: user.displayName,
+        email: user.email,
+        preferredLanguage: user.preferredLanguage ?? null,
+      },
+    });
   });
 
   /** Demo login removed for production launch; keep route so old clients get a clear error. */
@@ -681,8 +767,48 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
     await promoteAdminByEmail({ id: user.id, email: user.email });
     await sendWelcomeDmIfNeeded(user.id);
+    // 既存ユーザーで preferredLanguage 未設定なら、送信値 or Accept-Language で初期化
+    let preferredLanguage = user.preferredLanguage ?? null;
+    if (!preferredLanguage) {
+      const guess =
+        normalizePreferredLanguage(req.body?.preferredLanguage) ??
+        preferredLanguageFromHeader(req);
+      if (guess) {
+        try {
+          await db
+            .update(users)
+            .set({ preferredLanguage: guess, updatedAt: new Date() } as Partial<InferSelectModel<typeof users>>)
+            .where(eq(users.id, user.id));
+          preferredLanguage = guess;
+        } catch (e) {
+          console.warn("login preferredLanguage backfill failed", e);
+        }
+      }
+    } else {
+      // ログインボディで明示指定された場合は上書き許可
+      const explicit = normalizePreferredLanguage(req.body?.preferredLanguage);
+      if (explicit && explicit !== preferredLanguage) {
+        try {
+          await db
+            .update(users)
+            .set({ preferredLanguage: explicit, updatedAt: new Date() } as Partial<InferSelectModel<typeof users>>)
+            .where(eq(users.id, user.id));
+          preferredLanguage = explicit;
+        } catch (e) {
+          console.warn("login preferredLanguage update failed", e);
+        }
+      }
+    }
     const token = makeToken(user.id);
-    res.json({ token, user: { id: user.id, name: user.displayName, email: user.email } });
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        name: user.displayName,
+        email: user.email,
+        preferredLanguage,
+      },
+    });
   });
 
   // ── Auth ──────────────────────────────────────────────
@@ -711,6 +837,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       role: user.role,
       bio: user.bio,
       lastContentLang: user.lastContentLang ?? null,
+      preferredLanguage: user.preferredLanguage ?? null,
       stripeConnectId: user.stripeConnectId ?? null,
       payoutTermsAgreedAt: payoutTermsAt ? new Date(payoutTermsAt).toISOString() : null,
       spotifyUrl: (user as any).spotifyUrl ?? null,
@@ -722,6 +849,93 @@ export async function registerRoutes(app: Express): Promise<void> {
       phoneNumber: (user as any).phoneNumber ?? null,
       pinnedCommunityIds,
       ...policyFieldsForApi(user),
+    });
+  });
+
+  // ── 自動翻訳（手動トリガー） ────────────────────────────────
+  app.get("/api/translate/preferred-language", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    res.json({
+      preferredLanguage: user.preferredLanguage ?? null,
+      lastContentLang: user.lastContentLang ?? null,
+      supported: Array.from(SUPPORTED_PREFERRED_LANGUAGES),
+    });
+  });
+
+  app.patch("/api/translate/preferred-language", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const next = normalizePreferredLanguage(req.body?.preferredLanguage);
+    if (!next) {
+      return res.status(400).json({
+        error: "Unsupported language",
+        supported: Array.from(SUPPORTED_PREFERRED_LANGUAGES),
+      });
+    }
+    await db
+      .update(users)
+      .set({ preferredLanguage: next, updatedAt: new Date() } as Partial<InferSelectModel<typeof users>>)
+      .where(eq(users.id, user.id));
+    res.json({ preferredLanguage: next });
+  });
+
+  app.post("/api/translate", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+
+    const limit = checkTranslateRateLimit(user.id);
+    if (!limit.ok) {
+      if (limit.retryAfterSec) res.setHeader("Retry-After", String(limit.retryAfterSec));
+      return res.status(429).json({
+        error: "Too many translation requests",
+        retryAfterSec: limit.retryAfterSec,
+      });
+    }
+
+    const text = typeof req.body?.text === "string" ? req.body.text : "";
+    if (!text.trim()) {
+      return res.status(400).json({ error: "text is required" });
+    }
+    const MAX_TRANSLATE_LENGTH = 5000;
+    if (text.length > MAX_TRANSLATE_LENGTH) {
+      return res.status(413).json({
+        error: `text exceeds ${MAX_TRANSLATE_LENGTH} chars`,
+      });
+    }
+
+    const explicitDst = normalizePreferredLanguage(req.body?.dstLang);
+    const dstLang = explicitDst ?? user.preferredLanguage ?? preferredLanguageFromHeader(req) ?? "en";
+
+    const explicitSrc = normalizePreferredLanguage(req.body?.srcLang);
+    let srcLang = explicitSrc ?? null;
+    if (!srcLang) {
+      const detected = await detectContentLang(text);
+      srcLang = detected ?? null;
+    }
+    if (!srcLang) {
+      // 検知不能。dstLang と同じと仮定して原文返却（エンジン無駄打ち防止）
+      return res.json({
+        text,
+        srcLang: null,
+        dstLang,
+        skipped: true,
+        skipReason: "src_unknown",
+        engine: "mymemory",
+        fromCache: false,
+      });
+    }
+
+    const result = await translateText({ text, srcLang, dstLang });
+    res.json({
+      text: result.text,
+      srcLang,
+      dstLang,
+      skipped: result.skipped,
+      skipReason: result.skipReason ?? null,
+      fromCache: result.fromCache,
+      engine: result.engine,
+      error: result.error ?? false,
     });
   });
 
@@ -954,6 +1168,183 @@ export async function registerRoutes(app: Express): Promise<void> {
       console.error("Banner confirm-session error:", e);
       res.status(500).json({ error: e.message ?? "Failed to confirm payment" });
     }
+  });
+
+  // ── 2-shot (1:1) paid session — mock slots + Stripe Checkout + webhook confirmation ──
+  function buildMockTwoShotSlots(hostId: number): {
+    slotKey: string;
+    label: string;
+    scheduledAt: string;
+    durationMinutes: number;
+    priceJpy: number;
+  }[] {
+    const d1 = new Date();
+    d1.setUTCDate(d1.getUTCDate() + 1);
+    d1.setUTCHours(11, 0, 0, 0);
+    const d2 = new Date(d1);
+    d2.setUTCDate(d2.getUTCDate() + 1);
+    d2.setUTCHours(18, 0, 0, 0);
+    const d3 = new Date(d1);
+    d3.setUTCDate(d3.getUTCDate() + 3);
+    d3.setUTCHours(12, 30, 0, 0);
+    return [
+      { slotKey: `${hostId}-slot-a`, label: "Tomorrow 20:00 JST (30 min)", scheduledAt: d1.toISOString(), durationMinutes: 30, priceJpy: 3000 },
+      { slotKey: `${hostId}-slot-b`, label: "Day after · Evening (30 min)", scheduledAt: d2.toISOString(), durationMinutes: 30, priceJpy: 3000 },
+      { slotKey: `${hostId}-slot-c`, label: "+3 days · Noon (45 min)", scheduledAt: d3.toISOString(), durationMinutes: 45, priceJpy: 4500 },
+    ];
+  }
+
+  app.get("/api/two-shot/slots", async (req: Request, res: Response) => {
+    const hostId = parseInt(String((req as any).query?.hostId ?? ""), 10);
+    if (!Number.isFinite(hostId) || hostId <= 0) {
+      return res.status(400).json({ error: "hostId is required" });
+    }
+    const [host] = await db.select({ id: users.id }).from(users).where(eq(users.id, hostId)).limit(1);
+    if (!host) return res.status(404).json({ error: "Host not found" });
+    return res.json({ hostId, slots: buildMockTwoShotSlots(hostId) });
+  });
+
+  app.get("/api/two-shot/reservations/:id", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const id = paramNum(req, "id");
+    const [row] = await db.select().from(twoShotReservations).where(eq(twoShotReservations.id, id)).limit(1);
+    if (!row) return res.status(404).json({ error: "Not found" });
+    if (row.hostUserId !== user.id && row.guestUserId !== user.id) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    return res.json(row);
+  });
+
+  app.post("/api/checkout/2shot", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const { hostId, slotKey, origin } = req.body as {
+      hostId?: number;
+      slotKey?: string;
+      origin?: string;
+    };
+    if (!hostId || hostId <= 0 || !slotKey || typeof slotKey !== "string") {
+      return res.status(400).json({ error: "hostId and slotKey are required" });
+    }
+    if (hostId === user.id) {
+      return res.status(400).json({ error: "You cannot book your own slot" });
+    }
+    const [host] = await db.select({ id: users.id }).from(users).where(eq(users.id, hostId)).limit(1);
+    if (!host) return res.status(404).json({ error: "Host not found" });
+
+    const slots = buildMockTwoShotSlots(hostId);
+    const slot = slots.find((s) => s.slotKey === slotKey);
+    if (!slot) return res.status(400).json({ error: "Invalid slot" });
+
+    const baseOrigin = (typeof origin === "string" && origin.startsWith("http") ? origin : resolvePublicAppOrigin()).replace(
+      /\/$/,
+      "",
+    );
+
+    try {
+      const stripe = await getUncachableStripeClient();
+      const [reservation] = await db
+        .insert(twoShotReservations)
+        .values({
+          hostUserId: hostId,
+          guestUserId: user.id,
+          scheduledAt: new Date(slot.scheduledAt),
+          durationMinutes: slot.durationMinutes,
+          status: "PENDING",
+          slotKey: slot.slotKey,
+        } as typeof twoShotReservations.$inferInsert)
+        .returning();
+
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        line_items: [
+          {
+            price_data: {
+              currency: "jpy",
+              unit_amount: slot.priceJpy,
+              product_data: {
+                name: `2-shot session · ${slot.label}`,
+                description: `Host #${hostId} — 1:1 paid stream (reservation #${reservation.id})`,
+              },
+            },
+            quantity: 1,
+          },
+        ],
+        mode: "payment",
+        success_url: `${baseOrigin}/two-shot/success?reservationId=${reservation.id}&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${baseOrigin}/two-shot/reserve?hostId=${hostId}`,
+        client_reference_id: String(reservation.id),
+        metadata: {
+          type: "two_shot_reservation",
+          reservationId: String(reservation.id),
+          hostUserId: String(hostId),
+          guestUserId: String(user.id),
+        },
+      });
+
+      await db
+        .update(twoShotReservations)
+        .set({ stripeCheckoutSessionId: session.id } as Partial<InferSelectModel<typeof twoShotReservations>>)
+        .where(eq(twoShotReservations.id, reservation.id));
+
+      return res.json({ url: session.url, sessionId: session.id, reservationId: reservation.id });
+    } catch (e: any) {
+      console.error("[checkout/2shot]", e);
+      return res.status(500).json({ error: e?.message ?? "Failed to create checkout session" });
+    }
+  });
+
+  /** Stripe Billing — 2-shot reservations (raw body + signature) */
+  app.post("/api/webhook/stripe", async (req: Request, res: Response) => {
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
+    if (!webhookSecret) {
+      return res.status(503).json({ error: "STRIPE_WEBHOOK_SECRET is not configured" });
+    }
+    const sig = req.headers["stripe-signature"];
+    if (!sig || typeof sig !== "string") {
+      return res.status(400).json({ error: "Missing stripe-signature" });
+    }
+    const buf = req.rawBody;
+    if (!Buffer.isBuffer(buf)) {
+      return res.status(400).json({ error: "Invalid body" });
+    }
+    let event: Stripe.Event;
+    try {
+      const stripe = await getUncachableStripeClient();
+      event = stripe.webhooks.constructEvent(buf, sig, webhookSecret);
+    } catch (err: any) {
+      console.warn("[webhook/stripe] signature failed", err?.message);
+      return res.status(400).send(`Webhook Error: ${err?.message ?? "invalid signature"}`);
+    }
+
+    try {
+      if (event.type === "checkout.session.completed") {
+        const session = event.data.object as Stripe.Checkout.Session;
+        const metaType = session.metadata?.type;
+        if (metaType === "two_shot_reservation") {
+          const rid = parseInt(session.metadata?.reservationId ?? "", 10);
+          if (Number.isFinite(rid) && rid > 0) {
+            await db
+              .update(twoShotReservations)
+              .set({
+                status: "CONFIRMED",
+                stripeCheckoutSessionId: session.id,
+              } as Partial<InferSelectModel<typeof twoShotReservations>>)
+              .where(and(eq(twoShotReservations.id, rid), eq(twoShotReservations.status, "PENDING")));
+          }
+        } else if (metaType === "ticket_purchase" || (session.metadata?.tickets && session.metadata?.userId)) {
+          const ticketCredit = await creditTicketsFromTicketCheckoutSession(db, session);
+          if (ticketCredit.ok && !ticketCredit.alreadyGranted) {
+            console.info("[webhook/stripe] ticket_purchase credited", { sessionId: session.id, userId: ticketCredit.userId });
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[webhook/stripe] handler error", e);
+      return res.status(500).json({ error: "handler failed" });
+    }
+    return res.json({ received: true });
   });
 
   app.put("/api/auth/profile", async (req: Request, res: Response) => {
@@ -1917,17 +2308,112 @@ export async function registerRoutes(app: Express): Promise<void> {
     );
   });
 
+  /** 全コミュニティの掲示板スレッド横断フィード（ライブ告知ハブ・公開読み取り） */
+  app.get("/api/community-announcements/feed", async (_req: Request, res: Response) => {
+    const limit = Math.min(100, Math.max(1, parseInt(String(_req.query.limit ?? "80"), 10) || 80));
+    const qRaw = typeof _req.query.q === "string" ? _req.query.q.trim() : "";
+    const liveOnly =
+      String(_req.query.liveOnly ?? "") === "1" ||
+      String(_req.query.liveOnly ?? "").toLowerCase() === "true";
+
+    const fetchLimit = liveOnly ? Math.min(300, limit * 4) : limit;
+    const rows = await db
+      .select({
+        id: communityThreads.id,
+        communityId: communityThreads.communityId,
+        title: communityThreads.title,
+        body: communityThreads.body,
+        pinned: communityThreads.pinned,
+        createdAt: communityThreads.createdAt,
+        authorUserId: communityThreads.authorUserId,
+        communityName: communities.name,
+        communityCategory: communities.category,
+        communityThumbnail: communities.thumbnail,
+      })
+      .from(communityThreads)
+      .innerJoin(communities, eq(communities.id, communityThreads.communityId))
+      .orderBy(desc(communityThreads.pinned), desc(communityThreads.createdAt))
+      .limit(fetchLimit);
+
+    const liveHints = [
+      "live",
+      "配信",
+      "ライブ",
+      "stream",
+      "twitch",
+      "youtube",
+      "youtu.be",
+      "公演",
+      "concert",
+      "tour",
+      "tiktok",
+      "ticket",
+      "チケット",
+      "streaming",
+      "premiere",
+    ];
+
+    let out = rows;
+    if (qRaw) {
+      const ql = qRaw.toLowerCase();
+      out = out.filter((r) => `${r.title} ${r.body}`.toLowerCase().includes(ql));
+    }
+    if (liveOnly) {
+      out = out.filter((r) => {
+        const blob = `${r.title} ${r.body}`.toLowerCase();
+        return liveHints.some((h) => blob.includes(h));
+      });
+    }
+    out = out.slice(0, limit);
+
+    const authorIds = [...new Set(out.map((r) => r.authorUserId))];
+    const authorRows =
+      authorIds.length > 0
+        ? await db
+            .select({ id: users.id, displayName: users.displayName, profileImageUrl: users.profileImageUrl })
+            .from(users)
+            .where(inArray(users.id, authorIds))
+        : [];
+    const authorMap = new Map(authorRows.map((a) => [a.id, a]));
+
+    res.json(
+      out.map((r) => ({
+        id: r.id,
+        communityId: r.communityId,
+        communityName: r.communityName,
+        communityCategory: r.communityCategory,
+        communityThumbnail: r.communityThumbnail,
+        title: r.title,
+        body: r.body,
+        pinned: r.pinned,
+        createdAt: r.createdAt,
+        authorUserId: r.authorUserId,
+        author: authorMap.get(r.authorUserId) ?? { displayName: "Unknown", profileImageUrl: null },
+      }))
+    );
+  });
+
   app.post("/api/communities/:id/threads", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const [community] = await db.select().from(communities).where(eq(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
-    const memberRows = await db
-      .select()
+    const [memberRow] = await db
+      .select({ id: communityMembers.id })
       .from(communityMembers)
-      .where(and(eq(communityMembers.communityId, communityId), eq(communityMembers.userId, user.id)));
-    if (memberRows.length === 0) return res.status(403).json({ error: "Join the community first" });
+      .where(and(eq(communityMembers.communityId, communityId), eq(communityMembers.userId, user.id)))
+      .limit(1);
+    const isCommunityOwner = community.adminId === user.id;
+    const [boardModRow] = await db
+      .select({ userId: communityModerators.userId })
+      .from(communityModerators)
+      .where(and(eq(communityModerators.communityId, communityId), eq(communityModerators.userId, user.id)))
+      .limit(1);
+    const canPostAsStaff = isCommunityOwner || !!boardModRow || isAdminRole(user.role);
+    if (!memberRow && !canPostAsStaff) {
+      return res.status(403).json({ error: "Join the community first, or post as admin/moderator" });
+    }
     const { title, body } = req.body as { title?: string; body?: string };
     if (!title || !title.trim()) return res.status(400).json({ error: "Please enter a title" });
     // コンテンツモデレーション（タイトル＋本文を結合してチェック)
@@ -2022,11 +2508,23 @@ export async function registerRoutes(app: Express): Promise<void> {
       .from(communityThreads)
       .where(and(eq(communityThreads.communityId, communityId), eq(communityThreads.id, threadId)));
     if (!thread) return res.status(404).json({ message: "Not found" });
-    const memberRows = await db
-      .select()
+    const [memberRow] = await db
+      .select({ id: communityMembers.id })
       .from(communityMembers)
-      .where(and(eq(communityMembers.communityId, communityId), eq(communityMembers.userId, user.id)));
-    if (memberRows.length === 0) return res.status(403).json({ error: "Join the community first" });
+      .where(and(eq(communityMembers.communityId, communityId), eq(communityMembers.userId, user.id)))
+      .limit(1);
+    const [communityForReply] = await db.select().from(communities).where(eq(communities.id, communityId));
+    if (!communityForReply) return res.status(404).json({ message: "Not found" });
+    const isCommunityOwner = communityForReply.adminId === user.id;
+    const [replyModRow] = await db
+      .select({ userId: communityModerators.userId })
+      .from(communityModerators)
+      .where(and(eq(communityModerators.communityId, communityId), eq(communityModerators.userId, user.id)))
+      .limit(1);
+    const canReplyAsStaff = isCommunityOwner || !!replyModRow || isAdminRole(user.role);
+    if (!memberRow && !canReplyAsStaff) {
+      return res.status(403).json({ error: "Join the community first, or reply as admin/moderator" });
+    }
     const { body } = req.body as { body?: string };
     if (!body || !body.trim()) return res.status(400).json({ error: "Please enter body text" });
     // コンテンツモデレーション
@@ -2384,7 +2882,14 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json(editor);
   });
 
+  const EDITOR_REQUEST_TICKET_FEE = 200;
+
   app.post("/api/editors/:id/request", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) {
+      return res.status(401).json({ error: "Sign in required to submit a paid edit request" });
+    }
+
     const editorId = paramNum(req, "id");
     const { requesterName, title, description, priceType, budget, deadline } = req.body as {
       requesterName?: string;
@@ -2410,37 +2915,101 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (editor.priceType !== "both" && editor.priceType !== priceType) {
       return res.status(400).json({ error: "This editor does not support the selected pricing type" });
     }
+    if (editor.userId == null || !Number.isInteger(editor.userId) || editor.userId <= 0) {
+      return res.status(400).json({ error: "This editor cannot receive paid requests (no linked account)" });
+    }
 
-    const user = await getAuthUser(req);
-    const requestUserId = user ? `user-${user.id}` : "guest";
-    const requestUserName = requesterName ?? user?.displayName ?? "Guest User";
+    const requestUserId = `user-${user.id}`;
+    const requestUserName = requesterName ?? user.displayName ?? "User";
 
-    const [requestRow] = await db
-      .insert(videoEditRequests)
-      .values({
-        editorId,
-        requesterId: requestUserId,
-        requesterName: requestUserName,
-        title,
-        description,
-        priceType,
-        budget: budget ?? null,
-        deadline: deadline ?? null,
-      } as typeof videoEditRequests.$inferInsert)
-      .returning();
+    try {
+      const result = await db.transaction(async (tx) => {
+        const buyerId = String(user.id);
+        const fee = EDITOR_REQUEST_TICKET_FEE;
+        const balRows = await tx.select().from(ticketBalances).where(eq(ticketBalances.userId, buyerId)).limit(1);
+        const cur = balRows[0]?.balance ?? 0;
+        if (cur < fee) {
+          const err = new Error("INSUFFICIENT_TICKETS");
+          (err as any).meta = { balance: cur, required: fee };
+          throw err;
+        }
+        const newBal = cur - fee;
+        if (balRows.length === 0) {
+          await tx.insert(ticketBalances).values({ userId: buyerId, balance: newBal });
+        } else {
+          await tx
+            .update(ticketBalances)
+            .set({ balance: newBal, updatedAt: new Date() })
+            .where(eq(ticketBalances.userId, buyerId));
+        }
 
-    // 通知テーブルに編集者向けの通知を追加（エディタIDはタイトル/本文に含める)
-    await db.insert(notifications).values({
-      type: "editor_request",
-      title: `Edit request from ${requestUserName}`,
-      body: `${title} (editor ID: ${editorId})`,
-      amount: budget ?? null,
-      avatar: editor.avatar ?? null,
-      thumbnail: null,
-      timeAgo: "Just now",
-    } as typeof notifications.$inferInsert);
+        const [spendTx] = await tx
+          .insert(ticketTransactions)
+          .values({
+            userId: buyerId,
+            amount: -fee,
+            type: "spend_editor_request",
+            referenceId: `editor:${editorId}`,
+            description: `Editor request: ${title}`,
+          } as typeof ticketTransactions.$inferInsert)
+          .returning({ id: ticketTransactions.id });
 
-    res.status(201).json(requestRow);
+        const [requestRow] = await tx
+          .insert(videoEditRequests)
+          .values({
+            editorId,
+            requesterId: requestUserId,
+            requesterName: requestUserName,
+            title,
+            description,
+            priceType,
+            budget: budget ?? null,
+            deadline: deadline ?? null,
+          } as typeof videoEditRequests.$inferInsert)
+          .returning();
+
+        await tx.insert(editingRequests).values({
+          userId: requestUserId,
+          videoUrl: null,
+          performanceDate: deadline ?? null,
+          instructions: description,
+          ticketFee: fee,
+          ticketTransactionId: String(spendTx.id),
+          status: "pending",
+        } as typeof editingRequests.$inferInsert);
+
+        if (editor.userId != null) {
+          const walletId = await getOrCreateUserWallet(editor.userId, tx);
+          const creatorRow = await creatorRowForUserId(tx, editor.userId);
+          await recordRevenue(walletId, editor.userId, creatorRow?.id ?? null, fee, "paid_live", String(spendTx.id), tx);
+        }
+
+        return requestRow;
+      });
+
+      await db.insert(notifications).values({
+        type: "editor_request",
+        title: `Edit request from ${requestUserName}`,
+        body: `${title} (editor ID: ${editorId})`,
+        amount: budget ?? null,
+        avatar: editor.avatar ?? null,
+        thumbnail: null,
+        timeAgo: "Just now",
+      } as typeof notifications.$inferInsert);
+
+      res.status(201).json(result);
+    } catch (e: any) {
+      if (e?.message === "INSUFFICIENT_TICKETS") {
+        const meta = e?.meta ?? {};
+        return res.status(402).json({
+          error: "Insufficient tickets",
+          balance: meta.balance ?? 0,
+          required: meta.required ?? EDITOR_REQUEST_TICKET_FEE,
+        });
+      }
+      console.error("[editors/request]", e);
+      return res.status(500).json({ error: e?.message ?? "Request failed" });
+    }
   });
 
   app.post("/api/editors", async (req: Request, res: Response) => {
@@ -3648,6 +4217,9 @@ export async function registerRoutes(app: Express): Promise<void> {
       });
       res.json({ uploadUrl, key, url: publicUrl });
     } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      const notConfigured =
+        errMsg.includes("R2 is not configured") || errMsg.includes("正しく設定");
       console.error("[upload-url] presign_failed", {
         hasAccessKey,
         hasSecret,
@@ -3655,7 +4227,12 @@ export async function registerRoutes(app: Express): Promise<void> {
         hasBucket,
         err: e,
       });
-      res.status(500).json({ error: "Failed to issue signed URL" });
+      res.status(notConfigured ? 503 : 500).json({
+        error: notConfigured
+          ? "File storage is not configured. Set R2_* variables on the server (and R2_PUBLIC_BASE_URL if you use a public domain)."
+          : "Failed to issue signed URL",
+        code: notConfigured ? "R2_NOT_CONFIGURED" : "R2_PRESIGN_FAILED",
+      });
     }
   });
 
@@ -3750,8 +4327,9 @@ export async function registerRoutes(app: Express): Promise<void> {
     const [creatorUser] = await db.select({ id: users.id }).from(users).where(eq(users.displayName, row.creator));
     const [creatorLiver] = !creatorUser ? await db.select({ id: creators.id }).from(creators).where(eq(creators.name, row.creator)) : [];
     const creatorType = creatorUser ? "user" : creatorLiver ? "liver" : null;
-    const creatorId = (row as any).userId ?? creatorUser?.id ?? creatorLiver?.id ?? null;
-    res.json({ ...row, timeAgo, creatorType, creatorId });
+    /** チケット分配・ウォレット用は必ず users.id（creators.id を混在させない） */
+    const creatorId = (row as any).userId ?? creatorUser?.id ?? null;
+    res.json({ ...row, timeAgo, creatorType, creatorId, creatorLiverProfileId: creatorLiver?.id ?? null });
   });
 
   /** 動画コメント一覧（非表示コメントは除外) */
@@ -5133,6 +5711,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   app.post("/api/jukebox/:communityId/add", async (req: Request, res: Response) => {
     const communityId = paramNum(req, "communityId");
     const { videoId, videoTitle, videoThumbnail, videoDurationSecs, addedBy, addedByAvatar, youtubeId } = req.body;
+    const authUser = await getAuthUser(req);
     const existing = await db.select().from(jukeboxQueue)
       .where(eq(jukeboxQueue.communityId, communityId))
       .orderBy(desc(jukeboxQueue.position));
@@ -5144,7 +5723,11 @@ export async function registerRoutes(app: Express): Promise<void> {
       videoThumbnail,
       videoDurationSecs: videoDurationSecs ?? 0,
       youtubeId: youtubeId ?? null,
-      addedBy: addedBy ?? "You", addedByAvatar, position: nextPos, isPlayed: false,
+      addedBy: addedBy ?? "You",
+      addedByAvatar,
+      addedByUserId: authUser?.id ?? null,
+      position: nextPos,
+      isPlayed: false,
     } as typeof jukeboxQueue.$inferInsert).returning();
 
     // 未再生の曲が1つもない場合（新しいセッション)は自動で再生を開始する
@@ -5998,6 +6581,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       .filter((w) => w.status === "pending" || w.status === "processing")
       .reduce((s, w) => s + w.amount, 0);
     const available = totalEarned - totalWithdrawn - pendingWithdrawal;
+    const withdrawalFeePolicy = getWithdrawalFeePolicy();
 
     // monthly breakdown (last 6 months)
     const now = new Date();
@@ -6014,7 +6598,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       monthly.push({ month: label, amount: monthTotal });
     }
 
-    res.json({ totalEarned, totalWithdrawn, pendingWithdrawal, available, monthly });
+    res.json({ totalEarned, totalWithdrawn, pendingWithdrawal, available, monthly, withdrawalFeePolicy });
   });
 
   app.get("/api/revenue/earnings", async (req: Request, res: Response) => {
@@ -6090,29 +6674,51 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (amountUsdCents > available) {
       return res.status(400).json({ error: "Requested amount exceeds available balance" });
     }
+    const { feeUsdCents, netTransferUsdCents } = computeWithdrawalFeeBreakdown(amountUsdCents);
+    const policy = getWithdrawalFeePolicy();
+    if (netTransferUsdCents < policy.minNetTransferUsdCents) {
+      return res.status(400).json({
+        error: "After payout fees, the transfer would be below the minimum. Increase the withdrawal amount.",
+        minNetTransferUsdCents: policy.minNetTransferUsdCents,
+        feeUsdCents,
+        netTransferUsdCents,
+      });
+    }
     const [row] = await db
       .insert(withdrawals)
       .values({ userId, amount: amountUsdCents, bankName, bankBranch, accountType, accountNumber, accountName, status: "pending" } as typeof withdrawals.$inferInsert)
       .returning();
     try {
       const { transferId } = await createTransferToConnectedAccount({
-        amountUsdCents,
+        amountUsdCents: netTransferUsdCents,
         destinationAccountId: user.stripeConnectId,
         metadata: {
           withdrawalId: String(row.id),
           userId,
+          grossUsdCents: String(amountUsdCents),
+          feeUsdCents: String(feeUsdCents),
         },
       });
+      const feeNote =
+        feeUsdCents > 0
+          ? `feeUsdCents=${feeUsdCents} netTransferUsdCents=${netTransferUsdCents} `
+          : "";
       const [completedRow] = await db
         .update(withdrawals)
         .set({
           status: "completed",
           processedAt: new Date(),
-          note: `Stripe transfer completed: ${transferId}`,
+          note: `${feeNote}Stripe transfer completed: ${transferId}`,
         })
         .where(eq(withdrawals.id, row.id))
         .returning();
-      return res.json(completedRow);
+      return res.json({
+        ...completedRow,
+        grossWithdrawUsdCents: amountUsdCents,
+        feeUsdCents,
+        netTransferUsdCents,
+        stripeTransferId: transferId,
+      });
     } catch (error: any) {
       await db
         .update(withdrawals)
@@ -6880,7 +7486,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   // ─── Coin System API ──────────────────────────────────────────────────────
-  const FREE_REQUESTS_PER_DAY = 3;
+  const FREE_REQUESTS_PER_DAY = 20;
 
   /** GET /api/coins/balance - ログインユーザーのコイン残高を返す */
   app.get("/api/coins/balance", async (req: Request, res: Response) => {
@@ -7132,8 +7738,8 @@ export async function registerRoutes(app: Express): Promise<void> {
   // ── Ticket System ──────────────────────────────────────────────────────────
   // 1 Ticket = $0.01 USD. Purchased via Stripe (USD). Spent in-app.
 
-  const FREE_JUKEBOX_PER_DAY = 3;
-  const TICKETS_PER_JUKEBOX = 30;   // $0.30 per paid request
+  const FREE_JUKEBOX_PER_DAY = 20;
+  const TICKETS_PER_JUKEBOX = 10; // paid request after free quota
   const MENTOR_TICKET_PRICE = 500; // $5.00 per mentor session
 
   /** GET /api/tickets/balance */
@@ -7187,7 +7793,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     return res.json({ success: true });
   });
 
-  /** POST /api/tickets/spend-jukebox — deduct 30 tickets for a paid jukebox request */
+  /** POST /api/tickets/spend-jukebox — deduct TICKETS_PER_JUKEBOX for a paid jukebox request */
   app.post("/api/tickets/spend-jukebox", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -7288,25 +7894,75 @@ export async function registerRoutes(app: Express): Promise<void> {
   app.post("/api/tickets/spend", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { amount, type, referenceId, description, creatorId } = req.body as {
+    const { amount, type, referenceId, description, creatorId, videoId: rawVideoId } = req.body as {
       amount: number;
       type: string;
       referenceId?: string;
       description?: string;
       creatorId?: number;
+      videoId?: number | string;
     };
     if (!amount || amount <= 0) return res.status(400).json({ error: "amount must be positive" });
     if (!type) return res.status(400).json({ error: "type required" });
     const userId = String(user.id);
     const revenueTypes = new Set(["spend_session", "spend_gift", "spend_jukebox", "spend_tip"]);
     const needsRevenueRecord = revenueTypes.has(type);
-    if (needsRevenueRecord && (!Number.isInteger(creatorId) || (creatorId as number) <= 0)) {
+
+    let videoIdForGift: number | null = null;
+    if (rawVideoId !== undefined && rawVideoId !== null && String(rawVideoId).trim() !== "") {
+      const v = typeof rawVideoId === "number" ? rawVideoId : parseInt(String(rawVideoId), 10);
+      if (Number.isFinite(v) && v > 0) videoIdForGift = v;
+    }
+    if (type === "spend_gift" && videoIdForGift == null && referenceId != null && /^\d+$/.test(String(referenceId).trim())) {
+      const v = parseInt(String(referenceId).trim(), 10);
+      if (Number.isFinite(v) && v > 0) videoIdForGift = v;
+    }
+
+    if (needsRevenueRecord && type !== "spend_gift" && (!Number.isInteger(creatorId) || (creatorId as number) <= 0)) {
       return res.status(400).json({ error: "creatorId required for revenue-eligible spend type" });
+    }
+    if (needsRevenueRecord && type === "spend_gift" && videoIdForGift == null && (!Number.isInteger(creatorId) || (creatorId as number) <= 0)) {
+      return res.status(400).json({ error: "videoId or creatorId required for video purchase (spend_gift)" });
     }
 
     try {
       let newBalance = 0;
       await db.transaction(async (tx) => {
+        let payoutCreatorUserId: number | null = null;
+        if (needsRevenueRecord) {
+          if (type === "spend_gift") {
+            if (videoIdForGift != null) {
+              const sellerId = await resolveVideoSellerUserId(tx, videoIdForGift);
+              if (!sellerId) {
+                const err = new Error("VIDEO_SELLER_NOT_FOUND");
+                throw err;
+              }
+              const [vrow] = await tx
+                .select({ price: videos.price, hidden: videos.hidden })
+                .from(videos)
+                .where(eq(videos.id, videoIdForGift))
+                .limit(1);
+              if (!vrow || vrow.hidden) {
+                throw new Error("VIDEO_NOT_FOUND");
+              }
+              const expected = vrow.price ?? 0;
+              if (expected <= 0) {
+                throw new Error("VIDEO_NOT_PAID");
+              }
+              if (amount !== expected) {
+                const err = new Error("VIDEO_PRICE_MISMATCH");
+                (err as any).meta = { expected };
+                throw err;
+              }
+              payoutCreatorUserId = sellerId;
+            } else {
+              payoutCreatorUserId = Number(creatorId);
+            }
+          } else {
+            payoutCreatorUserId = Number(creatorId);
+          }
+        }
+
         const balRows = await tx.select().from(ticketBalances).where(eq(ticketBalances.userId, userId)).limit(1);
         const currentBalance = balRows[0]?.balance ?? 0;
         if (currentBalance < amount) {
@@ -7336,12 +7992,11 @@ export async function registerRoutes(app: Express): Promise<void> {
           })
           .returning({ id: ticketTransactions.id });
 
-        if (needsRevenueRecord) {
-          const creatorUserId = Number(creatorId);
-          const walletId = await getOrCreateUserWallet(creatorUserId, tx);
-          const creatorRow = await creatorRowForUserId(tx, creatorUserId);
+        if (needsRevenueRecord && payoutCreatorUserId != null) {
+          const walletId = await getOrCreateUserWallet(payoutCreatorUserId, tx);
+          const creatorRow = await creatorRowForUserId(tx, payoutCreatorUserId);
           const source: RevenueSource = type === "spend_tip" ? "tip" : "paid_live";
-          await recordRevenue(walletId, creatorUserId, creatorRow?.id ?? null, amount, source, String(spendTx.id), tx);
+          await recordRevenue(walletId, payoutCreatorUserId, creatorRow?.id ?? null, amount, source, String(spendTx.id), tx);
         }
       });
       return res.json({ success: true, newBalance });
@@ -7349,6 +8004,15 @@ export async function registerRoutes(app: Express): Promise<void> {
       if (e?.message === "INSUFFICIENT_TICKETS") {
         const meta = e?.meta ?? {};
         return res.status(402).json({ error: "Insufficient tickets", balance: meta.balance ?? 0, required: meta.required ?? amount });
+      }
+      if (e?.message === "VIDEO_SELLER_NOT_FOUND" || e?.message === "VIDEO_NOT_FOUND") {
+        return res.status(404).json({ error: "Video or seller not found for payout" });
+      }
+      if (e?.message === "VIDEO_NOT_PAID") {
+        return res.status(400).json({ error: "Video has no ticket price" });
+      }
+      if (e?.message === "VIDEO_PRICE_MISMATCH") {
+        return res.status(400).json({ error: "Amount does not match video price", expected: e?.meta?.expected });
       }
       console.error("[tickets/spend] failed:", e);
       return res.status(500).json({ error: "Failed to spend tickets" });
@@ -7390,6 +8054,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         success_url: `${origin}/tickets?session_id={CHECKOUT_SESSION_ID}&tickets=${ticketCount}`,
         cancel_url: `${origin}/tickets`,
         metadata: {
+          type: "ticket_purchase",
           userId: String(user.id),
           tickets: String(ticketCount),
         },
@@ -7411,43 +8076,21 @@ export async function registerRoutes(app: Express): Promise<void> {
     try {
       const stripe = await getUncachableStripeClient();
       const session = await stripe.checkout.sessions.retrieve(sessionId);
-      if (session.payment_status !== "paid") {
-        return res.status(402).json({ error: "Payment not completed" });
-      }
       const tickets = parseInt(session.metadata?.tickets ?? "0");
       const metaUserId = session.metadata?.userId;
       if (!tickets || metaUserId !== String(user.id)) {
         return res.status(400).json({ error: "Invalid session" });
       }
 
-      const existing = await db.select().from(ticketTransactions)
-        .where(and(
-          eq(ticketTransactions.userId, String(user.id)),
-          eq(ticketTransactions.referenceId, sessionId)
-        )).limit(1);
-      if (existing.length > 0) {
-        const balRows = await db.select().from(ticketBalances).where(eq(ticketBalances.userId, String(user.id))).limit(1);
-        return res.json({ success: true, alreadyGranted: true, balance: balRows[0]?.balance ?? 0 });
+      const credited = await creditTicketsFromTicketCheckoutSession(db, session);
+      if (!credited.ok) {
+        if (credited.reason === "not_paid") {
+          return res.status(402).json({ error: "Payment not completed" });
+        }
+        return res.status(400).json({ error: "Invalid session" });
       }
 
-      const balRows = await db.select().from(ticketBalances).where(eq(ticketBalances.userId, String(user.id))).limit(1);
-      const currentBalance = balRows[0]?.balance ?? 0;
-      if (balRows.length === 0) {
-        await db.insert(ticketBalances).values({ userId: String(user.id), balance: tickets });
-      } else {
-        await db.update(ticketBalances).set({ balance: currentBalance + tickets, updatedAt: new Date() })
-          .where(eq(ticketBalances.userId, String(user.id)));
-      }
-
-      await db.insert(ticketTransactions).values({
-        userId: String(user.id),
-        amount: tickets,
-        type: "purchase",
-        referenceId: sessionId,
-        description: `Purchased ${tickets} tickets via Stripe`,
-      });
-
-      return res.json({ success: true, newBalance: currentBalance + tickets });
+      return res.json({ success: true, alreadyGranted: credited.alreadyGranted, newBalance: credited.newBalance });
     } catch (err) {
       console.error("Verify ticket purchase error:", err);
       return res.status(500).json({ error: "Failed to verify purchase" });
@@ -7566,6 +8209,107 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   const AI_EDIT_PLAN_TICKETS: Record<number, number> = { 15: 200, 30: 400, 45: 600, 60: 800 };
   const AI_EDIT_REVISION_TICKETS = 100;
+  const AI_EDIT_RENDERING_STATUS = "rendering";
+
+  function isEditPlan(value: unknown): value is EditPlan {
+    return Boolean(
+      value &&
+      typeof value === "object" &&
+      Array.isArray((value as EditPlan).edl) &&
+      typeof (value as EditPlan).title === "string",
+    );
+  }
+
+  function parseStoredEditPlan(json: string | null): EditPlan | null {
+    if (!json?.trim()) return null;
+    const stored = parseAIEditStoredResult(json);
+    if (stored) return stored.plan;
+    try {
+      const parsed: unknown = JSON.parse(json);
+      return isEditPlan(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function parseJobVideoUrls(job: InferSelectModel<typeof aiEditJobs>): string[] {
+    if (job.videoUrls) {
+      try {
+        const parsed = JSON.parse(job.videoUrls) as unknown;
+        if (Array.isArray(parsed)) {
+          return parsed
+            .filter((value): value is string => typeof value === "string")
+            .map((value) => value.trim())
+            .filter(Boolean);
+        }
+      } catch {
+        // ignore malformed JSON
+      }
+    }
+    return job.videoUrl?.trim() ? [job.videoUrl.trim()] : [];
+  }
+
+  function getBaseVideoSpec(job: InferSelectModel<typeof aiEditJobs>) {
+    const stored = parseAIEditStoredResult(job.result ?? null);
+    return stored?.baseSpec ?? parseStoredVideoSpec(job.videoSpec ?? null);
+  }
+
+  function getRenderVideoSpec(job: InferSelectModel<typeof aiEditJobs>) {
+    const stored = parseAIEditStoredResult(job.result ?? null);
+    return stored?.renderSpec ?? parseStoredVideoSpec(job.videoSpec ?? null);
+  }
+
+  async function refundAIEditTickets(params: {
+    userId: number;
+    amount: number;
+    type: string;
+    description: string;
+    referenceId: string;
+  }) {
+    const { userId, amount, type, description, referenceId } = params;
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    const key = String(userId);
+    const balRows = await db.select().from(ticketBalances).where(eq(ticketBalances.userId, key)).limit(1);
+    const currentBalance = balRows[0]?.balance ?? 0;
+    if (balRows.length === 0) {
+      await db.insert(ticketBalances).values({ userId: key, balance: amount });
+    } else {
+      await db
+        .update(ticketBalances)
+        .set({ balance: currentBalance + amount, updatedAt: new Date() })
+        .where(eq(ticketBalances.userId, key));
+    }
+    await db.insert(ticketTransactions).values({
+      userId: key,
+      amount,
+      type,
+      referenceId,
+      description,
+    });
+  }
+
+  async function scheduleAIEditPlanGeneration(params: {
+    jobId: number;
+    revisionPrompt?: string | null;
+    refundAmount?: number;
+    refundType?: string;
+    refundDescription?: string;
+  }) {
+    const { jobId, revisionPrompt, refundAmount = 0, refundType, refundDescription } = params;
+    if (!useAIEditMemoryQueue()) {
+      await processAIEditJobInline({ jobId, revisionPrompt, refundAmount, refundType, refundDescription });
+      return;
+    }
+    void (async () => {
+      await db
+        .update(aiEditJobs)
+        .set({ status: "processing", updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
+        .where(eq(aiEditJobs.id, jobId));
+      enqueueAIEditJob(`ai-edit:${jobId}:${revisionPrompt?.trim() ?? "initial"}`, async () => {
+        await runAIEditPlanWorker({ jobId, revisionPrompt, refundAmount, refundType, refundDescription });
+      });
+    })();
+  }
 
   // POST /api/ai-edit/jobs — charge tickets, create job, start async Claude processing
   app.post("/api/ai-edit/jobs", async (req: Request, res: Response) => {
@@ -7590,6 +8334,9 @@ export async function registerRoutes(app: Express): Promise<void> {
         return res.status(400).json({ error: "Invalid video spec (DSL)" });
       }
       videoSpecJson = normalized;
+    }
+    if (!videoSpecJson) {
+      return res.status(400).json({ error: "AI Edit requires a source spec built from the uploaded videos" });
     }
 
     if (!planMinutes || !(planMinutes in AI_EDIT_PLAN_TICKETS)) {
@@ -7644,43 +8391,15 @@ export async function registerRoutes(app: Express): Promise<void> {
       } as typeof aiEditJobs.$inferInsert)
       .returning();
 
-    // Async Claude processing — do not await
-    (async () => {
-      try {
-        await db
-          .update(aiEditJobs)
-          .set({ status: "processing", updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
-          .where(eq(aiEditJobs.id, job.id));
+    await scheduleAIEditPlanGeneration({
+      jobId: job.id,
+      refundAmount: ticketCost,
+      refundType: "refund_ai_edit",
+      refundDescription: `Refund: AI Edit ${planMinutes}min plan (job ${job.id})`,
+    });
 
-        const editInput: EditJobInput = {
-          planMinutes: planMinutes as 15 | 30 | 45 | 60,
-          videoUrls,
-          logoUrl,
-          telop,
-          targetAudience,
-          tone,
-          prompt: prompt.trim(),
-        };
-        const plan = await generateEditPlan(editInput);
-
-        await db
-          .update(aiEditJobs)
-          .set({
-            status: "completed",
-            result: JSON.stringify(plan),
-            updatedAt: new Date(),
-          } as Partial<InferSelectModel<typeof aiEditJobs>>)
-          .where(eq(aiEditJobs.id, job.id));
-      } catch (e) {
-        console.error("[ai-edit] Processing failed:", e);
-        await db
-          .update(aiEditJobs)
-          .set({ status: "failed", updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
-          .where(eq(aiEditJobs.id, job.id));
-      }
-    })();
-
-    res.json({ id: job.id, status: job.status });
+    const [finalJob] = await db.select({ status: aiEditJobs.status }).from(aiEditJobs).where(eq(aiEditJobs.id, job.id));
+    res.json({ id: job.id, status: finalJob?.status ?? job.status });
   });
 
   // GET /api/ai-edit/jobs/:id — get job status and result (owner only)
@@ -7696,25 +8415,23 @@ export async function registerRoutes(app: Express): Promise<void> {
       return res.status(403).json({ error: "Forbidden" });
     }
 
-    let result = null;
-    if (job.result) {
-      try { result = JSON.parse(job.result); } catch { result = null; }
-    }
-    let parsedVideoUrls: string[] | null = null;
-    if (job.videoUrls) {
-      try { parsedVideoUrls = JSON.parse(job.videoUrls); } catch { parsedVideoUrls = null; }
-    }
-
-    const videoSpec = parseStoredVideoSpec(job.videoSpec ?? null);
+    const storedResult = parseAIEditStoredResult(job.result ?? null);
+    const result = storedResult?.plan ?? parseStoredEditPlan(job.result ?? null);
+    const parsedVideoUrls = parseJobVideoUrls(job);
+    const videoSpec = storedResult?.renderSpec ?? parseStoredVideoSpec(job.videoSpec ?? null);
+    const baseVideoSpec = storedResult?.baseSpec ?? videoSpec;
 
     res.json({
       id: job.id,
       userId: job.userId,
       videoUrl: job.videoUrl,
-      videoUrls: parsedVideoUrls,
+      videoUrls: parsedVideoUrls.length > 0 ? parsedVideoUrls : null,
       prompt: job.prompt,
       status: job.status,
       result,
+      analysis: storedResult?.analysis ?? null,
+      promptUsed: storedResult?.promptUsed ?? job.prompt,
+      revisionPrompt: storedResult?.revisionPrompt ?? null,
       planMinutes: job.planMinutes,
       logoUrl: job.logoUrl,
       telop: job.telop,
@@ -7723,6 +8440,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       revisionCount: job.revisionCount ?? 0,
       ticketCost: job.ticketCost,
       videoSpec,
+      baseVideoSpec,
       templatedRenderId: job.templatedRenderId ?? null,
       deliveredUrl: job.deliveredUrl ?? null,
       deliveredAt: job.deliveredAt ?? null,
@@ -7756,31 +8474,29 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (job.userId !== user.id) {
       return res.status(403).json({ error: "Forbidden" });
     }
+    if (!["completed", "approved", AI_EDIT_RENDERING_STATUS].includes(job.status)) {
+      return res.status(400).json({ error: "Only completed or approved jobs can be rendered" });
+    }
+    if (job.status === AI_EDIT_RENDERING_STATUS && job.templatedRenderId) {
+      return res.status(409).json({ error: "A render is already in progress for this job" });
+    }
+    if (job.status === "delivered" && job.deliveredUrl?.trim()) {
+      return res.status(409).json({ error: "This job has already been delivered" });
+    }
 
-    const spec = parseStoredVideoSpec(job.videoSpec ?? null);
+    const spec = getRenderVideoSpec(job);
     if (!spec) {
-      return res.status(400).json({ error: "Job has no valid video spec (DSL). Submit the order with spec from the AI Edit form." });
+      return res.status(400).json({ error: "Job has no renderable AI edit spec yet. Wait for the edit plan to finish." });
     }
 
-    let videoUrls: string[] = [];
-    if (job.videoUrls) {
-      try {
-        videoUrls = JSON.parse(job.videoUrls) as string[];
-      } catch {
-        videoUrls = [];
-      }
-    }
-    if (videoUrls.length === 0 && job.videoUrl) {
-      videoUrls = [job.videoUrl];
-    }
-    const inputVideoUrl = videoUrls[0]?.trim();
-    if (!inputVideoUrl) {
-      return res.status(400).json({ error: "No source video URL on this job" });
+    const videoUrls = parseJobVideoUrls(job);
+    if (videoUrls.length === 0) {
+      return res.status(400).json({ error: "No source video URLs on this job" });
     }
 
     const webhookUrl = `${templatedPublicBaseUrl()}/api/webhooks/templated`;
     const renderRequest = dslToTemplated(spec, {
-      inputVideoUrl,
+      inputVideoUrls: videoUrls,
       logoUrl: job.logoUrl ?? undefined,
       webhookUrl,
       async: true,
@@ -7809,10 +8525,10 @@ export async function registerRoutes(app: Express): Promise<void> {
     await db
       .update(aiEditJobs)
       .set({
+        status: syncUrl ? "delivered" : AI_EDIT_RENDERING_STATUS,
         templatedRenderId: renderRes.id,
         ...(syncUrl
           ? {
-              status: "delivered",
               deliveredUrl: syncUrl,
               deliveredAt: now,
             }
@@ -7964,6 +8680,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (!user) return res.status(401).json({ error: "Unauthorized" });
 
     const id = paramNum(req, "id");
+    const { revisionPrompt } = req.body as { revisionPrompt?: string };
     const [job] = await db.select().from(aiEditJobs).where(eq(aiEditJobs.id, id));
     if (!job) return res.status(404).json({ error: "Job not found" });
 
@@ -8003,43 +8720,31 @@ export async function registerRoutes(app: Express): Promise<void> {
     const newRevisionCount = revisionCount + 1;
     await db
       .update(aiEditJobs)
-      .set({ status: "processing", revisionCount: newRevisionCount, updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
+      .set({
+        status: "pending",
+        revisionCount: newRevisionCount,
+        templatedRenderId: null,
+        deliveredUrl: null,
+        deliveredAt: null,
+        updatedAt: new Date(),
+      } as Partial<InferSelectModel<typeof aiEditJobs>>)
       .where(eq(aiEditJobs.id, id));
 
-    // Re-generate EDL async
-    let videoUrlsArr: string[];
-    try {
-      videoUrlsArr = job.videoUrls ? JSON.parse(job.videoUrls) : [job.videoUrl];
-    } catch {
-      videoUrlsArr = [job.videoUrl];
-    }
-    const reviseInput: EditJobInput = {
-      planMinutes: (job.planMinutes ?? 15) as 15 | 30 | 45 | 60,
-      videoUrls: videoUrlsArr,
-      logoUrl: job.logoUrl,
-      telop: job.telop,
-      targetAudience: job.targetAudience,
-      tone: job.tone,
-      prompt: job.prompt,
-    };
+    await scheduleAIEditPlanGeneration({
+      jobId: id,
+      revisionPrompt,
+      refundAmount: revisionCount >= 1 ? AI_EDIT_REVISION_TICKETS : 0,
+      refundType: "refund_ai_edit_revision",
+      refundDescription: `Refund: AI Edit Revision #${newRevisionCount} (job ${job.id})`,
+    });
 
-    (async () => {
-      try {
-        const plan = await generateEditPlan(reviseInput);
-        await db
-          .update(aiEditJobs)
-          .set({ status: "completed", result: JSON.stringify(plan), updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
-          .where(eq(aiEditJobs.id, id));
-      } catch (e) {
-        console.error("[ai-edit] Revision failed:", e);
-        await db
-          .update(aiEditJobs)
-          .set({ status: "failed", updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
-          .where(eq(aiEditJobs.id, id));
-      }
-    })();
-
-    res.json({ ok: true, revisionCount: newRevisionCount, free: revisionCount === 0 });
+    const [reviseFinal] = await db.select({ status: aiEditJobs.status }).from(aiEditJobs).where(eq(aiEditJobs.id, id));
+    res.json({
+      ok: true,
+      revisionCount: newRevisionCount,
+      free: revisionCount === 0,
+      status: reviseFinal?.status,
+    });
   });
 
   // POST /api/ai-edit/jobs/:id/deliver — editor uploads the finished video and marks the job as delivered
@@ -8097,4 +8802,24 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json({ ok: true, id, status: "delivered", deliveredUrl: deliveredUrl.trim() });
   });
 
+  /** Vercel Cron 等: pending の AI Edit をバッチ処理（`CRON_SECRET` または `AI_EDIT_CRON_SECRET` の Bearer と一致） */
+  app.get("/api/cron/ai-edit-process", async (req: Request, res: Response) => {
+    const expected =
+      process.env.CRON_SECRET?.trim() || process.env.AI_EDIT_CRON_SECRET?.trim() || "";
+    if (!expected) {
+      return res.status(503).json({ error: "CRON_SECRET or AI_EDIT_CRON_SECRET is not configured" });
+    }
+    const auth = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
+    if (auth !== `Bearer ${expected}`) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const limit = Math.min(15, Math.max(1, parseInt(String(req.query.limit ?? "5"), 10) || 5));
+    let processed = 0;
+    for (let i = 0; i < limit; i++) {
+      const r = await claimAndProcessNextPendingAIEditJob();
+      if (!r.processed) break;
+      processed++;
+    }
+    res.json({ ok: true, processed });
+  });
 }

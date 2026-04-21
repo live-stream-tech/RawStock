@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/query-client";
+import { apiRequest, formatUserFacingApiError } from "@/lib/query-client";
 import { buildOrderVideoSpec, formatFromTone, styleFromTone } from "@/lib/ai-edit/buildOrderVideoSpec";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
@@ -111,14 +111,20 @@ async function uploadToR2(file: File): Promise<string> {
     fileName: safeName,
     contentType: file.type,
   });
-  if (!res.ok) throw new Error("Failed to get upload URL");
   const { uploadUrl, url } = (await res.json()) as { uploadUrl: string; url: string };
   const put = await fetch(uploadUrl, {
     method: "PUT",
     body: file,
     headers: { "Content-Type": file.type },
   });
-  if (!put.ok) throw new Error("Upload to storage failed");
+  if (!put.ok) {
+    const detail = (await put.text().catch(() => "")).trim().replace(/\s+/g, " ");
+    throw new Error(
+      detail
+        ? `Upload to storage failed (HTTP ${put.status}): ${detail.slice(0, 220)}${detail.length > 220 ? "…" : ""}`
+        : `Upload to storage failed (HTTP ${put.status})`,
+    );
+  }
   return url;
 }
 
@@ -284,15 +290,10 @@ export default function AIEditIndexScreen() {
         spec,
       });
 
-      if (!res.ok) {
-        const err = (await res.json()) as { error?: string };
-        throw new Error(err.error ?? "Submission failed");
-      }
-
       const data = (await res.json()) as { id: number; status: string };
       router.replace(`/ai-edit/${data.id}`);
-    } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "Something went wrong. Please try again.");
+    } catch (e: unknown) {
+      Alert.alert("Error", formatUserFacingApiError(e));
     } finally {
       setUploading(false);
       setUploadProgress("");

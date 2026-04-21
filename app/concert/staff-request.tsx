@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { View, Text, StyleSheet, Pressable, TextInput, ScrollView, Platform, ActivityIndicator, Alert } from "react-native";
+import { View, Text, StyleSheet, Pressable, TextInput, ScrollView, Platform, ActivityIndicator, Alert, Linking } from "react-native";
 import { webScrollStyle } from "@/constants/layout";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { C } from "@/constants/colors";
 import { useAuth, AuthGuard } from "@/lib/auth";
 import { apiRequest } from "@/lib/query-client";
+import { concertStaffApplyExternalUrl } from "@/lib/concert-external";
 
 type Concert = {
   id: number;
@@ -21,6 +22,7 @@ export default function ConcertStaffRequestScreen() {
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const { user } = useAuth();
   const [query, setQuery] = useState("");
+  const externalApplyUrl = concertStaffApplyExternalUrl();
 
   const { data: concerts = [], isLoading } = useQuery<Concert[]>({
     queryKey: ["/api/concerts"],
@@ -71,6 +73,24 @@ export default function ConcertStaffRequestScreen() {
           <View style={[styles.centered, { flex: 1 }]}>
             <ActivityIndicator size="large" color={C.accent} />
           </View>
+        ) : externalApplyUrl ? (
+          <ScrollView style={webScrollStyle(styles.scroll)} contentContainerStyle={styles.scrollContent}>
+            <View style={styles.externalCard}>
+              <Text style={styles.externalTitle}>Apply via web form</Text>
+              <Text style={styles.externalBody}>
+                Staff applications are handled outside the app. Use the link below (you can mention the event name in the form).
+              </Text>
+              <Pressable
+                style={styles.requestBtn}
+                onPress={() => {
+                  Linking.openURL(externalApplyUrl).catch(() => Alert.alert("Error", "Could not open the link."));
+                }}
+              >
+                <Text style={styles.requestBtnText}>Open application form</Text>
+              </Pressable>
+            </View>
+            <View style={{ height: 32 }} />
+          </ScrollView>
         ) : (
           <ScrollView style={webScrollStyle(styles.scroll)} contentContainerStyle={styles.scrollContent}>
             {filtered.length === 0 ? (
@@ -150,5 +170,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   requestBtnText: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  externalCard: {
+    marginTop: 12,
+    padding: 18,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface,
+    gap: 12,
+  },
+  externalTitle: { fontSize: 16, fontWeight: "800", color: C.text },
+  externalBody: { fontSize: 13, color: C.textSec, lineHeight: 20 },
 });
 

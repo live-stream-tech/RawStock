@@ -30,6 +30,7 @@
 | メール転送 | ImprovMX (mx1/mx2.improvmx.com) |
 | セッションキャッシュ | Upstash Redis |
 | 言語検知 | franc (ISO 639-1) |
+| 自動翻訳 | MyMemory API（無料・キー不要）。`server/lib/translate/` 配下＋`/api/translate` で手動トリガー。glossary・短語スキップ・DBキャッシュ付き |
 
 ---
 
@@ -80,11 +81,12 @@
 | `EXPO_PUBLIC_DOMAIN` | **公開アプリのオリジン**（ビルド時埋め込み） | `getApiUrl()` が `EXPO_PUBLIC_API_URL` 未設定時に API ベースとして解釈する。`getPublicWebOrigin()` が Stripe の戻り先オリジンに使う。ローカル Web で **Google OAuth まで試すなら `http://localhost:5001`（Express 入口）** を推奨。8081 直＋`FRONTEND_URL=8081` はコールバックが Metro に当たり画面が真っ黒になりやすい。 |
 | `EXPO_PUBLIC_API_URL` | **API サーバー専用オリジン**（任意・ローカル Web 推奨） | 設定時は `getApiUrl()` がこちらを最優先。Metro（:8081）を `EXPO_PUBLIC_DOMAIN` にしているときに Express（:5001）へ向ける用途。 |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare アカウント ID | ダッシュボードで確認（公開ドキュメントに生値を書かないこと） |
-| `CLOUDFLARE_STREAM_TOKEN` | Stream API | Account→Stream→Edit 相当のトークン。未設定時は **`CLOUDFLARE_API_TOKEN`** をフォールバック参照 |
+| `CLOUDFLARE_STREAM_TOKEN` | Stream API | Account→Stream→Edit 相当のトークン。`server/routes.ts` は **この変数のみ参照**（`CLOUDFLARE_API_TOKEN` フォールバックなし） |
 | `R2_ACCESS_KEY_ID` | R2 | |
 | `R2_SECRET_ACCESS_KEY` | R2 | |
 | `R2_BUCKET_NAME` | R2 | 例: `rawstock-assets` |
-| `R2_ENDPOINT` | R2 | |
+| `R2_ENDPOINT` | R2 | S3 API: `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` |
+| `R2_PUBLIC_BASE_URL` | R2 アップロード後の **公開 GET 用**（任意） | 未設定だと返却 URL が API ホスト向きになりブラウザで 403 になりやすい。R2.dev やカスタムドメインのベース（末尾スラッシュなし） |
 | `UPSTASH_REDIS_REST_URL` | Upstash Redis | SSE 等 |
 | `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis | |
 | `STRIPE_SECRET_KEY` | Stripe | |
@@ -95,12 +97,12 @@
 
 | 変数名 | 用途 |
 |--------|------|
-| `ANTHROPIC_API_KEY` | 通報の AI モデレーション（`server/moderation.ts` 等） |
+| `ANTHROPIC_API_KEY` | **AI Edit** の Claude EDL 生成（`server/aiEditAssistant.ts`）、通報モデレーション（`server/moderation.ts` 等） |
 | `TEMPLATED_API_KEY` | AI Edit の外部レンダー（Templated.io） |
 | `TEMPLATED_WEBHOOK_BASE_URL` | Templated の完了 webhook のコールバック先オリジン（未設定時は `FRONTEND_URL` 等） |
 | `ADMIN_EMAIL` | 管理者メール（特定の管理系挙動） |
 | `WEGLOT_API_KEY` | サイト翻訳（設定時のみ有効） |
-| `EXPO_PUBLIC_DEEPAR_KEY` | DeepAR（配信背景ぼかし等） |
+| `MYMEMORY_EMAIL` | 自動翻訳 MyMemory の日次枠拡張（`de` パラメータ・任意） |
 | `PUBLIC_LOGO_URL` / `PUBLIC_HERO_*` / `PUBLIC_LP_*` / `PUBLIC_FEATURE_*` | LP・ブランド画像の上書き（`lib/brand.ts`） |
 
 Vercel では **`VERCEL_URL` が自動注入**され、OAuth のフォールバックに使われます（手動設定不要）。
@@ -123,7 +125,7 @@ Vercel では **`VERCEL_URL` が自動注入**され、OAuth のフォールバ�
 
 ## DB マイグレーション状況
 
-最新適用済み: `0015_users_policy_acceptance.sql`
+最新適用済み: `0024_editing_requests.sql`（未適用環境は順に `0023` まで適用後に実行）
 
 | ファイル | 内容 |
 |--------|------|
@@ -132,6 +134,9 @@ Vercel では **`VERCEL_URL` が自動注入**され、OAuth のフォールバ�
 | 0013 | users.operations_dm_opened_at |
 | 0014 | users.last_content_lang（franc言語検知） |
 | 0015 | users.terms/privacy_accepted_version/at |
+| 0022 | users.preferred_language（UI/翻訳宛先言語） |
+| 0023 | translations / translation_glossary（自動翻訳キャッシュ＆固有名詞ガード） |
+| 0024 | editing_requests（プロ編集依頼のチケット手数料・参照トランザクション） |
 
 ---
 
@@ -145,12 +150,69 @@ Vercel では **`VERCEL_URL` が自動注入**され、OAuth のフォールバ�
 | `server/r2.ts` | R2ファイルアップロード |
 | `server/redis.ts` | SSEイベントバス + Upstash Redis |
 | `server/langFromText.ts` | franc 言語検知ユーティリティ |
+| `server/lib/translate/index.ts` | 自動翻訳ファサード（短語スキップ→glossary→キャッシュ→MyMemory） |
+| `server/lib/translate/mymemory.ts` | MyMemory 無料翻訳 API クライアント（`MYMEMORY_EMAIL` で枠拡張） |
+| `server/lib/translate/shortText.ts` | 短語スキップ判定（`LiveStock` 単体→家畜の事故防止） |
+| `server/lib/translate/glossary.ts` | ブランド固有名詞の glossary トークン置換 |
+| `components/TranslateButton.tsx` | RN 用 Translate ボタン（DM/コメント/投稿/Jukebox 行に挿入） |
+| `components/PolicyTranslateBanner.tsx` | 法務ページ用「Translate page」バナー＋Disclaimer |
+| `vite-app/app/components/TranslateButton.tsx` | Web 用 Translate ボタン |
 | `api/[...path].ts` | Vercel Serverless エントリポイント |
 | `api/_shared.ts` | Vercel 用 Express アプリ共有ファクトリ |
 | `lib/brand.ts` | ブランドURL一元管理 |
 | `lib/auth.tsx` | フロント認証コンテキスト |
 | `lib/query-client.ts` | React Query + API設定 |
 | `vercel.json` | Vercelビルド・ルーティング設定 |
+| `app/ai-edit/index.tsx` | AI Edit オーダー画面（R2 アップロード→`POST /api/ai-edit/jobs`） |
+| `app/ai-edit/[id].tsx` | ジョブ詳細（5 秒ポーリング・承認・Templated レンダー・改稿） |
+| `lib/ai-edit/buildOrderVideoSpec.ts` | フォーム入力（トーン・尺）→`RawStockVideoSpec`（クライアント正規化 DSL） |
+| `server/aiEditAssistant.ts` | Claude Haiku で EDL（EditPlan JSON）生成。`ANTHROPIC_API_KEY` 未設定時はモック |
+| `server/lib/aiEditArtifacts.ts` | EDL と元 spec を突き合わせ `clips` / `analysis` / `renderSpec` を組み立て |
+| `server/lib/aiEditJobQueue.ts` | インプロセス FIFO キュー（永続化なし。サーバレス複数インスタンスでは共有されない） |
+| `server/lib/dslToTemplated.ts` | `RawStockVideoSpec`→Templated.io 向けレンダーリクエスト |
+| `server/lib/templatedClient.ts` | Templated Create Render 等の HTTP クライアント |
+
+---
+
+## AI Edit Assistant（動画編集オーダー）
+
+クリエイターが素材動画と指示を送り、**Claude が EDL（編集指示リスト）**を出し、サーバが **`RawStockVideoSpec` に落とし込み**、任意で **Templated.io で MP4 レンダー**する機能。DB テーブルは `ai_edit_jobs`（`server/schema.ts`）。
+
+### クライアント（Expo Router）
+
+| 画面 | パス相当 | 主な処理 |
+|------|-----------|-----------|
+| オーダー | `app/ai-edit/index.tsx` | 認証後、`POST /api/upload-url`→PUT で R2 に素材アップロード。`buildOrderVideoSpec()` で初期 `spec` を生成し、`POST /api/ai-edit/jobs`（`planMinutes`, `videoUrls`, `logoUrl`, `telop`, `targetAudience`, `tone`, `prompt`, `spec`）→成功で `router.replace(/ai-edit/:id)` |
+| 詳細 | `app/ai-edit/[id].tsx` | `useQuery` で `GET /api/ai-edit/jobs/:id`。`completed`/`failed`/`approved`/`delivered` になるまで **5 秒間隔で invalidate（ポーリング）**。承認時は `POST .../approve` の直後に `POST .../render`。単独レンダーは `POST .../render`。改稿は `POST .../revise`（1 回目無料、2 回目以降 100 チケット・サーバ定数と一致）。納品済み URL は `deliveredUrl` でダウンロード |
+
+### サーバー API（`server/routes.ts` 付近）
+
+| メソッド | パス | 内容 |
+|----------|------|------|
+| `POST` | `/api/ai-edit/jobs` | チケット事前減算、`ai_edit_jobs` 挿入、`processing` へ。`scheduleAIEditPlanGeneration` を `enqueueAIEditJob` に載せる |
+| `GET` | `/api/ai-edit/jobs/:id` | オーナーのみ。`result` / `videoSpec` / `status` 等 |
+| `POST` | `/api/ai-edit/jobs/:id/approve` | `completed`→`approved` |
+| `POST` | `/api/ai-edit/jobs/:id/render` | `dslToTemplated` + `createTemplatedRender`。webhook は `TEMPLATED_WEBHOOK_BASE_URL` または `FRONTEND_URL` 由来の **`/api/webhooks/templated`** |
+| `POST` | `/api/webhooks/templated` | Templated 完了通知。`deliveredUrl`・`delivered` 更新・通知 |
+| `POST` | `/api/ai-edit/jobs/:id/revise` | 改稿チケット処理のうえ `processing` に戻し、再度 Claude パイプライン |
+| `POST` | `/api/ai-edit/jobs/:id/deliver` | 手動納品 URL（エディター用途。通常フローは Templated 経由） |
+
+### サーバー処理チェーン（要約）
+
+1. `generateEditPlan`（`server/aiEditAssistant.ts`）… ユーザープロンプト＋尺・トーン等から **EDL 付き JSON**  
+2. `buildAIEditStoredResult`（`server/lib/aiEditArtifacts.ts`）… **EDL を元の `videoSpec` と重ね**、レンダー用 `renderSpec` と分析 JSON を `result` に保存  
+3. `POST .../render` … **`TEMPLATED_API_KEY` 必須**。同期で URL が返れば即 `delivered`、非同期なら webhook 待ち  
+
+### 環境変数
+
+- **必須級**: `DATABASE_URL`, チケット周りは既存の Stripe/Ticket 系と同じ DB  
+- **AI 生成**: `ANTHROPIC_API_KEY`（未設定だとモック EDL。`AI_EDIT_ALLOW_MOCK=1` の説明はコード参照）  
+- **MP4 レンダー**: `TEMPLATED_API_KEY`、webhook 到達先の **`TEMPLATED_WEBHOOK_BASE_URL` または `FRONTEND_URL`**（Templated がインターネットから叩ける公開 URL であること）
+
+### 注意（運用・設計）
+
+- **`aiEditJobQueue`**: ローカル／非 Vercelでは同一プロセス内メモリ FIFO。**Vercel 本番**では既定でオフになり、ジョブは `pending` のまま **`GET /api/cron/ai-edit-process`**（Bearer `CRON_SECRET` または `AI_EDIT_CRON_SECRET`）が DB 上の `pending` を `FOR UPDATE` で取り上げて処理。`vercel.json` に cron 定義あり。さらに耐久が必要なら **SQS / QStash** への移行が次の段階。  
+- Stripe Webhook のパスは **`/api/webhook/stripe`**（`webhook` 単数）。Templated は **`/api/webhooks/templated`**（`webhooks` 複数形）で別物。
 
 ---
 
@@ -158,7 +220,7 @@ Vercel では **`VERCEL_URL` が自動注入**され、OAuth のフォールバ�
 
 | 問題 | 状況 |
 |------|------|
-| Cloudflare Stream 403 エラー | `CLOUDFLARE_STREAM_TOKEN` に Account→Stream→Edit 権限があることは確認済み。本番動作未確認。 |
+| Cloudflare Stream 403 / 500 エラー | 403（`code:10002`）はトークン権限・アカウント不一致を疑う。500（`column "host_user_id" of relation "streams" does not exist`）は **DBスキーマ不足** が原因。対策: `0025_streams_runtime_columns_guard.sql` を適用し、`streams` に `host_user_id / whip_url / visibility / ticket_price / restricted_community_id` などの列を補完する。 |
 | DATABASE_URL の外部アクセス | Vercel からアクセス可能かどうか要確認。Replit内部DBの場合は Neon/Supabase 等への移行が必要。 |
 | Google OAuth コールバックURL | 詳細は下節「Google OAuth」。`redirect_uri_mismatch` は GCP の URI と `FRONTEND_URL` 由来の `callbackUrl` の不一致が典型 |
 
@@ -256,8 +318,18 @@ npx vercel env add EXPO_PUBLIC_DOMAIN preview <ブランチ名> --value "https:/
 
 - 本番キー使用中（USD建て）
 - Ticket通貨: 🎟 1 ticket = $0.01
-- 収益分配: クリエイター90% / プラットフォーム10%
-- 決済フローは主に **Stripe Checkout セッション作成 → 成功 URL から戻る → API で `session_id` を検証**する形（`server/routes.ts` 内の Checkout / confirm 系）。**専用の `POST /api/stripe/webhook`（Stripe Signing secret）ルートは現状のコードベースには無い** — Webhook 運用が必要なら別途実装・ドキュメント化が必要。
+- 収益分配: クリエイター90% / プラットフォーム10%（`recordRevenue` の `paid_live` / `mentor` 等。投げ銭はレベル連動）
+- **チケット購入**: `POST /api/tickets/create-checkout` の Checkout に `metadata.type = ticket_purchase` を付与。付与の主経路は **`POST /api/tickets/verify-purchase`**（クライアントが成功 URL から `session_id` を送る）。**冪等バックアップ**: `POST /api/webhook/stripe` の `checkout.session.completed` で同じ付与ロジックを実行（`STRIPE_WEBHOOK_SECRET` 必須・署名検証済み）。二重付与は `ticket_transactions.referenceId = session.id` で防止。
+- **Webhook エンドポイント**: **`/api/webhook/stripe`**（`webhook` 単数）。`two_shot_reservation` の確定とチケット付与を処理。Templated は **`/api/webhooks/templated`**（複数形）で別物。
+- **出金手数料（任意）**: `.env` の `WITHDRAWAL_FEE_BPS` / `WITHDRAWAL_FEE_FIXED_USD_CENTS`（換金者負担で Transfer 前に差し引き）。`GET /api/revenue/summary` の `withdrawalFeePolicy` を参照。
+
+---
+
+## AI Edit（Vercel / 本番ワーカー）
+
+- **メモリキュー**（`AI_EDIT_USE_MEMORY_QUEUE=1` または非 Vercel）: 従来どおり同一プロセスで即時処理。
+- **本番 Vercel 既定**（`VERCEL=1` かつ `AI_EDIT_USE_MEMORY_QUEUE` 未設定）: ジョブは **`pending`** のまま保存。**`GET /api/cron/ai-edit-process`**（`Authorization: Bearer $CRON_SECRET` または `AI_EDIT_CRON_SECRET`）が `pending` を取り上げて Claude 処理。`vercel.json` の `crons` で数分毎に叩く想定。
+- ローカルで「本番と同じ cron のみ」にしたい場合は `AI_EDIT_USE_MEMORY_QUEUE=0` を明示。
 
 ---
 

@@ -5,6 +5,30 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { C } from "@/constants/colors";
 import { webScrollStyle } from "@/constants/layout";
+import { PolicyTranslateBanner } from "@/components/PolicyTranslateBanner";
+
+/**
+ * 翻訳ボタン用のページ全文プレーンテキスト。
+ * Article 本文に手を入れずに、まとめて 1 度の API 呼び出し＋キャッシュで賄うため、
+ * 本文の主要な読み物テキストをここに集約している（リンク文言は文章の一部として残す）。
+ */
+const PAGE_FULL_TEXT = [
+  "RawStock Terms of Service",
+  "These Terms of Service govern your access to and use of the RawStock platform and services.",
+  "1. Acceptance of Terms & Eligibility — You must be at least 13 years old to use the Service. Users between 13 and 17 require parent or guardian consent.",
+  "2. Governing Law & Disputes — These Terms are governed by the laws of Japan. Disputes are subject to the exclusive jurisdiction of the courts of Tokyo, Japan, subject to mandatory consumer protections.",
+  "3. User Accounts & Security — You are responsible for the confidentiality of your account credentials and for providing accurate information.",
+  "4. Content Ownership & Licenses — You retain ownership of content you post. You grant RawStock a worldwide, non-exclusive, royalty-free license to host and distribute your User Content to operate, promote, and improve the Service. See our DMCA Policy for U.S. copyright notices.",
+  "5. Prohibited Conduct — No illegal activity, hate speech, harassment, sexually explicit content in violation of policy, IP infringement, technical abuse, or dangerous live streams. See our Community Guidelines.",
+  "6. Live Streaming & UGC — Live streams are user-generated content. We may moderate, interrupt, or terminate streams that violate these Terms or applicable law.",
+  "7. Payments, Subscriptions & Virtual Gifts — Purchases of paid content, tickets, or virtual gifts are final and non-refundable unless required by applicable law (for example, certain consumer rights in the EU or UK).",
+  "8. Revenue Sharing — Payouts are subject to identity verification (KYC) and tax reporting. Creators receive 90% of applicable direct sales revenue. We may apply a configurable processing fee on withdrawals (deducted from the requested gross before Stripe transfer), in addition to Stripe's own connected-account fees. We may withhold payouts for suspected fraud or violations.",
+  "9. Disclaimer of Warranties & Limitation of Liability — The Service is provided AS IS without warranties. Our total liability shall not exceed the greater of (a) amounts paid in the prior 12 months or (b) 10,000 JPY, except where liability cannot be limited by mandatory law.",
+  "10. Privacy & Data Protection — Our data practices are described in our Privacy Policy, addressing CCPA/CPRA, GDPR, and UK GDPR where applicable.",
+  "11. Termination — We may suspend or terminate your account if you violate these Terms or harm other users or the Service.",
+  "12. Modifications — We may update these Terms. Continued use after changes constitutes acceptance where permitted by law.",
+  "Addendum — United Kingdom users — UK users have rights under the UK GDPR and the Data Protection Act 2018. Nothing in these Terms limits non-waivable consumer rights under the Consumer Rights Act 2015. Complaints regarding data protection may be lodged with the Information Commissioner's Office (ICO).",
+].join("\n\n");
 
 function Article({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -40,6 +64,8 @@ export default function TermsScreen() {
       >
         <Text style={styles.docTitle}>RawStock Terms of Service</Text>
         <Text style={styles.effectiveDate}>Effective Date: April 4, 2026</Text>
+
+        <PolicyTranslateBanner text={PAGE_FULL_TEXT} srcLang="en" />
 
         <Text style={styles.intro}>
           These Terms of Service (&quot;Terms&quot;) govern your access to and use of the RawStock platform and services (the
@@ -112,7 +138,7 @@ export default function TermsScreen() {
 
         <Article title="8. Revenue Sharing (Creators)">
           {
-            "Payouts are subject to identity verification (KYC) and tax reporting as required by Stripe and applicable law (e.g., IRS Forms W-9 / W-8BEN where relevant). Unless we notify you otherwise, creators receive 90% of applicable direct sales revenue, with platform fees retained by us. We may withhold or reverse payouts for suspected fraud, chargebacks, or violations of these Terms. Tax reporting and filing are your responsibility."
+            "Payouts are subject to identity verification (KYC) and tax reporting as required by Stripe and applicable law (e.g., IRS Forms W-9 / W-8BEN where relevant). Unless we notify you otherwise, creators receive 90% of applicable direct sales revenue, with platform fees retained by us. Withdrawals may incur an additional platform processing fee (configured as a percentage and/or fixed amount in USD cents) withheld from the gross amount you request before funds are transferred to your Stripe Connect account; Stripe may charge separate fees on payouts to your bank. We may withhold or reverse payouts for suspected fraud, chargebacks, or violations of these Terms. Tax reporting and filing are your responsibility."
           }
         </Article>
 

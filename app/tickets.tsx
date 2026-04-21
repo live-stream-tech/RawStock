@@ -131,7 +131,7 @@ export default function TicketsScreen() {
           <Text style={styles.sectionTitle}>How Tickets Work</Text>
           <View style={styles.infoGrid}>
             {[
-              { icon: "musical-notes-outline" as const, label: "Jukebox Request", value: "30 🎟" },
+              { icon: "musical-notes-outline" as const, label: "Jukebox Request", value: "10 🎟" },
               { icon: "gift-outline" as const, label: "Send a Gift", value: "Varies" },
             ].map((item) => (
               <View key={item.label} style={styles.infoCard}>

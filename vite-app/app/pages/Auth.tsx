@@ -1,9 +1,36 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { ArrowLeft, Mail, Lock, User, CheckCircle2, ShieldCheck, CreditCard, ChevronRight, Loader2 } from "lucide-react";
+import { ArrowLeft, Mail, Lock, User, CheckCircle2, ShieldCheck, CreditCard, ChevronRight, Loader2, Globe } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 type AuthStep = "login" | "signup" | "kyc" | "complete";
+
+/** /api/translate/preferred-language の supported と一致させる */
+const SUPPORTED_LANGUAGES: { code: string; label: string }[] = [
+  { code: "en", label: "English" },
+  { code: "ja", label: "日本語" },
+  { code: "ko", label: "한국어" },
+  { code: "zh", label: "中文" },
+  { code: "es", label: "Español" },
+  { code: "fr", label: "Français" },
+  { code: "de", label: "Deutsch" },
+  { code: "pt", label: "Português" },
+  { code: "it", label: "Italiano" },
+  { code: "vi", label: "Tiếng Việt" },
+  { code: "th", label: "ไทย" },
+  { code: "id", label: "Bahasa Indonesia" },
+  { code: "ru", label: "Русский" },
+  { code: "ar", label: "العربية" },
+];
+
+const SUPPORTED_LANGUAGE_CODES = new Set(SUPPORTED_LANGUAGES.map((l) => l.code));
+
+function detectBrowserLanguage(): string {
+  if (typeof navigator === "undefined") return "en";
+  const raw = (navigator.language ?? "en").toLowerCase();
+  const base = raw.split(/[-_]/u)[0];
+  return SUPPORTED_LANGUAGE_CODES.has(base) ? base : "en";
+}
 
 export default function Auth() {
   const navigate = useNavigate();
@@ -11,6 +38,7 @@ export default function Auth() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [preferredLanguage, setPreferredLanguage] = useState<string>(detectBrowserLanguage());
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -25,7 +53,12 @@ export default function Auth() {
       const res = await fetch(`/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, name: name || undefined }),
+        body: JSON.stringify({
+          email,
+          password,
+          name: name || undefined,
+          preferredLanguage: preferredLanguage || undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -52,7 +85,11 @@ export default function Auth() {
       const res = await fetch(`/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({
+          email,
+          password,
+          preferredLanguage: preferredLanguage || undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -138,6 +175,25 @@ export default function Auth() {
                       className="w-full bg-slate-800 border border-slate-700 rounded-xl py-3 pl-12 pr-4 text-sm focus:border-[#0891B2] outline-none transition-all"
                     />
                   </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Display Language</label>
+                  <div className="relative">
+                    <Globe className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" size={18} />
+                    <select
+                      value={preferredLanguage}
+                      onChange={(e) => setPreferredLanguage(e.target.value)}
+                      className="w-full appearance-none bg-slate-800 border border-slate-700 rounded-xl py-3 pl-12 pr-4 text-sm focus:border-[#0891B2] outline-none transition-all"
+                    >
+                      {SUPPORTED_LANGUAGES.map((l) => (
+                        <option key={l.code} value={l.code}>{l.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className="text-[10px] text-slate-500 ml-1">
+                    Used as the default language for the in-app translation button.
+                  </p>
                 </div>
               </div>
 
@@ -288,6 +344,22 @@ export default function Auth() {
                       onChange={(e) => setPassword(e.target.value)}
                       className="w-full bg-slate-800 border border-slate-700 rounded-xl py-3 pl-12 pr-4 text-sm focus:border-[#0891B2] outline-none transition-all"
                     />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Display Language (optional)</label>
+                  <div className="relative">
+                    <Globe className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" size={18} />
+                    <select
+                      value={preferredLanguage}
+                      onChange={(e) => setPreferredLanguage(e.target.value)}
+                      className="w-full appearance-none bg-slate-800 border border-slate-700 rounded-xl py-3 pl-12 pr-4 text-sm focus:border-[#0891B2] outline-none transition-all"
+                    >
+                      {SUPPORTED_LANGUAGES.map((l) => (
+                        <option key={l.code} value={l.code}>{l.label}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
               </div>

@@ -70,8 +70,8 @@ export default function JukeboxPage() {
   // ─── Coin system ───────────────────────────────────────────────────────────
   const [coinBalance, setCoinBalance] = useState<number | null>(null);
   const [freeRemaining, setFreeRemaining] = useState<number | null>(null);
-  const [freeLimit] = useState(3);
-  // Payment modal: shown when 4th+ request
+  const [freeLimit, setFreeLimit] = useState(20);
+  // Payment modal: shown after free daily requests are used
   const [showPayModal, setShowPayModal] = useState(false);
   const [pendingTrack, setPendingTrack] = useState<{
     videoTitle: string; videoThumbnail: string; videoDurationSecs: number;
@@ -96,8 +96,9 @@ export default function JukeboxPage() {
         setCoinBalance(balance);
       }
       if (countRes.ok) {
-        const { freeRemaining: fr } = await countRes.json();
-        setFreeRemaining(fr);
+        const j = (await countRes.json()) as { freeRemaining: number; freeLimit?: number };
+        setFreeRemaining(j.freeRemaining);
+        if (typeof j.freeLimit === "number") setFreeLimit(j.freeLimit);
       }
     } catch {}
   }, [user, communityId]);

@@ -10,8 +10,9 @@ import { PolicyReacceptanceBanner } from "@/components/PolicyReacceptanceBanner"
 import { queryClient } from "@/lib/query-client";
 import { DemoModeProvider } from "@/lib/demo-mode";
 import { AuthProvider, useAuth } from "@/lib/auth";
-import { getLoginReturn, saveLoginReturn } from "@/lib/login-return";
+import { consumeLoginRedirectPath, saveLoginReturn } from "@/lib/login-return";
 import { GlobalMyListPlayer } from "@/components/GlobalMyListPlayer";
+import { GlobalJukeboxPlayer } from "@/components/GlobalJukeboxPlayer";
 import { PlayingVideoProvider } from "@/lib/playing-video-context";
 
 SplashScreen.preventAutoHideAsync();
@@ -52,7 +53,7 @@ function TokenHandler({ children }: { children: React.ReactNode }) {
     const newUrl = window.location.pathname;
     window.history.replaceState({}, "", newUrl);
     loginWithToken(token)
-      .then(() => router.replace("/(tabs)/profile"))
+      .then(() => router.replace(consumeLoginRedirectPath() as any))
       .catch(() => router.replace("/auth/login?auth_error=me_failed"));
   }, [loginWithToken]);
 
@@ -168,6 +169,8 @@ function RootLayoutNav() {
       <Stack.Screen name="live/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="dm/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="mentor-booking/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="two-shot/reserve" options={{ headerShown: false }} />
+      <Stack.Screen name="two-shot/success" options={{ headerShown: false }} />
       <Stack.Screen name="mentor-success" options={{ headerShown: false }} />
       <Stack.Screen name="success" options={{ headerShown: false }} />
       <Stack.Screen name="revenue" options={{ headerShown: false }} />
@@ -219,6 +222,7 @@ export default function RootLayout() {
                         <PolicyReacceptanceBanner />
                         <RootLayoutNav />
                         <GlobalMyListPlayer />
+                        <GlobalJukeboxPlayer />
                       </View>
                     </PlayingVideoProvider>
                   </DemoModeProvider>

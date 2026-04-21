@@ -5,8 +5,20 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { C } from "@/constants/colors";
 import { webScrollStyle } from "@/constants/layout";
+import { PolicyTranslateBanner } from "@/components/PolicyTranslateBanner";
 
 const AGENT_EMAIL = "info@rawstock.live";
+
+const PAGE_FULL_TEXT = [
+  "Copyright / DMCA Policy (U.S.)",
+  "RawStock respects intellectual property rights. This policy describes how copyright owners may notify us of alleged infringement under the U.S. Digital Millennium Copyright Act (17 U.S.C. § 512). Provided for informational purposes; not legal advice.",
+  "Designated agent: DMCA notices should be sent to our designated copyright agent at info@rawstock.live. Operator: Hiromi Kanokifu (trade name RawStock), Shibuya Dogenzaka Tokyu Bldg 2F-C, 1-10-8 Dogenzaka, Shibuya, Tokyo 150-0043, Japan.",
+  "What to include in a takedown notice: identification of the copyrighted work; identification and location of the allegedly infringing material; your contact information; a good-faith belief statement; an accuracy statement under penalty of perjury that you are authorized to act; and a physical or electronic signature.",
+  "Counter-notification: If you believe material was removed in error, you may send a counter-notification meeting 17 U.S.C. § 512(g)(3). We may restore material in accordance with applicable law.",
+  "Repeat infringers: We may terminate or restrict accounts of users who are repeat infringers in appropriate circumstances.",
+  "Non-U.S. rights: Copyright rules differ by country. If you are not relying on U.S. DMCA procedures, you may still contact us at the email above.",
+  "United Kingdom: The UK has its own copyright regime. UK-based claimants may use the same contact email; we will assess notices under applicable UK law.",
+].join("\n\n");
 
 export default function DmcaScreen() {
   const insets = useSafeAreaInsets();
@@ -29,6 +41,8 @@ export default function DmcaScreen() {
       >
         <Text style={styles.docTitle}>Copyright / DMCA Policy (U.S.)</Text>
         <Text style={styles.effectiveDate}>Effective: April 4, 2026</Text>
+
+        <PolicyTranslateBanner text={PAGE_FULL_TEXT} srcLang="en" />
 
         <Text style={styles.body}>
           RawStock respects intellectual property rights. This policy describes how copyright owners may notify us of

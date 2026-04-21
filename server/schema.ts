@@ -450,6 +450,8 @@ export const jukeboxQueue = pgTable("jukebox_queue", {
   youtubeId: text("youtube_id"),
   addedBy: text("added_by").notNull().default("You"),
   addedByAvatar: text("added_by_avatar"),
+  /** 追加したログインユーザー（未ログイン・旧データは NULL） */
+  addedByUserId: integer("added_by_user_id"),
   position: integer("position").notNull().default(0),
   isPlayed: boolean("is_played").default(false),
   createdAt: timestamp("created_at").defaultNow(),
@@ -528,9 +530,45 @@ export const users = pgTable("users", {
   termsAcceptedAt: timestamp("terms_accepted_at"),
   privacyAcceptedVersion: text("privacy_accepted_version"),
   privacyAcceptedAt: timestamp("privacy_accepted_at"),
+  // migrations/0022_users_preferred_language.sql — UI・自動翻訳宛先言語（ISO 639-1）。
+  // 注意: lastContentLang は franc 検知結果。preferredLanguage はユーザーの明示選択で別物。
+  preferredLanguage: text("preferred_language"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+// migrations/0023_translations_and_glossary.sql — 自動翻訳キャッシュ
+export const translations = pgTable(
+  "translations",
+  {
+    id: serial("id").primaryKey(),
+    srcLang: text("src_lang").notNull(),
+    dstLang: text("dst_lang").notNull(),
+    /** sha256(normalize(source_text)) の hex */
+    textHash: text("text_hash").notNull(),
+    sourceText: text("source_text").notNull(),
+    translatedText: text("translated_text").notNull(),
+    engine: text("engine").notNull().default("mymemory"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (t) => [unique("translations_unique_idx").on(t.srcLang, t.dstLang, t.textHash)],
+);
+
+// migrations/0023_translations_and_glossary.sql — ブランド・固有名詞ガード用
+export const translationGlossary = pgTable(
+  "translation_glossary",
+  {
+    id: serial("id").primaryKey(),
+    term: text("term").notNull(),
+    /** '*' で全 locale 共通 */
+    locale: text("locale").notNull().default("*"),
+    doNotTranslate: boolean("do_not_translate").notNull().default(true),
+    overrideTranslation: text("override_translation"),
+    scope: text("scope").notNull().default("global"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (t) => [unique("translation_glossary_term_locale_idx").on(t.term, t.locale)],
+);
 
 /** ユーザー間フォロー（フォロワー限定ライブの判定に使用） */
 export const userFollows = pgTable(
@@ -776,7 +814,7 @@ export const ticketBalances = pgTable("ticket_balances", {
 
 /**
  * Audit log of all ticket movements.
- * type: purchase | spend_jukebox | spend_session | spend_gift | revenue_convert | refund
+ * type: purchase | spend_jukebox | spend_session | spend_gift | spend_editor_request | spend_ai_edit | revenue_convert | refund
  */
 export const ticketTransactions = pgTable("ticket_transactions", {
   id: serial("id").primaryKey(),
@@ -821,7 +859,7 @@ export const coinTransactions = pgTable("coin_transactions", {
 
 /**
  * Tracks daily jukebox request counts per user per community.
- * First 3 per day are free; 4th+ costs 30 tickets ($0.30 at 1 ticket = $0.01).
+ * First 20 per day are free; 21st+ costs 10 tickets (see TICKETS_PER_JUKEBOX in routes).
  */
 export const jukeboxRequestCounts = pgTable("jukebox_request_counts", {
   id: serial("id").primaryKey(),
@@ -865,14 +903,14 @@ export const dailyLogins = pgTable("daily_logins", {
 /**
  * AI Edit Assistant jobs.
  * Claude generates an Edit Decision List (EDL) from a video URL and prompt.
- * status: pending | processing | completed | failed | approved
+ * status: pending | processing | completed | failed | approved | rendering | delivered
  */
 export const aiEditJobs = pgTable("ai_edit_jobs", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull(),
   videoUrl: text("video_url").notNull().default(""),
   prompt: text("prompt").notNull(),
-  status: text("status").notNull().default("pending"), // pending | processing | completed | failed | approved
+  status: text("status").notNull().default("pending"), // pending | processing | completed | failed | approved | rendering | delivered
   result: text("result"), // JSON string of EDL
   // Enhanced AI Edit fields (v2)
   planMinutes: integer("plan_minutes"),      // 15 | 30 | 45 | 60
@@ -917,4 +955,21 @@ export const editingRequests = pgTable("editing_requests", {
   status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+/** 1対1（2ショット）有料配信の予約。決済完了で CONFIRMED。 */
+export const twoShotReservations = pgTable("two_shot_reservations", {
+  id: serial("id").primaryKey(),
+  hostUserId: integer("host_user_id").notNull(),
+  guestUserId: integer("guest_user_id").notNull(),
+  scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
+  durationMinutes: integer("duration_minutes").notNull().default(30),
+  /** PENDING | CONFIRMED | COMPLETED */
+  status: text("status").notNull().default("PENDING"),
+  stripeCheckoutSessionId: text("stripe_checkout_session_id"),
+  /** Cloudflare Stream 等のキー（後続ステップで設定） */
+  streamKey: text("stream_key"),
+  /** 仮枠識別子（例: hostId-slot-1） */
+  slotKey: text("slot_key"),
+  createdAt: timestamp("created_at").defaultNow(),
 });

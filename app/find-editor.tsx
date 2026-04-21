@@ -24,12 +24,14 @@ import {
 } from "@/constants/video-editor-profile";
 import { formatEditorRevenueShareLabel, formatEditorTicketsPerMinute } from "@/constants/tickets";
 import { webScrollStyle } from "@/constants/layout";
+import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 
 type SortKey = "rating" | "delivery" | "price";
 type PriceMode = "" | "per_minute" | "revenue_share";
 
 type VideoEditor = {
   id: number;
+  userId?: number | null;
   name: string;
   avatar: string | null;
   bio: string;
@@ -114,35 +116,53 @@ function ResultRow({
 
   return (
     <View style={card.container}>
-      <Pressable onPress={onToggle} style={card.headerTap}>
+      <View style={card.headerTap}>
         <View style={card.header}>
-          {editor.avatar ? (
-            <Image source={{ uri: editor.avatar }} style={card.avatar} contentFit="cover" />
-          ) : (
-            <View style={[card.avatar, card.avatarFallback]}>
-              <Text style={card.avatarInitial}>{editor.name[0]}</Text>
+          <Pressable
+            onPress={() =>
+              navigateToUserOrLiverProfile({
+                userId: editor.userId ?? null,
+                displayName: editor.userId ? null : editor.name,
+              })
+            }
+            hitSlop={4}
+          >
+            {editor.avatar ? (
+              <Image source={{ uri: editor.avatar }} style={card.avatar} contentFit="cover" />
+            ) : (
+              <View style={[card.avatar, card.avatarFallback]}>
+                <Text style={card.avatarInitial}>{editor.name[0]}</Text>
+              </View>
+            )}
+          </Pressable>
+          <Pressable style={{ flex: 1 }} onPress={onToggle}>
+            <View style={card.info}>
+              <Text style={card.name} numberOfLines={1}>
+                {editor.name}
+              </Text>
+              <StarRating rating={editor.rating} />
+              <Text style={card.reviewCount}>({editor.reviewCount} reviews)</Text>
             </View>
-          )}
-          <View style={card.info}>
-            <Text style={card.name} numberOfLines={1}>
-              {editor.name}
-            </Text>
-            <StarRating rating={editor.rating} />
-            <Text style={card.reviewCount}>({editor.reviewCount} reviews)</Text>
-          </View>
-          <View style={[card.statusBadge, editor.isAvailable ? card.statusAvailable : card.statusInquire]}>
-            <Text style={[card.statusText, editor.isAvailable ? card.statusAvailableText : card.statusInquireText]}>
-              {editor.isAvailable ? "Available" : "Inquire"}
-            </Text>
-          </View>
-          <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={18} color={C.textMuted} />
+          </Pressable>
+          <Pressable onPress={onToggle} hitSlop={8}>
+            <View style={[card.statusBadge, editor.isAvailable ? card.statusAvailable : card.statusInquire]}>
+              <Text style={[card.statusText, editor.isAvailable ? card.statusAvailableText : card.statusInquireText]}>
+                {editor.isAvailable ? "Available" : "Inquire"}
+              </Text>
+            </View>
+          </Pressable>
+          <Pressable onPress={onToggle} hitSlop={8}>
+            <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={18} color={C.textMuted} />
+          </Pressable>
         </View>
-        {!expanded && editor.bio ? (
-          <Text style={card.bioPreview} numberOfLines={2}>
-            {editor.bio}
-          </Text>
-        ) : null}
-      </Pressable>
+        <Pressable onPress={onToggle}>
+          {!expanded && editor.bio ? (
+            <Text style={card.bioPreview} numberOfLines={2}>
+              {editor.bio}
+            </Text>
+          ) : null}
+        </Pressable>
+      </View>
 
       {expanded ? (
         <View style={card.expanded}>

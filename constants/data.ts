@@ -34,6 +34,8 @@ export type Community = {
 
 export type BookingSession = {
   id: string;
+  /** API が付ける場合のみ（ホストの users.id） */
+  hostUserId?: number | null;
   creator: string;
   category: string;
   categoryLabel: string;

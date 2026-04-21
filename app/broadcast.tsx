@@ -27,15 +27,7 @@ import { webBroadcastNeedsUserGestureForCamera } from "@/lib/pwa-standalone";
 import { alertDestructiveConfirm, alertMessage } from "@/lib/alertCompat";
 import { isBroadcastJapaneseUi } from "@/lib/broadcastLocale";
 import { getBroadcastStrings } from "@/lib/broadcastStrings";
-import {
-  DeepARBroadcastProcessor,
-  type DeepARBroadcastProcessorHandle,
-} from "@/components/DeepARBroadcastProcessor";
-
-const DEEPAR_LICENSE_KEY =
-  typeof process !== "undefined" && process.env.EXPO_PUBLIC_DEEPAR_KEY
-    ? String(process.env.EXPO_PUBLIC_DEEPAR_KEY).trim()
-    : "";
+import { useAuth } from "@/lib/auth";
 
 function parseRouteVisibility(v: string | undefined): LiveStreamVisibility {
   if (v === "followers" || v === "community" || v === "paid") return v;
@@ -67,6 +59,7 @@ export default function BroadcastScreen() {
 
 function BroadcastWeb() {
   const t = getBroadcastStrings(isBroadcastJapaneseUi());
+  const { user, requireAuth } = useAuth();
   const params = useLocalSearchParams<{ visibility?: string; communityId?: string; ticketPrice?: string }>();
   const routeVisibility = parseRouteVisibility(
     typeof params.visibility === "string" ? params.visibility : undefined,
@@ -84,7 +77,6 @@ function BroadcastWeb() {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const rawStreamRef = useRef<MediaStream | null>(null);
-  const deepARProcessorRef = useRef<DeepARBroadcastProcessorHandle | null>(null);
 
   const [phase, setPhase] = useState<"idle" | "creating" | "ready" | "starting" | "live" | "stopping">("idle");
   const [streamId, setStreamId] = useState<number | null>(null);
@@ -93,10 +85,7 @@ function BroadcastWeb() {
   const [elapsed, setElapsed] = useState(0);
   const [cameraError, setCameraError] = useState(false);
   const [webPreviewLoading, setWebPreviewLoading] = useState(false);
-  const [deeparBusy, setDeeparBusy] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
-  /** Keep DeepAR optional so raw camera streaming still works as fallback. */
-  const [useDeepARBlur, setUseDeepARBlur] = useState(false);
   const [lastLiveError, setLastLiveError] = useState<string | null>(null);
   const blinkAnim = useRef(new Animated.Value(1)).current;
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -166,34 +155,28 @@ function BroadcastWeb() {
       }
     }
     setCameraError(false);
-    setDeeparBusy(false);
     setPhase("ready");
   };
 
   useEffect(() => {
     if (!cameraStream) return;
-    if (DEEPAR_LICENSE_KEY && useDeepARBlur) return;
     void bindWebPreview(cameraStream);
-  }, [cameraStream, useDeepARBlur]);
+  }, [cameraStream]);
 
   const startWebCamera = async () => {
     setWebPreviewLoading(true);
-    if (DEEPAR_LICENSE_KEY && useDeepARBlur) setDeeparBusy(true);
     try {
       const stream = await acquireBroadcastMediaStream();
       rawStreamRef.current = stream;
       setCameraStream(stream);
     } catch {
       setCameraError(true);
-      setDeeparBusy(false);
     } finally {
       setWebPreviewLoading(false);
     }
   };
 
   const cleanup = () => {
-    deepARProcessorRef.current?.dispose();
-    deepARProcessorRef.current = null;
     if (pcRef.current) {
       pcRef.current.close();
       pcRef.current = null;
@@ -209,12 +192,14 @@ function BroadcastWeb() {
       rawStreamRef.current = null;
     }
     setCameraStream(null);
-    setDeeparBusy(false);
     if (videoRef.current) videoRef.current.srcObject = null;
   };
 
   const handleGoLive = async () => {
     setLastLiveError(null);
+    if (!requireAuth("start a live broadcast")) {
+      return;
+    }
     if (!title.trim()) {
       const msg = t.titleRequired;
       alertMessage(t.alertTitleLive, msg);
@@ -226,11 +211,7 @@ function BroadcastWeb() {
         const stream = await acquireBroadcastMediaStream();
         rawStreamRef.current = stream;
         setCameraStream(stream);
-        if (!DEEPAR_LICENSE_KEY || !useDeepARBlur) {
-          await bindWebPreview(stream);
-        } else {
-          setDeeparBusy(true);
-        }
+        await bindWebPreview(stream);
       } catch {
         const msg = t.cameraPermissionPWA;
         alertMessage(t.alertTitleLive, msg);
@@ -322,12 +303,10 @@ function BroadcastWeb() {
   const goLiveDisabled =
     isLoading ||
     webPreviewLoading ||
-    deeparBusy ||
     cameraError ||
+    !user ||
     !title.trim() ||
     !localStreamRef.current;
-
-  const showDeepARToggle = Boolean(DEEPAR_LICENSE_KEY) && !isLive;
 
   return (
     <View style={styles.container}>
@@ -345,24 +324,6 @@ function BroadcastWeb() {
             display: "block",
           }}
         />
-
-        {DEEPAR_LICENSE_KEY && useDeepARBlur && cameraStream ? (
-          <DeepARBroadcastProcessor
-            ref={deepARProcessorRef}
-            rawStream={cameraStream}
-            licenseKey={DEEPAR_LICENSE_KEY}
-            blurStrength={5}
-            onReady={(merged) => {
-              void bindWebPreview(merged);
-            }}
-            onError={(msg) => {
-              setLastLiveError(msg);
-              setDeeparBusy(false);
-              const s = rawStreamRef.current;
-              if (s) void bindWebPreview(s);
-            }}
-          />
-        ) : null}
 
         {cameraError && (
           <View style={styles.cameraErrorOverlay}>
@@ -448,27 +409,6 @@ function BroadcastWeb() {
             />
           </View>
         )}
-
-        {showDeepARToggle ? (
-          <Pressable
-            style={styles.deeparToggleRow}
-            onPress={() => {
-              if (isLoading || webPreviewLoading) return;
-              setUseDeepARBlur((v) => !v);
-            }}
-            disabled={isLoading || webPreviewLoading}
-          >
-            <Ionicons
-              name={useDeepARBlur ? "checkmark-circle" : "ellipse-outline"}
-              size={22}
-              color={useDeepARBlur ? C.accent : C.textMuted}
-            />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.deeparToggleTitle}>{t.deeparTitle}</Text>
-              <Text style={styles.deeparToggleSub}>{t.deeparSub}</Text>
-            </View>
-          </Pressable>
-        ) : null}
 
         {isLive ? (
           <View style={styles.liveControls}>
@@ -648,19 +588,6 @@ const styles = StyleSheet.create({
     borderColor: C.border,
   },
   titleInput: { flex: 1, color: C.text, fontSize: 14 },
-  deeparToggleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    backgroundColor: C.surface,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: C.border,
-  },
-  deeparToggleTitle: { color: C.text, fontSize: 14, fontWeight: "700" },
-  deeparToggleSub: { color: C.textMuted, fontSize: 12, marginTop: 2 },
   goLiveBtn: {
     flexDirection: "row",
     alignItems: "center",

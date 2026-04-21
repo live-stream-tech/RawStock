@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { View, Text, ActivityIndicator, Platform } from "react-native";
 import { router } from "expo-router";
 import { useAuth } from "@/lib/auth";
-import { getLoginReturn } from "@/lib/login-return";
+import { consumeLoginRedirectPath } from "@/lib/login-return";
 import { C } from "@/constants/colors";
 
 /**
@@ -57,25 +57,7 @@ export default function AuthCallbackScreen() {
       try {
         await loginWithToken(token);
         if (cancelled) return;
-        const saved = getLoginReturn();
-        let returnTo = saved ?? "/(tabs)/profile";
-        // Exclude invalid paths as post-login return destinations.
-        const isInvalidReturn =
-          returnTo.startsWith("/auth/") ||
-          returnTo.startsWith("/jukebox") ||
-          returnTo.startsWith("/lp") ||
-          returnTo.startsWith("/teamz") ||
-          returnTo.startsWith("/rawstock-lp") ||
-          returnTo.startsWith("/terms") ||
-          returnTo.startsWith("/privacy") ||
-          returnTo.startsWith("/dmca") ||
-          returnTo.startsWith("/community-guidelines") ||
-          returnTo === "/legal" ||
-          returnTo.startsWith("/legal?") ||
-          returnTo.startsWith("/legal-notice") ||
-          returnTo.startsWith("/tokusho");
-        if (isInvalidReturn) returnTo = "/(tabs)/profile";
-        router.replace(returnTo as any);
+        router.replace(consumeLoginRedirectPath() as any);
       } catch (e) {
         console.error("[auth/callback] loginWithToken failed:", e);
         if (!cancelled) {

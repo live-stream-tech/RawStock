@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { C } from "@/constants/colors";
 import { webScrollStyle } from "@/constants/layout";
+import { PolicyTranslateBanner } from "@/components/PolicyTranslateBanner";
 
 const ROWS: [string, string][] = [
   ["Seller", "Hiromi Kanokifu"],
@@ -42,6 +43,14 @@ export default function TokushoScreen() {
       >
         <Text style={styles.docTitle}>Specified Commercial Transactions Act Disclosure</Text>
         <Text style={styles.docSub}>Required disclosure under Japanese law</Text>
+
+        <PolicyTranslateBanner
+          srcLang="en"
+          text={[
+            "Specified Commercial Transactions Act Disclosure (required disclosure under Japanese law).",
+            ...ROWS.map(([label, value]) => `${label}: ${value}`),
+          ].join("\n\n")}
+        />
 
         <View style={styles.table}>
           {ROWS.map(([label, value], i) => (

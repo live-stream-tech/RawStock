@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -22,6 +22,7 @@ import { AuthGuard } from "@/lib/auth";
 import { C } from "@/constants/colors";
 import { formatUsdFromTickets } from "@/constants/tickets";
 import { webScrollStyle } from "@/constants/layout";
+import { computeWithdrawalFeeBreakdown, type WithdrawalFeePolicy } from "@shared/withdrawalFees";
 
 type Summary = {
   totalEarned: number;
@@ -29,6 +30,7 @@ type Summary = {
   pendingWithdrawal: number;
   available: number;
   monthly: { month: string; amount: number }[];
+  withdrawalFeePolicy?: WithdrawalFeePolicy;
 };
 type Earning = {
   id: number;
@@ -140,22 +142,49 @@ function RevenueScreenContent() {
   const { data: earningsList = [] } = useQuery<Earning[]>({ queryKey: ["/api/revenue/earnings"] });
   const { data: withdrawalsList = [] } = useQuery<Withdrawal[]>({ queryKey: ["/api/revenue/withdrawals"] });
 
+  const feePolicy: WithdrawalFeePolicy = summary?.withdrawalFeePolicy ?? {
+    bps: 0,
+    fixedUsdCents: 0,
+    minNetTransferUsdCents: 50,
+  };
+
+  const withdrawPreview = useMemo(() => {
+    const gross = parseInt(amountText, 10);
+    if (!Number.isFinite(gross) || gross <= 0) {
+      return { feeUsdCents: 0, netTransferUsdCents: 0 };
+    }
+    return computeWithdrawalFeeBreakdown(gross, feePolicy);
+  }, [amountText, feePolicy.bps, feePolicy.fixedUsdCents, feePolicy.minNetTransferUsdCents]);
+
   const withdrawMutation = useMutation({
-    mutationFn: () =>
-      apiRequest("POST", "/api/revenue/withdraw", {
-        amount: parseInt(amountText),
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/revenue/withdraw", {
+        amount: parseInt(amountText, 10),
         bankName,
         bankBranch,
         accountType,
         accountNumber,
         accountName,
-      }),
-    onSuccess: () => {
+      });
+      return (await res.json()) as Withdrawal & {
+        grossWithdrawUsdCents?: number;
+        feeUsdCents?: number;
+        netTransferUsdCents?: number;
+        stripeTransferId?: string;
+      };
+    },
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["/api/revenue/summary"] });
       qc.invalidateQueries({ queryKey: ["/api/revenue/withdrawals"] });
       setShowWithdrawModal(false);
       resetForm();
-      Alert.alert("Transfer Completed", "Your withdrawal was transferred successfully.");
+      const fee = data.feeUsdCents ?? 0;
+      const net = data.netTransferUsdCents ?? data.amount;
+      const msg =
+        fee > 0
+          ? `Balance reduced by 🎟${data.amount.toLocaleString()}. Estimated Stripe transfer: 🎟${net.toLocaleString()} (platform/processing fee 🎟${fee.toLocaleString()} retained). Stripe may charge your connected account separately for bank payouts.`
+          : "Your withdrawal was transferred successfully.";
+      Alert.alert("Transfer Completed", msg);
     },
     onError: (e: any) => {
       Alert.alert("Error", e?.message ?? "Failed to submit request");
@@ -171,13 +200,20 @@ function RevenueScreenContent() {
     setAccountName("");
   }
 
+  const grossAmount = parseInt(amountText, 10);
+  const netOk =
+    Number.isFinite(grossAmount) &&
+    grossAmount >= 1000 &&
+    withdrawPreview.netTransferUsdCents >= feePolicy.minNetTransferUsdCents;
+
   const canSubmit =
     amountText.trim() &&
-    parseInt(amountText) >= 1000 &&
+    netOk &&
     bankName.trim() &&
     bankBranch.trim() &&
     accountNumber.trim() &&
-    accountName.trim();
+    accountName.trim() &&
+    grossAmount <= (summary?.available ?? 0);
 
   const formatDate = (s: string) => {
     const d = new Date(s);
@@ -375,6 +411,31 @@ function RevenueScreenContent() {
               {amountText && parseInt(amountText) > (summary?.available ?? 0) && (
                 <Text style={styles.fieldError}>Exceeds available balance</Text>
               )}
+              {amountText &&
+                parseInt(amountText) >= 1000 &&
+                withdrawPreview.netTransferUsdCents < feePolicy.minNetTransferUsdCents && (
+                  <Text style={styles.fieldError}>
+                    After fees, transfer would be below the minimum (🎟{feePolicy.minNetTransferUsdCents}). Increase
+                    the amount.
+                  </Text>
+                )}
+              {amountText && parseInt(amountText) >= 1000 && withdrawPreview.feeUsdCents > 0 && (
+                <View style={styles.feePreviewBox}>
+                  <Text style={styles.feePreviewTitle}>Payout estimate (withdrawer-paid fees)</Text>
+                  <Text style={styles.feePreviewLine}>
+                    Gross (deducted from balance): 🎟{grossAmount.toLocaleString()}{" "}
+                    <Text style={styles.feePreviewSub}>({formatUsdFromTickets(grossAmount)})</Text>
+                  </Text>
+                  <Text style={styles.feePreviewLine}>
+                    Estimated fee: 🎟{withdrawPreview.feeUsdCents.toLocaleString()}{" "}
+                    <Text style={styles.feePreviewSub}>({formatUsdFromTickets(withdrawPreview.feeUsdCents)})</Text>
+                  </Text>
+                  <Text style={styles.feePreviewLine}>
+                    Est. Stripe transfer: 🎟{withdrawPreview.netTransferUsdCents.toLocaleString()}{" "}
+                    <Text style={styles.feePreviewSub}>({formatUsdFromTickets(withdrawPreview.netTransferUsdCents)})</Text>
+                  </Text>
+                </View>
+              )}
 
               {/* Divider */}
               <View style={styles.sectionDivider}>
@@ -437,7 +498,10 @@ function RevenueScreenContent() {
               <View style={styles.noticeBox}>
                 <Ionicons name="information-circle-outline" size={14} color={C.textMuted} />
                 <Text style={styles.noticeText}>
-                  Payouts are processed within 3–5 business days. No fees.
+                  Card processing on ticket purchases is paid from the platform side of the Stripe charge (you pay the
+                  listed ticket price). On withdrawal, RawStock may retain a configurable processing fee from your
+                  requested amount before sending the remainder to Stripe Connect; your bank payout may incur separate
+                  Stripe fees on the connected account.
                 </Text>
               </View>
             </ScrollView>
@@ -621,6 +685,18 @@ const styles = StyleSheet.create({
   modalScroll: { maxHeight: 460 },
   fieldLabel: { color: C.textSec, fontSize: 12, fontWeight: "600", marginBottom: 6, marginTop: 12 },
   fieldError: { color: C.live, fontSize: 11, marginTop: 4 },
+  feePreviewBox: {
+    marginTop: 10,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+    gap: 4,
+  },
+  feePreviewTitle: { color: C.text, fontSize: 12, fontWeight: "700", marginBottom: 4 },
+  feePreviewLine: { color: C.textSec, fontSize: 12, lineHeight: 18 },
+  feePreviewSub: { color: C.textMuted, fontSize: 11 },
   amountRow: {
     flexDirection: "row",
     alignItems: "center",

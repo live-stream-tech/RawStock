@@ -69,6 +69,9 @@ __export(schema_exports, {
   ticketBalances: () => ticketBalances,
   ticketTransactions: () => ticketTransactions,
   transactions: () => transactions,
+  translationGlossary: () => translationGlossary,
+  translations: () => translations,
+  twoShotReservations: () => twoShotReservations,
   userFollows: () => userFollows,
   users: () => users,
   videoComments: () => videoComments,
@@ -490,8 +493,10 @@ var jukeboxQueue = pgTable("jukebox_queue", {
   videoThumbnail: text("video_thumbnail").notNull(),
   videoDurationSecs: integer("video_duration_secs").default(0),
   youtubeId: text("youtube_id"),
-  addedBy: text("added_by").notNull().default("\u3042\u306A\u305F"),
+  addedBy: text("added_by").notNull().default("You"),
   addedByAvatar: text("added_by_avatar"),
+  /** 追加したログインユーザー（未ログイン・旧データは NULL） */
+  addedByUserId: integer("added_by_user_id"),
   position: integer("position").notNull().default(0),
   isPlayed: boolean("is_played").default(false),
   createdAt: timestamp("created_at").defaultNow()
@@ -566,9 +571,41 @@ var users = pgTable("users", {
   termsAcceptedAt: timestamp("terms_accepted_at"),
   privacyAcceptedVersion: text("privacy_accepted_version"),
   privacyAcceptedAt: timestamp("privacy_accepted_at"),
+  // migrations/0022_users_preferred_language.sql — UI・自動翻訳宛先言語（ISO 639-1）。
+  // 注意: lastContentLang は franc 検知結果。preferredLanguage はユーザーの明示選択で別物。
+  preferredLanguage: text("preferred_language"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow()
 });
+var translations = pgTable(
+  "translations",
+  {
+    id: serial("id").primaryKey(),
+    srcLang: text("src_lang").notNull(),
+    dstLang: text("dst_lang").notNull(),
+    /** sha256(normalize(source_text)) の hex */
+    textHash: text("text_hash").notNull(),
+    sourceText: text("source_text").notNull(),
+    translatedText: text("translated_text").notNull(),
+    engine: text("engine").notNull().default("mymemory"),
+    createdAt: timestamp("created_at").defaultNow()
+  },
+  (t) => [unique("translations_unique_idx").on(t.srcLang, t.dstLang, t.textHash)]
+);
+var translationGlossary = pgTable(
+  "translation_glossary",
+  {
+    id: serial("id").primaryKey(),
+    term: text("term").notNull(),
+    /** '*' で全 locale 共通 */
+    locale: text("locale").notNull().default("*"),
+    doNotTranslate: boolean("do_not_translate").notNull().default(true),
+    overrideTranslation: text("override_translation"),
+    scope: text("scope").notNull().default("global"),
+    createdAt: timestamp("created_at").defaultNow()
+  },
+  (t) => [unique("translation_glossary_term_locale_idx").on(t.term, t.locale)]
+);
 var userFollows = pgTable(
   "user_follows",
   {
@@ -673,7 +710,7 @@ var withdrawals = pgTable("withdrawals", {
   status: text("status").notNull().default("pending"),
   bankName: text("bank_name").notNull(),
   bankBranch: text("bank_branch").notNull(),
-  accountType: text("account_type").notNull().default("\u666E\u901A"),
+  accountType: text("account_type").notNull().default("Checking"),
   accountNumber: text("account_number").notNull(),
   accountName: text("account_name").notNull(),
   note: text("note"),
@@ -839,7 +876,7 @@ var aiEditJobs = pgTable("ai_edit_jobs", {
   videoUrl: text("video_url").notNull().default(""),
   prompt: text("prompt").notNull(),
   status: text("status").notNull().default("pending"),
-  // pending | processing | completed | failed | approved
+  // pending | processing | completed | failed | approved | rendering | delivered
   result: text("result"),
   // JSON string of EDL
   // Enhanced AI Edit fields (v2)
@@ -880,6 +917,21 @@ var editingRequests = pgTable("editing_requests", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow()
 });
+var twoShotReservations = pgTable("two_shot_reservations", {
+  id: serial("id").primaryKey(),
+  hostUserId: integer("host_user_id").notNull(),
+  guestUserId: integer("guest_user_id").notNull(),
+  scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
+  durationMinutes: integer("duration_minutes").notNull().default(30),
+  /** PENDING | CONFIRMED | COMPLETED */
+  status: text("status").notNull().default("PENDING"),
+  stripeCheckoutSessionId: text("stripe_checkout_session_id"),
+  /** Cloudflare Stream 等のキー（後続ステップで設定） */
+  streamKey: text("stream_key"),
+  /** 仮枠識別子（例: hostId-slot-1） */
+  slotKey: text("slot_key"),
+  createdAt: timestamp("created_at").defaultNow()
+});
 
 // server/db.ts
 var pool = new Pool({
@@ -888,7 +940,20 @@ var pool = new Pool({
 var db = drizzle(pool, { schema: schema_exports });
 
 // server/routes.ts
-import { eq as eq2, asc as asc2, desc, count, sql as sql3, and as and2, or, gte as gte2, lte as lte2, isNull, inArray, isNotNull } from "drizzle-orm";
+import {
+  eq as eq5,
+  asc as asc3,
+  desc,
+  count,
+  sql as sql3,
+  and as and5,
+  or,
+  gte as gte2,
+  lte as lte2,
+  isNull,
+  inArray,
+  isNotNull
+} from "drizzle-orm";
 
 // server/editorPricing.ts
 function validateEditorPricing(row) {
@@ -964,7 +1029,7 @@ function requireStripe() {
   if (!STRIPE_SECRET_KEY) {
     throw new Error("STRIPE_SECRET_KEY is not configured. Add it to your environment secrets.");
   }
-  return new Stripe(STRIPE_SECRET_KEY, { apiVersion: "2025-01-27.acacia" });
+  return new Stripe(STRIPE_SECRET_KEY, { apiVersion: "2026-02-25.clover" });
 }
 async function getUncachableStripeClient() {
   return requireStripe();
@@ -1274,6 +1339,347 @@ ${contentText}`;
   return { verdict: "gray_zone", reason: "\u5224\u5B9A\u7D50\u679C\u306E\u53D6\u5F97\u306B\u5931\u6557\u3057\u305F\u305F\u3081\u7BA1\u7406\u8005\u78BA\u8A8D\u306B\u56DE\u3057\u307E\u3057\u305F\u3002" };
 }
 
+// shared/rawstock-video-spec.ts
+function rawStockClipEnergy(value) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) {
+    throw new RangeError(`RawStockClipEnergy must be finite and in [0, 1], got ${String(value)}`);
+  }
+  return value;
+}
+function sortRawStockClipsByStart(clips) {
+  return [...clips].sort((a, b) => a.start - b.start || a.end - b.end);
+}
+
+// server/lib/parseVideoSpec.ts
+var CLIP_TYPES = /* @__PURE__ */ new Set(["hook", "drop", "chorus", "crowd"]);
+var CUT_SPEEDS = /* @__PURE__ */ new Set(["slow", "medium", "fast"]);
+var CAPTION_DENSITIES = /* @__PURE__ */ new Set(["low", "medium", "high"]);
+var COLOR_GRADES = /* @__PURE__ */ new Set(["natural", "high_contrast", "gritty"]);
+var FORMATS = /* @__PURE__ */ new Set(["vertical_9_16", "square_1_1", "horizontal_16_9"]);
+var LOGO_POSITIONS = /* @__PURE__ */ new Set([
+  "top-left",
+  "top-right",
+  "bottom-left",
+  "bottom-right",
+  "center"
+]);
+function isPlainObject(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function parseClip(raw) {
+  if (!isPlainObject(raw)) return null;
+  const start = raw.start;
+  const end = raw.end;
+  const type = raw.type;
+  const energy = raw.energy;
+  if (typeof start !== "number" || typeof end !== "number" || !Number.isFinite(start) || !Number.isFinite(end)) {
+    return null;
+  }
+  if (start > end) return null;
+  if (typeof type !== "string" || !CLIP_TYPES.has(type)) return null;
+  if (typeof energy !== "number" || !Number.isFinite(energy)) return null;
+  try {
+    const e = rawStockClipEnergy(energy);
+    const intent = raw.intent;
+    const sourceIndex = raw.sourceIndex;
+    const sourceStart = raw.sourceStart;
+    const sourceEnd = raw.sourceEnd;
+    const out = {
+      start,
+      end,
+      type,
+      energy: e
+    };
+    if (typeof intent === "string" && intent.trim()) {
+      out.intent = intent.trim();
+    }
+    if (sourceIndex !== void 0) {
+      if (typeof sourceIndex !== "number" || !Number.isInteger(sourceIndex) || sourceIndex < 0) {
+        return null;
+      }
+      out.sourceIndex = sourceIndex;
+    }
+    if (sourceStart !== void 0) {
+      if (typeof sourceStart !== "number" || !Number.isFinite(sourceStart) || sourceStart < 0) {
+        return null;
+      }
+      out.sourceStart = sourceStart;
+    }
+    if (sourceEnd !== void 0) {
+      if (typeof sourceEnd !== "number" || !Number.isFinite(sourceEnd) || sourceEnd < 0) {
+        return null;
+      }
+      out.sourceEnd = sourceEnd;
+    }
+    if (out.sourceStart !== void 0 && out.sourceEnd !== void 0 && out.sourceStart > out.sourceEnd) {
+      return null;
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+function parseStyle(raw) {
+  if (!isPlainObject(raw)) return null;
+  const { cut_speed, caption_density, color_grade } = raw;
+  if (typeof cut_speed !== "string" || !CUT_SPEEDS.has(cut_speed)) return null;
+  if (typeof caption_density !== "string" || !CAPTION_DENSITIES.has(caption_density)) return null;
+  if (typeof color_grade !== "string" || !COLOR_GRADES.has(color_grade)) return null;
+  return {
+    cut_speed,
+    caption_density,
+    color_grade
+  };
+}
+function parseOverlays(raw) {
+  if (raw === void 0 || raw === null) return void 0;
+  if (!isPlainObject(raw)) return void 0;
+  if (typeof raw.logo !== "boolean") return void 0;
+  const out = { logo: raw.logo };
+  const pos = raw.position;
+  if (pos !== void 0) {
+    if (typeof pos !== "string" || !LOGO_POSITIONS.has(pos)) return void 0;
+    out.position = pos;
+  }
+  return out;
+}
+function normalizeVideoSpecPayload(raw) {
+  if (!isPlainObject(raw)) return null;
+  const clipsRaw = raw.clips;
+  if (!Array.isArray(clipsRaw) || clipsRaw.length === 0) return null;
+  const clips = [];
+  for (const c of clipsRaw) {
+    const p = parseClip(c);
+    if (!p) return null;
+    clips.push(p);
+  }
+  const style = parseStyle(raw.style);
+  if (!style) return null;
+  const format = raw.format;
+  if (typeof format !== "string" || !FORMATS.has(format)) return null;
+  const spec = {
+    clips: sortRawStockClipsByStart(clips),
+    style,
+    format,
+    overlays: parseOverlays(raw.overlays)
+  };
+  const duration = raw.duration;
+  if (typeof duration === "number" && Number.isFinite(duration) && duration >= 0) {
+    spec.duration = duration;
+  }
+  return JSON.stringify(spec);
+}
+function parseStoredVideoSpec(json) {
+  if (!json?.trim()) return null;
+  try {
+    const parsed = JSON.parse(json);
+    const normalized = normalizeVideoSpecPayload(parsed);
+    if (!normalized) return null;
+    return JSON.parse(normalized);
+  } catch {
+    return null;
+  }
+}
+
+// server/lib/aiEditArtifacts.ts
+function parseTimestampToSeconds(value) {
+  const match = value.trim().match(/^(\d{1,2}):([0-5]\d)$/);
+  if (!match) return null;
+  const minutes = Number(match[1]);
+  const seconds = Number(match[2]);
+  return minutes * 60 + seconds;
+}
+function clipTypeFromEDL(item, index) {
+  if (item.type === "highlight") return index === 0 ? "hook" : "drop";
+  if (item.type === "transition") return "crowd";
+  if (item.type === "caption") return "chorus";
+  return index === 0 ? "hook" : "chorus";
+}
+function energyFromEDLType(type) {
+  switch (type) {
+    case "highlight":
+      return rawStockClipEnergy(0.9);
+    case "transition":
+      return rawStockClipEnergy(0.35);
+    case "caption":
+      return rawStockClipEnergy(0.45);
+    case "cut":
+    default:
+      return rawStockClipEnergy(0.65);
+  }
+}
+function clipDuration(clip) {
+  const start = clip.sourceStart ?? clip.start;
+  const end = clip.sourceEnd ?? clip.end;
+  return Math.max(0, end - start);
+}
+function buildSegmentsFromPlan(baseSpec, plan) {
+  const clips = [];
+  const segments = [];
+  let outputCursor = 0;
+  for (const [itemIdx, item] of plan.edl.entries()) {
+    const timelineStart = parseTimestampToSeconds(item.startTime);
+    const timelineEnd = parseTimestampToSeconds(item.endTime);
+    if (timelineStart == null || timelineEnd == null || timelineEnd <= timelineStart) {
+      continue;
+    }
+    for (const baseClip of baseSpec.clips) {
+      const overlapStart = Math.max(timelineStart, baseClip.start);
+      const overlapEnd = Math.min(timelineEnd, baseClip.end);
+      if (overlapEnd <= overlapStart) continue;
+      const baseSourceStart = baseClip.sourceStart ?? baseClip.start;
+      const sourceStart = baseSourceStart + (overlapStart - baseClip.start);
+      const sourceEnd = sourceStart + (overlapEnd - overlapStart);
+      const duration = overlapEnd - overlapStart;
+      const clip = {
+        start: outputCursor,
+        end: outputCursor + duration,
+        type: clipTypeFromEDL(item, itemIdx),
+        energy: energyFromEDLType(item.type),
+        intent: item.instruction.trim() || item.note?.trim() || void 0,
+        sourceIndex: baseClip.sourceIndex ?? 0,
+        sourceStart,
+        sourceEnd
+      };
+      clips.push(clip);
+      segments.push({
+        itemIndex: item.index,
+        sourceIndex: clip.sourceIndex ?? 0,
+        outputStartSec: clip.start,
+        outputEndSec: clip.end,
+        sourceStartSec: sourceStart,
+        sourceEndSec: sourceEnd,
+        edlType: item.type
+      });
+      outputCursor += duration;
+    }
+  }
+  return { clips, segments };
+}
+function buildAnalysis(provider, baseSpec, renderSpec, segments) {
+  const sourceDurations = /* @__PURE__ */ new Map();
+  for (const clip of baseSpec.clips) {
+    const sourceIndex = clip.sourceIndex ?? 0;
+    const duration = clipDuration(clip);
+    sourceDurations.set(sourceIndex, (sourceDurations.get(sourceIndex) ?? 0) + duration);
+  }
+  const selectedBySource = /* @__PURE__ */ new Map();
+  for (const segment of segments) {
+    const entry = selectedBySource.get(segment.sourceIndex) ?? { count: 0, duration: 0 };
+    entry.count += 1;
+    entry.duration += Math.max(0, segment.sourceEndSec - segment.sourceStartSec);
+    selectedBySource.set(segment.sourceIndex, entry);
+  }
+  const warnings = [];
+  if (provider === "mock") {
+    warnings.push("AI provider is running in mock mode. Review the edit plan carefully before rendering.");
+  }
+  if (segments.length === 0) {
+    warnings.push("The AI plan did not map to any source segment, so the original order spec is being used.");
+  }
+  if (new Set(renderSpec.clips.map((clip) => clip.sourceIndex ?? 0)).size > 1) {
+    warnings.push("This edit uses multiple source files. Verify the template supports all referenced video layers.");
+  }
+  return {
+    version: 1,
+    provider,
+    renderPath: "templated",
+    renderReady: renderSpec.clips.length > 0,
+    warnings,
+    nextSteps: [
+      "scene_detection",
+      "shot_classification",
+      "audio_beat_detection",
+      "highlight_scoring"
+    ],
+    sources: [...sourceDurations.entries()].sort((a, b) => a[0] - b[0]).map(([sourceIndex, durationSec]) => ({
+      sourceIndex,
+      durationSec,
+      selectedClipCount: selectedBySource.get(sourceIndex)?.count ?? 0,
+      selectedDurationSec: selectedBySource.get(sourceIndex)?.duration ?? 0
+    })),
+    segments
+  };
+}
+function buildAIEditStoredResult(params) {
+  const { plan, promptUsed, provider, baseSpec, revisionPrompt } = params;
+  const { clips, segments } = buildSegmentsFromPlan(baseSpec, plan);
+  const renderSpec = clips.length > 0 ? {
+    clips: sortRawStockClipsByStart(clips),
+    style: baseSpec.style,
+    format: baseSpec.format,
+    overlays: baseSpec.overlays,
+    duration: clips[clips.length - 1]?.end ?? 0
+  } : baseSpec;
+  return {
+    schemaVersion: "ai-edit-result-v1",
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    promptUsed,
+    revisionPrompt: revisionPrompt?.trim() || null,
+    plan,
+    renderSpec,
+    baseSpec,
+    analysis: buildAnalysis(provider, baseSpec, renderSpec, segments)
+  };
+}
+function parseAIEditStoredResult(json) {
+  if (!json?.trim()) return null;
+  try {
+    const parsed = JSON.parse(json);
+    if (parsed?.schemaVersion !== "ai-edit-result-v1") return null;
+    if (!parsed.plan || !Array.isArray(parsed.plan.edl)) return null;
+    if (!parsed.renderSpec || !Array.isArray(parsed.renderSpec.clips)) return null;
+    if (!parsed.baseSpec || !Array.isArray(parsed.baseSpec.clips)) return null;
+    if (!parsed.analysis || !Array.isArray(parsed.analysis.sources) || !Array.isArray(parsed.analysis.segments)) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+// server/lib/aiEditJobQueue.ts
+var pending = [];
+var activeKeys = /* @__PURE__ */ new Set();
+var running = false;
+var MAX_ATTEMPTS = 1;
+async function runQueue() {
+  if (running) return;
+  running = true;
+  try {
+    while (pending.length > 0) {
+      const task = pending.shift();
+      if (!task) continue;
+      try {
+        await task.handler();
+        activeKeys.delete(task.key);
+      } catch (error) {
+        if (task.attempts + 1 < MAX_ATTEMPTS) {
+          pending.push({ ...task, attempts: task.attempts + 1 });
+        } else {
+          activeKeys.delete(task.key);
+          console.error("[ai-edit/queue] job failed permanently:", error);
+        }
+      }
+    }
+  } finally {
+    running = false;
+  }
+}
+function enqueueAIEditJob(key, handler) {
+  if (activeKeys.has(key)) return false;
+  activeKeys.add(key);
+  pending.push({ key, handler, attempts: 0 });
+  void runQueue().catch((error) => {
+    console.error("[ai-edit/queue] job failed:", error);
+  });
+  return true;
+}
+
+// server/lib/aiEditPlanWorker.ts
+import { and as and2, asc as asc2, eq as eq2 } from "drizzle-orm";
+
 // server/aiEditAssistant.ts
 var MODEL2 = "claude-haiku-4-5-20251001";
 var ANTHROPIC_API_URL2 = "https://api.anthropic.com/v1/messages";
@@ -1378,11 +1784,23 @@ function buildUserMessage(input) {
   lines.push("", "Editing instructions:", prompt);
   return lines.join("\n");
 }
+function allowMockEditPlan() {
+  return process.env.AI_EDIT_ALLOW_MOCK === "1";
+}
+function withMockFallback(input, reason) {
+  if (!allowMockEditPlan()) {
+    throw new Error(reason);
+  }
+  console.warn(`[aiEditAssistant] ${reason} \u2014 returning mock EDL`);
+  return { plan: getMockEditPlan(input), provider: "mock" };
+}
 async function generateEditPlan(input) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    console.warn("[aiEditAssistant] ANTHROPIC_API_KEY not set \u2014 returning mock EDL");
-    return getMockEditPlan(input);
+    return withMockFallback(
+      input,
+      "ANTHROPIC_API_KEY is not set. Set AI_EDIT_ALLOW_MOCK=1 to use mock plans locally"
+    );
   }
   const userMessage = buildUserMessage(input);
   try {
@@ -1403,142 +1821,215 @@ async function generateEditPlan(input) {
     if (!res.ok) {
       const errText = await res.text();
       console.error("[aiEditAssistant] Claude API error:", res.status, errText);
-      return getMockEditPlan(input);
+      return withMockFallback(input, `Claude API error (${res.status})`);
     }
     const data = await res.json();
     const text2 = data.content?.[0]?.text?.trim() ?? "";
     const jsonMatch = text2.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      console.error("[aiEditAssistant] No JSON found in Claude response");
-      return getMockEditPlan(input);
+      return withMockFallback(input, "No JSON found in Claude response");
     }
     const parsed = JSON.parse(jsonMatch[0]);
     if (!parsed.edl || !Array.isArray(parsed.edl)) {
-      return getMockEditPlan(input);
+      return withMockFallback(input, "Claude response did not contain a valid EDL array");
     }
-    return parsed;
+    return { plan: parsed, provider: "anthropic" };
   } catch (e) {
     console.error("[aiEditAssistant] Error calling Claude:", e);
-    return getMockEditPlan(input);
+    const msg = e instanceof Error ? e.message : "Claude call failed";
+    return withMockFallback(input, msg);
   }
 }
 
-// shared/rawstock-video-spec.ts
-function rawStockClipEnergy(value) {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) {
-    throw new RangeError(`RawStockClipEnergy must be finite and in [0, 1], got ${String(value)}`);
-  }
-  return value;
+// server/lib/aiEditPlanWorker.ts
+function useAIEditMemoryQueue() {
+  if (process.env.AI_EDIT_USE_MEMORY_QUEUE === "1") return true;
+  if (process.env.AI_EDIT_USE_MEMORY_QUEUE === "0") return false;
+  return process.env.VERCEL !== "1";
 }
-function sortRawStockClipsByStart(clips) {
-  return [...clips].sort((a, b) => a.start - b.start || a.end - b.end);
-}
-
-// server/lib/parseVideoSpec.ts
-var CLIP_TYPES = /* @__PURE__ */ new Set(["hook", "drop", "chorus", "crowd"]);
-var CUT_SPEEDS = /* @__PURE__ */ new Set(["slow", "medium", "fast"]);
-var CAPTION_DENSITIES = /* @__PURE__ */ new Set(["low", "medium", "high"]);
-var COLOR_GRADES = /* @__PURE__ */ new Set(["natural", "high_contrast", "gritty"]);
-var FORMATS = /* @__PURE__ */ new Set(["vertical_9_16", "square_1_1", "horizontal_16_9"]);
-var LOGO_POSITIONS = /* @__PURE__ */ new Set([
-  "top-left",
-  "top-right",
-  "bottom-left",
-  "bottom-right",
-  "center"
-]);
-function isPlainObject(v) {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-function parseClip(raw) {
-  if (!isPlainObject(raw)) return null;
-  const start = raw.start;
-  const end = raw.end;
-  const type = raw.type;
-  const energy = raw.energy;
-  if (typeof start !== "number" || typeof end !== "number" || !Number.isFinite(start) || !Number.isFinite(end)) {
-    return null;
-  }
-  if (start > end) return null;
-  if (typeof type !== "string" || !CLIP_TYPES.has(type)) return null;
-  if (typeof energy !== "number" || !Number.isFinite(energy)) return null;
-  try {
-    const e = rawStockClipEnergy(energy);
-    const intent = raw.intent;
-    const out = {
-      start,
-      end,
-      type,
-      energy: e
-    };
-    if (typeof intent === "string" && intent.trim()) {
-      out.intent = intent.trim();
+function parseJobVideoUrls(job) {
+  if (job.videoUrls) {
+    try {
+      const parsed = JSON.parse(job.videoUrls);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((value) => typeof value === "string").map((value) => value.trim()).filter(Boolean);
+      }
+    } catch {
     }
-    return out;
-  } catch {
-    return null;
   }
+  return job.videoUrl?.trim() ? [job.videoUrl.trim()] : [];
 }
-function parseStyle(raw) {
-  if (!isPlainObject(raw)) return null;
-  const { cut_speed, caption_density, color_grade } = raw;
-  if (typeof cut_speed !== "string" || !CUT_SPEEDS.has(cut_speed)) return null;
-  if (typeof caption_density !== "string" || !CAPTION_DENSITIES.has(caption_density)) return null;
-  if (typeof color_grade !== "string" || !COLOR_GRADES.has(color_grade)) return null;
-  return {
-    cut_speed,
-    caption_density,
-    color_grade
-  };
+function getBaseVideoSpec(job) {
+  const stored = parseAIEditStoredResult(job.result ?? null);
+  return stored?.baseSpec ?? parseStoredVideoSpec(job.videoSpec ?? null);
 }
-function parseOverlays(raw) {
-  if (raw === void 0 || raw === null) return void 0;
-  if (!isPlainObject(raw)) return void 0;
-  if (typeof raw.logo !== "boolean") return void 0;
-  const out = { logo: raw.logo };
-  const pos = raw.position;
-  if (pos !== void 0) {
-    if (typeof pos !== "string" || !LOGO_POSITIONS.has(pos)) return void 0;
-    out.position = pos;
+async function refundAIEditTickets(params) {
+  const { userId, amount, type, description, referenceId } = params;
+  if (!Number.isFinite(amount) || amount <= 0) return;
+  const key = String(userId);
+  const balRows = await db.select().from(ticketBalances).where(eq2(ticketBalances.userId, key)).limit(1);
+  const currentBalance = balRows[0]?.balance ?? 0;
+  if (balRows.length === 0) {
+    await db.insert(ticketBalances).values({ userId: key, balance: amount });
+  } else {
+    await db.update(ticketBalances).set({ balance: currentBalance + amount, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, key));
   }
-  return out;
+  await db.insert(ticketTransactions).values({
+    userId: key,
+    amount,
+    type,
+    referenceId,
+    description
+  });
 }
-function normalizeVideoSpecPayload(raw) {
-  if (!isPlainObject(raw)) return null;
-  const clipsRaw = raw.clips;
-  if (!Array.isArray(clipsRaw) || clipsRaw.length === 0) return null;
-  const clips = [];
-  for (const c of clipsRaw) {
-    const p = parseClip(c);
-    if (!p) return null;
-    clips.push(p);
-  }
-  const style = parseStyle(raw.style);
-  if (!style) return null;
-  const format = raw.format;
-  if (typeof format !== "string" || !FORMATS.has(format)) return null;
-  const spec = {
-    clips: sortRawStockClipsByStart(clips),
-    style,
-    format,
-    overlays: parseOverlays(raw.overlays)
-  };
-  const duration = raw.duration;
-  if (typeof duration === "number" && Number.isFinite(duration) && duration >= 0) {
-    spec.duration = duration;
-  }
-  return JSON.stringify(spec);
+async function processAIEditJobInline(params) {
+  await db.update(aiEditJobs).set({ status: "processing", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, params.jobId));
+  await runAIEditPlanWorker(params);
 }
-function parseStoredVideoSpec(json) {
-  if (!json?.trim()) return null;
+async function runAIEditPlanWorker(params) {
+  const { jobId, revisionPrompt, refundAmount = 0, refundType, refundDescription } = params;
+  const [freshJob] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.id, jobId));
+  if (!freshJob) return;
   try {
-    const parsed = JSON.parse(json);
-    const normalized = normalizeVideoSpecPayload(parsed);
-    if (!normalized) return null;
-    return JSON.parse(normalized);
-  } catch {
-    return null;
+    const baseSpec = getBaseVideoSpec(freshJob);
+    if (!baseSpec) {
+      throw new Error("AI Edit job has no valid source spec");
+    }
+    const promptUsed = revisionPrompt?.trim() ? `${freshJob.prompt.trim()}
+
+Revision request:
+${revisionPrompt.trim()}` : freshJob.prompt.trim();
+    const videoUrls = parseJobVideoUrls(freshJob);
+    const editInput = {
+      planMinutes: freshJob.planMinutes ?? 15,
+      videoUrls,
+      logoUrl: freshJob.logoUrl,
+      telop: freshJob.telop,
+      targetAudience: freshJob.targetAudience,
+      tone: freshJob.tone,
+      prompt: promptUsed
+    };
+    const generated = await generateEditPlan(editInput);
+    const storedResult = buildAIEditStoredResult({
+      plan: generated.plan,
+      promptUsed,
+      provider: generated.provider,
+      baseSpec,
+      revisionPrompt
+    });
+    await db.update(aiEditJobs).set({
+      status: "completed",
+      result: JSON.stringify(storedResult),
+      videoSpec: JSON.stringify(storedResult.renderSpec),
+      updatedAt: /* @__PURE__ */ new Date()
+    }).where(eq2(aiEditJobs.id, jobId));
+  } catch (error) {
+    console.error("[ai-edit] Processing failed:", error);
+    await db.update(aiEditJobs).set({ status: "failed", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, jobId));
+    if (refundAmount > 0 && refundType && refundDescription) {
+      await refundAIEditTickets({
+        userId: freshJob.userId,
+        amount: refundAmount,
+        type: refundType,
+        description: refundDescription,
+        referenceId: String(freshJob.id)
+      });
+    }
   }
+}
+async function claimAndProcessNextPendingAIEditJob() {
+  const row = await db.transaction(async (tx) => {
+    const pending2 = await tx.select().from(aiEditJobs).where(eq2(aiEditJobs.status, "pending")).orderBy(asc2(aiEditJobs.id)).limit(1).for("update");
+    const first = pending2[0];
+    if (!first) return null;
+    const updated = await tx.update(aiEditJobs).set({ status: "processing", updatedAt: /* @__PURE__ */ new Date() }).where(and2(eq2(aiEditJobs.id, first.id), eq2(aiEditJobs.status, "pending"))).returning({ id: aiEditJobs.id });
+    return updated[0] ?? null;
+  });
+  if (!row) return { processed: false };
+  await runAIEditPlanWorker({ jobId: row.id });
+  return { processed: true, jobId: row.id };
+}
+
+// server/lib/stripeTicketPurchase.ts
+import { and as and3, eq as eq3 } from "drizzle-orm";
+async function creditTicketsFromTicketCheckoutSession(executor, session) {
+  if (session.payment_status !== "paid") {
+    return { ok: false, reason: "not_paid" };
+  }
+  const metaType = session.metadata?.type;
+  const isTicketPurchase = metaType === "ticket_purchase" || metaType == null && session.metadata?.tickets && session.metadata?.userId;
+  if (!isTicketPurchase) {
+    return { ok: false, reason: "bad_metadata" };
+  }
+  const tickets = parseInt(session.metadata?.tickets ?? "0", 10);
+  const metaUserId = session.metadata?.userId;
+  if (!tickets || tickets <= 0 || !metaUserId || !/^\d+$/.test(String(metaUserId))) {
+    return { ok: false, reason: "bad_metadata" };
+  }
+  const userId = String(parseInt(String(metaUserId), 10));
+  const sessionId = session.id;
+  const existing = await executor.select({ id: ticketTransactions.id }).from(ticketTransactions).where(and3(eq3(ticketTransactions.userId, userId), eq3(ticketTransactions.referenceId, sessionId))).limit(1);
+  if (existing.length > 0) {
+    const balRows2 = await executor.select().from(ticketBalances).where(eq3(ticketBalances.userId, userId)).limit(1);
+    return { ok: true, alreadyGranted: true, userId, newBalance: balRows2[0]?.balance ?? 0 };
+  }
+  const balRows = await executor.select().from(ticketBalances).where(eq3(ticketBalances.userId, userId)).limit(1);
+  const currentBalance = balRows[0]?.balance ?? 0;
+  if (balRows.length === 0) {
+    await executor.insert(ticketBalances).values({ userId, balance: tickets });
+  } else {
+    await executor.update(ticketBalances).set({ balance: currentBalance + tickets, updatedAt: /* @__PURE__ */ new Date() }).where(eq3(ticketBalances.userId, userId));
+  }
+  await executor.insert(ticketTransactions).values({
+    userId,
+    amount: tickets,
+    type: "purchase",
+    referenceId: sessionId,
+    description: `Purchased ${tickets} tickets via Stripe`
+  });
+  const newBalance = currentBalance + tickets;
+  return { ok: true, alreadyGranted: false, userId, newBalance };
+}
+
+// shared/withdrawalFees.ts
+var DEFAULT_MIN_NET_TRANSFER_USD_CENTS = 50;
+function computeWithdrawalFeeBreakdown(grossUsdCents, policy) {
+  const minNet = Math.max(
+    1,
+    Math.min(1e7, policy.minNetTransferUsdCents || DEFAULT_MIN_NET_TRANSFER_USD_CENTS)
+  );
+  const gross = Math.floor(grossUsdCents);
+  if (!Number.isFinite(gross) || gross <= 0) {
+    return { feeUsdCents: 0, netTransferUsdCents: 0 };
+  }
+  const bps = Math.max(0, Math.min(1e4, Math.floor(policy.bps)));
+  const fixed = Math.max(0, Math.floor(policy.fixedUsdCents));
+  const variable = Math.ceil(gross * bps / 1e4);
+  const rawFee = variable + fixed;
+  const maxFee = Math.max(0, gross - minNet);
+  const feeUsdCents = Math.min(maxFee, rawFee);
+  const netTransferUsdCents = gross - feeUsdCents;
+  return { feeUsdCents, netTransferUsdCents };
+}
+
+// server/lib/withdrawalFees.ts
+function getWithdrawalFeePolicy() {
+  const bps = Math.min(1e4, Math.max(0, parseInt(process.env.WITHDRAWAL_FEE_BPS ?? "0", 10) || 0));
+  const fixedUsdCents = Math.max(0, parseInt(process.env.WITHDRAWAL_FEE_FIXED_USD_CENTS ?? "0", 10) || 0);
+  const minNetTransferUsdCents = Math.max(
+    1,
+    Math.min(
+      1e7,
+      parseInt(
+        process.env.WITHDRAWAL_MIN_NET_TRANSFER_USD_CENTS ?? String(DEFAULT_MIN_NET_TRANSFER_USD_CENTS),
+        10
+      ) || DEFAULT_MIN_NET_TRANSFER_USD_CENTS
+    )
+  );
+  return { bps, fixedUsdCents, minNetTransferUsdCents };
+}
+function computeWithdrawalFeeBreakdown2(grossUsdCents) {
+  return computeWithdrawalFeeBreakdown(grossUsdCents, getWithdrawalFeePolicy());
 }
 
 // server/lib/dslToTemplated.ts
@@ -1601,15 +2092,17 @@ function dslToTemplated(spec, options) {
   if (spec.clips.length === 0) {
     throw new Error("dslToTemplated: spec.clips must be non-empty");
   }
-  const src = options.inputVideoUrl.trim() || DSL_TO_TEMPLATED_INPUT_VIDEO_PLACEHOLDER;
   const modifications = {};
   spec.clips.forEach((clip, i) => {
     const n = i + 1;
     const videoKey = `video${n}`;
+    const sourceIndex = clip.sourceIndex ?? 0;
+    const sourceUrl = options.inputVideoUrls[sourceIndex]?.trim();
+    const src = sourceUrl || DSL_TO_TEMPLATED_INPUT_VIDEO_PLACEHOLDER;
     modifications[videoKey] = {
       video: {
         src,
-        trim: [clip.start, clip.end]
+        trim: [clip.sourceStart ?? clip.start, clip.sourceEnd ?? clip.end]
       }
     };
     if (shouldEmitCaptionForClip(clip, spec.style)) {
@@ -1648,6 +2141,9 @@ function templatedModificationsToLayers(modifications) {
     const layer = {};
     if (mod.video) {
       layer.video_url = mod.video.src;
+      layer.trim = mod.video.trim;
+      layer.trim_start = mod.video.trim[0];
+      layer.trim_end = mod.video.trim[1];
     }
     if (mod.text) {
       layer.text = mod.text.value;
@@ -1657,6 +2153,9 @@ function templatedModificationsToLayers(modifications) {
     }
     if (mod.logo) {
       layer.image_url = mod.logo.src;
+      if (mod.logo.position) {
+        layer.position = mod.logo.position;
+      }
     }
     layers[layerName] = layer;
   }
@@ -1745,11 +2244,15 @@ var r2Client = endpoint && accessKeyId && secretAccessKey ? new S3Client({
   credentials: {
     accessKeyId,
     secretAccessKey
-  }
+  },
+  // R2 / S3 互換では path-style が安定（署名 URL とブラウザ PUT の不一致を防ぐ）
+  forcePathStyle: true
 }) : null;
 async function createSignedUploadUrl(key, contentType) {
   if (!r2Client || !endpoint || !bucket) {
-    throw new Error("R2 \u30AF\u30E9\u30A4\u30A2\u30F3\u30C8\u304C\u6B63\u3057\u304F\u8A2D\u5B9A\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+    throw new Error(
+      "R2 is not configured. Set R2_ENDPOINT, R2_BUCKET_NAME, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY."
+    );
   }
   const cmd = new PutObjectCommand({
     Bucket: bucket,
@@ -1757,7 +2260,8 @@ async function createSignedUploadUrl(key, contentType) {
     ContentType: contentType
   });
   const uploadUrl = await getSignedUrl(r2Client, cmd, { expiresIn: 60 * 5 });
-  const publicUrl = `${endpoint.replace(/\/$/, "")}/${bucket}/${key}`;
+  const publicBase = process.env.R2_PUBLIC_BASE_URL?.trim();
+  const publicUrl = publicBase ? `${publicBase.replace(/\/$/, "")}/${key}` : `${endpoint.replace(/\/$/, "")}/${bucket}/${key}`;
   return { uploadUrl, publicUrl };
 }
 
@@ -1790,30 +2294,30 @@ var VIOLENCE_KEYWORDS = ["\u6BBA\u3059", "\u6B7B\u306D", "\u3076\u3063\u6BBA", "
 var VIOLENCE_PATTERN = new RegExp(VIOLENCE_KEYWORDS.join("|"), "i");
 function regexFilter(text2) {
   if (PHONE_PATTERN.test(text2))
-    return { blocked: true, reason: "\u96FB\u8A71\u756A\u53F7\u3068\u601D\u308F\u308C\u308B\u60C5\u5831\u304C\u542B\u307E\u308C\u3066\u3044\u307E\u3059" };
+    return { blocked: true, reason: "Posts must not include phone numbers." };
   if (EMAIL_PATTERN.test(text2))
-    return { blocked: true, reason: "\u30E1\u30FC\u30EB\u30A2\u30C9\u30EC\u30B9\u3068\u601D\u308F\u308C\u308B\u60C5\u5831\u304C\u542B\u307E\u308C\u3066\u3044\u307E\u3059" };
+    return { blocked: true, reason: "Posts must not include email addresses." };
   if (EXTERNAL_CONTACT_PATTERN.test(text2))
-    return { blocked: true, reason: "\u5916\u90E8\u9023\u7D61\u5148\u306E\u4EA4\u63DB\u306F\u7981\u6B62\u3055\u308C\u3066\u3044\u307E\u3059" };
+    return { blocked: true, reason: "Sharing external contact info is not allowed." };
   if (ADDRESS_PATTERN.test(text2))
-    return { blocked: true, reason: "\u4F4F\u6240\u30FB\u90F5\u4FBF\u756A\u53F7\u3068\u601D\u308F\u308C\u308B\u60C5\u5831\u304C\u542B\u307E\u308C\u3066\u3044\u307E\u3059" };
+    return { blocked: true, reason: "Posts must not include addresses or postal codes." };
   if (ADULT_PATTERN.test(text2))
-    return { blocked: true, reason: "\u30A2\u30C0\u30EB\u30C8\u30B3\u30F3\u30C6\u30F3\u30C4\u306B\u95A2\u3059\u308B\u6295\u7A3F\u306F\u7981\u6B62\u3055\u308C\u3066\u3044\u307E\u3059" };
+    return { blocked: true, reason: "Adult or sexual content is not allowed." };
   if (VIOLENCE_PATTERN.test(text2))
-    return { blocked: true, reason: "\u66B4\u529B\u30FB\u8105\u8FEB\u306B\u95A2\u3059\u308B\u6295\u7A3F\u306F\u7981\u6B62\u3055\u308C\u3066\u3044\u307E\u3059" };
+    return { blocked: true, reason: "Violence or threats are not allowed." };
   return { blocked: false, reason: "" };
 }
-var LLM_SYSTEM_PROMPT = `\u3042\u306A\u305F\u306F\u30EA\u30A2\u30EB\u30BF\u30A4\u30E0\u30C1\u30E3\u30C3\u30C8\u306E\u30B3\u30F3\u30C6\u30F3\u30C4\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u3067\u3059\u3002
-\u6295\u7A3F\u30C6\u30AD\u30B9\u30C8\u3092\u8AAD\u307F\u3001\u4EE5\u4E0B\u306E\u57FA\u6E96\u3067\u5224\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002
+var LLM_SYSTEM_PROMPT = `You are a real-time chat moderator.
+Read the user's message and decide if it should be blocked.
 
-\u30D6\u30ED\u30C3\u30AF\u3059\u3079\u304D\u5185\u5BB9:
-- \u500B\u4EBA\u60C5\u5831\uFF08\u96FB\u8A71\u756A\u53F7\u30FB\u30E1\u30FC\u30EB\u30FB\u4F4F\u6240\u30FBSNS ID\u7B49\uFF09\u306E\u4EA4\u63DB\u30FB\u8981\u6C42
-- \u30A2\u30C0\u30EB\u30C8\u30FB\u6027\u7684\u306A\u5185\u5BB9
-- \u66B4\u529B\u30FB\u8105\u8FEB\u30FB\u5DEE\u5225\u7684\u8868\u73FE
-- \u30B9\u30D1\u30E0\u30FB\u5BA3\u4F1D\u30FB\u30D5\u30A3\u30C3\u30B7\u30F3\u30B0
+Block messages that contain or solicit:
+- Personal info (phone, email, address, social handles) exchange or requests
+- Adult or sexual content
+- Violence, threats, or hate
+- Spam, scams, or phishing
 
-\u5224\u5B9A\u7D50\u679C\u306FJSON\u306E\u307F\u8FD4\u3057\u3066\u304F\u3060\u3055\u3044\uFF08\u8AAC\u660E\u6587\u4E0D\u8981\uFF09:
-{"allowed":true|false,"reason":"\u7406\u7531\uFF081\u6587\u3001allowed\u304Cfalse\u306E\u5834\u5408\u306E\u307F\uFF09"}`;
+Reply with JSON only (no prose):
+{"allowed":true|false,"reason":"One short English sentence when allowed is false"}`;
 async function llmFilter(text2) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -1857,7 +2361,7 @@ async function moderateContent(text2) {
   }
   const llmResult = await llmFilter(text2);
   if (!llmResult.allowed) {
-    return { allowed: false, reason: llmResult.reason || "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u30AC\u30A4\u30C9\u30E9\u30A4\u30F3\u306B\u9055\u53CD\u3059\u308B\u5185\u5BB9\u304C\u542B\u307E\u308C\u3066\u3044\u307E\u3059" };
+    return { allowed: false, reason: llmResult.reason || "This content violates community guidelines." };
   }
   return { allowed: true };
 }
@@ -1894,6 +2398,219 @@ async function detectContentLang(text2) {
   }
 }
 
+// server/lib/translate/index.ts
+import crypto from "node:crypto";
+import { and as and4, eq as eq4 } from "drizzle-orm";
+
+// server/lib/translate/glossary.ts
+var CACHE_TTL_MS = 5 * 60 * 1e3;
+var cache = null;
+async function loadGlossary() {
+  if (cache && Date.now() - cache.loadedAt < CACHE_TTL_MS) {
+    return cache.entries;
+  }
+  try {
+    const rows = await db.select().from(translationGlossary);
+    const entries = rows.map((r) => ({
+      term: r.term,
+      locale: r.locale ?? "*",
+      doNotTranslate: r.doNotTranslate,
+      overrideTranslation: r.overrideTranslation ?? null
+    }));
+    cache = { entries, loadedAt: Date.now() };
+    return entries;
+  } catch (e) {
+    console.warn("loadGlossary failed; using empty glossary", e);
+    return cache?.entries ?? [];
+  }
+}
+var PLACEHOLDER_PREFIX = "__RSGLOSS";
+var PLACEHOLDER_SUFFIX = "__";
+function makePlaceholder(index) {
+  return `${PLACEHOLDER_PREFIX}${index}${PLACEHOLDER_SUFFIX}`;
+}
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+async function maskGlossary(text2, dstLang) {
+  const entries = await loadGlossary();
+  if (entries.length === 0) return { masked: text2, replacements: /* @__PURE__ */ new Map() };
+  const sorted = [...entries].sort((a, b) => b.term.length - a.term.length);
+  let masked = text2;
+  const replacements = /* @__PURE__ */ new Map();
+  let nextIndex = 0;
+  for (const entry of sorted) {
+    if (!entry.term) continue;
+    if (!entry.doNotTranslate && !entry.overrideTranslation) continue;
+    const pattern = new RegExp(`\\b${escapeRegExp(entry.term)}\\b`, "gi");
+    if (!pattern.test(masked)) continue;
+    const placeholder = makePlaceholder(nextIndex++);
+    const restoreTo = entry.overrideTranslation && (entry.locale === "*" || entry.locale === dstLang) ? entry.overrideTranslation : entry.term;
+    masked = masked.replace(new RegExp(`\\b${escapeRegExp(entry.term)}\\b`, "gi"), placeholder);
+    replacements.set(placeholder, restoreTo);
+  }
+  return { masked, replacements };
+}
+function unmaskGlossary(translated, replacements) {
+  if (replacements.size === 0) return translated;
+  let out = translated;
+  for (const [placeholder, value] of replacements) {
+    out = out.replace(new RegExp(escapeRegExp(placeholder), "gi"), value);
+  }
+  return out;
+}
+
+// server/lib/translate/mymemory.ts
+var ENDPOINT = "https://api.mymemory.translated.net/get";
+var MyMemoryError = class extends Error {
+  status;
+  constructor(message, status) {
+    super(message);
+    this.name = "MyMemoryError";
+    this.status = status;
+  }
+};
+function normalizeLang(code) {
+  const lower = code.toLowerCase();
+  if (lower === "zh") return "zh-CN";
+  return lower;
+}
+async function myMemoryTranslate(text2, srcLang, dstLang) {
+  const params = new URLSearchParams();
+  params.set("q", text2);
+  params.set("langpair", `${normalizeLang(srcLang)}|${normalizeLang(dstLang)}`);
+  const email = process.env.MYMEMORY_EMAIL;
+  if (email) params.set("de", email);
+  const url = `${ENDPOINT}?${params.toString()}`;
+  const res = await fetch(url, { method: "GET" });
+  if (!res.ok) {
+    throw new MyMemoryError(`MyMemory HTTP ${res.status}`, res.status);
+  }
+  const json = await res.json().catch(() => null);
+  if (!json || !json.responseData?.translatedText) {
+    throw new MyMemoryError("MyMemory empty response");
+  }
+  if (typeof json.responseStatus === "number" && json.responseStatus >= 400) {
+    throw new MyMemoryError(
+      `MyMemory error ${json.responseStatus}: ${json.responseDetails ?? "unknown"}`,
+      json.responseStatus
+    );
+  }
+  return { translatedText: json.responseData.translatedText };
+}
+
+// server/lib/translate/shortText.ts
+var SHORT_WORD_THRESHOLD = 2;
+var SHORT_VISIBLE_THRESHOLD = 8;
+var NON_TEXTUAL_RE = /^[\s\d\W_]+$/u;
+function shouldSkipTranslation(input) {
+  const trimmed = input.trim();
+  if (!trimmed) return { skip: true, reason: "empty" };
+  if (NON_TEXTUAL_RE.test(trimmed)) {
+    return { skip: true, reason: "non_textual" };
+  }
+  const visibleLength = trimmed.replace(/\s+/g, "").length;
+  if (visibleLength <= SHORT_VISIBLE_THRESHOLD) {
+    return { skip: true, reason: "too_short_visible" };
+  }
+  const wordCount = trimmed.split(/\s+/u).filter(Boolean).length;
+  if (wordCount <= SHORT_WORD_THRESHOLD) {
+    return { skip: true, reason: "too_short_words" };
+  }
+  return { skip: false };
+}
+
+// server/lib/translate/index.ts
+function selectedEngine() {
+  const e = (process.env.TRANSLATE_ENGINE ?? "").toLowerCase();
+  if (e === "mymemory" || e === "") return "mymemory";
+  console.warn(`Unknown TRANSLATE_ENGINE=${e}; falling back to mymemory`);
+  return "mymemory";
+}
+function normalizeForHash(text2) {
+  return text2.trim().replace(/\s+/g, " ");
+}
+function hashText(text2) {
+  return crypto.createHash("sha256").update(normalizeForHash(text2)).digest("hex");
+}
+async function readFromCache(srcLang, dstLang, textHash) {
+  try {
+    const [row] = await db.select({ translatedText: translations.translatedText }).from(translations).where(
+      and4(
+        eq4(translations.srcLang, srcLang),
+        eq4(translations.dstLang, dstLang),
+        eq4(translations.textHash, textHash)
+      )
+    ).limit(1);
+    return row?.translatedText ?? null;
+  } catch (e) {
+    console.warn("translations cache read failed", e);
+    return null;
+  }
+}
+async function writeToCache(args) {
+  try {
+    await db.insert(translations).values({
+      srcLang: args.srcLang,
+      dstLang: args.dstLang,
+      textHash: args.textHash,
+      sourceText: args.sourceText,
+      translatedText: args.translatedText,
+      engine: args.engine
+    }).onConflictDoNothing();
+  } catch (e) {
+    console.warn("translations cache write failed", e);
+  }
+}
+async function translateText(input) {
+  const engine = selectedEngine();
+  const text2 = input.text ?? "";
+  const srcLang = (input.srcLang ?? "").toLowerCase();
+  const dstLang = (input.dstLang ?? "").toLowerCase();
+  if (!srcLang || !dstLang || srcLang === dstLang) {
+    return { text: text2, fromCache: false, skipped: true, skipReason: "same_lang", engine };
+  }
+  const decision = shouldSkipTranslation(text2);
+  if (decision.skip) {
+    return {
+      text: text2,
+      fromCache: false,
+      skipped: true,
+      skipReason: decision.reason ?? "empty",
+      engine
+    };
+  }
+  const textHash = hashText(text2);
+  const cached = await readFromCache(srcLang, dstLang, textHash);
+  if (cached !== null) {
+    return { text: cached, fromCache: true, skipped: false, engine };
+  }
+  const { masked, replacements } = await maskGlossary(text2, dstLang);
+  try {
+    const result = engine === "mymemory" ? await myMemoryTranslate(masked, srcLang, dstLang) : await myMemoryTranslate(masked, srcLang, dstLang);
+    const restored = unmaskGlossary(result.translatedText, replacements);
+    const finalText = restored.trim();
+    if (finalText && finalText !== masked) {
+      await writeToCache({
+        srcLang,
+        dstLang,
+        textHash,
+        sourceText: text2,
+        translatedText: finalText,
+        engine
+      });
+    }
+    return { text: finalText || text2, fromCache: false, skipped: false, engine };
+  } catch (e) {
+    if (e instanceof MyMemoryError) {
+      console.warn("translateText engine error", e.message);
+    } else {
+      console.warn("translateText unexpected error", e);
+    }
+    return { text: text2, fromCache: false, skipped: false, engine, error: true };
+  }
+}
+
 // server/debugIngest.ts
 function debugIngestServer(body, sessionId = "88cb7d") {
   if (process.env.NODE_ENV === "production") return;
@@ -1922,10 +2639,7 @@ var useRedis = !!(UPSTASH_REDIS_REST_URL && UPSTASH_REDIS_REST_TOKEN);
 if (!useRedis) {
   console.warn("[Redis] UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN is not set. Using in-memory event bus for SSE.");
 }
-var redis = new Redis({
-  url: UPSTASH_REDIS_REST_URL || "https://placeholder.upstash.io",
-  token: UPSTASH_REDIS_REST_TOKEN || "placeholder"
-});
+var redis = useRedis ? new Redis({ url: UPSTASH_REDIS_REST_URL, token: UPSTASH_REDIS_REST_TOKEN }) : null;
 var eventBus = new EventEmitter();
 eventBus.setMaxListeners(200);
 function jukeboxChannel(communityId) {
@@ -1992,9 +2706,14 @@ function subscribeJukeboxEvents(communityId, callback) {
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 var JWT_SECRET = process.env.SESSION_SECRET ?? "livestage-dev-secret";
-var CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID ?? "";
-var CLOUDFLARE_STREAM_TOKEN = process.env.CLOUDFLARE_STREAM_TOKEN ?? process.env.CLOUDFLARE_API_TOKEN ?? "";
+var CLOUDFLARE_ACCOUNT_ID = (process.env.CLOUDFLARE_ACCOUNT_ID ?? "").trim();
+var CLOUDFLARE_STREAM_TOKEN = (process.env.CLOUDFLARE_STREAM_TOKEN ?? "").trim();
 var ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
+function maskSecretPrefix(value) {
+  if (!value) return "(empty, len=0)";
+  const prefix = value.slice(0, 3);
+  return `${prefix}*** (len=${value.length})`;
+}
 function resolvePublicAppOrigin() {
   const fromEnv = process.env.FRONTEND_URL?.trim().replace(/\/$/, "");
   if (fromEnv) return fromEnv;
@@ -2030,26 +2749,74 @@ function paramNum(req, key) {
   return parseInt(paramStr(req, key), 10) || 0;
 }
 function formatTimeAgo(d) {
-  if (!d) return "\u305F\u3063\u305F\u4ECA";
+  if (!d) return "Just now";
   const date = typeof d === "string" ? new Date(d) : d;
-  if (isNaN(date.getTime())) return "\u305F\u3063\u305F\u4ECA";
+  if (isNaN(date.getTime())) return "Just now";
   const diffMs = Date.now() - date.getTime();
   const diffSec = Math.floor(diffMs / 1e3);
   const diffMin = Math.floor(diffSec / 60);
   const diffHour = Math.floor(diffMin / 60);
   const diffDay = Math.floor(diffHour / 24);
-  if (diffSec < 60) return "\u305F\u3063\u305F\u4ECA";
-  if (diffMin < 60) return `${diffMin}\u5206\u524D`;
-  if (diffHour < 24) return `${diffHour}\u6642\u9593\u524D`;
-  if (diffDay < 7) return `${diffDay}\u65E5\u524D`;
-  if (diffDay < 30) return `${Math.floor(diffDay / 7)}\u9031\u9593\u524D`;
-  if (diffDay < 365) return `${Math.floor(diffDay / 30)}\u30F6\u6708\u524D`;
-  return `${Math.floor(diffDay / 365)}\u5E74\u524D`;
+  if (diffSec < 60) return "Just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffHour < 24) return `${diffHour}h ago`;
+  if (diffDay < 7) return `${diffDay}d ago`;
+  if (diffDay < 30) return `${Math.floor(diffDay / 7)}w ago`;
+  if (diffDay < 365) return `${Math.floor(diffDay / 30)}mo ago`;
+  return `${Math.floor(diffDay / 365)}y ago`;
 }
 function queryStr(req, key) {
   const v = req.query[key];
   if (Array.isArray(v)) return typeof v[0] === "string" ? v[0] : "";
   return typeof v === "string" ? v : "";
+}
+var SUPPORTED_PREFERRED_LANGUAGES = /* @__PURE__ */ new Set([
+  "en",
+  "ja",
+  "ko",
+  "zh",
+  "es",
+  "fr",
+  "de",
+  "pt",
+  "it",
+  "vi",
+  "th",
+  "id",
+  "ru",
+  "ar"
+]);
+function normalizePreferredLanguage(value) {
+  if (typeof value !== "string") return null;
+  const lower = value.trim().toLowerCase();
+  if (!lower) return null;
+  const base = lower.split(/[-_]/u)[0];
+  return SUPPORTED_PREFERRED_LANGUAGES.has(base) ? base : null;
+}
+function preferredLanguageFromHeader(req) {
+  const raw = req.headers["accept-language"] ?? "";
+  if (!raw) return null;
+  const first = raw.split(",")[0]?.trim();
+  return normalizePreferredLanguage(first);
+}
+var TRANSLATE_RATE_WINDOW_MS = 6e4;
+var TRANSLATE_RATE_LIMIT = 30;
+var translateRateBuckets = /* @__PURE__ */ new Map();
+function checkTranslateRateLimit(userId) {
+  const now = Date.now();
+  const bucket2 = translateRateBuckets.get(userId);
+  if (!bucket2 || now - bucket2.windowStart >= TRANSLATE_RATE_WINDOW_MS) {
+    translateRateBuckets.set(userId, { windowStart: now, count: 1 });
+    return { ok: true };
+  }
+  if (bucket2.count >= TRANSLATE_RATE_LIMIT) {
+    const retryAfterSec = Math.ceil(
+      (TRANSLATE_RATE_WINDOW_MS - (now - bucket2.windowStart)) / 1e3
+    );
+    return { ok: false, retryAfterSec };
+  }
+  bucket2.count += 1;
+  return { ok: true };
 }
 async function getAuthUser(req) {
   const auth = req.headers?.authorization ?? "";
@@ -2069,7 +2836,7 @@ async function getAuthUser(req) {
     const payload = jwt.verify(auth.slice(7), JWT_SECRET);
     if (typeof payload === "string" || !payload || typeof payload.sub !== "number") return null;
     const sub = payload.sub;
-    const [user] = await db.select().from(users).where(eq2(users.id, sub));
+    const [user] = await db.select().from(users).where(eq5(users.id, sub));
     if (!user) return null;
     debugIngestServer({
       sessionId: "88cb7d",
@@ -2083,7 +2850,8 @@ async function getAuthUser(req) {
     return {
       ...user,
       avatar: user.profileImageUrl,
-      lastContentLang: user.lastContentLang ?? null
+      lastContentLang: user.lastContentLang ?? null,
+      preferredLanguage: user.preferredLanguage ?? null
     };
   } catch {
     return null;
@@ -2093,7 +2861,7 @@ async function syncUserLastContentLang(userId, rawText) {
   try {
     const lang = await detectContentLang(rawText);
     if (!lang) return;
-    await db.update(users).set({ lastContentLang: lang, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(users.id, userId));
+    await db.update(users).set({ lastContentLang: lang, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(users.id, userId));
   } catch (e) {
     console.warn("syncUserLastContentLang skipped:", e);
   }
@@ -2132,10 +2900,10 @@ async function promoteAdminByEmail(target) {
   if (target) {
     const normalized = (target.email ?? "").trim().toLowerCase();
     if (normalized !== ADMIN_EMAIL) return;
-    await db.update(users).set({ role: "ADMIN", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(users.id, target.id));
+    await db.update(users).set({ role: "ADMIN", updatedAt: /* @__PURE__ */ new Date() }).where(eq5(users.id, target.id));
     return;
   }
-  await db.update(users).set({ role: "ADMIN", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(users.email, ADMIN_EMAIL));
+  await db.update(users).set({ role: "ADMIN", updatedAt: /* @__PURE__ */ new Date() }).where(eq5(users.email, ADMIN_EMAIL));
 }
 var OPERATIONS_DM_NAME = "Operations Team";
 var OPERATIONS_DM_AVATAR = "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=100&h=100&fit=crop";
@@ -2164,7 +2932,7 @@ var WELCOME_DM_TEXT = [
   "Questions? Reply to this DM anytime."
 ].join("\n");
 async function ensureOperationsDmRow() {
-  const [existing] = await db.select().from(dmMessages).where(eq2(dmMessages.name, OPERATIONS_DM_NAME));
+  const [existing] = await db.select().from(dmMessages).where(eq5(dmMessages.name, OPERATIONS_DM_NAME));
   if (existing) return existing;
   try {
     const previewLine = WELCOME_DM_TEXT.split("\n").find((line) => line.trim().length > 0) ?? "Welcome to RawStock";
@@ -2187,7 +2955,7 @@ async function ensureOperationsDmRow() {
     }
     return created;
   } catch {
-    const [again] = await db.select().from(dmMessages).where(eq2(dmMessages.name, OPERATIONS_DM_NAME));
+    const [again] = await db.select().from(dmMessages).where(eq5(dmMessages.name, OPERATIONS_DM_NAME));
     return again;
   }
 }
@@ -2197,21 +2965,21 @@ function formatDmThreadTime(d) {
   if (Number.isNaN(t)) return "";
   const ms = Date.now() - t;
   const m = Math.floor(ms / 6e4);
-  if (m < 1) return "\u305F\u3063\u305F\u4ECA";
-  if (m < 60) return `${m}\u5206\u524D`;
+  if (m < 1) return "Just now";
+  if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h}\u6642\u9593\u524D`;
+  if (h < 24) return `${h}h ago`;
   const days = Math.floor(h / 24);
-  if (days < 7) return `${days}\u65E5\u524D`;
+  if (days < 7) return `${days}d ago`;
   const dt = new Date(t);
   return `${dt.getMonth() + 1}/${dt.getDate()}`;
 }
 async function sendWelcomeDmIfNeeded(userId) {
   try {
     await db.transaction(async (tx) => {
-      const [claimed] = await tx.update(users).set({ welcomeDmSentAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(and2(eq2(users.id, userId), isNull(users.welcomeDmSentAt))).returning({ id: users.id });
+      const [claimed] = await tx.update(users).set({ welcomeDmSentAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(and5(eq5(users.id, userId), isNull(users.welcomeDmSentAt))).returning({ id: users.id });
       if (!claimed) return;
-      let [operationsDm] = await tx.select().from(dmMessages).where(eq2(dmMessages.name, OPERATIONS_DM_NAME));
+      let [operationsDm] = await tx.select().from(dmMessages).where(eq5(dmMessages.name, OPERATIONS_DM_NAME));
       if (!operationsDm) {
         [operationsDm] = await tx.insert(dmMessages).values({
           name: OPERATIONS_DM_NAME,
@@ -2228,7 +2996,7 @@ async function sendWelcomeDmIfNeeded(userId) {
           time: "Just now",
           unread: (operationsDm.unread ?? 0) + 1,
           online: true
-        }).where(eq2(dmMessages.id, operationsDm.id)).returning();
+        }).where(eq5(dmMessages.id, operationsDm.id)).returning();
         operationsDm = updatedDm ?? operationsDm;
       }
       await tx.insert(dmConversationMessages).values({
@@ -2246,7 +3014,7 @@ var SYSTEM_WALLET_KINDS = ["MODERATOR", "ADMIN", "EVENT_RESERVE", "PLATFORM"];
 async function getOrCreateSystemWallets() {
   const result = {};
   for (const kind of SYSTEM_WALLET_KINDS) {
-    const [w] = await db.select().from(wallets).where(eq2(wallets.kind, kind));
+    const [w] = await db.select().from(wallets).where(eq5(wallets.kind, kind));
     if (w) {
       result[kind] = w.id;
     } else {
@@ -2257,7 +3025,7 @@ async function getOrCreateSystemWallets() {
   return result;
 }
 async function getOrCreateUserWallet(userId, executor = db) {
-  const [w] = await executor.select().from(wallets).where(and2(eq2(wallets.userId, userId), isNull(wallets.kind)));
+  const [w] = await executor.select().from(wallets).where(and5(eq5(wallets.userId, userId), isNull(wallets.kind)));
   if (w) return w.id;
   const [created] = await executor.insert(wallets).values({ userId, kind: null }).returning();
   return created.id;
@@ -2277,7 +3045,7 @@ function getYearMonth(date = /* @__PURE__ */ new Date()) {
   return `${y}-${m}`;
 }
 async function ensureDefaultLevelThresholds(executor = db) {
-  const rows = await executor.select().from(creatorLevelThresholds).orderBy(asc2(creatorLevelThresholds.level));
+  const rows = await executor.select().from(creatorLevelThresholds).orderBy(asc3(creatorLevelThresholds.level));
   if (rows.length > 0) return rows;
   await executor.insert(creatorLevelThresholds).values(
     DEFAULT_LEVEL_THRESHOLDS.map((t) => ({
@@ -2287,22 +3055,22 @@ async function ensureDefaultLevelThresholds(executor = db) {
       tipBackRate: t.tipBackRate
     }))
   );
-  return executor.select().from(creatorLevelThresholds).orderBy(asc2(creatorLevelThresholds.level));
+  return executor.select().from(creatorLevelThresholds).orderBy(asc3(creatorLevelThresholds.level));
 }
 async function syncCreatorLevelFromMonthlyProgress(creatorId, yearMonth, executor = db) {
   const thresholds = await ensureDefaultLevelThresholds(executor);
-  const [score] = await executor.select().from(creatorMonthlyScores).where(and2(eq2(creatorMonthlyScores.creatorId, creatorId), eq2(creatorMonthlyScores.yearMonth, yearMonth)));
+  const [score] = await executor.select().from(creatorMonthlyScores).where(and5(eq5(creatorMonthlyScores.creatorId, creatorId), eq5(creatorMonthlyScores.yearMonth, yearMonth)));
   const tipGross = score?.tipGross ?? 0;
   const streamCountMonthly = score?.streamCountMonthly ?? 0;
   const achieved = thresholds.reduce((acc, t) => {
     if (tipGross >= t.requiredTipGross && streamCountMonthly >= t.requiredStreamCount) return Math.max(acc, t.level);
     return acc;
   }, 1);
-  await executor.update(creators).set({ currentLevel: achieved }).where(eq2(creators.id, creatorId));
+  await executor.update(creators).set({ currentLevel: achieved }).where(eq5(creators.id, creatorId));
   return achieved;
 }
 async function upsertCreatorMonthlyRevenue(creatorId, yearMonth, source, grossAmount, executor = db) {
-  const [existing] = await executor.select().from(creatorMonthlyScores).where(and2(eq2(creatorMonthlyScores.creatorId, creatorId), eq2(creatorMonthlyScores.yearMonth, yearMonth)));
+  const [existing] = await executor.select().from(creatorMonthlyScores).where(and5(eq5(creatorMonthlyScores.creatorId, creatorId), eq5(creatorMonthlyScores.yearMonth, yearMonth)));
   if (!existing) {
     await executor.insert(creatorMonthlyScores).values({
       creatorId,
@@ -2316,14 +3084,14 @@ async function upsertCreatorMonthlyRevenue(creatorId, yearMonth, source, grossAm
     tipGross: source === "tip" ? existing.tipGross + grossAmount : existing.tipGross,
     paidLiveGross: source === "tip" ? existing.paidLiveGross : existing.paidLiveGross + grossAmount,
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq2(creatorMonthlyScores.id, existing.id));
+  }).where(eq5(creatorMonthlyScores.id, existing.id));
 }
 async function recordRevenue(walletId, userId, creatorId, amount, source, referenceId, executor = db) {
   const yearMonth = getYearMonth();
   let backRate = 0.9;
   if (source === "tip") {
     const thresholds = await ensureDefaultLevelThresholds(executor);
-    const [creator] = creatorId ? await executor.select().from(creators).where(eq2(creators.id, creatorId)) : [];
+    const [creator] = creatorId ? await executor.select().from(creators).where(eq5(creators.id, creatorId)) : [];
     const level = creator?.currentLevel ?? 1;
     const rate = thresholds.find((t) => t.level === level)?.tipBackRate;
     backRate = typeof rate === "number" ? rate : 0.5;
@@ -2345,22 +3113,35 @@ async function recordRevenue(walletId, userId, creatorId, amount, source, refere
   await executor.insert(earnings).values({
     userId: `user-${userId}`,
     type: source,
-    title: source === "tip" ? "\u6295\u3052\u92AD\u53CE\u76CA" : "\u6709\u6599\u914D\u4FE1\u53CE\u76CA",
+    title: source === "tip" ? "Tip revenue" : "Paid live revenue",
     amount,
     revenueShare: Math.round(backRate * 100),
     netAmount
   });
   if (creatorId) {
-    const [creator] = await executor.select().from(creators).where(eq2(creators.id, creatorId));
+    const [creator] = await executor.select().from(creators).where(eq5(creators.id, creatorId));
     if (creator) {
       await executor.update(creators).set({
         revenue: creator.revenue + amount,
         revenueShare: Math.round(backRate * 100)
-      }).where(eq2(creators.id, creatorId));
+      }).where(eq5(creators.id, creatorId));
     }
     await upsertCreatorMonthlyRevenue(creatorId, yearMonth, source, amount, executor);
     await syncCreatorLevelFromMonthlyProgress(creatorId, yearMonth, executor);
   }
+}
+async function creatorRowForUserId(executor, userId) {
+  const [u] = await executor.select({ displayName: users.displayName }).from(users).where(eq5(users.id, userId)).limit(1);
+  if (!u) return void 0;
+  const [row] = await executor.select().from(creators).where(eq5(creators.name, u.displayName)).limit(1);
+  return row;
+}
+async function resolveVideoSellerUserId(executor, videoId) {
+  const [row] = await executor.select().from(videos).where(eq5(videos.id, videoId)).limit(1);
+  if (!row || row.hidden) return null;
+  if (row.userId != null && Number.isInteger(row.userId) && row.userId > 0) return row.userId;
+  const [creatorUser] = await executor.select({ id: users.id }).from(users).where(eq5(users.displayName, row.creator)).limit(1);
+  return creatorUser?.id ?? null;
 }
 async function registerRoutes(app2) {
   await promoteAdminByEmail();
@@ -2373,25 +3154,35 @@ async function registerRoutes(app2) {
     if (password.length < 6) {
       return res.status(400).json({ error: "Password must be at least 6 characters" });
     }
-    const [existing] = await db.select().from(users).where(eq2(users.email, email));
+    const [existing] = await db.select().from(users).where(eq5(users.email, email));
     if (existing) {
       return res.status(409).json({ error: "Email already registered" });
     }
     const hash = await bcrypt.hash(password, 10);
     const displayName = name || email.split("@")[0];
     const lineId = `email:${email}`;
+    const preferredLanguage = normalizePreferredLanguage(req.body?.preferredLanguage) ?? preferredLanguageFromHeader(req);
     const [user] = await db.insert(users).values({
       lineId,
       displayName,
       email,
       passwordHash: hash,
       role: "USER",
-      bio: ""
+      bio: "",
+      preferredLanguage
     }).returning();
     await promoteAdminByEmail({ id: user.id, email: user.email });
     await sendWelcomeDmIfNeeded(user.id);
     const token = makeToken(user.id);
-    res.json({ token, user: { id: user.id, name: user.displayName, email: user.email } });
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        name: user.displayName,
+        email: user.email,
+        preferredLanguage: user.preferredLanguage ?? null
+      }
+    });
   });
   app2.post("/api/auth/demo", (_req, res) => {
     return res.status(403).json({ error: "Demo login is disabled", code: "DEMO_DISABLED" });
@@ -2402,7 +3193,7 @@ async function registerRoutes(app2) {
     if (!email || !password) {
       return res.status(400).json({ error: "Email and password are required" });
     }
-    const [user] = await db.select().from(users).where(eq2(users.email, email));
+    const [user] = await db.select().from(users).where(eq5(users.email, email));
     if (!user || !user.passwordHash) {
       return res.status(401).json({ error: "Invalid email or password" });
     }
@@ -2412,15 +3203,45 @@ async function registerRoutes(app2) {
     }
     await promoteAdminByEmail({ id: user.id, email: user.email });
     await sendWelcomeDmIfNeeded(user.id);
+    let preferredLanguage = user.preferredLanguage ?? null;
+    if (!preferredLanguage) {
+      const guess = normalizePreferredLanguage(req.body?.preferredLanguage) ?? preferredLanguageFromHeader(req);
+      if (guess) {
+        try {
+          await db.update(users).set({ preferredLanguage: guess, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(users.id, user.id));
+          preferredLanguage = guess;
+        } catch (e) {
+          console.warn("login preferredLanguage backfill failed", e);
+        }
+      }
+    } else {
+      const explicit = normalizePreferredLanguage(req.body?.preferredLanguage);
+      if (explicit && explicit !== preferredLanguage) {
+        try {
+          await db.update(users).set({ preferredLanguage: explicit, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(users.id, user.id));
+          preferredLanguage = explicit;
+        } catch (e) {
+          console.warn("login preferredLanguage update failed", e);
+        }
+      }
+    }
     const token = makeToken(user.id);
-    res.json({ token, user: { id: user.id, name: user.displayName, email: user.email } });
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        name: user.displayName,
+        email: user.email,
+        preferredLanguage
+      }
+    });
   });
   app2.get("/api/auth/me", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const [u] = await db.select({
       pinnedCommunityIds: users.pinnedCommunityIds
-    }).from(users).where(eq2(users.id, user.id));
+    }).from(users).where(eq5(users.id, user.id));
     let pinnedCommunityIds = [];
     if (u) {
       if (u.pinnedCommunityIds) {
@@ -2441,6 +3262,7 @@ async function registerRoutes(app2) {
       role: user.role,
       bio: user.bio,
       lastContentLang: user.lastContentLang ?? null,
+      preferredLanguage: user.preferredLanguage ?? null,
       stripeConnectId: user.stripeConnectId ?? null,
       payoutTermsAgreedAt: payoutTermsAt ? new Date(payoutTermsAt).toISOString() : null,
       spotifyUrl: user.spotifyUrl ?? null,
@@ -2454,9 +3276,83 @@ async function registerRoutes(app2) {
       ...policyFieldsForApi(user)
     });
   });
+  app2.get("/api/translate/preferred-language", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    res.json({
+      preferredLanguage: user.preferredLanguage ?? null,
+      lastContentLang: user.lastContentLang ?? null,
+      supported: Array.from(SUPPORTED_PREFERRED_LANGUAGES)
+    });
+  });
+  app2.patch("/api/translate/preferred-language", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const next = normalizePreferredLanguage(req.body?.preferredLanguage);
+    if (!next) {
+      return res.status(400).json({
+        error: "Unsupported language",
+        supported: Array.from(SUPPORTED_PREFERRED_LANGUAGES)
+      });
+    }
+    await db.update(users).set({ preferredLanguage: next, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(users.id, user.id));
+    res.json({ preferredLanguage: next });
+  });
+  app2.post("/api/translate", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const limit = checkTranslateRateLimit(user.id);
+    if (!limit.ok) {
+      if (limit.retryAfterSec) res.setHeader("Retry-After", String(limit.retryAfterSec));
+      return res.status(429).json({
+        error: "Too many translation requests",
+        retryAfterSec: limit.retryAfterSec
+      });
+    }
+    const text2 = typeof req.body?.text === "string" ? req.body.text : "";
+    if (!text2.trim()) {
+      return res.status(400).json({ error: "text is required" });
+    }
+    const MAX_TRANSLATE_LENGTH = 5e3;
+    if (text2.length > MAX_TRANSLATE_LENGTH) {
+      return res.status(413).json({
+        error: `text exceeds ${MAX_TRANSLATE_LENGTH} chars`
+      });
+    }
+    const explicitDst = normalizePreferredLanguage(req.body?.dstLang);
+    const dstLang = explicitDst ?? user.preferredLanguage ?? preferredLanguageFromHeader(req) ?? "en";
+    const explicitSrc = normalizePreferredLanguage(req.body?.srcLang);
+    let srcLang = explicitSrc ?? null;
+    if (!srcLang) {
+      const detected = await detectContentLang(text2);
+      srcLang = detected ?? null;
+    }
+    if (!srcLang) {
+      return res.json({
+        text: text2,
+        srcLang: null,
+        dstLang,
+        skipped: true,
+        skipReason: "src_unknown",
+        engine: "mymemory",
+        fromCache: false
+      });
+    }
+    const result = await translateText({ text: text2, srcLang, dstLang });
+    res.json({
+      text: result.text,
+      srcLang,
+      dstLang,
+      skipped: result.skipped,
+      skipReason: result.skipReason ?? null,
+      fromCache: result.fromCache,
+      engine: result.engine,
+      error: result.error ?? false
+    });
+  });
   app2.post("/api/auth/accept-policies", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const { acceptTerms, acceptPrivacy } = req.body;
     const doTerms = acceptTerms !== false;
     const doPrivacy = acceptPrivacy !== false;
@@ -2470,7 +3366,7 @@ async function registerRoutes(app2) {
       patch.privacyAcceptedVersion = LEGAL_PRIVACY_VERSION;
       patch.privacyAcceptedAt = now;
     }
-    const [row] = await db.update(users).set(patch).where(eq2(users.id, user.id)).returning();
+    const [row] = await db.update(users).set(patch).where(eq5(users.id, user.id)).returning();
     res.json({
       ok: true,
       ...policyFieldsForApi(row)
@@ -2478,18 +3374,18 @@ async function registerRoutes(app2) {
   });
   app2.post("/api/connect/payout-terms-agree", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const now = /* @__PURE__ */ new Date();
-    await db.update(users).set({ payoutTermsAgreedAt: now, updatedAt: now }).where(eq2(users.id, user.id));
+    await db.update(users).set({ payoutTermsAgreedAt: now, updatedAt: now }).where(eq5(users.id, user.id));
     res.json({ ok: true, payoutTermsAgreedAt: now.toISOString() });
   });
   app2.post("/api/connect/onboard", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
-    const [ptRow] = await db.select({ payoutTermsAgreedAt: users.payoutTermsAgreedAt }).from(users).where(eq2(users.id, user.id));
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const [ptRow] = await db.select({ payoutTermsAgreedAt: users.payoutTermsAgreedAt }).from(users).where(eq5(users.id, user.id));
     if (!ptRow?.payoutTermsAgreedAt) {
       return res.status(400).json({
-        error: "\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC\u5411\u3051\u6255\u3044\u51FA\u3057\u6761\u9805\u306B\u540C\u610F\u3057\u3066\u304F\u3060\u3055\u3044\u3002Payout Settings \u3067\u5185\u5BB9\u3092\u78BA\u8A8D\u3057\u3001\u540C\u610F\u306E\u3046\u3048 Stripe \u3092\u9023\u643A\u3057\u3066\u304F\u3060\u3055\u3044\u3002"
+        error: "Please accept the creator payout terms. Review them in Payout Settings, then connect Stripe after agreeing."
       });
     }
     try {
@@ -2499,18 +3395,18 @@ async function registerRoutes(app2) {
       let accountId = user.stripeConnectId;
       if (!accountId) {
         accountId = await createConnectExpressAccount({ country: "JP" });
-        await db.update(users).set({ stripeConnectId: accountId, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(users.id, user.id));
+        await db.update(users).set({ stripeConnectId: accountId, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(users.id, user.id));
       }
       const url = await createConnectAccountLink({ accountId, returnUrl, refreshUrl });
       res.json({ url, accountId });
     } catch (e) {
       console.error("Connect onboard error:", e);
-      res.status(500).json({ error: e.message ?? "Stripe Connect \u306E\u6E96\u5099\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
+      res.status(500).json({ error: e.message ?? "Failed to prepare Stripe Connect" });
     }
   });
   app2.get("/api/connect/status", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     if (!user.stripeConnectId) {
       return res.json({ connected: false, stripeConnectId: null, chargesEnabled: false });
     }
@@ -2530,7 +3426,7 @@ async function registerRoutes(app2) {
   const BANNER_RATE_PLATFORM = 0.5;
   app2.post("/api/banner/checkout", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const { people, days } = req.body;
     const p = Math.max(1, Number(people) || 1);
     const d = Math.max(1, Number(days) || 1);
@@ -2543,17 +3439,17 @@ async function registerRoutes(app2) {
       res.json({ clientSecret, paymentIntentId, amountUSD });
     } catch (e) {
       console.error("Banner checkout error:", e);
-      res.status(500).json({ error: e.message ?? "\u6C7A\u6E08\u306E\u6E96\u5099\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
+      res.status(500).json({ error: e.message ?? "Failed to prepare payment" });
     }
   });
   app2.post("/api/banner/confirm", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const { paymentIntentId } = req.body;
-    if (!paymentIntentId) return res.status(400).json({ error: "paymentIntentId \u304C\u5FC5\u8981\u3067\u3059" });
+    if (!paymentIntentId) return res.status(400).json({ error: "paymentIntentId is required" });
     const status = await getPaymentIntentStatus(paymentIntentId);
     if (status !== "succeeded") {
-      return res.status(400).json({ error: "\u6C7A\u6E08\u304C\u5B8C\u4E86\u3057\u3066\u3044\u307E\u305B\u3093" });
+      return res.status(400).json({ error: "Payment has not completed" });
     }
     const stripe = await getUncachableStripeClient();
     const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
@@ -2575,7 +3471,7 @@ async function registerRoutes(app2) {
   const BANNER_CHECKOUT_AMOUNT_USD = 1e4;
   app2.post("/api/banner/checkout-session", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     try {
       const stripe = await getUncachableStripeClient();
       const baseUrl = "https://rawstock.live";
@@ -2587,8 +3483,8 @@ async function registerRoutes(app2) {
               currency: "usd",
               unit_amount: BANNER_CHECKOUT_AMOUNT_USD,
               product_data: {
-                name: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u5E83\u544A\u30D0\u30CA\u30FC\uFF083\u65E5\u9593\uFF09",
-                description: `\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u30DA\u30FC\u30B8\u306E\u5E83\u544A\u30D0\u30CA\u30FC\u67A0 3\u65E5\u9593\u51FA\u7A3F\uFF08$${(BANNER_CHECKOUT_AMOUNT_USD / 100).toFixed(2)}\uFF09`
+                name: "Community ad banner (3 days)",
+                description: `Community page ad banner slot, 3-day run ($${(BANNER_CHECKOUT_AMOUNT_USD / 100).toFixed(2)})`
               }
             },
             quantity: 1
@@ -2606,17 +3502,17 @@ async function registerRoutes(app2) {
       res.json({ checkoutUrl: session.url });
     } catch (e) {
       console.error("Banner checkout session error:", e);
-      res.status(500).json({ error: e.message ?? "\u6C7A\u6E08\u306E\u6E96\u5099\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
+      res.status(500).json({ error: e.message ?? "Failed to prepare payment" });
     }
   });
   app2.post("/api/banner/confirm-session", async (req, res) => {
     const { sessionId } = req.body;
-    if (!sessionId) return res.status(400).json({ error: "sessionId \u304C\u5FC5\u8981\u3067\u3059" });
+    if (!sessionId) return res.status(400).json({ error: "sessionId is required" });
     try {
       const stripe = await getUncachableStripeClient();
       const session = await stripe.checkout.sessions.retrieve(sessionId);
       if (session.payment_status !== "paid") {
-        return res.status(400).json({ error: "\u6C7A\u6E08\u304C\u5B8C\u4E86\u3057\u3066\u3044\u307E\u305B\u3093" });
+        return res.status(400).json({ error: "Payment has not completed" });
       }
       const amountUSD = session.amount_total ?? BANNER_CHECKOUT_AMOUNT_USD;
       const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? session.id;
@@ -2638,8 +3534,152 @@ async function registerRoutes(app2) {
       });
     } catch (e) {
       console.error("Banner confirm-session error:", e);
-      res.status(500).json({ error: e.message ?? "\u6C7A\u6E08\u306E\u78BA\u8A8D\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
+      res.status(500).json({ error: e.message ?? "Failed to confirm payment" });
     }
+  });
+  function buildMockTwoShotSlots(hostId) {
+    const d1 = /* @__PURE__ */ new Date();
+    d1.setUTCDate(d1.getUTCDate() + 1);
+    d1.setUTCHours(11, 0, 0, 0);
+    const d2 = new Date(d1);
+    d2.setUTCDate(d2.getUTCDate() + 1);
+    d2.setUTCHours(18, 0, 0, 0);
+    const d3 = new Date(d1);
+    d3.setUTCDate(d3.getUTCDate() + 3);
+    d3.setUTCHours(12, 30, 0, 0);
+    return [
+      { slotKey: `${hostId}-slot-a`, label: "Tomorrow 20:00 JST (30 min)", scheduledAt: d1.toISOString(), durationMinutes: 30, priceJpy: 3e3 },
+      { slotKey: `${hostId}-slot-b`, label: "Day after \xB7 Evening (30 min)", scheduledAt: d2.toISOString(), durationMinutes: 30, priceJpy: 3e3 },
+      { slotKey: `${hostId}-slot-c`, label: "+3 days \xB7 Noon (45 min)", scheduledAt: d3.toISOString(), durationMinutes: 45, priceJpy: 4500 }
+    ];
+  }
+  app2.get("/api/two-shot/slots", async (req, res) => {
+    const hostId = parseInt(String(req.query?.hostId ?? ""), 10);
+    if (!Number.isFinite(hostId) || hostId <= 0) {
+      return res.status(400).json({ error: "hostId is required" });
+    }
+    const [host] = await db.select({ id: users.id }).from(users).where(eq5(users.id, hostId)).limit(1);
+    if (!host) return res.status(404).json({ error: "Host not found" });
+    return res.json({ hostId, slots: buildMockTwoShotSlots(hostId) });
+  });
+  app2.get("/api/two-shot/reservations/:id", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const id = paramNum(req, "id");
+    const [row] = await db.select().from(twoShotReservations).where(eq5(twoShotReservations.id, id)).limit(1);
+    if (!row) return res.status(404).json({ error: "Not found" });
+    if (row.hostUserId !== user.id && row.guestUserId !== user.id) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    return res.json(row);
+  });
+  app2.post("/api/checkout/2shot", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const { hostId, slotKey, origin } = req.body;
+    if (!hostId || hostId <= 0 || !slotKey || typeof slotKey !== "string") {
+      return res.status(400).json({ error: "hostId and slotKey are required" });
+    }
+    if (hostId === user.id) {
+      return res.status(400).json({ error: "You cannot book your own slot" });
+    }
+    const [host] = await db.select({ id: users.id }).from(users).where(eq5(users.id, hostId)).limit(1);
+    if (!host) return res.status(404).json({ error: "Host not found" });
+    const slots = buildMockTwoShotSlots(hostId);
+    const slot = slots.find((s) => s.slotKey === slotKey);
+    if (!slot) return res.status(400).json({ error: "Invalid slot" });
+    const baseOrigin = (typeof origin === "string" && origin.startsWith("http") ? origin : resolvePublicAppOrigin()).replace(
+      /\/$/,
+      ""
+    );
+    try {
+      const stripe = await getUncachableStripeClient();
+      const [reservation] = await db.insert(twoShotReservations).values({
+        hostUserId: hostId,
+        guestUserId: user.id,
+        scheduledAt: new Date(slot.scheduledAt),
+        durationMinutes: slot.durationMinutes,
+        status: "PENDING",
+        slotKey: slot.slotKey
+      }).returning();
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        line_items: [
+          {
+            price_data: {
+              currency: "jpy",
+              unit_amount: slot.priceJpy,
+              product_data: {
+                name: `2-shot session \xB7 ${slot.label}`,
+                description: `Host #${hostId} \u2014 1:1 paid stream (reservation #${reservation.id})`
+              }
+            },
+            quantity: 1
+          }
+        ],
+        mode: "payment",
+        success_url: `${baseOrigin}/two-shot/success?reservationId=${reservation.id}&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${baseOrigin}/two-shot/reserve?hostId=${hostId}`,
+        client_reference_id: String(reservation.id),
+        metadata: {
+          type: "two_shot_reservation",
+          reservationId: String(reservation.id),
+          hostUserId: String(hostId),
+          guestUserId: String(user.id)
+        }
+      });
+      await db.update(twoShotReservations).set({ stripeCheckoutSessionId: session.id }).where(eq5(twoShotReservations.id, reservation.id));
+      return res.json({ url: session.url, sessionId: session.id, reservationId: reservation.id });
+    } catch (e) {
+      console.error("[checkout/2shot]", e);
+      return res.status(500).json({ error: e?.message ?? "Failed to create checkout session" });
+    }
+  });
+  app2.post("/api/webhook/stripe", async (req, res) => {
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
+    if (!webhookSecret) {
+      return res.status(503).json({ error: "STRIPE_WEBHOOK_SECRET is not configured" });
+    }
+    const sig = req.headers["stripe-signature"];
+    if (!sig || typeof sig !== "string") {
+      return res.status(400).json({ error: "Missing stripe-signature" });
+    }
+    const buf = req.rawBody;
+    if (!Buffer.isBuffer(buf)) {
+      return res.status(400).json({ error: "Invalid body" });
+    }
+    let event;
+    try {
+      const stripe = await getUncachableStripeClient();
+      event = stripe.webhooks.constructEvent(buf, sig, webhookSecret);
+    } catch (err) {
+      console.warn("[webhook/stripe] signature failed", err?.message);
+      return res.status(400).send(`Webhook Error: ${err?.message ?? "invalid signature"}`);
+    }
+    try {
+      if (event.type === "checkout.session.completed") {
+        const session = event.data.object;
+        const metaType = session.metadata?.type;
+        if (metaType === "two_shot_reservation") {
+          const rid = parseInt(session.metadata?.reservationId ?? "", 10);
+          if (Number.isFinite(rid) && rid > 0) {
+            await db.update(twoShotReservations).set({
+              status: "CONFIRMED",
+              stripeCheckoutSessionId: session.id
+            }).where(and5(eq5(twoShotReservations.id, rid), eq5(twoShotReservations.status, "PENDING")));
+          }
+        } else if (metaType === "ticket_purchase" || session.metadata?.tickets && session.metadata?.userId) {
+          const ticketCredit = await creditTicketsFromTicketCheckoutSession(db, session);
+          if (ticketCredit.ok && !ticketCredit.alreadyGranted) {
+            console.info("[webhook/stripe] ticket_purchase credited", { sessionId: session.id, userId: ticketCredit.userId });
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[webhook/stripe] handler error", e);
+      return res.status(500).json({ error: "handler failed" });
+    }
+    return res.json({ received: true });
   });
   app2.put("/api/auth/profile", async (req, res) => {
     debugIngestServer({
@@ -2652,7 +3692,7 @@ async function registerRoutes(app2) {
       timestamp: Date.now()
     });
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const { name, displayName, bio, avatar, profileImageUrl, spotifyUrl, appleMusicUrl, bandcampUrl, instagramUrl, youtubeUrl, xUrl, phoneNumber, pinnedCommunityIds } = req.body;
     const newName = name ?? displayName ?? user.displayName;
     const newBio = bio ?? user.bio;
@@ -2672,7 +3712,7 @@ async function registerRoutes(app2) {
       ...newPhone !== void 0 && { phoneNumber: newPhone },
       ...pinnedJson !== void 0 && { pinnedCommunityIds: pinnedJson },
       updatedAt: /* @__PURE__ */ new Date()
-    }).where(eq2(users.id, user.id)).returning();
+    }).where(eq5(users.id, user.id)).returning();
     const profileTextForLang = (newBio || "").trim() || newName;
     await syncUserLastContentLang(user.id, profileTextForLang);
     const detectedLang = await detectContentLang(profileTextForLang);
@@ -2708,31 +3748,31 @@ async function registerRoutes(app2) {
   });
   app2.delete("/api/auth/account", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
-    const [owned] = await db.select().from(communities).where(eq2(communities.ownerId, user.id)).limit(1);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const [owned] = await db.select().from(communities).where(eq5(communities.ownerId, user.id)).limit(1);
     if (owned) {
-      return res.status(400).json({ error: "\u7BA1\u7406\u3057\u3066\u3044\u308B\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u304C\u3042\u308B\u305F\u3081\u524A\u9664\u3067\u304D\u307E\u305B\u3093\u3002\u5148\u306B\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u3092\u524A\u9664\u3057\u3066\u304F\u3060\u3055\u3044\u3002" });
+      return res.status(400).json({ error: "You cannot delete your account while you manage a community. Delete the community first." });
     }
     try {
-      await db.delete(communityMembers).where(eq2(communityMembers.userId, user.id));
-      await db.delete(communityModerators).where(eq2(communityModerators.userId, user.id));
-      await db.delete(communityPollVotes).where(eq2(communityPollVotes.userId, user.id));
-      await db.delete(communityVotes).where(eq2(communityVotes.userId, user.id));
-      await db.update(videos).set({ userId: null }).where(eq2(videos.userId, user.id));
-      await db.delete(videoComments).where(eq2(videoComments.userId, user.id));
-      await db.delete(users).where(eq2(users.id, user.id));
+      await db.delete(communityMembers).where(eq5(communityMembers.userId, user.id));
+      await db.delete(communityModerators).where(eq5(communityModerators.userId, user.id));
+      await db.delete(communityPollVotes).where(eq5(communityPollVotes.userId, user.id));
+      await db.delete(communityVotes).where(eq5(communityVotes.userId, user.id));
+      await db.update(videos).set({ userId: null }).where(eq5(videos.userId, user.id));
+      await db.delete(videoComments).where(eq5(videoComments.userId, user.id));
+      await db.delete(users).where(eq5(users.id, user.id));
       res.json({ ok: true });
     } catch (e) {
       console.error("Account deletion error:", e);
-      res.status(500).json({ error: "\u30A2\u30AB\u30A6\u30F3\u30C8\u306E\u524A\u9664\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
+      res.status(500).json({ error: "Failed to delete account" });
     }
   });
   app2.get("/api/profile/by-name/:name", async (req, res) => {
     const name = decodeURIComponent(req.params.name || "");
-    if (!name.trim()) return res.status(400).json({ error: "\u540D\u524D\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
-    const [u] = await db.select({ id: users.id }).from(users).where(eq2(users.displayName, name));
+    if (!name.trim()) return res.status(400).json({ error: "Please provide a name" });
+    const [u] = await db.select({ id: users.id }).from(users).where(eq5(users.displayName, name));
     if (u) return res.json({ type: "user", id: u.id });
-    const [c] = await db.select({ id: creators.id }).from(creators).where(eq2(creators.name, name));
+    const [c] = await db.select({ id: creators.id }).from(creators).where(eq5(creators.name, name));
     if (c) return res.json({ type: "liver", id: c.id });
     return res.status(404).json({ error: "Not found" });
   });
@@ -2751,7 +3791,7 @@ async function registerRoutes(app2) {
       appleMusicUrl: users.appleMusicUrl,
       bandcampUrl: users.bandcampUrl,
       pinnedCommunityIds: users.pinnedCommunityIds
-    }).from(users).where(eq2(users.id, id));
+    }).from(users).where(eq5(users.id, id));
     if (!u) return res.status(404).json({ error: "Not found" });
     let pinnedCommunities = [];
     const pinnedRaw = u.pinnedCommunityIds;
@@ -2770,8 +3810,8 @@ async function registerRoutes(app2) {
       } catch {
       }
     }
-    const [{ c: followersCountRaw }] = await db.select({ c: count() }).from(userFollows).where(eq2(userFollows.followingId, id));
-    const [{ c: followingCountRaw }] = await db.select({ c: count() }).from(userFollows).where(eq2(userFollows.followerId, id));
+    const [{ c: followersCountRaw }] = await db.select({ c: count() }).from(userFollows).where(eq5(userFollows.followingId, id));
+    const [{ c: followingCountRaw }] = await db.select({ c: count() }).from(userFollows).where(eq5(userFollows.followerId, id));
     res.json({
       id: u.id,
       name: u.displayName,
@@ -2793,22 +3833,22 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/users/:id/follow-status", async (req, res) => {
     const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const targetId = paramNum(req, "id");
     if (!targetId) return res.status(400).json({ error: "Invalid id" });
-    const [row] = await db.select({ id: userFollows.id }).from(userFollows).where(and2(eq2(userFollows.followerId, me.id), eq2(userFollows.followingId, targetId)));
+    const [row] = await db.select({ id: userFollows.id }).from(userFollows).where(and5(eq5(userFollows.followerId, me.id), eq5(userFollows.followingId, targetId)));
     res.json({ isFollowing: !!row });
   });
   app2.get("/api/users/:id/mentor-sessions", async (req, res) => {
     const uid = paramNum(req, "id");
     if (!uid) return res.status(400).json({ error: "Invalid id" });
-    const rows = await db.select().from(mentorSessions).where(and2(eq2(mentorSessions.creatorId, uid), eq2(mentorSessions.isActive, true))).orderBy(desc(mentorSessions.createdAt));
+    const rows = await db.select().from(mentorSessions).where(and5(eq5(mentorSessions.creatorId, uid), eq5(mentorSessions.isActive, true))).orderBy(desc(mentorSessions.createdAt));
     res.json(rows);
   });
   app2.get("/api/users/:id/communities", async (req, res) => {
     const uid = paramNum(req, "id");
     if (!uid) return res.status(400).json({ error: "Invalid id" });
-    const memberships = await db.select({ communityId: communityMembers.communityId }).from(communityMembers).where(eq2(communityMembers.userId, uid));
+    const memberships = await db.select({ communityId: communityMembers.communityId }).from(communityMembers).where(eq5(communityMembers.userId, uid));
     if (memberships.length === 0) return res.json([]);
     const ids = memberships.map((m) => m.communityId);
     const rows = await db.select({
@@ -2827,7 +3867,7 @@ async function registerRoutes(app2) {
       displayName: users.displayName,
       profileImageUrl: users.profileImageUrl,
       bio: users.bio
-    }).from(userFollows).innerJoin(users, eq2(users.id, userFollows.followerId)).where(eq2(userFollows.followingId, targetId));
+    }).from(userFollows).innerJoin(users, eq5(users.id, userFollows.followerId)).where(eq5(userFollows.followingId, targetId));
     res.json(
       rows.map((r) => ({
         id: r.id,
@@ -2846,7 +3886,7 @@ async function registerRoutes(app2) {
       displayName: users.displayName,
       profileImageUrl: users.profileImageUrl,
       bio: users.bio
-    }).from(userFollows).innerJoin(users, eq2(users.id, userFollows.followingId)).where(eq2(userFollows.followerId, targetId));
+    }).from(userFollows).innerJoin(users, eq5(users.id, userFollows.followingId)).where(eq5(userFollows.followerId, targetId));
     res.json(
       rows.map((r) => ({
         id: r.id,
@@ -2859,21 +3899,21 @@ async function registerRoutes(app2) {
   });
   app2.post("/api/users/:id/follow", async (req, res) => {
     const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const targetId = paramNum(req, "id");
     if (!targetId) return res.status(400).json({ error: "Invalid id" });
-    if (targetId === me.id) return res.status(400).json({ error: "\u81EA\u5206\u81EA\u8EAB\u306F\u30D5\u30A9\u30ED\u30FC\u3067\u304D\u307E\u305B\u3093" });
-    const [exists] = await db.select({ id: users.id }).from(users).where(eq2(users.id, targetId));
+    if (targetId === me.id) return res.status(400).json({ error: "You cannot follow yourself" });
+    const [exists] = await db.select({ id: users.id }).from(users).where(eq5(users.id, targetId));
     if (!exists) return res.status(404).json({ error: "Not found" });
     await db.insert(userFollows).values({ followerId: me.id, followingId: targetId }).onConflictDoNothing({ target: [userFollows.followerId, userFollows.followingId] });
     res.json({ ok: true });
   });
   app2.delete("/api/users/:id/follow", async (req, res) => {
     const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const targetId = paramNum(req, "id");
     if (!targetId) return res.status(400).json({ error: "Invalid id" });
-    await db.delete(userFollows).where(and2(eq2(userFollows.followerId, me.id), eq2(userFollows.followingId, targetId)));
+    await db.delete(userFollows).where(and5(eq5(userFollows.followerId, me.id), eq5(userFollows.followingId, targetId)));
     res.json({ ok: true });
   });
   const BASE_URL = resolvePublicAppOrigin();
@@ -2887,7 +3927,9 @@ async function registerRoutes(app2) {
       google: {
         configured: !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && GOOGLE_CALLBACK_URL),
         callbackUrl: GOOGLE_CALLBACK_URL,
-        publicOrigin: BASE_URL
+        publicOrigin: BASE_URL,
+        /** Web クライアント ID は公開情報。`.env` の GOOGLE_CLIENT_ID が GCP のクライアントと一致するか照合用 */
+        clientId: GOOGLE_CLIENT_ID || null
       }
     });
   });
@@ -2945,7 +3987,7 @@ async function registerRoutes(app2) {
         ...tokenData.refresh_token ? { googleRefreshToken: tokenData.refresh_token } : {},
         ...expiresAt ? { googleTokenExpiresAt: expiresAt } : {}
       };
-      let [existing] = await db.select().from(users).where(eq2(users.lineId, googleKey));
+      let [existing] = await db.select().from(users).where(eq5(users.lineId, googleKey));
       if (!existing) {
         [existing] = await db.insert(users).values({
           lineId: googleKey,
@@ -2963,7 +4005,7 @@ async function registerRoutes(app2) {
           ...tokenUpdate
         };
         if (googleEmail) nextValues.email = googleEmail;
-        [existing] = await db.update(users).set(nextValues).where(eq2(users.id, existing.id)).returning();
+        [existing] = await db.update(users).set(nextValues).where(eq5(users.id, existing.id)).returning();
       }
       await promoteAdminByEmail({ id: existing.id, email: existing.email });
       await sendWelcomeDmIfNeeded(existing.id);
@@ -2977,10 +4019,10 @@ async function registerRoutes(app2) {
   app2.get("/api/youtube/search", async (req, res) => {
     const q = queryStr(req, "q").trim();
     if (!q) {
-      return res.status(400).json({ error: "\u691C\u7D22\u30AD\u30FC\u30EF\u30FC\u30C9\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "Please enter a search query" });
     }
     if (!YOUTUBE_API_KEY) {
-      return res.status(500).json({ error: "YouTube API \u30AD\u30FC\u304C\u8A2D\u5B9A\u3055\u308C\u3066\u3044\u307E\u305B\u3093" });
+      return res.status(500).json({ error: "YouTube API key is not configured" });
     }
     try {
       const params = new URLSearchParams({
@@ -2994,7 +4036,15 @@ async function registerRoutes(app2) {
       if (!ytRes.ok) {
         const text2 = await ytRes.text();
         console.error("YouTube search error:", ytRes.status, text2);
-        return res.status(502).json({ error: "YouTube \u691C\u7D22\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
+        let clientMessage = "YouTube search failed";
+        try {
+          const errJson = JSON.parse(text2);
+          if (errJson?.error?.message) {
+            clientMessage = errJson.error.message;
+          }
+        } catch {
+        }
+        return res.status(502).json({ error: clientMessage });
       }
       const json = await ytRes.json();
       const items = json.items ?? [];
@@ -3038,11 +4088,11 @@ async function registerRoutes(app2) {
       res.json(results);
     } catch (e) {
       console.error("YouTube search exception:", e);
-      res.status(500).json({ error: "YouTube \u691C\u7D22\u3067\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F" });
+      res.status(500).json({ error: "An error occurred during YouTube search" });
     }
   });
   async function getGoogleAccessToken(userId) {
-    const [u] = await db.select().from(users).where(eq2(users.id, userId));
+    const [u] = await db.select().from(users).where(eq5(users.id, userId));
     if (!u || !u.googleRefreshToken) return null;
     const row = u;
     const expiresAt = row.googleTokenExpiresAt ? new Date(row.googleTokenExpiresAt).getTime() : 0;
@@ -3070,7 +4120,7 @@ async function registerRoutes(app2) {
         googleAccessToken: data.access_token,
         ...newExpiresAt ? { googleTokenExpiresAt: newExpiresAt } : {},
         updatedAt: /* @__PURE__ */ new Date()
-      }).where(eq2(users.id, userId));
+      }).where(eq5(users.id, userId));
       return data.access_token;
     } catch {
       return null;
@@ -3078,11 +4128,11 @@ async function registerRoutes(app2) {
   }
   app2.get("/api/youtube/playlists", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const accessToken = await getGoogleAccessToken(user.id);
     if (!accessToken) {
       return res.status(403).json({
-        error: "YouTube \u30D7\u30EC\u30A4\u30EA\u30B9\u30C8\u3092\u5229\u7528\u3059\u308B\u306B\u306F Google \u3067\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044",
+        error: "Sign in with Google to use YouTube playlists",
         needsGoogleLogin: true
       });
     }
@@ -3099,7 +4149,7 @@ async function registerRoutes(app2) {
       if (!ytRes.ok) {
         const text2 = await ytRes.text();
         console.error("YouTube playlists error:", ytRes.status, text2);
-        return res.status(502).json({ error: "\u30D7\u30EC\u30A4\u30EA\u30B9\u30C8\u306E\u53D6\u5F97\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
+        return res.status(502).json({ error: "Failed to fetch the playlist" });
       }
       const json = await ytRes.json();
       const items = (json.items ?? []).map((item) => {
@@ -3114,21 +4164,21 @@ async function registerRoutes(app2) {
       res.json(items);
     } catch (e) {
       console.error("YouTube playlists exception:", e);
-      res.status(500).json({ error: "\u30D7\u30EC\u30A4\u30EA\u30B9\u30C8\u306E\u53D6\u5F97\u3067\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F" });
+      res.status(500).json({ error: "An error occurred while fetching the playlist" });
     }
   });
   app2.get("/api/youtube/playlists/:playlistId/items", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const accessToken = await getGoogleAccessToken(user.id);
     if (!accessToken) {
       return res.status(403).json({
-        error: "YouTube \u30D7\u30EC\u30A4\u30EA\u30B9\u30C8\u3092\u5229\u7528\u3059\u308B\u306B\u306F Google \u3067\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044",
+        error: "Sign in with Google to use YouTube playlists",
         needsGoogleLogin: true
       });
     }
     const playlistId = paramStr(req, "playlistId");
-    if (!playlistId) return res.status(400).json({ error: "\u30D7\u30EC\u30A4\u30EA\u30B9\u30C8ID\u304C\u5FC5\u8981\u3067\u3059" });
+    if (!playlistId) return res.status(400).json({ error: "playlistId is required" });
     try {
       const params = new URLSearchParams({
         part: "snippet,contentDetails",
@@ -3142,7 +4192,7 @@ async function registerRoutes(app2) {
       if (!ytRes.ok) {
         const text2 = await ytRes.text();
         console.error("YouTube playlistItems error:", ytRes.status, text2);
-        return res.status(502).json({ error: "\u30D7\u30EC\u30A4\u30EA\u30B9\u30C8\u306E\u53D6\u5F97\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
+        return res.status(502).json({ error: "Failed to fetch the playlist" });
       }
       const json = await ytRes.json();
       const baseItems = (json.items ?? []).map((item) => {
@@ -3178,15 +4228,15 @@ async function registerRoutes(app2) {
       res.json(items);
     } catch (e) {
       console.error("YouTube playlistItems exception:", e);
-      res.status(500).json({ error: "\u30D7\u30EC\u30A4\u30EA\u30B9\u30C8\u306E\u53D6\u5F97\u3067\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F" });
+      res.status(500).json({ error: "An error occurred while fetching the playlist" });
     }
   });
   const GENRE_TO_CATEGORY = {
-    pop: ["Pop", "\u30DD\u30C3\u30D7", "J-Pop", "K-Pop", "\u97F3\u697D"],
-    rock: ["Rock", "\u30ED\u30C3\u30AF", "\u30D0\u30F3\u30C9"],
-    hiphop: ["Hip-Hop", "HipHop", "\u30D2\u30C3\u30D7\u30DB\u30C3\u30D7", "Rap", "\u30E9\u30C3\u30D7"],
-    edm: ["EDM", "Electronic", "\u30A8\u30EC\u30AF\u30C8\u30ED", "DJ"],
-    ai: ["AI", "AI\u97F3\u697D", "Generative"]
+    pop: ["Pop", "J-Pop", "K-Pop", "Music", "Vocal"],
+    rock: ["Rock", "Band", "Guitar"],
+    hiphop: ["Hip-Hop", "HipHop", "Rap", "Trap"],
+    edm: ["EDM", "Electronic", "House", "DJ"],
+    ai: ["AI", "Generative", "Suno", "Instrumental"]
   };
   app2.get("/api/communities", async (req, res) => {
     const genreId = queryStr(req, "genre");
@@ -3201,8 +4251,8 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/communities/me", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
-    const memberships = await db.select({ communityId: communityMembers.communityId }).from(communityMembers).where(eq2(communityMembers.userId, user.id));
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const memberships = await db.select({ communityId: communityMembers.communityId }).from(communityMembers).where(eq5(communityMembers.userId, user.id));
     if (memberships.length === 0) {
       return res.json([]);
     }
@@ -3212,21 +4262,21 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/communities/:id", async (req, res) => {
     const id = paramNum(req, "id");
-    const [row] = await db.select().from(communities).where(eq2(communities.id, id));
+    const [row] = await db.select().from(communities).where(eq5(communities.id, id));
     if (!row) return res.status(404).json({ message: "Not found" });
     res.json(row);
   });
   app2.get("/api/communities/:id/editors", async (req, res) => {
     const communityId = paramNum(req, "id");
-    const rows = await db.select().from(videoEditors).where(eq2(videoEditors.communityId, communityId)).orderBy(desc(videoEditors.isAvailable), desc(videoEditors.rating));
+    const rows = await db.select().from(videoEditors).where(eq5(videoEditors.communityId, communityId)).orderBy(desc(videoEditors.isAvailable), desc(videoEditors.rating));
     res.json(rows);
   });
   app2.get("/api/communities/:id/creators", async (req, res) => {
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq5(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
-    const editors = await db.select().from(videoEditors).where(eq2(videoEditors.communityId, communityId)).orderBy(desc(videoEditors.rating));
-    const livers = await db.select().from(creators).where(eq2(creators.community, community.name)).orderBy(asc2(creators.rank));
+    const editors = await db.select().from(videoEditors).where(eq5(videoEditors.communityId, communityId)).orderBy(desc(videoEditors.rating));
+    const livers = await db.select().from(creators).where(eq5(creators.community, community.name)).orderBy(asc3(creators.rank));
     res.json({
       editors: editors.map((e) => ({ ...e, kind: "editor" })),
       livers: livers.map((l) => ({ ...l, kind: "liver" }))
@@ -3234,10 +4284,10 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/communities/:id/staff", async (req, res) => {
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq5(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
-    const admin = community.adminId ? (await db.select().from(users).where(eq2(users.id, community.adminId)))[0] ?? null : null;
-    const modRows = await db.select({ userId: communityModerators.userId }).from(communityModerators).where(eq2(communityModerators.communityId, communityId));
+    const admin = community.adminId ? (await db.select().from(users).where(eq5(users.id, community.adminId)))[0] ?? null : null;
+    const modRows = await db.select({ userId: communityModerators.userId }).from(communityModerators).where(eq5(communityModerators.communityId, communityId));
     const moderatorUsers = modRows.length > 0 ? await db.select().from(users).where(inArray(users.id, modRows.map((r) => r.userId))) : [];
     res.json({
       adminId: community.adminId,
@@ -3249,32 +4299,32 @@ async function registerRoutes(app2) {
   });
   app2.patch("/api/communities/:id/staff", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq5(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
-    if (!isAdmin) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u306E\u307F\u8A2D\u5B9A\u3067\u304D\u307E\u3059" });
+    if (!isAdmin) return res.status(403).json({ error: "Only the community owner can change this" });
     const { adminId, moderatorIds } = req.body;
     if (adminId !== void 0) {
-      await db.update(communities).set({ adminId: adminId ?? null }).where(eq2(communities.id, communityId));
+      await db.update(communities).set({ adminId: adminId ?? null }).where(eq5(communities.id, communityId));
     }
     if (moderatorIds !== void 0 && Array.isArray(moderatorIds)) {
-      await db.delete(communityModerators).where(eq2(communityModerators.communityId, communityId));
+      await db.delete(communityModerators).where(eq5(communityModerators.communityId, communityId));
       for (const uid of moderatorIds) {
         if (Number.isInteger(uid)) {
           await db.insert(communityModerators).values({ communityId, userId: uid });
         }
       }
     }
-    const [updated] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [updated] = await db.select().from(communities).where(eq5(communities.id, communityId));
     res.json(updated);
   });
   app2.get("/api/communities/:id/members", async (req, res) => {
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq5(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
-    const rows = await db.select({ userId: communityMembers.userId }).from(communityMembers).where(eq2(communityMembers.communityId, communityId));
+    const rows = await db.select({ userId: communityMembers.userId }).from(communityMembers).where(eq5(communityMembers.communityId, communityId));
     const memberUsers = rows.length > 0 ? await db.select({
       id: users.id,
       displayName: users.displayName,
@@ -3287,23 +4337,23 @@ async function registerRoutes(app2) {
     if (!user) return res.json({ isMember: false });
     const communityId = paramNum(req, "id");
     const rows = await db.select().from(communityMembers).where(
-      and2(
-        eq2(communityMembers.communityId, communityId),
-        eq2(communityMembers.userId, user.id)
+      and5(
+        eq5(communityMembers.communityId, communityId),
+        eq5(communityMembers.userId, user.id)
       )
     );
     res.json({ isMember: rows.length > 0 });
   });
   app2.post("/api/communities/:id/join", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq5(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const existing = await db.select().from(communityMembers).where(
-      and2(
-        eq2(communityMembers.communityId, communityId),
-        eq2(communityMembers.userId, user.id)
+      and5(
+        eq5(communityMembers.communityId, communityId),
+        eq5(communityMembers.userId, user.id)
       )
     );
     if (existing.length > 0) {
@@ -3313,15 +4363,15 @@ async function registerRoutes(app2) {
       communityId,
       userId: user.id
     });
-    const [c] = await db.select({ m: communities.members }).from(communities).where(eq2(communities.id, communityId));
+    const [c] = await db.select({ m: communities.members }).from(communities).where(eq5(communities.id, communityId));
     if (c) {
-      await db.update(communities).set({ members: c.m + 1 }).where(eq2(communities.id, communityId));
+      await db.update(communities).set({ members: c.m + 1 }).where(eq5(communities.id, communityId));
     }
     res.status(201).json({ ok: true });
   });
   app2.get("/api/communities/:id/threads", async (req, res) => {
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq5(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const rows = await db.select({
       id: communityThreads.id,
@@ -3331,10 +4381,10 @@ async function registerRoutes(app2) {
       body: communityThreads.body,
       createdAt: communityThreads.createdAt,
       pinned: communityThreads.pinned
-    }).from(communityThreads).where(eq2(communityThreads.communityId, communityId)).orderBy(desc(communityThreads.pinned), desc(communityThreads.createdAt));
+    }).from(communityThreads).where(eq5(communityThreads.communityId, communityId)).orderBy(desc(communityThreads.pinned), desc(communityThreads.createdAt));
     const postCounts = await Promise.all(
       rows.map(async (t) => {
-        const [c] = await db.select({ n: count() }).from(communityThreadPosts).where(eq2(communityThreadPosts.threadId, t.id));
+        const [c] = await db.select({ n: count() }).from(communityThreadPosts).where(eq5(communityThreadPosts.threadId, t.id));
         return c?.n ?? 0;
       })
     );
@@ -3345,24 +4395,94 @@ async function registerRoutes(app2) {
       rows.map((r, i) => ({
         ...r,
         postCount: postCounts[i],
-        author: authorMap.get(r.authorUserId) ?? { displayName: "\u4E0D\u660E", profileImageUrl: null }
+        author: authorMap.get(r.authorUserId) ?? { displayName: "Unknown", profileImageUrl: null }
+      }))
+    );
+  });
+  app2.get("/api/community-announcements/feed", async (_req, res) => {
+    const limit = Math.min(100, Math.max(1, parseInt(String(_req.query.limit ?? "80"), 10) || 80));
+    const qRaw = typeof _req.query.q === "string" ? _req.query.q.trim() : "";
+    const liveOnly = String(_req.query.liveOnly ?? "") === "1" || String(_req.query.liveOnly ?? "").toLowerCase() === "true";
+    const fetchLimit = liveOnly ? Math.min(300, limit * 4) : limit;
+    const rows = await db.select({
+      id: communityThreads.id,
+      communityId: communityThreads.communityId,
+      title: communityThreads.title,
+      body: communityThreads.body,
+      pinned: communityThreads.pinned,
+      createdAt: communityThreads.createdAt,
+      authorUserId: communityThreads.authorUserId,
+      communityName: communities.name,
+      communityCategory: communities.category,
+      communityThumbnail: communities.thumbnail
+    }).from(communityThreads).innerJoin(communities, eq5(communities.id, communityThreads.communityId)).orderBy(desc(communityThreads.pinned), desc(communityThreads.createdAt)).limit(fetchLimit);
+    const liveHints = [
+      "live",
+      "\u914D\u4FE1",
+      "\u30E9\u30A4\u30D6",
+      "stream",
+      "twitch",
+      "youtube",
+      "youtu.be",
+      "\u516C\u6F14",
+      "concert",
+      "tour",
+      "tiktok",
+      "ticket",
+      "\u30C1\u30B1\u30C3\u30C8",
+      "streaming",
+      "premiere"
+    ];
+    let out = rows;
+    if (qRaw) {
+      const ql = qRaw.toLowerCase();
+      out = out.filter((r) => `${r.title} ${r.body}`.toLowerCase().includes(ql));
+    }
+    if (liveOnly) {
+      out = out.filter((r) => {
+        const blob = `${r.title} ${r.body}`.toLowerCase();
+        return liveHints.some((h) => blob.includes(h));
+      });
+    }
+    out = out.slice(0, limit);
+    const authorIds = [...new Set(out.map((r) => r.authorUserId))];
+    const authorRows = authorIds.length > 0 ? await db.select({ id: users.id, displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(users).where(inArray(users.id, authorIds)) : [];
+    const authorMap = new Map(authorRows.map((a) => [a.id, a]));
+    res.json(
+      out.map((r) => ({
+        id: r.id,
+        communityId: r.communityId,
+        communityName: r.communityName,
+        communityCategory: r.communityCategory,
+        communityThumbnail: r.communityThumbnail,
+        title: r.title,
+        body: r.body,
+        pinned: r.pinned,
+        createdAt: r.createdAt,
+        authorUserId: r.authorUserId,
+        author: authorMap.get(r.authorUserId) ?? { displayName: "Unknown", profileImageUrl: null }
       }))
     );
   });
   app2.post("/api/communities/:id/threads", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq5(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
-    const memberRows = await db.select().from(communityMembers).where(and2(eq2(communityMembers.communityId, communityId), eq2(communityMembers.userId, user.id)));
-    if (memberRows.length === 0) return res.status(403).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306B\u53C2\u52A0\u3057\u3066\u304F\u3060\u3055\u3044" });
+    const [memberRow] = await db.select({ id: communityMembers.id }).from(communityMembers).where(and5(eq5(communityMembers.communityId, communityId), eq5(communityMembers.userId, user.id))).limit(1);
+    const isCommunityOwner = community.adminId === user.id;
+    const [boardModRow] = await db.select({ userId: communityModerators.userId }).from(communityModerators).where(and5(eq5(communityModerators.communityId, communityId), eq5(communityModerators.userId, user.id))).limit(1);
+    const canPostAsStaff = isCommunityOwner || !!boardModRow || isAdminRole(user.role);
+    if (!memberRow && !canPostAsStaff) {
+      return res.status(403).json({ error: "Join the community first, or post as admin/moderator" });
+    }
     const { title, body } = req.body;
-    if (!title || !title.trim()) return res.status(400).json({ error: "\u30BF\u30A4\u30C8\u30EB\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!title || !title.trim()) return res.status(400).json({ error: "Please enter a title" });
     const combinedText = [title, body].filter(Boolean).join(" ");
     const modResult = await moderateContent(combinedText);
-    if (!modResult.allowed) {
-      return res.status(400).json({ error: modResult.reason ?? "\u4E0D\u9069\u5207\u306A\u30B3\u30F3\u30C6\u30F3\u30C4\u304C\u542B\u307E\u308C\u3066\u3044\u307E\u3059" });
+    if (modResult.allowed === false) {
+      return res.status(400).json({ error: modResult.reason ?? "This content is not allowed" });
     }
     const [row] = await db.insert(communityThreads).values({
       communityId,
@@ -3375,69 +4495,76 @@ async function registerRoutes(app2) {
   app2.get("/api/communities/:id/threads/:threadId", async (req, res) => {
     const communityId = paramNum(req, "id");
     const threadId = paramNum(req, "threadId");
-    const [thread] = await db.select().from(communityThreads).where(and2(eq2(communityThreads.communityId, communityId), eq2(communityThreads.id, threadId)));
+    const [thread] = await db.select().from(communityThreads).where(and5(eq5(communityThreads.communityId, communityId), eq5(communityThreads.id, threadId)));
     if (!thread) return res.status(404).json({ message: "Not found" });
-    const posts = await db.select().from(communityThreadPosts).where(eq2(communityThreadPosts.threadId, threadId)).orderBy(asc2(communityThreadPosts.createdAt));
+    const posts = await db.select().from(communityThreadPosts).where(eq5(communityThreadPosts.threadId, threadId)).orderBy(asc3(communityThreadPosts.createdAt));
     const authorIds = [thread.authorUserId, ...posts.map((p) => p.authorUserId)];
     const authorRows = await db.select({ id: users.id, displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(users).where(inArray(users.id, authorIds));
     const authorMap = new Map(authorRows.map((a) => [a.id, a]));
     res.json({
       ...thread,
-      author: authorMap.get(thread.authorUserId) ?? { displayName: "\u4E0D\u660E", profileImageUrl: null },
+      author: authorMap.get(thread.authorUserId) ?? { displayName: "Unknown", profileImageUrl: null },
       posts: posts.map((p) => ({
         ...p,
-        author: authorMap.get(p.authorUserId) ?? { displayName: "\u4E0D\u660E", profileImageUrl: null }
+        author: authorMap.get(p.authorUserId) ?? { displayName: "Unknown", profileImageUrl: null }
       }))
     });
   });
   app2.delete("/api/communities/:id/threads/:threadId", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const threadId = paramNum(req, "threadId");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq5(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
-    const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
+    const [modRow] = await db.select().from(communityModerators).where(and5(eq5(communityModerators.communityId, communityId), eq5(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u307E\u305F\u306F\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u306E\u307F\u524A\u9664\u3067\u304D\u307E\u3059" });
-    const [thread] = await db.select().from(communityThreads).where(and2(eq2(communityThreads.communityId, communityId), eq2(communityThreads.id, threadId)));
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can delete this" });
+    const [thread] = await db.select().from(communityThreads).where(and5(eq5(communityThreads.communityId, communityId), eq5(communityThreads.id, threadId)));
     if (!thread) return res.status(404).json({ message: "Not found" });
-    await db.delete(communityThreadPosts).where(eq2(communityThreadPosts.threadId, threadId));
-    await db.delete(communityThreads).where(eq2(communityThreads.id, threadId));
+    await db.delete(communityThreadPosts).where(eq5(communityThreadPosts.threadId, threadId));
+    await db.delete(communityThreads).where(eq5(communityThreads.id, threadId));
     res.json({ ok: true });
   });
   app2.delete("/api/communities/:id/threads/:threadId/posts/:postId", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const threadId = paramNum(req, "threadId");
     const postId = paramNum(req, "postId");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq5(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
-    const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
+    const [modRow] = await db.select().from(communityModerators).where(and5(eq5(communityModerators.communityId, communityId), eq5(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u307E\u305F\u306F\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u306E\u307F\u524A\u9664\u3067\u304D\u307E\u3059" });
-    const [thread] = await db.select().from(communityThreads).where(and2(eq2(communityThreads.communityId, communityId), eq2(communityThreads.id, threadId)));
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can delete this" });
+    const [thread] = await db.select().from(communityThreads).where(and5(eq5(communityThreads.communityId, communityId), eq5(communityThreads.id, threadId)));
     if (!thread) return res.status(404).json({ message: "Not found" });
-    await db.delete(communityThreadPosts).where(and2(eq2(communityThreadPosts.threadId, threadId), eq2(communityThreadPosts.id, postId)));
+    await db.delete(communityThreadPosts).where(and5(eq5(communityThreadPosts.threadId, threadId), eq5(communityThreadPosts.id, postId)));
     res.json({ ok: true });
   });
   app2.post("/api/communities/:id/threads/:threadId/posts", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const threadId = paramNum(req, "threadId");
-    const [thread] = await db.select().from(communityThreads).where(and2(eq2(communityThreads.communityId, communityId), eq2(communityThreads.id, threadId)));
+    const [thread] = await db.select().from(communityThreads).where(and5(eq5(communityThreads.communityId, communityId), eq5(communityThreads.id, threadId)));
     if (!thread) return res.status(404).json({ message: "Not found" });
-    const memberRows = await db.select().from(communityMembers).where(and2(eq2(communityMembers.communityId, communityId), eq2(communityMembers.userId, user.id)));
-    if (memberRows.length === 0) return res.status(403).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306B\u53C2\u52A0\u3057\u3066\u304F\u3060\u3055\u3044" });
+    const [memberRow] = await db.select({ id: communityMembers.id }).from(communityMembers).where(and5(eq5(communityMembers.communityId, communityId), eq5(communityMembers.userId, user.id))).limit(1);
+    const [communityForReply] = await db.select().from(communities).where(eq5(communities.id, communityId));
+    if (!communityForReply) return res.status(404).json({ message: "Not found" });
+    const isCommunityOwner = communityForReply.adminId === user.id;
+    const [replyModRow] = await db.select({ userId: communityModerators.userId }).from(communityModerators).where(and5(eq5(communityModerators.communityId, communityId), eq5(communityModerators.userId, user.id))).limit(1);
+    const canReplyAsStaff = isCommunityOwner || !!replyModRow || isAdminRole(user.role);
+    if (!memberRow && !canReplyAsStaff) {
+      return res.status(403).json({ error: "Join the community first, or reply as admin/moderator" });
+    }
     const { body } = req.body;
-    if (!body || !body.trim()) return res.status(400).json({ error: "\u672C\u6587\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!body || !body.trim()) return res.status(400).json({ error: "Please enter body text" });
     const modResult = await moderateContent(body);
-    if (!modResult.allowed) {
-      return res.status(400).json({ error: modResult.reason ?? "\u4E0D\u9069\u5207\u306A\u30B3\u30F3\u30C6\u30F3\u30C4\u304C\u542B\u307E\u308C\u3066\u3044\u307E\u3059" });
+    if (modResult.allowed === false) {
+      return res.status(400).json({ error: modResult.reason ?? "This content is not allowed" });
     }
     const [row] = await db.insert(communityThreadPosts).values({
       threadId,
@@ -3449,59 +4576,59 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/communities/:id/admin/jukebox-queue", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq5(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
-    const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
+    const [modRow] = await db.select().from(communityModerators).where(and5(eq5(communityModerators.communityId, communityId), eq5(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u307E\u305F\u306F\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u306E\u307F\u30A2\u30AF\u30BB\u30B9\u53EF\u80FD\u3067\u3059" });
-    const rows = await db.select().from(jukeboxQueue).where(eq2(jukeboxQueue.communityId, communityId)).orderBy(asc2(jukeboxQueue.position));
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can access this" });
+    const rows = await db.select().from(jukeboxQueue).where(eq5(jukeboxQueue.communityId, communityId)).orderBy(asc3(jukeboxQueue.position));
     res.json(rows);
   });
   app2.delete("/api/communities/:id/admin/jukebox-queue/:itemId", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const itemId = paramNum(req, "itemId");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq5(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
-    const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
+    const [modRow] = await db.select().from(communityModerators).where(and5(eq5(communityModerators.communityId, communityId), eq5(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u307E\u305F\u306F\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u306E\u307F\u64CD\u4F5C\u53EF\u80FD\u3067\u3059" });
-    const [item] = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.id, itemId)));
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can perform this action" });
+    const [item] = await db.select().from(jukeboxQueue).where(and5(eq5(jukeboxQueue.communityId, communityId), eq5(jukeboxQueue.id, itemId)));
     if (!item) return res.status(404).json({ message: "Not found" });
-    await db.delete(jukeboxQueue).where(eq2(jukeboxQueue.id, itemId));
+    await db.delete(jukeboxQueue).where(eq5(jukeboxQueue.id, itemId));
     res.json({ ok: true });
   });
   app2.get("/api/communities/:id/admin/ads", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq5(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
-    const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
+    const [modRow] = await db.select().from(communityModerators).where(and5(eq5(communityModerators.communityId, communityId), eq5(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u307E\u305F\u306F\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u306E\u307F\u30A2\u30AF\u30BB\u30B9\u53EF\u80FD\u3067\u3059" });
-    const rows = await db.select().from(communityAds).where(and2(eq2(communityAds.communityId, communityId), eq2(communityAds.status, "approved"))).orderBy(asc2(communityAds.startDate));
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can access this" });
+    const rows = await db.select().from(communityAds).where(and5(eq5(communityAds.communityId, communityId), eq5(communityAds.status, "approved"))).orderBy(asc3(communityAds.startDate));
     res.json(rows);
   });
   app2.get("/api/communities/:id/admin/reports", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq5(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
-    const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
+    const [modRow] = await db.select().from(communityModerators).where(and5(eq5(communityModerators.communityId, communityId), eq5(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u307E\u305F\u306F\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u306E\u307F\u30A2\u30AF\u30BB\u30B9\u53EF\u80FD\u3067\u3059" });
-    const videoIdsInCommunity = await db.select({ id: videos.id }).from(videos).where(eq2(videos.communityId, communityId));
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can access this" });
+    const videoIdsInCommunity = await db.select({ id: videos.id }).from(videos).where(eq5(videos.communityId, communityId));
     const vidSet = new Set(videoIdsInCommunity.map((v) => v.id));
-    const byName = await db.select({ id: videos.id }).from(videos).where(eq2(videos.community, community.name));
+    const byName = await db.select({ id: videos.id }).from(videos).where(eq5(videos.community, community.name));
     byName.forEach((v) => vidSet.add(v.id));
     const allReports = await db.select().from(reports).orderBy(desc(reports.createdAt));
     const filtered = [];
@@ -3509,9 +4636,9 @@ async function registerRoutes(app2) {
       if (r.contentType === "video") {
         if (vidSet.has(r.contentId)) filtered.push(r);
       } else if (r.contentType === "comment") {
-        const [cm] = await db.select({ videoId: videoComments.videoId }).from(videoComments).where(eq2(videoComments.id, r.contentId));
+        const [cm] = await db.select({ videoId: videoComments.videoId }).from(videoComments).where(eq5(videoComments.id, r.contentId));
         if (cm) {
-          const [v] = await db.select({ id: videos.id, communityId: videos.communityId, community: videos.community }).from(videos).where(eq2(videos.id, cm.videoId));
+          const [v] = await db.select({ id: videos.id, communityId: videos.communityId, community: videos.community }).from(videos).where(eq5(videos.id, cm.videoId));
           if (v && (v.communityId === communityId || v.community === community.name)) filtered.push(r);
         }
       }
@@ -3520,77 +4647,77 @@ async function registerRoutes(app2) {
   });
   app2.patch("/api/communities/:id/admin/reports/:reportId/hide", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const reportId = paramNum(req, "reportId");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq5(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
-    const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
+    const [modRow] = await db.select().from(communityModerators).where(and5(eq5(communityModerators.communityId, communityId), eq5(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u307E\u305F\u306F\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u306E\u307F\u64CD\u4F5C\u53EF\u80FD\u3067\u3059" });
-    const [report] = await db.select().from(reports).where(eq2(reports.id, reportId));
-    if (!report) return res.status(404).json({ error: "\u901A\u5831\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
-    const vidSet = new Set((await db.select({ id: videos.id }).from(videos).where(eq2(videos.communityId, communityId))).map((v) => v.id));
-    const byName = await db.select({ id: videos.id }).from(videos).where(eq2(videos.community, community.name));
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can perform this action" });
+    const [report] = await db.select().from(reports).where(eq5(reports.id, reportId));
+    if (!report) return res.status(404).json({ error: "Report not found" });
+    const vidSet = new Set((await db.select({ id: videos.id }).from(videos).where(eq5(videos.communityId, communityId))).map((v) => v.id));
+    const byName = await db.select({ id: videos.id }).from(videos).where(eq5(videos.community, community.name));
     byName.forEach((v) => vidSet.add(v.id));
     let allowed = false;
     if (report.contentType === "video") allowed = vidSet.has(report.contentId);
     else if (report.contentType === "comment") {
-      const [cm] = await db.select({ videoId: videoComments.videoId }).from(videoComments).where(eq2(videoComments.id, report.contentId));
+      const [cm] = await db.select({ videoId: videoComments.videoId }).from(videoComments).where(eq5(videoComments.id, report.contentId));
       if (cm) {
-        const [v] = await db.select({ communityId: videos.communityId, community: videos.community }).from(videos).where(eq2(videos.id, cm.videoId));
+        const [v] = await db.select({ communityId: videos.communityId, community: videos.community }).from(videos).where(eq5(videos.id, cm.videoId));
         allowed = !!v && (v.communityId === communityId || v.community === community.name);
       }
     }
-    if (!allowed) return res.status(403).json({ error: "\u3053\u306E\u901A\u5831\u306F\u3053\u306E\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306B\u5C5E\u3057\u3066\u3044\u307E\u305B\u3093" });
+    if (!allowed) return res.status(403).json({ error: "This report does not belong to this community" });
     if (report.contentType === "video") {
-      await db.update(videos).set({ hidden: true }).where(eq2(videos.id, report.contentId));
+      await db.update(videos).set({ hidden: true }).where(eq5(videos.id, report.contentId));
     } else if (report.contentType === "comment") {
-      await db.update(videoComments).set({ hidden: true }).where(eq2(videoComments.id, report.contentId));
+      await db.update(videoComments).set({ hidden: true }).where(eq5(videoComments.id, report.contentId));
     }
-    await db.update(reports).set({ status: "hidden" }).where(eq2(reports.id, reportId));
+    await db.update(reports).set({ status: "hidden" }).where(eq5(reports.id, reportId));
     res.json({ ok: true });
   });
   app2.patch("/api/communities/:id/admin/reports/:reportId/dismiss", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const reportId = paramNum(req, "reportId");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq5(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
-    const [modRow] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, communityId), eq2(communityModerators.userId, user.id)));
+    const [modRow] = await db.select().from(communityModerators).where(and5(eq5(communityModerators.communityId, communityId), eq5(communityModerators.userId, user.id)));
     const isMod = !!modRow;
-    if (!isAdmin && !isMod) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u307E\u305F\u306F\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u306E\u307F\u64CD\u4F5C\u53EF\u80FD\u3067\u3059" });
-    const [report] = await db.select().from(reports).where(eq2(reports.id, reportId));
-    if (!report) return res.status(404).json({ error: "\u901A\u5831\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
-    const vidSet = new Set((await db.select({ id: videos.id }).from(videos).where(eq2(videos.communityId, communityId))).map((v) => v.id));
-    const byName = await db.select({ id: videos.id }).from(videos).where(eq2(videos.community, community.name));
+    if (!isAdmin && !isMod) return res.status(403).json({ error: "Only owners or moderators can perform this action" });
+    const [report] = await db.select().from(reports).where(eq5(reports.id, reportId));
+    if (!report) return res.status(404).json({ error: "Report not found" });
+    const vidSet = new Set((await db.select({ id: videos.id }).from(videos).where(eq5(videos.communityId, communityId))).map((v) => v.id));
+    const byName = await db.select({ id: videos.id }).from(videos).where(eq5(videos.community, community.name));
     byName.forEach((v) => vidSet.add(v.id));
     let allowed = false;
     if (report.contentType === "video") allowed = vidSet.has(report.contentId);
     else if (report.contentType === "comment") {
-      const [cm] = await db.select({ videoId: videoComments.videoId }).from(videoComments).where(eq2(videoComments.id, report.contentId));
+      const [cm] = await db.select({ videoId: videoComments.videoId }).from(videoComments).where(eq5(videoComments.id, report.contentId));
       if (cm) {
-        const [v] = await db.select({ communityId: videos.communityId, community: videos.community }).from(videos).where(eq2(videos.id, cm.videoId));
+        const [v] = await db.select({ communityId: videos.communityId, community: videos.community }).from(videos).where(eq5(videos.id, cm.videoId));
         allowed = !!v && (v.communityId === communityId || v.community === community.name);
       }
     }
-    if (!allowed) return res.status(403).json({ error: "\u3053\u306E\u901A\u5831\u306F\u3053\u306E\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306B\u5C5E\u3057\u3066\u3044\u307E\u305B\u3093" });
-    await db.update(reports).set({ status: "reviewed" }).where(eq2(reports.id, reportId));
+    if (!allowed) return res.status(403).json({ error: "This report does not belong to this community" });
+    await db.update(reports).set({ status: "reviewed" }).where(eq5(reports.id, reportId));
     res.json({ ok: true });
   });
   app2.get("/api/communities/:id/polls", async (req, res) => {
     const user = await getAuthUser(req);
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq5(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
-    const polls = await db.select().from(communityPolls).where(eq2(communityPolls.communityId, communityId)).orderBy(desc(communityPolls.createdAt));
+    const polls = await db.select().from(communityPolls).where(eq5(communityPolls.communityId, communityId)).orderBy(desc(communityPolls.createdAt));
     const result = await Promise.all(
       polls.map(async (p) => {
-        const opts = await db.select().from(communityPollOptions).where(eq2(communityPollOptions.pollId, p.id)).orderBy(asc2(communityPollOptions.order));
-        const votes = await db.select().from(communityPollVotes).where(eq2(communityPollVotes.pollId, p.id));
+        const opts = await db.select().from(communityPollOptions).where(eq5(communityPollOptions.pollId, p.id)).orderBy(asc3(communityPollOptions.order));
+        const votes = await db.select().from(communityPollVotes).where(eq5(communityPollVotes.pollId, p.id));
         const voteCounts = opts.map((o) => ({ optionId: o.id, text: o.text, count: votes.filter((v) => v.optionId === o.id).length }));
         let myVoteOptionId = null;
         if (user) {
@@ -3604,17 +4731,17 @@ async function registerRoutes(app2) {
   });
   app2.post("/api/communities/:id/polls", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq5(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
-    const memberRows = await db.select().from(communityMembers).where(and2(eq2(communityMembers.communityId, communityId), eq2(communityMembers.userId, user.id)));
-    if (memberRows.length === 0) return res.status(403).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306B\u53C2\u52A0\u3057\u3066\u304F\u3060\u3055\u3044" });
+    const memberRows = await db.select().from(communityMembers).where(and5(eq5(communityMembers.communityId, communityId), eq5(communityMembers.userId, user.id)));
+    if (memberRows.length === 0) return res.status(403).json({ error: "Join the community first" });
     const { question, options } = req.body;
-    if (!question || !question.trim()) return res.status(400).json({ error: "\u8CEA\u554F\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
-    if (!options || !Array.isArray(options) || options.length < 2) return res.status(400).json({ error: "\u9078\u629E\u80A2\u30922\u3064\u4EE5\u4E0A\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!question || !question.trim()) return res.status(400).json({ error: "Please enter a question" });
+    if (!options || !Array.isArray(options) || options.length < 2) return res.status(400).json({ error: "Provide at least two options" });
     const validOpts = options.filter((o) => o && String(o).trim()).slice(0, 10);
-    if (validOpts.length < 2) return res.status(400).json({ error: "\u9078\u629E\u80A2\u30922\u3064\u4EE5\u4E0A\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (validOpts.length < 2) return res.status(400).json({ error: "Provide at least two options" });
     const [poll] = await db.insert(communityPolls).values({
       communityId,
       authorUserId: user.id,
@@ -3631,19 +4758,19 @@ async function registerRoutes(app2) {
   });
   app2.post("/api/communities/:id/polls/:pollId/vote", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const pollId = paramNum(req, "pollId");
     const { optionId } = req.body;
-    if (!optionId) return res.status(400).json({ error: "optionId \u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
-    const [poll] = await db.select().from(communityPolls).where(and2(eq2(communityPolls.communityId, communityId), eq2(communityPolls.id, pollId)));
+    if (!optionId) return res.status(400).json({ error: "optionId is required" });
+    const [poll] = await db.select().from(communityPolls).where(and5(eq5(communityPolls.communityId, communityId), eq5(communityPolls.id, pollId)));
     if (!poll) return res.status(404).json({ message: "Not found" });
-    const [opt] = await db.select().from(communityPollOptions).where(and2(eq2(communityPollOptions.pollId, pollId), eq2(communityPollOptions.id, optionId)));
-    if (!opt) return res.status(404).json({ message: "\u9078\u629E\u80A2\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
-    const memberRows = await db.select().from(communityMembers).where(and2(eq2(communityMembers.communityId, communityId), eq2(communityMembers.userId, user.id)));
-    if (memberRows.length === 0) return res.status(403).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306B\u53C2\u52A0\u3057\u3066\u304F\u3060\u3055\u3044" });
-    const existing = await db.select().from(communityPollVotes).where(and2(eq2(communityPollVotes.pollId, pollId), eq2(communityPollVotes.userId, user.id)));
-    if (existing.length > 0) return res.status(400).json({ error: "\u3059\u3067\u306B\u6295\u7968\u6E08\u307F\u3067\u3059" });
+    const [opt] = await db.select().from(communityPollOptions).where(and5(eq5(communityPollOptions.pollId, pollId), eq5(communityPollOptions.id, optionId)));
+    if (!opt) return res.status(404).json({ message: "Option not found" });
+    const memberRows = await db.select().from(communityMembers).where(and5(eq5(communityMembers.communityId, communityId), eq5(communityMembers.userId, user.id)));
+    if (memberRows.length === 0) return res.status(403).json({ error: "Join the community first" });
+    const existing = await db.select().from(communityPollVotes).where(and5(eq5(communityPollVotes.pollId, pollId), eq5(communityPollVotes.userId, user.id)));
+    if (existing.length > 0) return res.status(400).json({ error: "You have already voted" });
     await db.insert(communityPollVotes).values({
       pollId,
       optionId,
@@ -3668,7 +4795,7 @@ async function registerRoutes(app2) {
       const maxT = parseInt(String(maxTicketsStr), 10);
       if (!Number.isNaN(maxT) && maxT > 0) {
         filters.push(
-          and2(isNotNull(videoEditors.pricePerMinute), lte2(videoEditors.pricePerMinute, maxT))
+          and5(isNotNull(videoEditors.pricePerMinute), lte2(videoEditors.pricePerMinute, maxT))
         );
       }
     }
@@ -3678,7 +4805,7 @@ async function registerRoutes(app2) {
       const minS = parseInt(String(minShareStr), 10);
       if (!Number.isNaN(minS) && minS >= 1 && minS <= 100) {
         filters.push(
-          and2(isNotNull(videoEditors.revenueSharePercent), gte2(videoEditors.revenueSharePercent, minS))
+          and5(isNotNull(videoEditors.revenueSharePercent), gte2(videoEditors.revenueSharePercent, minS))
         );
       }
     }
@@ -3695,7 +4822,7 @@ async function registerRoutes(app2) {
       const arrayLit = "ARRAY[" + tagList.map((t) => "'" + t.replace(/'/g, "''") + "'").join(",") + "]::text[]";
       filters.push(sql3`${videoEditors.styleTags} && ${sql3.raw(arrayLit)}`);
     }
-    let rows = filters.length > 0 ? await db.select().from(videoEditors).where(and2(...filters)) : await db.select().from(videoEditors);
+    let rows = filters.length > 0 ? await db.select().from(videoEditors).where(and5(...filters)) : await db.select().from(videoEditors);
     const genreTerms = parseGenresQueryParam(req.query.genres);
     if (genreTerms.length > 0) {
       rows = rows.filter((e) => {
@@ -3719,80 +4846,139 @@ async function registerRoutes(app2) {
   app2.get("/api/editors/me", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const [row] = await db.select().from(videoEditors).where(eq2(videoEditors.userId, user.id)).limit(1);
+    const [row] = await db.select().from(videoEditors).where(eq5(videoEditors.userId, user.id)).limit(1);
     return res.json(row ?? null);
   });
   app2.get("/api/editors/:id", async (req, res) => {
     const id = paramNum(req, "id");
-    const [editor] = await db.select().from(videoEditors).where(eq2(videoEditors.id, id));
+    const [editor] = await db.select().from(videoEditors).where(eq5(videoEditors.id, id));
     if (!editor) return res.status(404).json({ error: "Not found" });
     res.json(editor);
   });
+  const EDITOR_REQUEST_TICKET_FEE = 200;
   app2.post("/api/editors/:id/request", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) {
+      return res.status(401).json({ error: "Sign in required to submit a paid edit request" });
+    }
     const editorId = paramNum(req, "id");
     const { requesterName, title, description, priceType, budget, deadline } = req.body;
     if (!title || !description || !priceType) {
-      return res.status(400).json({ error: "\u5FC5\u9808\u9805\u76EE\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "Please fill in all required fields" });
     }
     if (priceType !== "per_minute" && priceType !== "revenue_share") {
-      return res.status(400).json({ error: "\u4E0D\u6B63\u306A\u6599\u91D1\u5F62\u5F0F\u3067\u3059" });
+      return res.status(400).json({ error: "Invalid pricing type" });
     }
-    const [editor] = await db.select().from(videoEditors).where(eq2(videoEditors.id, editorId));
+    const [editor] = await db.select().from(videoEditors).where(eq5(videoEditors.id, editorId));
     if (!editor) {
       return res.status(404).json({ error: "Editor not found" });
     }
     if (editor.priceType !== "both" && editor.priceType !== priceType) {
-      return res.status(400).json({ error: "\u3053\u306E\u7DE8\u96C6\u8005\u306F\u9078\u629E\u3057\u305F\u6599\u91D1\u5F62\u5F0F\u306B\u5BFE\u5FDC\u3057\u3066\u3044\u307E\u305B\u3093" });
+      return res.status(400).json({ error: "This editor does not support the selected pricing type" });
     }
-    const user = await getAuthUser(req);
-    const requestUserId = user ? `user-${user.id}` : "guest";
-    const requestUserName = requesterName ?? user?.displayName ?? "Guest User";
-    const [requestRow] = await db.insert(videoEditRequests).values({
-      editorId,
-      requesterId: requestUserId,
-      requesterName: requestUserName,
-      title,
-      description,
-      priceType,
-      budget: budget ?? null,
-      deadline: deadline ?? null
-    }).returning();
-    await db.insert(notifications).values({
-      type: "editor_request",
-      title: `${requestUserName} \u304B\u3089\u7DE8\u96C6\u4F9D\u983C`,
-      body: `${title}\uFF08\u7DE8\u96C6\u8005ID: ${editorId}\uFF09`,
-      amount: budget ?? null,
-      avatar: editor.avatar ?? null,
-      thumbnail: null,
-      timeAgo: "\u305F\u3063\u305F\u4ECA"
-    });
-    res.status(201).json(requestRow);
+    if (editor.userId == null || !Number.isInteger(editor.userId) || editor.userId <= 0) {
+      return res.status(400).json({ error: "This editor cannot receive paid requests (no linked account)" });
+    }
+    const requestUserId = `user-${user.id}`;
+    const requestUserName = requesterName ?? user.displayName ?? "User";
+    try {
+      const result = await db.transaction(async (tx) => {
+        const buyerId = String(user.id);
+        const fee = EDITOR_REQUEST_TICKET_FEE;
+        const balRows = await tx.select().from(ticketBalances).where(eq5(ticketBalances.userId, buyerId)).limit(1);
+        const cur = balRows[0]?.balance ?? 0;
+        if (cur < fee) {
+          const err = new Error("INSUFFICIENT_TICKETS");
+          err.meta = { balance: cur, required: fee };
+          throw err;
+        }
+        const newBal = cur - fee;
+        if (balRows.length === 0) {
+          await tx.insert(ticketBalances).values({ userId: buyerId, balance: newBal });
+        } else {
+          await tx.update(ticketBalances).set({ balance: newBal, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(ticketBalances.userId, buyerId));
+        }
+        const [spendTx] = await tx.insert(ticketTransactions).values({
+          userId: buyerId,
+          amount: -fee,
+          type: "spend_editor_request",
+          referenceId: `editor:${editorId}`,
+          description: `Editor request: ${title}`
+        }).returning({ id: ticketTransactions.id });
+        const [requestRow] = await tx.insert(videoEditRequests).values({
+          editorId,
+          requesterId: requestUserId,
+          requesterName: requestUserName,
+          title,
+          description,
+          priceType,
+          budget: budget ?? null,
+          deadline: deadline ?? null
+        }).returning();
+        await tx.insert(editingRequests).values({
+          userId: requestUserId,
+          videoUrl: null,
+          performanceDate: deadline ?? null,
+          instructions: description,
+          ticketFee: fee,
+          ticketTransactionId: String(spendTx.id),
+          status: "pending"
+        });
+        if (editor.userId != null) {
+          const walletId = await getOrCreateUserWallet(editor.userId, tx);
+          const creatorRow = await creatorRowForUserId(tx, editor.userId);
+          await recordRevenue(walletId, editor.userId, creatorRow?.id ?? null, fee, "paid_live", String(spendTx.id), tx);
+        }
+        return requestRow;
+      });
+      await db.insert(notifications).values({
+        type: "editor_request",
+        title: `Edit request from ${requestUserName}`,
+        body: `${title} (editor ID: ${editorId})`,
+        amount: budget ?? null,
+        avatar: editor.avatar ?? null,
+        thumbnail: null,
+        timeAgo: "Just now"
+      });
+      res.status(201).json(result);
+    } catch (e) {
+      if (e?.message === "INSUFFICIENT_TICKETS") {
+        const meta = e?.meta ?? {};
+        return res.status(402).json({
+          error: "Insufficient tickets",
+          balance: meta.balance ?? 0,
+          required: meta.required ?? EDITOR_REQUEST_TICKET_FEE
+        });
+      }
+      console.error("[editors/request]", e);
+      return res.status(500).json({ error: e?.message ?? "Request failed" });
+    }
   });
   app2.post("/api/editors", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const taken = await db.select().from(videoEditors).where(eq2(videoEditors.userId, user.id)).limit(1);
+    const taken = await db.select().from(videoEditors).where(eq5(videoEditors.userId, user.id)).limit(1);
     if (taken.length > 0) {
-      return res.status(409).json({ error: "\u65E2\u306B\u52D5\u753B\u7DE8\u96C6\u8005\u3068\u3057\u3066\u767B\u9332\u6E08\u307F\u3067\u3059" });
+      return res.status(409).json({ error: "Already registered as a video editor" });
     }
     const body = req.body;
     const communityId = body.communityId;
     if (communityId == null || !Number.isFinite(communityId)) {
-      return res.status(400).json({ error: "communityId \u304C\u5FC5\u8981\u3067\u3059" });
+      return res.status(400).json({ error: "communityId is required" });
     }
-    const [comm] = await db.select({ id: communities.id }).from(communities).where(eq2(communities.id, communityId));
-    if (!comm) return res.status(400).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    const [comm] = await db.select({ id: communities.id }).from(communities).where(eq5(communities.id, communityId));
+    if (!comm) return res.status(400).json({ error: "Community not found" });
     const pricingRow = {
       priceType: String(body.priceType ?? ""),
       pricePerMinute: body.pricePerMinute ?? null,
       revenueSharePercent: body.revenueSharePercent ?? null
     };
     const pv = validateEditorPricing(pricingRow);
-    if (!pv.ok) return res.status(400).json({ error: pv.error });
+    if (pv.ok === false) return res.status(400).json({ error: pv.error });
     const styleTags = normalizeEditorStyleTagSlugs(
       Array.isArray(body.styleTags) ? body.styleTags.map((x) => String(x)) : []
     );
-    const [u] = await db.select().from(users).where(eq2(users.id, user.id));
+    const [u] = await db.select().from(users).where(eq5(users.id, user.id));
     if (!u) return res.status(404).json({ error: "User not found" });
     const deliveryDays = typeof body.deliveryDays === "number" && body.deliveryDays > 0 ? Math.min(90, Math.floor(body.deliveryDays)) : 3;
     const [created] = await db.insert(videoEditors).values({
@@ -3814,20 +5000,20 @@ async function registerRoutes(app2) {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const id = paramNum(req, "id");
-    const [editor] = await db.select().from(videoEditors).where(eq2(videoEditors.id, id));
+    const [editor] = await db.select().from(videoEditors).where(eq5(videoEditors.id, id));
     if (!editor) return res.status(404).json({ error: "Not found" });
-    if (editor.userId !== user.id) return res.status(403).json({ error: "\u7DE8\u96C6\u3067\u304D\u307E\u305B\u3093" });
+    if (editor.userId !== user.id) return res.status(403).json({ error: "You cannot edit this" });
     const body = req.body;
     const communityId = body.communityId ?? editor.communityId;
-    const [comm] = await db.select({ id: communities.id }).from(communities).where(eq2(communities.id, communityId));
-    if (!comm) return res.status(400).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    const [comm] = await db.select({ id: communities.id }).from(communities).where(eq5(communities.id, communityId));
+    if (!comm) return res.status(400).json({ error: "Community not found" });
     const pricingRow = {
       priceType: String(body.priceType ?? editor.priceType),
       pricePerMinute: body.pricePerMinute !== void 0 ? body.pricePerMinute : editor.pricePerMinute,
       revenueSharePercent: body.revenueSharePercent !== void 0 ? body.revenueSharePercent : editor.revenueSharePercent
     };
     const pv = validateEditorPricing(pricingRow);
-    if (!pv.ok) return res.status(400).json({ error: pv.error });
+    if (pv.ok === false) return res.status(400).json({ error: pv.error });
     let styleTags = Array.isArray(editor.styleTags) ? [...editor.styleTags] : [];
     if (body.styleTags !== void 0) {
       styleTags = normalizeEditorStyleTagSlugs(
@@ -3844,13 +5030,13 @@ async function registerRoutes(app2) {
       pricePerMinute: pricingRow.pricePerMinute,
       revenueSharePercent: pricingRow.revenueSharePercent,
       styleTags
-    }).where(eq2(videoEditors.id, id));
-    const [updated] = await db.select().from(videoEditors).where(eq2(videoEditors.id, id));
+    }).where(eq5(videoEditors.id, id));
+    const [updated] = await db.select().from(videoEditors).where(eq5(videoEditors.id, id));
     return res.json(updated);
   });
   app2.post("/api/communities", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const { name, description, bannerUrl, iconUrl, categories } = req.body;
     const trimmedName = (name ?? "").trim();
     const trimmedDescription = (description ?? "").trim();
@@ -3858,10 +5044,10 @@ async function registerRoutes(app2) {
     const icon = (iconUrl ?? "").trim() || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=160&h=160&fit=crop";
     const categoryList = Array.isArray(categories) ? categories.map((c) => String(c).trim()).filter(Boolean) : typeof categories === "string" ? categories.split(/[,\s]+/).map((c) => c.trim()).filter(Boolean) : [];
     if (!trimmedName || !trimmedDescription || categoryList.length === 0) {
-      return res.status(400).json({ error: "\u540D\u524D\u30FB\u8AAC\u660E\u30FB\u30AB\u30C6\u30B4\u30EA\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "Please enter name, description, and category" });
     }
     if (trimmedDescription.length < 10) {
-      return res.status(400).json({ error: "\u8AAC\u660E\u6587\u306F10\u6587\u5B57\u4EE5\u4E0A\u3067\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "Description must be at least 10 characters" });
     }
     try {
       const primaryCategory = categoryList[0];
@@ -3887,47 +5073,47 @@ async function registerRoutes(app2) {
       });
     } catch (e) {
       console.error("Create community error:", e);
-      res.status(500).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306E\u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
+      res.status(500).json({ error: "Failed to create community" });
     }
   });
   app2.delete("/api/communities/:id", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, communityId));
+    const [community] = await db.select().from(communities).where(eq5(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     if (community.ownerId !== user.id) {
-      return res.status(403).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306E\u524A\u9664\u306F\u4F5C\u6210\u8005\u306E\u307F\u53EF\u80FD\u3067\u3059" });
+      return res.status(403).json({ error: "Only the creator can delete this community" });
     }
     try {
-      const threadRows = await db.select({ id: communityThreads.id }).from(communityThreads).where(eq2(communityThreads.communityId, communityId));
+      const threadRows = await db.select({ id: communityThreads.id }).from(communityThreads).where(eq5(communityThreads.communityId, communityId));
       const threadIds = threadRows.map((t) => t.id);
       if (threadIds.length > 0) {
         await db.delete(communityThreadPosts).where(inArray(communityThreadPosts.threadId, threadIds));
       }
-      await db.delete(communityThreads).where(eq2(communityThreads.communityId, communityId));
-      const pollRows = await db.select({ id: communityPolls.id }).from(communityPolls).where(eq2(communityPolls.communityId, communityId));
+      await db.delete(communityThreads).where(eq5(communityThreads.communityId, communityId));
+      const pollRows = await db.select({ id: communityPolls.id }).from(communityPolls).where(eq5(communityPolls.communityId, communityId));
       const pollIds = pollRows.map((p) => p.id);
       if (pollIds.length > 0) {
         await db.delete(communityPollVotes).where(inArray(communityPollVotes.pollId, pollIds));
         await db.delete(communityPollOptions).where(inArray(communityPollOptions.pollId, pollIds));
       }
-      await db.delete(communityPolls).where(eq2(communityPolls.communityId, communityId));
-      await db.delete(communityVotes).where(eq2(communityVotes.communityId, communityId));
-      await db.delete(communityAds).where(eq2(communityAds.communityId, communityId));
-      await db.delete(communityModerators).where(eq2(communityModerators.communityId, communityId));
-      await db.delete(communityMembers).where(eq2(communityMembers.communityId, communityId));
-      await db.delete(jukeboxRequestCounts).where(eq2(jukeboxRequestCounts.communityId, communityId));
-      await db.delete(jukeboxChat).where(eq2(jukeboxChat.communityId, communityId));
-      await db.delete(jukeboxQueue).where(eq2(jukeboxQueue.communityId, communityId));
-      await db.delete(jukeboxState).where(eq2(jukeboxState.communityId, communityId));
-      await db.delete(videoEditors).where(eq2(videoEditors.communityId, communityId));
-      await db.update(videos).set({ communityId: null }).where(eq2(videos.communityId, communityId));
-      await db.delete(communities).where(eq2(communities.id, communityId));
+      await db.delete(communityPolls).where(eq5(communityPolls.communityId, communityId));
+      await db.delete(communityVotes).where(eq5(communityVotes.communityId, communityId));
+      await db.delete(communityAds).where(eq5(communityAds.communityId, communityId));
+      await db.delete(communityModerators).where(eq5(communityModerators.communityId, communityId));
+      await db.delete(communityMembers).where(eq5(communityMembers.communityId, communityId));
+      await db.delete(jukeboxRequestCounts).where(eq5(jukeboxRequestCounts.communityId, communityId));
+      await db.delete(jukeboxChat).where(eq5(jukeboxChat.communityId, communityId));
+      await db.delete(jukeboxQueue).where(eq5(jukeboxQueue.communityId, communityId));
+      await db.delete(jukeboxState).where(eq5(jukeboxState.communityId, communityId));
+      await db.delete(videoEditors).where(eq5(videoEditors.communityId, communityId));
+      await db.update(videos).set({ communityId: null }).where(eq5(videos.communityId, communityId));
+      await db.delete(communities).where(eq5(communities.id, communityId));
       res.json({ ok: true });
     } catch (e) {
       console.error("Community deletion error:", e);
-      res.status(500).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306E\u524A\u9664\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
+      res.status(500).json({ error: "Failed to delete community" });
     }
   });
   const MIN_AD_AMOUNT = 7e3;
@@ -3936,9 +5122,9 @@ async function registerRoutes(app2) {
   const MAX_MONTHS_AHEAD = 3;
   app2.get("/api/community-ads/pricing", async (req, res) => {
     const cid = Number(queryStr(req, "communityId")) || 0;
-    if (!cid) return res.status(400).json({ error: "communityId\u304C\u5FC5\u8981\u3067\u3059" });
-    const [community] = await db.select().from(communities).where(eq2(communities.id, cid));
-    if (!community) return res.status(404).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    if (!cid) return res.status(400).json({ error: "communityId is required" });
+    const [community] = await db.select().from(communities).where(eq5(communities.id, cid));
+    if (!community) return res.status(404).json({ error: "Community not found" });
     const memberCount = community.members;
     const dailyRate = memberCount * DAILY_RATE_PER_MEMBER;
     const minDays = dailyRate > 0 ? Math.ceil(MIN_AD_AMOUNT / dailyRate) : 0;
@@ -3954,12 +5140,12 @@ async function registerRoutes(app2) {
     const cid = Number(queryStr(req, "communityId")) || 0;
     const start = queryStr(req, "start");
     const end = queryStr(req, "end");
-    if (!cid || !start || !end) return res.status(400).json({ error: "communityId, start, end\u304C\u5FC5\u8981\u3067\u3059" });
+    if (!cid || !start || !end) return res.status(400).json({ error: "communityId, start, and end are required" });
     const conflicts = await db.select({ id: communityAds.id, startDate: communityAds.startDate, endDate: communityAds.endDate }).from(communityAds).where(
-      and2(
-        eq2(communityAds.communityId, cid),
+      and5(
+        eq5(communityAds.communityId, cid),
         inArray(communityAds.status, ["pending", "moderator_approved", "approved"]),
-        and2(
+        and5(
           lte2(communityAds.startDate, end),
           gte2(communityAds.endDate, start)
         )
@@ -3970,8 +5156,8 @@ async function registerRoutes(app2) {
   app2.post("/api/community-ads", async (req, res) => {
     const { communityId: bodyCommunityId, companyName, contactName, email, bannerUrl, linkUrl, startDate, endDate, agreedToTerms } = req.body;
     const cid = Number(bodyCommunityId) || 0;
-    const [community] = await db.select().from(communities).where(eq2(communities.id, cid));
-    if (!community) return res.status(404).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    const [community] = await db.select().from(communities).where(eq5(communities.id, cid));
+    if (!community) return res.status(404).json({ error: "Community not found" });
     const company = (companyName ?? "").trim();
     const contact = (contactName ?? "").trim();
     const em = (email ?? "").trim();
@@ -3980,17 +5166,17 @@ async function registerRoutes(app2) {
     const start = (startDate ?? "").trim();
     const end = (endDate ?? "").trim();
     if (!company || !contact || !em || !banner || !start || !end) {
-      return res.status(400).json({ error: "\u4F1A\u793E\u540D\u30FB\u62C5\u5F53\u8005\u540D\u30FB\u30E1\u30FC\u30EB\u30FB\u30D0\u30CA\u30FCURL\u30FB\u63B2\u8F09\u671F\u9593\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "Please enter company name, contact name, email, banner URL, and run dates" });
     }
     if (!agreedToTerms) {
-      return res.status(400).json({ error: "\u6599\u91D1\u898F\u7D04\u3078\u306E\u540C\u610F\u304C\u5FC5\u8981\u3067\u3059" });
+      return res.status(400).json({ error: "You must accept the advertising rate terms" });
     }
     const memberCount = community.members;
     const dailyRate = memberCount * DAILY_RATE_PER_MEMBER;
     const startD = new Date(start);
     const endD = new Date(end);
     if (isNaN(startD.getTime()) || isNaN(endD.getTime()) || endD < startD) {
-      return res.status(400).json({ error: "\u63B2\u8F09\u671F\u9593\u306E\u65E5\u4ED8\u304C\u4E0D\u6B63\u3067\u3059" });
+      return res.status(400).json({ error: "Invalid ad run dates" });
     }
     const days = Math.ceil((endD.getTime() - startD.getTime()) / (24 * 60 * 60 * 1e3)) + 1;
     const totalAmount = days * dailyRate;
@@ -4000,17 +5186,17 @@ async function registerRoutes(app2) {
     const maxEnd = /* @__PURE__ */ new Date();
     maxEnd.setMonth(maxEnd.getMonth() + MAX_MONTHS_AHEAD);
     if (endD > maxEnd) {
-      return res.status(400).json({ error: `\u63B2\u8F09\u7D42\u4E86\u65E5\u306F${MAX_MONTHS_AHEAD}\u30F6\u6708\u4EE5\u5185\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044` });
+      return res.status(400).json({ error: `End date must be within ${MAX_MONTHS_AHEAD} months` });
     }
     const conflicts = await db.select({ id: communityAds.id }).from(communityAds).where(
-      and2(
-        eq2(communityAds.communityId, cid),
+      and5(
+        eq5(communityAds.communityId, cid),
         inArray(communityAds.status, ["pending", "moderator_approved", "approved"]),
-        and2(lte2(communityAds.startDate, end), gte2(communityAds.endDate, start))
+        and5(lte2(communityAds.startDate, end), gte2(communityAds.endDate, start))
       )
     );
     if (conflicts.length > 0) {
-      return res.status(409).json({ error: "\u6307\u5B9A\u671F\u9593\u306F\u65E2\u306B\u4E88\u7D04\u6E08\u307F\u3067\u3059\u3002\u5225\u306E\u65E5\u7A0B\u3092\u9078\u3093\u3067\u304F\u3060\u3055\u3044\u3002" });
+      return res.status(409).json({ error: "That period is already booked. Please choose different dates." });
     }
     const [row] = await db.insert(communityAds).values({
       communityId: cid,
@@ -4031,12 +5217,12 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/community-ads/revenue-settings/:communityId", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const cid = paramNum(req, "communityId");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, cid));
-    if (!community) return res.status(404).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
-    if (community.adminId !== user.id) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u306E\u307F\u8A2D\u5B9A\u3067\u304D\u307E\u3059" });
-    const mods = await db.select({ userId: communityModerators.userId, displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(communityModerators).leftJoin(users, eq2(communityModerators.userId, users.id)).where(eq2(communityModerators.communityId, cid));
+    const [community] = await db.select().from(communities).where(eq5(communities.id, cid));
+    if (!community) return res.status(404).json({ error: "Community not found" });
+    if (community.adminId !== user.id) return res.status(403).json({ error: "Only the community owner can change this" });
+    const mods = await db.select({ userId: communityModerators.userId, displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(communityModerators).leftJoin(users, eq5(communityModerators.userId, users.id)).where(eq5(communityModerators.communityId, cid));
     let distribution = {};
     const rawDist = community.revenueDistribution;
     if (rawDist) {
@@ -4060,25 +5246,25 @@ async function registerRoutes(app2) {
   });
   app2.patch("/api/community-ads/revenue-settings/:communityId", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const cid = paramNum(req, "communityId");
-    const [community] = await db.select().from(communities).where(eq2(communities.id, cid));
-    if (!community) return res.status(404).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
-    if (community.adminId !== user.id) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u306E\u307F\u8A2D\u5B9A\u3067\u304D\u307E\u3059" });
+    const [community] = await db.select().from(communities).where(eq5(communities.id, cid));
+    if (!community) return res.status(404).json({ error: "Community not found" });
+    if (community.adminId !== user.id) return res.status(403).json({ error: "Only the community owner can change this" });
     const { distribution } = req.body;
     if (!distribution || typeof distribution !== "object") {
-      return res.status(400).json({ error: "distribution\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u304C\u5FC5\u8981\u3067\u3059" });
+      return res.status(400).json({ error: "distribution object is required" });
     }
     const total = Object.values(distribution).reduce((s, v) => s + Number(v), 0);
     if (Math.abs(total - 100) > 1) {
-      return res.status(400).json({ error: `\u5206\u914D\u6BD4\u7387\u306E\u5408\u8A08\u306F100%\u306B\u3057\u3066\u304F\u3060\u3055\u3044\uFF08\u73FE\u5728: ${total}%\uFF09` });
+      return res.status(400).json({ error: `Distribution must total 100% (currently ${total}%)` });
     }
-    await db.update(communities).set({ revenueDistribution: JSON.stringify(distribution) }).where(eq2(communities.id, cid));
+    await db.update(communities).set({ revenueDistribution: JSON.stringify(distribution) }).where(eq5(communities.id, cid));
     res.json({ ok: true });
   });
   app2.post("/api/genre-owners/assign", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user || user.role !== "ADMIN") return res.status(403).json({ error: "\u7BA1\u7406\u8005\u306E\u307F\u5B9F\u884C\u3067\u304D\u307E\u3059" });
+    if (!user || user.role !== "ADMIN") return res.status(403).json({ error: "Only admins can run this" });
     const allCommunities = await db.select({ id: communities.id, category: communities.category, members: communities.members, adminId: communities.adminId }).from(communities).where(sql3`${communities.adminId} IS NOT NULL`);
     const byGenre = /* @__PURE__ */ new Map();
     for (const c of allCommunities) {
@@ -4090,9 +5276,9 @@ async function registerRoutes(app2) {
     const results = [];
     for (const [genreId, topCommunity] of byGenre.entries()) {
       if (!topCommunity.adminId) continue;
-      const existing = await db.select().from(genreOwners).where(eq2(genreOwners.genreId, genreId));
+      const existing = await db.select().from(genreOwners).where(eq5(genreOwners.genreId, genreId));
       if (existing.length > 0) {
-        await db.update(genreOwners).set({ ownerUserId: topCommunity.adminId, assignedCommunityId: topCommunity.id, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(genreOwners.genreId, genreId));
+        await db.update(genreOwners).set({ ownerUserId: topCommunity.adminId, assignedCommunityId: topCommunity.id, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(genreOwners.genreId, genreId));
       } else {
         await db.insert(genreOwners).values({
           genreId,
@@ -4106,9 +5292,9 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/community-ads/review", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
-    const ownedRows = await db.select({ id: communities.id }).from(communities).where(eq2(communities.adminId, user.id));
-    const modRows = await db.select({ communityId: communityModerators.communityId }).from(communityModerators).where(eq2(communityModerators.userId, user.id));
+    if (!user) return res.status(401).json({ error: "Please sign in" });
+    const ownedRows = await db.select({ id: communities.id }).from(communities).where(eq5(communities.adminId, user.id));
+    const modRows = await db.select({ communityId: communityModerators.communityId }).from(communityModerators).where(eq5(communityModerators.userId, user.id));
     const communityIds = /* @__PURE__ */ new Set();
     ownedRows.forEach((r) => communityIds.add(r.id));
     modRows.forEach((r) => communityIds.add(r.communityId));
@@ -4116,7 +5302,7 @@ async function registerRoutes(app2) {
       return res.json([]);
     }
     const ids = Array.from(communityIds);
-    const ads = await db.select().from(communityAds).where(and2(inArray(communityAds.communityId, ids), inArray(communityAds.status, ["pending", "moderator_approved"]))).orderBy(desc(communityAds.createdAt));
+    const ads = await db.select().from(communityAds).where(and5(inArray(communityAds.communityId, ids), inArray(communityAds.status, ["pending", "moderator_approved"]))).orderBy(desc(communityAds.createdAt));
     const commList = await db.select({ id: communities.id, name: communities.name, adminId: communities.adminId }).from(communities).where(inArray(communities.id, ids));
     const commMap = new Map(commList.map((c) => [c.id, c]));
     const result = ads.map((ad) => ({
@@ -4128,61 +5314,61 @@ async function registerRoutes(app2) {
   });
   app2.patch("/api/community-ads/:id/moderator-approve", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const id = paramNum(req, "id");
-    const [ad] = await db.select().from(communityAds).where(eq2(communityAds.id, id));
-    if (!ad) return res.status(404).json({ error: "\u7533\u3057\u8FBC\u307F\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
-    if (ad.status !== "pending") return res.status(400).json({ error: "\u3053\u306E\u7533\u3057\u8FBC\u307F\u306F\u65E2\u306B\u51E6\u7406\u6E08\u307F\u3067\u3059" });
-    const [mod] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, ad.communityId), eq2(communityModerators.userId, user.id)));
-    if (!mod) return res.status(403).json({ error: "\u3053\u306E\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306E\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u306E\u307F\u627F\u8A8D\u3067\u304D\u307E\u3059" });
-    await db.update(communityAds).set({ status: "moderator_approved", approvedByModerator: user.id }).where(eq2(communityAds.id, id));
+    const [ad] = await db.select().from(communityAds).where(eq5(communityAds.id, id));
+    if (!ad) return res.status(404).json({ error: "Application not found" });
+    if (ad.status !== "pending") return res.status(400).json({ error: "This application has already been processed" });
+    const [mod] = await db.select().from(communityModerators).where(and5(eq5(communityModerators.communityId, ad.communityId), eq5(communityModerators.userId, user.id)));
+    if (!mod) return res.status(403).json({ error: "Only moderators of this community can approve this" });
+    await db.update(communityAds).set({ status: "moderator_approved", approvedByModerator: user.id }).where(eq5(communityAds.id, id));
     res.json({ ok: true });
   });
   app2.patch("/api/community-ads/:id/approve", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const id = paramNum(req, "id");
-    const [ad] = await db.select().from(communityAds).where(eq2(communityAds.id, id));
-    if (!ad) return res.status(404).json({ error: "\u7533\u3057\u8FBC\u307F\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
-    if (ad.status !== "moderator_approved") return res.status(400).json({ error: "\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u627F\u8A8D\u5F8C\u306B\u7BA1\u7406\u4EBA\u304C\u627F\u8A8D\u3067\u304D\u307E\u3059" });
-    const [community] = await db.select().from(communities).where(eq2(communities.id, ad.communityId));
-    if (!community || community.adminId !== user.id) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u306E\u307F\u6700\u7D42\u627F\u8A8D\u3067\u304D\u307E\u3059" });
-    await db.update(communityAds).set({ status: "approved", approvedByOwner: user.id }).where(eq2(communityAds.id, id));
+    const [ad] = await db.select().from(communityAds).where(eq5(communityAds.id, id));
+    if (!ad) return res.status(404).json({ error: "Application not found" });
+    if (ad.status !== "moderator_approved") return res.status(400).json({ error: "The owner can approve after moderator approval" });
+    const [community] = await db.select().from(communities).where(eq5(communities.id, ad.communityId));
+    if (!community || community.adminId !== user.id) return res.status(403).json({ error: "Only the owner can give final approval" });
+    await db.update(communityAds).set({ status: "approved", approvedByOwner: user.id }).where(eq5(communityAds.id, id));
     res.json({ ok: true });
   });
   app2.patch("/api/community-ads/:id/reject", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const id = paramNum(req, "id");
-    const [ad] = await db.select().from(communityAds).where(eq2(communityAds.id, id));
-    if (!ad) return res.status(404).json({ error: "\u7533\u3057\u8FBC\u307F\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
-    if (ad.status === "approved" || ad.status === "rejected") return res.status(400).json({ error: "\u65E2\u306B\u51E6\u7406\u6E08\u307F\u3067\u3059" });
-    const [community] = await db.select().from(communities).where(eq2(communities.id, ad.communityId));
-    const [mod] = await db.select().from(communityModerators).where(and2(eq2(communityModerators.communityId, ad.communityId), eq2(communityModerators.userId, user.id)));
+    const [ad] = await db.select().from(communityAds).where(eq5(communityAds.id, id));
+    if (!ad) return res.status(404).json({ error: "Application not found" });
+    if (ad.status === "approved" || ad.status === "rejected") return res.status(400).json({ error: "Already processed" });
+    const [community] = await db.select().from(communities).where(eq5(communities.id, ad.communityId));
+    const [mod] = await db.select().from(communityModerators).where(and5(eq5(communityModerators.communityId, ad.communityId), eq5(communityModerators.userId, user.id)));
     const isOwner = community?.adminId === user.id;
     const isMod = !!mod;
-    if (!isOwner && !isMod) return res.status(403).json({ error: "\u7BA1\u7406\u4EBA\u307E\u305F\u306F\u30E2\u30C7\u30EC\u30FC\u30BF\u30FC\u306E\u307F\u5374\u4E0B\u3067\u304D\u307E\u3059" });
-    await db.update(communityAds).set({ status: "rejected" }).where(eq2(communityAds.id, id));
+    if (!isOwner && !isMod) return res.status(403).json({ error: "Only owners or moderators can reject" });
+    await db.update(communityAds).set({ status: "rejected" }).where(eq5(communityAds.id, id));
     res.json({ ok: true });
   });
   const REPORT_REASONS = ["spam", "harassment", "inappropriate", "other"];
   app2.post("/api/reports", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const { contentType, contentId, reason } = req.body;
     const cid = Number(contentId) || 0;
     const type = contentType === "comment" ? "comment" : contentType === "video" ? "video" : null;
     if (!type || !cid || !reason || !REPORT_REASONS.includes(reason)) {
-      return res.status(400).json({ error: "contentType(video/comment), contentId, reason(spam/harassment/inappropriate/other)\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "Provide contentType (video/comment), contentId, and reason (spam/harassment/inappropriate/other)" });
     }
     let contentText;
     if (type === "video") {
-      const [video] = await db.select().from(videos).where(eq2(videos.id, cid));
-      if (!video) return res.status(404).json({ error: "\u5BFE\u8C61\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+      const [video] = await db.select().from(videos).where(eq5(videos.id, cid));
+      if (!video) return res.status(404).json({ error: "Target not found" });
       contentText = video.title ?? "";
     } else {
-      const [comment] = await db.select().from(videoComments).where(eq2(videoComments.id, cid));
-      if (!comment) return res.status(404).json({ error: "\u5BFE\u8C61\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+      const [comment] = await db.select().from(videoComments).where(eq5(videoComments.id, cid));
+      if (!comment) return res.status(404).json({ error: "Target not found" });
       contentText = comment.text ?? "";
     }
     const { verdict, reason: aiReason } = await judgeReportContent(contentText, reason);
@@ -4197,16 +5383,16 @@ async function registerRoutes(app2) {
     }).returning();
     if (verdict === "clear_violation") {
       if (type === "video") {
-        await db.update(videos).set({ hidden: true }).where(eq2(videos.id, cid));
+        await db.update(videos).set({ hidden: true }).where(eq5(videos.id, cid));
       } else {
-        await db.update(videoComments).set({ hidden: true }).where(eq2(videoComments.id, cid));
+        await db.update(videoComments).set({ hidden: true }).where(eq5(videoComments.id, cid));
       }
     }
     res.status(201).json(report);
   });
   app2.post("/api/concerts", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const {
       title,
       venueName,
@@ -4222,7 +5408,7 @@ async function registerRoutes(app2) {
       status
     } = req.body;
     if (!title || !venueName || !venueAddress || !concertDate) {
-      return res.status(400).json({ error: "\u5FC5\u9808\u9805\u76EE\u304C\u4E0D\u8DB3\u3057\u3066\u3044\u307E\u3059" });
+      return res.status(400).json({ error: "Required items are missing" });
     }
     const shares = [
       Number(artistShare ?? 0),
@@ -4231,11 +5417,11 @@ async function registerRoutes(app2) {
       Number(venueShare ?? 0)
     ];
     if (shares.some((s) => s < 0)) {
-      return res.status(400).json({ error: "\u5206\u914D\u6BD4\u7387\u306F0\u4EE5\u4E0A\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "Distribution ratios must be 0 or greater" });
     }
     const sum = shares.reduce((a, b) => a + b, 0);
     if (sum !== 100) {
-      return res.status(400).json({ error: "\u5206\u914D\u6BD4\u7387\u306E\u5408\u8A08\u306F100%\u306B\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "Distribution must total 100%" });
     }
     const [row] = await db.insert(concerts).values({
       artistUserId: user.id,
@@ -4255,24 +5441,24 @@ async function registerRoutes(app2) {
     res.status(201).json(row);
   });
   app2.get("/api/concerts", async (_req, res) => {
-    const rows = await db.select().from(concerts).where(eq2(concerts.status, "published")).orderBy(desc(concerts.concertDate), desc(concerts.createdAt));
+    const rows = await db.select().from(concerts).where(eq5(concerts.status, "published")).orderBy(desc(concerts.concertDate), desc(concerts.createdAt));
     res.json(rows);
   });
   app2.get("/api/concerts/:id", async (req, res) => {
     const id = paramNum(req, "id");
-    const [row] = await db.select().from(concerts).where(eq2(concerts.id, id));
-    if (!row) return res.status(404).json({ error: "\u516C\u6F14\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    const [row] = await db.select().from(concerts).where(eq5(concerts.id, id));
+    if (!row) return res.status(404).json({ error: "Show not found" });
     res.json(row);
   });
   app2.post("/api/concerts/:id/staff-request", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const concertId = paramNum(req, "id");
-    const [concert] = await db.select().from(concerts).where(eq2(concerts.id, concertId));
-    if (!concert) return res.status(404).json({ error: "\u516C\u6F14\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
-    const existing = await db.select().from(concertStaff).where(and2(eq2(concertStaff.concertId, concertId), eq2(concertStaff.staffUserId, user.id)));
+    const [concert] = await db.select().from(concerts).where(eq5(concerts.id, concertId));
+    if (!concert) return res.status(404).json({ error: "Show not found" });
+    const existing = await db.select().from(concertStaff).where(and5(eq5(concertStaff.concertId, concertId), eq5(concertStaff.staffUserId, user.id)));
     if (existing.length > 0) {
-      return res.status(400).json({ error: "\u3059\u3067\u306B\u7533\u8ACB\u6E08\u307F\u3067\u3059" });
+      return res.status(400).json({ error: "Already applied" });
     }
     const [row] = await db.insert(concertStaff).values({
       concertId,
@@ -4284,14 +5470,14 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/concerts/:id/staff-requests", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const concertId = paramNum(req, "id");
-    const [concert] = await db.select().from(concerts).where(eq2(concerts.id, concertId));
-    if (!concert) return res.status(404).json({ error: "\u516C\u6F14\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    const [concert] = await db.select().from(concerts).where(eq5(concerts.id, concertId));
+    if (!concert) return res.status(404).json({ error: "Show not found" });
     if (concert.artistUserId !== user.id) {
-      return res.status(403).json({ error: "\u30A2\u30FC\u30C6\u30A3\u30B9\u30C8\u306E\u307F\u7533\u8ACB\u4E00\u89A7\u3092\u95B2\u89A7\u3067\u304D\u307E\u3059" });
+      return res.status(403).json({ error: "Only the artist can view applications" });
     }
-    const rows = await db.select().from(concertStaff).where(eq2(concertStaff.concertId, concertId)).orderBy(desc(concertStaff.createdAt));
+    const rows = await db.select().from(concertStaff).where(eq5(concertStaff.concertId, concertId)).orderBy(desc(concertStaff.createdAt));
     res.json(rows);
   });
   app2.get("/api/concerts/:id/staff-req", async (req, res) => {
@@ -4304,60 +5490,60 @@ async function registerRoutes(app2) {
   });
   app2.patch("/api/concerts/:id/staff/:staffId/approve", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const concertId = paramNum(req, "id");
     const staffId = paramNum(req, "staffId");
-    const [concert] = await db.select().from(concerts).where(eq2(concerts.id, concertId));
-    if (!concert) return res.status(404).json({ error: "\u516C\u6F14\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    const [concert] = await db.select().from(concerts).where(eq5(concerts.id, concertId));
+    if (!concert) return res.status(404).json({ error: "Show not found" });
     if (concert.artistUserId !== user.id) {
-      return res.status(403).json({ error: "\u30A2\u30FC\u30C6\u30A3\u30B9\u30C8\u306E\u307F\u627F\u8A8D\u3067\u304D\u307E\u3059" });
+      return res.status(403).json({ error: "Only the artist can approve" });
     }
-    const [staff] = await db.select().from(concertStaff).where(and2(eq2(concertStaff.id, staffId), eq2(concertStaff.concertId, concertId)));
-    if (!staff) return res.status(404).json({ error: "\u7533\u8ACB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
-    const [updated] = await db.update(concertStaff).set({ status: "approved" }).where(eq2(concertStaff.id, staffId)).returning();
+    const [staff] = await db.select().from(concertStaff).where(and5(eq5(concertStaff.id, staffId), eq5(concertStaff.concertId, concertId)));
+    if (!staff) return res.status(404).json({ error: "Request not found" });
+    const [updated] = await db.update(concertStaff).set({ status: "approved" }).where(eq5(concertStaff.id, staffId)).returning();
     res.json(updated);
   });
   app2.patch("/api/concerts/:id/staff/:staffId/reject", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const concertId = paramNum(req, "id");
     const staffId = paramNum(req, "staffId");
-    const [concert] = await db.select().from(concerts).where(eq2(concerts.id, concertId));
-    if (!concert) return res.status(404).json({ error: "\u516C\u6F14\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    const [concert] = await db.select().from(concerts).where(eq5(concerts.id, concertId));
+    if (!concert) return res.status(404).json({ error: "Show not found" });
     if (concert.artistUserId !== user.id) {
-      return res.status(403).json({ error: "\u30A2\u30FC\u30C6\u30A3\u30B9\u30C8\u306E\u307F\u5374\u4E0B\u3067\u304D\u307E\u3059" });
+      return res.status(403).json({ error: "Only the artist can reject" });
     }
-    const [staff] = await db.select().from(concertStaff).where(and2(eq2(concertStaff.id, staffId), eq2(concertStaff.concertId, concertId)));
-    if (!staff) return res.status(404).json({ error: "\u7533\u8ACB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
-    const [updated] = await db.update(concertStaff).set({ status: "rejected" }).where(eq2(concertStaff.id, staffId)).returning();
+    const [staff] = await db.select().from(concertStaff).where(and5(eq5(concertStaff.id, staffId), eq5(concertStaff.concertId, concertId)));
+    if (!staff) return res.status(404).json({ error: "Request not found" });
+    const [updated] = await db.update(concertStaff).set({ status: "rejected" }).where(eq5(concertStaff.id, staffId)).returning();
     res.json(updated);
   });
   const GENRE_MIN_AMOUNT = 7e3;
   const GENRE_MAX_MONTHS_AHEAD = 3;
   app2.post("/api/genre-ads", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const { genreId, companyName, contactName, email, bannerUrl, startDate, endDate } = req.body;
     const gid = (genreId ?? "").trim();
     if (!gid || !GENRE_TO_CATEGORY[gid]) {
-      return res.status(400).json({ error: "genreId \u304C\u4E0D\u6B63\u3067\u3059" });
+      return res.status(400).json({ error: "Invalid genreId" });
     }
     if (!companyName || !contactName || !email || !bannerUrl || !startDate || !endDate) {
-      return res.status(400).json({ error: "\u5FC5\u9808\u9805\u76EE\u304C\u4E0D\u8DB3\u3057\u3066\u3044\u307E\u3059" });
+      return res.status(400).json({ error: "Required items are missing" });
     }
     const start = new Date(startDate);
     const end = new Date(endDate);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-      return res.status(400).json({ error: "\u65E5\u4ED8\u306E\u5F62\u5F0F\u304C\u4E0D\u6B63\u3067\u3059\uFF08YYYY-MM-DD\uFF09" });
+      return res.status(400).json({ error: "Invalid date format (YYYY-MM-DD)" });
     }
     if (end < start) {
-      return res.status(400).json({ error: "\u7D42\u4E86\u65E5\u306F\u958B\u59CB\u65E5\u4EE5\u964D\u306B\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "End date must be on or after start date" });
     }
     const now = /* @__PURE__ */ new Date();
     const maxEnd = new Date(now);
     maxEnd.setMonth(maxEnd.getMonth() + GENRE_MAX_MONTHS_AHEAD);
     if (end > maxEnd) {
-      return res.status(400).json({ error: `\u63B2\u8F09\u7D42\u4E86\u65E5\u306F${GENRE_MAX_MONTHS_AHEAD}\u30F6\u6708\u4EE5\u5185\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044` });
+      return res.status(400).json({ error: `End date must be within ${GENRE_MAX_MONTHS_AHEAD} months` });
     }
     const cats = GENRE_TO_CATEGORY[gid];
     const communityRows = await db.select({ members: communities.members }).from(communities).where(
@@ -4389,33 +5575,33 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/genre-ads/review", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
-    const ownerRows = await db.select().from(genreOwners).where(eq2(genreOwners.ownerUserId, user.id));
+    if (!user) return res.status(401).json({ error: "Please sign in" });
+    const ownerRows = await db.select().from(genreOwners).where(eq5(genreOwners.ownerUserId, user.id));
     if (ownerRows.length === 0) return res.json([]);
     const genreIds = ownerRows.map((o) => o.genreId);
-    const rows = await db.select().from(genreAds).where(and2(inArray(genreAds.genreId, genreIds), eq2(genreAds.status, "pending"))).orderBy(desc(genreAds.createdAt));
+    const rows = await db.select().from(genreAds).where(and5(inArray(genreAds.genreId, genreIds), eq5(genreAds.status, "pending"))).orderBy(desc(genreAds.createdAt));
     res.json(rows);
   });
   app2.patch("/api/genre-ads/:id/approve", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const id = paramNum(req, "id");
-    const [ad] = await db.select().from(genreAds).where(eq2(genreAds.id, id));
-    if (!ad) return res.status(404).json({ error: "\u7533\u3057\u8FBC\u307F\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
-    const [owner] = await db.select().from(genreOwners).where(and2(eq2(genreOwners.genreId, ad.genreId), eq2(genreOwners.ownerUserId, user.id)));
-    if (!owner) return res.status(403).json({ error: "\u3053\u306E\u30B8\u30E3\u30F3\u30EB\u306E\u7BA1\u7406\u4EBA\u3067\u306F\u3042\u308A\u307E\u305B\u3093" });
-    await db.update(genreAds).set({ status: "approved" }).where(eq2(genreAds.id, id));
+    const [ad] = await db.select().from(genreAds).where(eq5(genreAds.id, id));
+    if (!ad) return res.status(404).json({ error: "Application not found" });
+    const [owner] = await db.select().from(genreOwners).where(and5(eq5(genreOwners.genreId, ad.genreId), eq5(genreOwners.ownerUserId, user.id)));
+    if (!owner) return res.status(403).json({ error: "You are not the genre manager" });
+    await db.update(genreAds).set({ status: "approved" }).where(eq5(genreAds.id, id));
     res.json({ ok: true });
   });
   app2.patch("/api/genre-ads/:id/reject", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!user) return res.status(401).json({ error: "Please sign in" });
     const id = paramNum(req, "id");
-    const [ad] = await db.select().from(genreAds).where(eq2(genreAds.id, id));
-    if (!ad) return res.status(404).json({ error: "\u7533\u3057\u8FBC\u307F\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
-    const [owner] = await db.select().from(genreOwners).where(and2(eq2(genreOwners.genreId, ad.genreId), eq2(genreOwners.ownerUserId, user.id)));
-    if (!owner) return res.status(403).json({ error: "\u3053\u306E\u30B8\u30E3\u30F3\u30EB\u306E\u7BA1\u7406\u4EBA\u3067\u306F\u3042\u308A\u307E\u305B\u3093" });
-    await db.update(genreAds).set({ status: "rejected" }).where(eq2(genreAds.id, id));
+    const [ad] = await db.select().from(genreAds).where(eq5(genreAds.id, id));
+    if (!ad) return res.status(404).json({ error: "Application not found" });
+    const [owner] = await db.select().from(genreOwners).where(and5(eq5(genreOwners.genreId, ad.genreId), eq5(genreOwners.ownerUserId, user.id)));
+    if (!owner) return res.status(403).json({ error: "You are not the genre manager" });
+    await db.update(genreAds).set({ status: "rejected" }).where(eq5(genreAds.id, id));
     res.json({ ok: true });
   });
   app2.post("/api/cron/update-genre-owners", async (_req, res) => {
@@ -4429,9 +5615,9 @@ async function registerRoutes(app2) {
       ).orderBy(desc(communities.members)).limit(1);
       const top = rows[0];
       if (!top || !top.adminId) continue;
-      const existing = await db.select().from(genreOwners).where(eq2(genreOwners.genreId, gid)).limit(1);
+      const existing = await db.select().from(genreOwners).where(eq5(genreOwners.genreId, gid)).limit(1);
       if (existing.length > 0) {
-        await db.update(genreOwners).set({ ownerUserId: top.adminId, updatedAt: sql3`now()` }).where(eq2(genreOwners.genreId, gid));
+        await db.update(genreOwners).set({ ownerUserId: top.adminId, updatedAt: sql3`now()` }).where(eq5(genreOwners.genreId, gid));
       } else {
         await db.insert(genreOwners).values({ genreId: gid, ownerUserId: top.adminId });
       }
@@ -4442,30 +5628,30 @@ async function registerRoutes(app2) {
     const user = await getAdminUserOrReject(req, res);
     if (!user) return;
     const showAll = req.query.all === "1";
-    const rows = await db.select().from(reports).where(showAll ? void 0 : eq2(reports.status, "pending")).orderBy(desc(reports.createdAt));
+    const rows = await db.select().from(reports).where(showAll ? void 0 : eq5(reports.status, "pending")).orderBy(desc(reports.createdAt));
     res.json(rows);
   });
   app2.patch("/api/admin/reports/:id/hide", async (req, res) => {
     const user = await getAdminUserOrReject(req, res);
     if (!user) return;
     const id = paramNum(req, "id");
-    const [report] = await db.select().from(reports).where(eq2(reports.id, id));
-    if (!report) return res.status(404).json({ error: "\u901A\u5831\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    const [report] = await db.select().from(reports).where(eq5(reports.id, id));
+    if (!report) return res.status(404).json({ error: "Report not found" });
     if (report.contentType === "video") {
-      await db.update(videos).set({ hidden: true }).where(eq2(videos.id, report.contentId));
+      await db.update(videos).set({ hidden: true }).where(eq5(videos.id, report.contentId));
     } else if (report.contentType === "comment") {
-      await db.update(videoComments).set({ hidden: true }).where(eq2(videoComments.id, report.contentId));
+      await db.update(videoComments).set({ hidden: true }).where(eq5(videoComments.id, report.contentId));
     }
-    await db.update(reports).set({ status: "hidden" }).where(eq2(reports.id, id));
+    await db.update(reports).set({ status: "hidden" }).where(eq5(reports.id, id));
     res.json({ ok: true });
   });
   app2.patch("/api/admin/reports/:id/dismiss", async (req, res) => {
     const user = await getAdminUserOrReject(req, res);
     if (!user) return;
     const id = paramNum(req, "id");
-    const [report] = await db.select().from(reports).where(eq2(reports.id, id));
-    if (!report) return res.status(404).json({ error: "\u901A\u5831\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
-    await db.update(reports).set({ status: "reviewed" }).where(eq2(reports.id, id));
+    const [report] = await db.select().from(reports).where(eq5(reports.id, id));
+    if (!report) return res.status(404).json({ error: "Report not found" });
+    await db.update(reports).set({ status: "reviewed" }).where(eq5(reports.id, id));
     res.json({ ok: true });
   });
   app2.get("/api/admin/stats", async (req, res) => {
@@ -4516,7 +5702,7 @@ async function registerRoutes(app2) {
     if (role === void 0 && isBanned === void 0) {
       return res.status(400).json({ error: "No updatable fields provided" });
     }
-    const [updated] = await db.update(users).set(nextValues).where(eq2(users.id, targetUserId)).returning({
+    const [updated] = await db.update(users).set(nextValues).where(eq5(users.id, targetUserId)).returning({
       id: users.id,
       displayName: users.displayName,
       email: users.email,
@@ -4550,7 +5736,7 @@ async function registerRoutes(app2) {
     const hidden = typeof req.body?.hidden === "boolean" ? req.body.hidden : true;
     const [updated] = await db.update(videos).set({
       hidden
-    }).where(eq2(videos.id, videoId)).returning({
+    }).where(eq5(videos.id, videoId)).returning({
       id: videos.id,
       title: videos.title,
       hidden: videos.hidden,
@@ -4564,11 +5750,11 @@ async function registerRoutes(app2) {
     if (!admin) return;
     const videoId = paramNum(req, "id");
     if (!videoId) return res.status(400).json({ error: "Invalid content id" });
-    await db.delete(savedVideos).where(eq2(savedVideos.videoId, videoId));
-    await db.delete(videoComments).where(eq2(videoComments.videoId, videoId));
-    await db.delete(reports).where(and2(eq2(reports.contentType, "video"), eq2(reports.contentId, videoId)));
-    await db.delete(jukeboxQueue).where(eq2(jukeboxQueue.videoId, videoId));
-    const deleted = await db.delete(videos).where(eq2(videos.id, videoId)).returning({ id: videos.id });
+    await db.delete(savedVideos).where(eq5(savedVideos.videoId, videoId));
+    await db.delete(videoComments).where(eq5(videoComments.videoId, videoId));
+    await db.delete(reports).where(and5(eq5(reports.contentType, "video"), eq5(reports.contentId, videoId)));
+    await db.delete(jukeboxQueue).where(eq5(jukeboxQueue.videoId, videoId));
+    const deleted = await db.delete(videos).where(eq5(videos.id, videoId)).returning({ id: videos.id });
     if (deleted.length === 0) return res.status(404).json({ error: "Content not found" });
     res.json({ ok: true, id: videoId });
   });
@@ -4586,7 +5772,7 @@ async function registerRoutes(app2) {
       timestamp: Date.now()
     });
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const hasAccessKey = Boolean(process.env.R2_ACCESS_KEY_ID?.trim());
     const hasSecret = Boolean(process.env.R2_SECRET_ACCESS_KEY?.trim());
     const hasEndpoint = Boolean(process.env.R2_ENDPOINT?.trim());
@@ -4600,7 +5786,7 @@ async function registerRoutes(app2) {
     });
     const { fileName, contentType } = req.body;
     if (!fileName || !contentType) {
-      return res.status(400).json({ error: "fileName \u3068 contentType \u306F\u5FC5\u9808\u3067\u3059" });
+      return res.status(400).json({ error: "fileName and contentType are required" });
     }
     const safeName = String(fileName).replace(/[^a-zA-Z0-9_.-]/g, "_");
     const key = `rawstock_${Date.now()}_${safeName}`;
@@ -4613,6 +5799,8 @@ async function registerRoutes(app2) {
       });
       res.json({ uploadUrl, key, url: publicUrl });
     } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      const notConfigured = errMsg.includes("R2 is not configured") || errMsg.includes("\u6B63\u3057\u304F\u8A2D\u5B9A");
       console.error("[upload-url] presign_failed", {
         hasAccessKey,
         hasSecret,
@@ -4620,13 +5808,16 @@ async function registerRoutes(app2) {
         hasBucket,
         err: e
       });
-      res.status(500).json({ error: "\u7F72\u540D\u4ED8\u304DURL\u306E\u767A\u884C\u306B\u5931\u6557\u3057\u307E\u3057\u305F" });
+      res.status(notConfigured ? 503 : 500).json({
+        error: notConfigured ? "File storage is not configured. Set R2_* variables on the server (and R2_PUBLIC_BASE_URL if you use a public domain)." : "Failed to issue signed URL",
+        code: notConfigured ? "R2_NOT_CONFIGURED" : "R2_PRESIGN_FAILED"
+      });
     }
   });
   app2.get("/api/videos", async (req, res) => {
     const genreId = req.query?.genre;
     const communityIdParam = req.query?.communityId;
-    let rows = await db.select().from(videos).where(and2(eq2(videos.isRanked, false), eq2(videos.hidden, false))).orderBy(desc(videos.createdAt));
+    let rows = await db.select().from(videos).where(and5(eq5(videos.isRanked, false), eq5(videos.hidden, false))).orderBy(desc(videos.createdAt));
     rows = rows.filter((r) => r.visibility !== "draft" && r.visibility !== "my_page_only");
     const names = Array.from(new Set(rows.map((r) => r.creator)));
     const userMap = /* @__PURE__ */ new Map();
@@ -4649,18 +5840,18 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/videos/my", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
-    const rows = await db.select().from(videos).where(or(eq2(videos.creator, user.displayName), eq2(videos.userId, user.id))).orderBy(desc(videos.createdAt));
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const rows = await db.select().from(videos).where(or(eq5(videos.creator, user.displayName), eq5(videos.userId, user.id))).orderBy(desc(videos.createdAt));
     const filtered = rows.filter((r) => !r.hidden);
     res.json(filtered);
   });
   app2.get("/api/videos/ranked", async (_req, res) => {
-    const rows = await db.select().from(videos).where(and2(eq2(videos.postType, "work"), eq2(videos.hidden, false))).orderBy(asc2(videos.rank));
+    const rows = await db.select().from(videos).where(and5(eq5(videos.postType, "work"), eq5(videos.hidden, false))).orderBy(asc3(videos.rank));
     res.json(rows);
   });
   app2.get("/api/videos/saved", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const rows = await db.select({
       id: videos.id,
       title: videos.title,
@@ -4669,28 +5860,28 @@ async function registerRoutes(app2) {
       community: videos.community,
       views: videos.views,
       createdAt: videos.createdAt
-    }).from(savedVideos).innerJoin(videos, eq2(videos.id, savedVideos.videoId)).where(and2(eq2(savedVideos.userId, user.id), eq2(videos.hidden, false))).orderBy(desc(savedVideos.createdAt));
+    }).from(savedVideos).innerJoin(videos, eq5(videos.id, savedVideos.videoId)).where(and5(eq5(savedVideos.userId, user.id), eq5(videos.hidden, false))).orderBy(desc(savedVideos.createdAt));
     const timeAgoList = rows.map((r) => ({
       ...r,
-      timeAgo: r.createdAt ? formatTimeAgo(r.createdAt) : "\u305F\u3063\u305F\u4ECA"
+      timeAgo: r.createdAt ? formatTimeAgo(r.createdAt) : "Just now"
     }));
     res.json(timeAgoList);
   });
   app2.get("/api/videos/:id", async (req, res) => {
     const id = paramNum(req, "id");
     const authUser = await getAuthUser(req);
-    const [row] = await db.select().from(videos).where(eq2(videos.id, id));
+    const [row] = await db.select().from(videos).where(eq5(videos.id, id));
     if (!row || row.hidden) return res.status(404).json({ message: "Not found" });
     const vis = row.visibility;
     const isOwner = authUser && (row.userId === authUser.id || row.creator === authUser.displayName);
     if (vis === "draft" && !isOwner) return res.status(404).json({ message: "Not found" });
     if (vis === "my_page_only" && !isOwner) return res.status(404).json({ message: "Not found" });
     const timeAgo = row.createdAt ? formatTimeAgo(row.createdAt) : row.timeAgo;
-    const [creatorUser] = await db.select({ id: users.id }).from(users).where(eq2(users.displayName, row.creator));
-    const [creatorLiver] = !creatorUser ? await db.select({ id: creators.id }).from(creators).where(eq2(creators.name, row.creator)) : [];
+    const [creatorUser] = await db.select({ id: users.id }).from(users).where(eq5(users.displayName, row.creator));
+    const [creatorLiver] = !creatorUser ? await db.select({ id: creators.id }).from(creators).where(eq5(creators.name, row.creator)) : [];
     const creatorType = creatorUser ? "user" : creatorLiver ? "liver" : null;
-    const creatorId = row.userId ?? creatorUser?.id ?? creatorLiver?.id ?? null;
-    res.json({ ...row, timeAgo, creatorType, creatorId });
+    const creatorId = row.userId ?? creatorUser?.id ?? null;
+    res.json({ ...row, timeAgo, creatorType, creatorId, creatorLiverProfileId: creatorLiver?.id ?? null });
   });
   app2.get("/api/videos/:id/comments", async (req, res) => {
     const videoId = paramNum(req, "id");
@@ -4702,41 +5893,41 @@ async function registerRoutes(app2) {
       createdAt: videoComments.createdAt,
       displayName: users.displayName,
       profileImageUrl: users.profileImageUrl
-    }).from(videoComments).leftJoin(users, eq2(users.id, videoComments.userId)).where(and2(eq2(videoComments.videoId, videoId), eq2(videoComments.hidden, false))).orderBy(asc2(videoComments.createdAt));
+    }).from(videoComments).leftJoin(users, eq5(users.id, videoComments.userId)).where(and5(eq5(videoComments.videoId, videoId), eq5(videoComments.hidden, false))).orderBy(asc3(videoComments.createdAt));
     res.json(rows);
   });
   app2.post("/api/videos/:id/comments", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const videoId = paramNum(req, "id");
     const text2 = req.body.text?.trim();
-    if (!text2) return res.status(400).json({ error: "\u30B3\u30E1\u30F3\u30C8\u672C\u6587\u306F\u5FC5\u9808\u3067\u3059" });
+    if (!text2) return res.status(400).json({ error: "Comment text is required" });
     const [row] = await db.insert(videoComments).values({ videoId, userId: user.id, text: text2 }).returning();
     res.status(201).json(row);
   });
   app2.post("/api/videos", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const { title, community, communityId, duration, price, thumbnail, description, concertId, visibility, videoUrl, youtubeId, postType, complianceAcknowledged } = req.body;
     if (complianceAcknowledged !== true) {
       return res.status(400).json({
-        message: "\u6295\u7A3F\u524D\u306B\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u30AC\u30A4\u30C9\u30E9\u30A4\u30F3\u3068\u6A29\u5229\u306B\u95A2\u3059\u308B\u78BA\u8A8D\u304C\u5FC5\u8981\u3067\u3059",
+        message: "Confirm community guidelines and rights before posting",
         code: "COMPLIANCE_ACK_REQUIRED"
       });
     }
     if (!title || !duration || !thumbnail) {
-      return res.status(400).json({ message: "\u5FC5\u9808\u30D5\u30A3\u30FC\u30EB\u30C9\u304C\u4E0D\u8DB3\u3057\u3066\u3044\u307E\u3059" });
+      return res.status(400).json({ message: "Required fields are missing" });
     }
     const vis = visibility === "draft" ? "draft" : visibility === "my_page_only" ? "my_page_only" : "community";
     if (vis === "community" && (!community || !community.trim())) {
-      return res.status(400).json({ message: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u516C\u958B\u6642\u306F community \u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ message: "Specify community when posting to a community" });
     }
     const [row] = await db.insert(videos).values({
       title,
       creator: user.displayName,
       community: community?.trim() ?? "",
       views: 0,
-      timeAgo: "\u305F\u3063\u305F\u4ECA",
+      timeAgo: "Just now",
       duration,
       price: price ?? null,
       thumbnail,
@@ -4755,17 +5946,17 @@ async function registerRoutes(app2) {
   });
   app2.patch("/api/videos/:id", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const id = paramNum(req, "id");
-    const [video] = await db.select().from(videos).where(eq2(videos.id, id));
+    const [video] = await db.select().from(videos).where(eq5(videos.id, id));
     if (!video) return res.status(404).json({ message: "Not found" });
     const isOwner = video.userId === user.id || video.creator === user.displayName;
-    if (!isOwner) return res.status(403).json({ error: "\u7DE8\u96C6\u6A29\u9650\u304C\u3042\u308A\u307E\u305B\u3093" });
+    if (!isOwner) return res.status(403).json({ error: "You do not have permission to edit" });
     const { title, visibility, communityId, community } = req.body;
     const updates = {};
     if (title !== void 0) {
       const newTitle = title?.trim();
-      if (!newTitle) return res.status(400).json({ error: "\u30BF\u30A4\u30C8\u30EB\u306F\u5FC5\u9808\u3067\u3059" });
+      if (!newTitle) return res.status(400).json({ error: "Title is required" });
       updates.title = newTitle;
     }
     if (visibility !== void 0) {
@@ -4776,26 +5967,26 @@ async function registerRoutes(app2) {
       if (vis !== "community") updates.communityId = null;
     }
     if (Object.keys(updates).length === 0) return res.json(video);
-    const [updated] = await db.update(videos).set(updates).where(eq2(videos.id, id)).returning();
+    const [updated] = await db.update(videos).set(updates).where(eq5(videos.id, id)).returning();
     res.json(updated);
   });
   app2.delete("/api/videos/:id", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const id = paramNum(req, "id");
-    const [video] = await db.select().from(videos).where(eq2(videos.id, id));
+    const [video] = await db.select().from(videos).where(eq5(videos.id, id));
     if (!video) return res.status(404).json({ message: "Not found" });
     const isOwner = video.userId === user.id || video.creator === user.displayName;
-    if (!isOwner) return res.status(403).json({ error: "\u524A\u9664\u6A29\u9650\u304C\u3042\u308A\u307E\u305B\u3093" });
-    await db.delete(videoComments).where(eq2(videoComments.videoId, id));
-    await db.delete(videos).where(eq2(videos.id, id));
+    if (!isOwner) return res.status(403).json({ error: "You do not have permission to delete" });
+    await db.delete(videoComments).where(eq5(videoComments.videoId, id));
+    await db.delete(videos).where(eq5(videos.id, id));
     res.json({ ok: true });
   });
   app2.post("/api/videos/:id/save", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const videoId = paramNum(req, "id");
-    const [video] = await db.select().from(videos).where(eq2(videos.id, videoId));
+    const [video] = await db.select().from(videos).where(eq5(videos.id, videoId));
     if (!video || video.hidden) return res.status(404).json({ message: "Not found" });
     const vis = video.visibility;
     const isOwner = video.userId === user.id || video.creator === user.displayName;
@@ -4809,26 +6000,26 @@ async function registerRoutes(app2) {
   });
   app2.delete("/api/videos/:id/save", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const videoId = paramNum(req, "id");
-    await db.delete(savedVideos).where(and2(eq2(savedVideos.userId, user.id), eq2(savedVideos.videoId, videoId)));
+    await db.delete(savedVideos).where(and5(eq5(savedVideos.userId, user.id), eq5(savedVideos.videoId, videoId)));
     res.json({ ok: true });
   });
   app2.get("/api/videos/:id/saved", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.json({ saved: false });
     const videoId = paramNum(req, "id");
-    const [row] = await db.select().from(savedVideos).where(and2(eq2(savedVideos.userId, user.id), eq2(savedVideos.videoId, videoId)));
+    const [row] = await db.select().from(savedVideos).where(and5(eq5(savedVideos.userId, user.id), eq5(savedVideos.videoId, videoId)));
     res.json({ saved: !!row });
   });
   app2.get("/api/users/:id/posts", async (req, res) => {
     const userId = paramNum(req, "id");
-    const [targetUser] = await db.select({ id: users.id, displayName: users.displayName }).from(users).where(eq2(users.id, userId));
+    const [targetUser] = await db.select({ id: users.id, displayName: users.displayName }).from(users).where(eq5(users.id, userId));
     if (!targetUser) return res.status(404).json({ message: "Not found" });
     const rows = await db.select().from(videos).where(
-      and2(
-        or(eq2(videos.userId, userId), eq2(videos.creator, targetUser.displayName)),
-        eq2(videos.hidden, false)
+      and5(
+        or(eq5(videos.userId, userId), eq5(videos.creator, targetUser.displayName)),
+        eq5(videos.hidden, false)
       )
     ).orderBy(desc(videos.createdAt));
     const filtered = rows.filter((r) => {
@@ -4838,40 +6029,40 @@ async function registerRoutes(app2) {
     res.json(filtered);
   });
   app2.get("/api/live-streams", async (_req, res) => {
-    const rows = await db.select().from(liveStreams).where(eq2(liveStreams.isLive, true)).orderBy(desc(liveStreams.viewers));
+    const rows = await db.select().from(liveStreams).where(eq5(liveStreams.isLive, true)).orderBy(desc(liveStreams.viewers));
     res.json(rows);
   });
   app2.get("/api/creators", async (_req, res) => {
-    const rows = await db.select().from(creators).orderBy(asc2(creators.rank));
+    const rows = await db.select().from(creators).orderBy(asc3(creators.rank));
     res.json(rows);
   });
   app2.get("/api/booking-sessions", async (req, res) => {
     const category = queryStr(req, "category");
-    const rows = category && category !== "all" ? await db.select().from(bookingSessions).where(eq2(bookingSessions.category, category)) : await db.select().from(bookingSessions);
+    const rows = category && category !== "all" ? await db.select().from(bookingSessions).where(eq5(bookingSessions.category, category)) : await db.select().from(bookingSessions);
     res.json(rows);
   });
   app2.post("/api/booking-sessions/:id/book", async (req, res) => {
     const id = paramNum(req, "id");
-    const [session] = await db.select().from(bookingSessions).where(eq2(bookingSessions.id, id));
+    const [session] = await db.select().from(bookingSessions).where(eq5(bookingSessions.id, id));
     if (!session) return res.status(404).json({ message: "Not found" });
-    if (session.spotsLeft <= 0) return res.status(400).json({ message: "\u6E80\u5E2D\u3067\u3059" });
-    const [updated] = await db.update(bookingSessions).set({ spotsLeft: session.spotsLeft - 1 }).where(eq2(bookingSessions.id, id)).returning();
+    if (session.spotsLeft <= 0) return res.status(400).json({ message: "Fully booked" });
+    const [updated] = await db.update(bookingSessions).set({ spotsLeft: session.spotsLeft - 1 }).where(eq5(bookingSessions.id, id)).returning();
     res.json(updated);
   });
   app2.post("/api/dm/open", async (req, res) => {
     const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const raw = req.body?.peerUserId;
     const peer = typeof raw === "number" && Number.isFinite(raw) ? Math.floor(raw) : typeof raw === "string" ? parseInt(raw, 10) : NaN;
     if (!Number.isFinite(peer) || peer < 1) {
-      return res.status(400).json({ error: "peerUserId \u304C\u5FC5\u8981\u3067\u3059" });
+      return res.status(400).json({ error: "peerUserId is required" });
     }
-    if (peer === me.id) return res.status(400).json({ error: "\u81EA\u5206\u81EA\u8EAB\u3068\u306F DM \u3067\u304D\u307E\u305B\u3093" });
-    const [peerUser] = await db.select({ id: users.id }).from(users).where(eq2(users.id, peer));
-    if (!peerUser) return res.status(404).json({ error: "\u30E6\u30FC\u30B6\u30FC\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+    if (peer === me.id) return res.status(400).json({ error: "You cannot DM yourself" });
+    const [peerUser] = await db.select({ id: users.id }).from(users).where(eq5(users.id, peer));
+    if (!peerUser) return res.status(404).json({ error: "User not found" });
     const u1 = Math.min(me.id, peer);
     const u2 = Math.max(me.id, peer);
-    let [th] = await db.select().from(dmThreads).where(and2(eq2(dmThreads.user1Id, u1), eq2(dmThreads.user2Id, u2)));
+    let [th] = await db.select().from(dmThreads).where(and5(eq5(dmThreads.user1Id, u1), eq5(dmThreads.user2Id, u2)));
     if (!th) {
       [th] = await db.insert(dmThreads).values({ user1Id: u1, user2Id: u2 }).returning();
     }
@@ -4880,11 +6071,11 @@ async function registerRoutes(app2) {
   app2.get("/api/dm-messages", async (req, res) => {
     const me = await getAuthUser(req);
     if (!me) return res.json([]);
-    const threads = await db.select().from(dmThreads).where(or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id))).orderBy(desc(dmThreads.updatedAt));
+    const threads = await db.select().from(dmThreads).where(or(eq5(dmThreads.user1Id, me.id), eq5(dmThreads.user2Id, me.id))).orderBy(desc(dmThreads.updatedAt));
     const out = [];
     for (const t of threads) {
       const peerId = t.user1Id === me.id ? t.user2Id : t.user1Id;
-      const [peer] = await db.select({ displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(users).where(eq2(users.id, peerId));
+      const [peer] = await db.select({ displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(users).where(eq5(users.id, peerId));
       if (!peer) continue;
       out.push({
         id: t.id,
@@ -4901,7 +6092,7 @@ async function registerRoutes(app2) {
     const [{ welcomeDmSentAt, operationsDmOpenedAt }] = await db.select({
       welcomeDmSentAt: users.welcomeDmSentAt,
       operationsDmOpenedAt: users.operationsDmOpenedAt
-    }).from(users).where(eq2(users.id, me.id));
+    }).from(users).where(eq5(users.id, me.id));
     if (opsDm) {
       const preview = (opsDm.lastMessage ?? "").split("\n").find((line) => line.trim().length > 0) ?? opsDm.lastMessage ?? "";
       const opsUnread = welcomeDmSentAt && !operationsDmOpenedAt ? 1 : 0;
@@ -4924,29 +6115,29 @@ async function registerRoutes(app2) {
     const me = await getAuthUser(req);
     if (me && rawId > 0) {
       const [th] = await db.select().from(dmThreads).where(
-        and2(
-          eq2(dmThreads.id, rawId),
-          or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id))
+        and5(
+          eq5(dmThreads.id, rawId),
+          or(eq5(dmThreads.user1Id, me.id), eq5(dmThreads.user2Id, me.id))
         )
       );
       if (th) return res.json({ ok: true });
     }
-    const [updated] = await db.update(dmMessages).set({ unread: 0 }).where(eq2(dmMessages.id, legacyDmId)).returning();
+    const [updated] = await db.update(dmMessages).set({ unread: 0 }).where(eq5(dmMessages.id, legacyDmId)).returning();
     if (me) {
-      const [legacyMeta] = await db.select({ name: dmMessages.name }).from(dmMessages).where(eq2(dmMessages.id, legacyDmId));
+      const [legacyMeta] = await db.select({ name: dmMessages.name }).from(dmMessages).where(eq5(dmMessages.id, legacyDmId));
       if (legacyMeta?.name === OPERATIONS_DM_NAME) {
-        await db.update(users).set({ operationsDmOpenedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq2(users.id, me.id));
+        await db.update(users).set({ operationsDmOpenedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq5(users.id, me.id));
       }
     }
     res.json(updated ?? { ok: true });
   });
   app2.get("/api/notifications/unread-count", async (_req, res) => {
-    const [{ count: count2 }] = await db.select({ count: sql3`count(*)::int` }).from(notifications).where(eq2(notifications.isRead, false));
+    const [{ count: count2 }] = await db.select({ count: sql3`count(*)::int` }).from(notifications).where(eq5(notifications.isRead, false));
     res.json({ count: count2 ?? 0 });
   });
   app2.get("/api/notifications", async (req, res) => {
     const type = queryStr(req, "type");
-    const rows = type && type !== "all" ? await db.select().from(notifications).where(eq2(notifications.type, type)).orderBy(desc(notifications.createdAt)) : await db.select().from(notifications).orderBy(desc(notifications.createdAt));
+    const rows = type && type !== "all" ? await db.select().from(notifications).where(eq5(notifications.type, type)).orderBy(desc(notifications.createdAt)) : await db.select().from(notifications).orderBy(desc(notifications.createdAt));
     res.json(rows);
   });
   app2.post("/api/notifications/read-all", async (_req, res) => {
@@ -4955,18 +6146,18 @@ async function registerRoutes(app2) {
   });
   app2.post("/api/notifications/:id/read", async (req, res) => {
     const id = paramNum(req, "id");
-    const [updated] = await db.update(notifications).set({ isRead: true }).where(eq2(notifications.id, id)).returning();
+    const [updated] = await db.update(notifications).set({ isRead: true }).where(eq5(notifications.id, id)).returning();
     res.json(updated);
   });
   app2.get("/api/live-streams/:id", async (req, res) => {
     const id = paramNum(req, "id");
-    const [stream] = await db.select().from(liveStreams).where(eq2(liveStreams.id, id));
+    const [stream] = await db.select().from(liveStreams).where(eq5(liveStreams.id, id));
     if (!stream) return res.status(404).json({ error: "Not found" });
     res.json(stream);
   });
   app2.get("/api/live-streams/:id/chat", async (req, res) => {
     const id = paramNum(req, "id");
-    const msgs = await db.select().from(liveStreamChat).where(eq2(liveStreamChat.streamId, id)).orderBy(asc2(liveStreamChat.createdAt));
+    const msgs = await db.select().from(liveStreamChat).where(eq5(liveStreamChat.streamId, id)).orderBy(asc3(liveStreamChat.createdAt));
     res.json(msgs);
   });
   app2.post("/api/live-streams/:id/chat", async (req, res) => {
@@ -4974,13 +6165,13 @@ async function registerRoutes(app2) {
     const { username, avatar, message, isGift, giftAmount } = req.body;
     if (!isGift && message) {
       const modResult = await moderateContent(message);
-      if (!modResult.allowed) {
-        return res.status(400).json({ error: modResult.reason ?? "\u4E0D\u9069\u5207\u306A\u30B3\u30F3\u30C6\u30F3\u30C4\u304C\u542B\u307E\u308C\u3066\u3044\u307E\u3059" });
+      if (modResult.allowed === false) {
+        return res.status(400).json({ error: modResult.reason ?? "This content is not allowed" });
       }
     }
     const [msg] = await db.insert(liveStreamChat).values({
       streamId: id,
-      username: username ?? "\u3042\u306A\u305F",
+      username: username ?? "You",
       avatar,
       message,
       isGift: isGift ?? false,
@@ -4991,15 +6182,15 @@ async function registerRoutes(app2) {
   app2.get("/api/dm-messages/:id/peer", async (req, res) => {
     const rawId = paramNum(req, "id");
     const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const legacyDmId = rawId < 0 ? -rawId : rawId;
     if (rawId > 0) {
       const [th] = await db.select().from(dmThreads).where(
-        and2(eq2(dmThreads.id, rawId), or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id)))
+        and5(eq5(dmThreads.id, rawId), or(eq5(dmThreads.user1Id, me.id), eq5(dmThreads.user2Id, me.id)))
       );
       if (th) {
         const peerId = th.user1Id === me.id ? th.user2Id : th.user1Id;
-        const [peer] = await db.select({ displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(users).where(eq2(users.id, peerId));
+        const [peer] = await db.select({ displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(users).where(eq5(users.id, peerId));
         if (!peer) return res.status(404).json({ error: "Not found" });
         return res.json({
           name: peer.displayName ?? "User",
@@ -5008,7 +6199,7 @@ async function registerRoutes(app2) {
         });
       }
     }
-    const [legacyDm] = await db.select().from(dmMessages).where(eq2(dmMessages.id, legacyDmId));
+    const [legacyDm] = await db.select().from(dmMessages).where(eq5(dmMessages.id, legacyDmId));
     if (!legacyDm) return res.status(404).json({ error: "Not found" });
     res.json({
       name: legacyDm.name,
@@ -5019,14 +6210,14 @@ async function registerRoutes(app2) {
   app2.get("/api/dm-messages/:id/conversation", async (req, res) => {
     const rawId = paramNum(req, "id");
     const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const legacyDmId = rawId < 0 ? -rawId : rawId;
     if (rawId > 0) {
       const [th] = await db.select().from(dmThreads).where(
-        and2(eq2(dmThreads.id, rawId), or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id)))
+        and5(eq5(dmThreads.id, rawId), or(eq5(dmThreads.user1Id, me.id), eq5(dmThreads.user2Id, me.id)))
       );
       if (th) {
-        const rows = await db.select().from(dmThreadMessages).where(eq2(dmThreadMessages.threadId, rawId)).orderBy(asc2(dmThreadMessages.createdAt));
+        const rows = await db.select().from(dmThreadMessages).where(eq5(dmThreadMessages.threadId, rawId)).orderBy(asc3(dmThreadMessages.createdAt));
         return res.json(
           rows.map((m) => ({
             id: m.id,
@@ -5040,19 +6231,19 @@ async function registerRoutes(app2) {
         );
       }
     }
-    const msgs = await db.select().from(dmConversationMessages).where(eq2(dmConversationMessages.dmId, legacyDmId)).orderBy(asc2(dmConversationMessages.createdAt));
+    const msgs = await db.select().from(dmConversationMessages).where(eq5(dmConversationMessages.dmId, legacyDmId)).orderBy(asc3(dmConversationMessages.createdAt));
     res.json(msgs);
   });
   app2.post("/api/dm-messages/:id/conversation", async (req, res) => {
     const rawId = paramNum(req, "id");
     const legacyDmId = rawId < 0 ? -rawId : rawId;
     const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const text2 = typeof req.body?.text === "string" ? req.body.text : "";
-    if (!text2.trim()) return res.status(400).json({ error: "\u30E1\u30C3\u30BB\u30FC\u30B8\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!text2.trim()) return res.status(400).json({ error: "Please enter a message" });
     if (rawId > 0) {
       const [th] = await db.select().from(dmThreads).where(
-        and2(eq2(dmThreads.id, rawId), or(eq2(dmThreads.user1Id, me.id), eq2(dmThreads.user2Id, me.id)))
+        and5(eq5(dmThreads.id, rawId), or(eq5(dmThreads.user1Id, me.id), eq5(dmThreads.user2Id, me.id)))
       );
       if (th) {
         const [msg2] = await db.insert(dmThreadMessages).values({
@@ -5063,7 +6254,7 @@ async function registerRoutes(app2) {
         await db.update(dmThreads).set({
           lastMessagePreview: text2.trim().slice(0, 200),
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq2(dmThreads.id, rawId));
+        }).where(eq5(dmThreads.id, rawId));
         await syncUserLastContentLang(me.id, text2.trim());
         return res.json({
           id: msg2.id,
@@ -5082,7 +6273,7 @@ async function registerRoutes(app2) {
       text: text2.trim(),
       isRead: true
     }).returning();
-    await db.update(dmMessages).set({ lastMessage: text2.trim(), unread: 0 }).where(eq2(dmMessages.id, legacyDmId));
+    await db.update(dmMessages).set({ lastMessage: text2.trim(), unread: 0 }).where(eq5(dmMessages.id, legacyDmId));
     await syncUserLastContentLang(me.id, text2.trim());
     res.json({
       ...msg,
@@ -5095,7 +6286,7 @@ async function registerRoutes(app2) {
       communityId: jukeboxState.communityId,
       communityName: communities.name,
       trackTitle: jukeboxState.currentVideoTitle
-    }).from(jukeboxState).innerJoin(communities, eq2(communities.id, jukeboxState.communityId)).where(eq2(jukeboxState.isPlaying, true));
+    }).from(jukeboxState).innerJoin(communities, eq5(communities.id, jukeboxState.communityId)).where(eq5(jukeboxState.isPlaying, true));
     const active = playingRows.filter((r) => (r.trackTitle ?? "").trim().length > 0).map((r) => ({
       communityId: r.communityId,
       communityName: r.communityName,
@@ -5104,7 +6295,7 @@ async function registerRoutes(app2) {
     const idleRows = await db.select({
       communityId: jukeboxState.communityId,
       communityName: communities.name
-    }).from(jukeboxState).innerJoin(communities, eq2(communities.id, jukeboxState.communityId)).where(eq2(jukeboxState.isPlaying, false));
+    }).from(jukeboxState).innerJoin(communities, eq5(communities.id, jukeboxState.communityId)).where(eq5(jukeboxState.isPlaying, false));
     const activeIds = new Set(active.map((a) => a.communityId));
     const recruiting = idleRows.filter((r) => !activeIds.has(r.communityId)).map((r) => ({
       communityId: r.communityId,
@@ -5115,8 +6306,8 @@ async function registerRoutes(app2) {
   app2.get("/api/jukebox/:communityId", async (req, res) => {
     const communityId = paramNum(req, "communityId");
     const now = /* @__PURE__ */ new Date();
-    const [stateRaw] = await db.select().from(jukeboxState).where(eq2(jukeboxState.communityId, communityId));
-    const queue = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position));
+    const [stateRaw] = await db.select().from(jukeboxState).where(eq5(jukeboxState.communityId, communityId));
+    const queue = await db.select().from(jukeboxQueue).where(and5(eq5(jukeboxQueue.communityId, communityId), eq5(jukeboxQueue.isPlayed, false))).orderBy(asc3(jukeboxQueue.position));
     let state = stateRaw ?? null;
     let queueModified = false;
     if (state && state.currentVideoDurationSecs && state.currentVideoDurationSecs > 0 && state.startedAt) {
@@ -5126,7 +6317,7 @@ async function registerRoutes(app2) {
           (q) => state.currentVideoYoutubeId && q.youtubeId === state.currentVideoYoutubeId || state.currentVideoId != null && q.videoId === state.currentVideoId
         );
         if (currentItem) {
-          await db.update(jukeboxQueue).set({ isPlayed: true }).where(eq2(jukeboxQueue.id, currentItem.id));
+          await db.update(jukeboxQueue).set({ isPlayed: true }).where(eq5(jukeboxQueue.id, currentItem.id));
           queueModified = true;
         }
         const next = queue.find((q) => !q.isPlayed && q.id !== currentItem?.id);
@@ -5165,13 +6356,13 @@ async function registerRoutes(app2) {
             currentVideoDurationSecs: 0,
             currentVideoYoutubeId: null,
             isPlaying: false
-          }).where(eq2(jukeboxState.communityId, communityId)).returning();
+          }).where(eq5(jukeboxState.communityId, communityId)).returning();
           state = updated;
         }
       }
     }
-    const queueToReturn = queueModified ? await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position)) : queue;
-    const chat = await db.select().from(jukeboxChat).where(eq2(jukeboxChat.communityId, communityId)).orderBy(desc(jukeboxChat.createdAt)).limit(30).then((rows) => rows.reverse());
+    const queueToReturn = queueModified ? await db.select().from(jukeboxQueue).where(and5(eq5(jukeboxQueue.communityId, communityId), eq5(jukeboxQueue.isPlayed, false))).orderBy(asc3(jukeboxQueue.position)) : queue;
+    const chat = await db.select().from(jukeboxChat).where(eq5(jukeboxChat.communityId, communityId)).orderBy(desc(jukeboxChat.createdAt)).limit(30).then((rows) => rows.reverse());
     let elapsedSecs = 0;
     if (state?.startedAt && (state.currentVideoDurationSecs ?? 0) > 0) {
       elapsedSecs = Math.max(
@@ -5201,7 +6392,7 @@ async function registerRoutes(app2) {
     res.flushHeaders();
     res.write("event: ping\ndata: {}\n\n");
     try {
-      const [currentState] = await db.select().from(jukeboxState).where(eq2(jukeboxState.communityId, communityId));
+      const [currentState] = await db.select().from(jukeboxState).where(eq5(jukeboxState.communityId, communityId));
       if (currentState) {
         const elapsed = currentState.isPlaying && currentState.startedAt ? (Date.now() - new Date(currentState.startedAt).getTime()) / 1e3 : 0;
         const stateData = { ...currentState, elapsedSecs: Math.max(0, elapsed) };
@@ -5210,7 +6401,7 @@ data: ${JSON.stringify({ type: "state_update", data: stateData, ts: Date.now() }
 
 `);
       }
-      const currentQueue = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position));
+      const currentQueue = await db.select().from(jukeboxQueue).where(and5(eq5(jukeboxQueue.communityId, communityId), eq5(jukeboxQueue.isPlayed, false))).orderBy(asc3(jukeboxQueue.position));
       res.write(`event: queue_update
 data: ${JSON.stringify({ type: "queue_update", data: currentQueue, ts: Date.now() })}
 
@@ -5252,19 +6443,19 @@ data: ${data}
     if (vis === "followers") {
       if (hostId == null) return true;
       if (!viewer) return false;
-      const [f] = await db.select({ id: userFollows.id }).from(userFollows).where(and2(eq2(userFollows.followerId, viewer.id), eq2(userFollows.followingId, hostId)));
+      const [f] = await db.select({ id: userFollows.id }).from(userFollows).where(and5(eq5(userFollows.followerId, viewer.id), eq5(userFollows.followingId, hostId)));
       return !!f;
     }
     if (vis === "community") {
       const cid = srow.restrictedCommunityId;
       if (cid == null) return false;
       if (!viewer) return false;
-      const [m] = await db.select({ id: communityMembers.id }).from(communityMembers).where(and2(eq2(communityMembers.userId, viewer.id), eq2(communityMembers.communityId, cid)));
+      const [m] = await db.select({ id: communityMembers.id }).from(communityMembers).where(and5(eq5(communityMembers.userId, viewer.id), eq5(communityMembers.communityId, cid)));
       return !!m;
     }
     if (vis === "paid") {
       if (!viewer) return false;
-      const [access] = await db.select({ id: streamPaidAccess.id }).from(streamPaidAccess).where(and2(eq2(streamPaidAccess.streamId, srow.id), eq2(streamPaidAccess.viewerUserId, viewer.id))).limit(1);
+      const [access] = await db.select({ id: streamPaidAccess.id }).from(streamPaidAccess).where(and5(eq5(streamPaidAccess.streamId, srow.id), eq5(streamPaidAccess.viewerUserId, viewer.id))).limit(1);
       return !!access;
     }
     return true;
@@ -5321,7 +6512,7 @@ data: ${data}
       return res.status(500).json({ error: "Cloudflare Stream is not configured" });
     }
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const {
       name,
       title,
@@ -5335,11 +6526,11 @@ data: ${data}
     if (visibility === "community") {
       const cid = typeof rcIn === "number" && Number.isFinite(rcIn) ? rcIn : parseInt(String(rcIn ?? ""), 10);
       if (!Number.isFinite(cid)) {
-        return res.status(400).json({ error: "\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u9650\u5B9A\u914D\u4FE1\u3067\u306F restrictedCommunityId \u304C\u5FC5\u8981\u3067\u3059" });
+        return res.status(400).json({ error: "restrictedCommunityId is required for community-only streams" });
       }
-      const [mem] = await db.select({ id: communityMembers.id }).from(communityMembers).where(and2(eq2(communityMembers.userId, user.id), eq2(communityMembers.communityId, cid)));
+      const [mem] = await db.select({ id: communityMembers.id }).from(communityMembers).where(and5(eq5(communityMembers.userId, user.id), eq5(communityMembers.communityId, cid)));
       if (!mem) {
-        return res.status(403).json({ error: "\u9078\u629E\u3057\u305F\u30B3\u30DF\u30E5\u30CB\u30C6\u30A3\u306E\u30E1\u30F3\u30D0\u30FC\u3067\u306F\u3042\u308A\u307E\u305B\u3093" });
+        return res.status(403).json({ error: "You are not a member of the selected community" });
       }
       restrictedCommunityId = cid;
     }
@@ -5353,6 +6544,10 @@ data: ${data}
     try {
       const displayTitle = typeof title === "string" && title.trim() || typeof name === "string" && name.trim() || "";
       const metaName = displayTitle || `RawStock Stream by ${user.displayName}`;
+      console.log("[Cloudflare Stream] creating live_input with env:", {
+        accountId: maskSecretPrefix(CLOUDFLARE_ACCOUNT_ID),
+        streamToken: maskSecretPrefix(CLOUDFLARE_STREAM_TOKEN)
+      });
       const cfRes = await fetch(
         `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/stream/live_inputs`,
         {
@@ -5378,7 +6573,8 @@ data: ${data}
         return res.status(502).json({
           error: "Failed to create Cloudflare Stream live input",
           ...detail ? { detail } : {},
-          ...hint ? { hint } : {}
+          ...hint ? { hint } : {},
+          cloudflareResponse: json
         });
       }
       const result = json.result;
@@ -5423,12 +6619,12 @@ data: ${data}
   app2.get("/api/stream/:id", async (req, res) => {
     const id = paramNum(req, "id");
     if (!id) return res.status(400).json({ error: "Invalid id" });
-    const [srow] = await db.select().from(streams).where(eq2(streams.id, id));
+    const [srow] = await db.select().from(streams).where(eq5(streams.id, id));
     if (srow) {
       let creator = "Host";
       let avatar = "";
       if (srow.hostUserId != null) {
-        const [u] = await db.select().from(users).where(eq2(users.id, srow.hostUserId));
+        const [u] = await db.select().from(users).where(eq5(users.id, srow.hostUserId));
         if (u) {
           creator = u.displayName ?? creator;
           avatar = u.profileImageUrl ?? "";
@@ -5441,7 +6637,7 @@ data: ${data}
       const hid = srow.hostUserId;
       let isFollowingHost = false;
       if (viewer && hid != null && viewer.id !== hid) {
-        const [f] = await db.select({ id: userFollows.id }).from(userFollows).where(and2(eq2(userFollows.followerId, viewer.id), eq2(userFollows.followingId, hid)));
+        const [f] = await db.select({ id: userFollows.id }).from(userFollows).where(and5(eq5(userFollows.followerId, viewer.id), eq5(userFollows.followingId, hid)));
         isFollowingHost = !!f;
       }
       return res.json({
@@ -5468,7 +6664,7 @@ data: ${data}
         isFollowingHost: viewer && hid != null && viewer.id !== hid ? isFollowingHost : false
       });
     }
-    const [live] = await db.select().from(liveStreams).where(eq2(liveStreams.id, id));
+    const [live] = await db.select().from(liveStreams).where(eq5(liveStreams.id, id));
     if (!live) return res.status(404).json({ error: "Not found" });
     return res.json({
       id: live.id,
@@ -5495,7 +6691,7 @@ data: ${data}
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const id = paramNum(req, "id");
-    const [row] = await db.select().from(streams).where(eq2(streams.id, id));
+    const [row] = await db.select().from(streams).where(eq5(streams.id, id));
     if (!row) return res.status(404).json({ error: "Not found" });
     if (row.hostUserId != null && row.hostUserId !== user.id) {
       return res.status(403).json({ error: "Forbidden" });
@@ -5506,14 +6702,14 @@ data: ${data}
       startedAt: now,
       endedAt: null,
       currentViewers: 0
-    }).where(eq2(streams.id, id)).returning();
+    }).where(eq5(streams.id, id)).returning();
     res.json(updated);
   });
   app2.post("/api/stream/:id/end", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const id = paramNum(req, "id");
-    const [row] = await db.select().from(streams).where(eq2(streams.id, id));
+    const [row] = await db.select().from(streams).where(eq5(streams.id, id));
     if (!row) return res.status(404).json({ error: "Not found" });
     if (row.hostUserId != null && row.hostUserId !== user.id) {
       return res.status(403).json({ error: "Forbidden" });
@@ -5522,12 +6718,12 @@ data: ${data}
     const [updated] = await db.update(streams).set({
       isLive: false,
       endedAt: now
-    }).where(eq2(streams.id, id)).returning();
+    }).where(eq5(streams.id, id)).returning();
     res.json(updated);
   });
   app2.post("/api/stream/:id/join", async (req, res) => {
     const id = paramNum(req, "id");
-    const [srow] = await db.select().from(streams).where(eq2(streams.id, id));
+    const [srow] = await db.select().from(streams).where(eq5(streams.id, id));
     if (srow) {
       const viewer = await getAuthUser(req);
       const allowed = await canViewerAccessLiveStream(srow, viewer);
@@ -5541,24 +6737,24 @@ data: ${data}
           });
         }
         return res.status(403).json({
-          error: "\u3053\u306E\u914D\u4FE1\u3092\u8996\u8074\u3059\u308B\u6A29\u9650\u304C\u3042\u308A\u307E\u305B\u3093",
+          error: "You are not allowed to watch this stream",
           code: "STREAM_ACCESS_DENIED"
         });
       }
-      const [updated] = await db.update(streams).set({ currentViewers: sql3`${streams.currentViewers} + 1` }).where(eq2(streams.id, id)).returning();
+      const [updated] = await db.update(streams).set({ currentViewers: sql3`${streams.currentViewers} + 1` }).where(eq5(streams.id, id)).returning();
       return res.json({ viewerCount: updated.currentViewers, currentViewers: updated.currentViewers });
     }
-    const [live] = await db.select().from(liveStreams).where(eq2(liveStreams.id, id));
+    const [live] = await db.select().from(liveStreams).where(eq5(liveStreams.id, id));
     if (!live) return res.status(404).json({ error: "Not found" });
     const next = Math.max(0, live.viewers + 1);
-    await db.update(liveStreams).set({ viewers: next }).where(eq2(liveStreams.id, id));
+    await db.update(liveStreams).set({ viewers: next }).where(eq5(liveStreams.id, id));
     return res.json({ viewerCount: next, currentViewers: next });
   });
   app2.post("/api/stream/:id/join-paid", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const id = paramNum(req, "id");
-    const [srow] = await db.select().from(streams).where(eq2(streams.id, id));
+    const [srow] = await db.select().from(streams).where(eq5(streams.id, id));
     if (!srow) return res.status(404).json({ error: "Not found" });
     if ((srow.visibility ?? "public") !== "paid") {
       return res.status(400).json({ error: "Stream is not paid" });
@@ -5572,14 +6768,14 @@ data: ${data}
     try {
       let currentViewers = srow.currentViewers;
       await db.transaction(async (tx) => {
-        const existingAccess = await tx.select({ id: streamPaidAccess.id }).from(streamPaidAccess).where(and2(eq2(streamPaidAccess.streamId, id), eq2(streamPaidAccess.viewerUserId, user.id))).limit(1);
+        const existingAccess = await tx.select({ id: streamPaidAccess.id }).from(streamPaidAccess).where(and5(eq5(streamPaidAccess.streamId, id), eq5(streamPaidAccess.viewerUserId, user.id))).limit(1);
         if (existingAccess.length > 0) {
-          const [updated2] = await tx.update(streams).set({ currentViewers: sql3`${streams.currentViewers} + 1` }).where(eq2(streams.id, id)).returning();
+          const [updated2] = await tx.update(streams).set({ currentViewers: sql3`${streams.currentViewers} + 1` }).where(eq5(streams.id, id)).returning();
           currentViewers = updated2.currentViewers;
           return;
         }
         const userId = String(user.id);
-        const balRows = await tx.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
+        const balRows = await tx.select().from(ticketBalances).where(eq5(ticketBalances.userId, userId)).limit(1);
         const currentBalance = balRows[0]?.balance ?? 0;
         if (currentBalance < ticketPrice) {
           const err = new Error("INSUFFICIENT_TICKETS");
@@ -5590,7 +6786,7 @@ data: ${data}
         if (balRows.length === 0) {
           await tx.insert(ticketBalances).values({ userId, balance: newBalance });
         } else {
-          await tx.update(ticketBalances).set({ balance: newBalance, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
+          await tx.update(ticketBalances).set({ balance: newBalance, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(ticketBalances.userId, userId));
         }
         const [spendTx] = await tx.insert(ticketTransactions).values({
           userId,
@@ -5614,7 +6810,7 @@ data: ${data}
           "paid_live",
           String(spendTx.id)
         );
-        const [updated] = await tx.update(streams).set({ currentViewers: sql3`${streams.currentViewers} + 1` }).where(eq2(streams.id, id)).returning();
+        const [updated] = await tx.update(streams).set({ currentViewers: sql3`${streams.currentViewers} + 1` }).where(eq5(streams.id, id)).returning();
         currentViewers = updated.currentViewers;
       });
       return res.json({ ok: true, currentViewers });
@@ -5632,22 +6828,23 @@ data: ${data}
   });
   app2.post("/api/stream/:id/leave", async (req, res) => {
     const id = paramNum(req, "id");
-    const [srow] = await db.select().from(streams).where(eq2(streams.id, id));
+    const [srow] = await db.select().from(streams).where(eq5(streams.id, id));
     if (srow) {
       const next2 = Math.max(0, srow.currentViewers - 1);
-      const [updated] = await db.update(streams).set({ currentViewers: next2 }).where(eq2(streams.id, id)).returning();
+      const [updated] = await db.update(streams).set({ currentViewers: next2 }).where(eq5(streams.id, id)).returning();
       return res.json({ viewerCount: updated.currentViewers, currentViewers: updated.currentViewers });
     }
-    const [live] = await db.select().from(liveStreams).where(eq2(liveStreams.id, id));
+    const [live] = await db.select().from(liveStreams).where(eq5(liveStreams.id, id));
     if (!live) return res.status(404).json({ error: "Not found" });
     const next = Math.max(0, live.viewers - 1);
-    await db.update(liveStreams).set({ viewers: next }).where(eq2(liveStreams.id, id));
+    await db.update(liveStreams).set({ viewers: next }).where(eq5(liveStreams.id, id));
     return res.json({ viewerCount: next, currentViewers: next });
   });
   app2.post("/api/jukebox/:communityId/add", async (req, res) => {
     const communityId = paramNum(req, "communityId");
     const { videoId, videoTitle, videoThumbnail, videoDurationSecs, addedBy, addedByAvatar, youtubeId } = req.body;
-    const existing = await db.select().from(jukeboxQueue).where(eq2(jukeboxQueue.communityId, communityId)).orderBy(desc(jukeboxQueue.position));
+    const authUser = await getAuthUser(req);
+    const existing = await db.select().from(jukeboxQueue).where(eq5(jukeboxQueue.communityId, communityId)).orderBy(desc(jukeboxQueue.position));
     const nextPos = existing.length > 0 ? existing[0].position + 1 : 1;
     const [item] = await db.insert(jukeboxQueue).values({
       communityId,
@@ -5656,12 +6853,13 @@ data: ${data}
       videoThumbnail,
       videoDurationSecs: videoDurationSecs ?? 0,
       youtubeId: youtubeId ?? null,
-      addedBy: addedBy ?? "\u3042\u306A\u305F",
+      addedBy: addedBy ?? "You",
       addedByAvatar,
+      addedByUserId: authUser?.id ?? null,
       position: nextPos,
       isPlayed: false
     }).returning();
-    const [stateRow] = await db.select().from(jukeboxState).where(eq2(jukeboxState.communityId, communityId));
+    const [stateRow] = await db.select().from(jukeboxState).where(eq5(jukeboxState.communityId, communityId));
     const isCurrentlyPlaying = !!(stateRow?.isPlaying && (stateRow.currentVideoId != null || stateRow.currentVideoYoutubeId));
     const hasUnplayed = existing.some((q) => !q.isPlayed);
     if (!hasUnplayed && !isCurrentlyPlaying) {
@@ -5690,13 +6888,13 @@ data: ${data}
         }
       });
     }
-    const updatedQueue = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position));
+    const updatedQueue = await db.select().from(jukeboxQueue).where(and5(eq5(jukeboxQueue.communityId, communityId), eq5(jukeboxQueue.isPlayed, false))).orderBy(asc3(jukeboxQueue.position));
     await publishJukeboxEvent(communityId, {
       type: "queue_update",
       data: updatedQueue
     });
     if (!hasUnplayed && !isCurrentlyPlaying) {
-      const [newState] = await db.select().from(jukeboxState).where(eq2(jukeboxState.communityId, communityId));
+      const [newState] = await db.select().from(jukeboxState).where(eq5(jukeboxState.communityId, communityId));
       if (newState) {
         await publishJukeboxEvent(communityId, {
           type: "state_update",
@@ -5708,8 +6906,8 @@ data: ${data}
   });
   app2.post("/api/jukebox/:communityId/next", async (req, res) => {
     const communityId = paramNum(req, "communityId");
-    const [stateRaw] = await db.select().from(jukeboxState).where(eq2(jukeboxState.communityId, communityId));
-    const queue = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position));
+    const [stateRaw] = await db.select().from(jukeboxState).where(eq5(jukeboxState.communityId, communityId));
+    const queue = await db.select().from(jukeboxQueue).where(and5(eq5(jukeboxQueue.communityId, communityId), eq5(jukeboxQueue.isPlayed, false))).orderBy(asc3(jukeboxQueue.position));
     let currentItemId = null;
     if (stateRaw?.currentVideoId != null || stateRaw?.currentVideoYoutubeId) {
       const currentItem = queue.find(
@@ -5717,7 +6915,7 @@ data: ${data}
       );
       if (currentItem) {
         currentItemId = currentItem.id;
-        await db.update(jukeboxQueue).set({ isPlayed: true }).where(eq2(jukeboxQueue.id, currentItem.id));
+        await db.update(jukeboxQueue).set({ isPlayed: true }).where(eq5(jukeboxQueue.id, currentItem.id));
       }
     }
     const next = queue.find((q) => !q.isPlayed && q.id !== currentItemId);
@@ -5754,16 +6952,16 @@ data: ${data}
         currentVideoDurationSecs: 0,
         currentVideoYoutubeId: null,
         isPlaying: false
-      }).where(eq2(jukeboxState.communityId, communityId));
+      }).where(eq5(jukeboxState.communityId, communityId));
     }
-    const [latestState] = await db.select().from(jukeboxState).where(eq2(jukeboxState.communityId, communityId));
+    const [latestState] = await db.select().from(jukeboxState).where(eq5(jukeboxState.communityId, communityId));
     if (latestState) {
       await publishJukeboxEvent(communityId, {
         type: "state_update",
         data: latestState
       });
     }
-    const latestQueue = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.isPlayed, false))).orderBy(asc2(jukeboxQueue.position));
+    const latestQueue = await db.select().from(jukeboxQueue).where(and5(eq5(jukeboxQueue.communityId, communityId), eq5(jukeboxQueue.isPlayed, false))).orderBy(asc3(jukeboxQueue.position));
     await publishJukeboxEvent(communityId, {
       type: "queue_update",
       data: latestQueue
@@ -5774,27 +6972,27 @@ data: ${data}
     const communityId = paramNum(req, "communityId");
     const { durationSecs } = req.body;
     if (!durationSecs || typeof durationSecs !== "number" || durationSecs <= 0) {
-      return res.status(400).json({ error: "durationSecs \u306F\u6B63\u306E\u6570\u5024\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059" });
+      return res.status(400).json({ error: "durationSecs must be a positive number" });
     }
-    const [current] = await db.select({ currentVideoDurationSecs: jukeboxState.currentVideoDurationSecs }).from(jukeboxState).where(eq2(jukeboxState.communityId, communityId));
+    const [current] = await db.select({ currentVideoDurationSecs: jukeboxState.currentVideoDurationSecs }).from(jukeboxState).where(eq5(jukeboxState.communityId, communityId));
     if (!current) return res.status(404).json({ error: "jukebox state not found" });
     if (current.currentVideoDurationSecs && current.currentVideoDurationSecs > 0) {
       return res.json({ ok: true, updated: false });
     }
-    await db.update(jukeboxState).set({ currentVideoDurationSecs: durationSecs }).where(eq2(jukeboxState.communityId, communityId));
+    await db.update(jukeboxState).set({ currentVideoDurationSecs: durationSecs }).where(eq5(jukeboxState.communityId, communityId));
     res.json({ ok: true, updated: true });
   });
   app2.post("/api/jukebox/:communityId/chat", async (req, res) => {
     const communityId = paramNum(req, "communityId");
     const { username, avatar, message } = req.body;
-    if (!message || !message.trim()) return res.status(400).json({ error: "\u30E1\u30C3\u30BB\u30FC\u30B8\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!message || !message.trim()) return res.status(400).json({ error: "Please enter a message" });
     const modResult = await moderateContent(message);
-    if (!modResult.allowed) {
-      return res.status(400).json({ error: modResult.reason ?? "\u4E0D\u9069\u5207\u306A\u30B3\u30F3\u30C6\u30F3\u30C4\u304C\u542B\u307E\u308C\u3066\u3044\u307E\u3059" });
+    if (modResult.allowed === false) {
+      return res.status(400).json({ error: modResult.reason ?? "This content is not allowed" });
     }
     const [msg] = await db.insert(jukeboxChat).values({
       communityId,
-      username: username ?? "\u3042\u306A\u305F",
+      username: username ?? "You",
       avatar,
       message
     }).returning();
@@ -5808,9 +7006,9 @@ data: ${data}
     const communityId = paramNum(req, "communityId");
     const itemId = paramNum(req, "itemId");
     const addedBy = req.query.addedBy || req.body?.addedBy || null;
-    const [item] = await db.select().from(jukeboxQueue).where(and2(eq2(jukeboxQueue.communityId, communityId), eq2(jukeboxQueue.id, itemId)));
+    const [item] = await db.select().from(jukeboxQueue).where(and5(eq5(jukeboxQueue.communityId, communityId), eq5(jukeboxQueue.id, itemId)));
     if (!item) return res.status(404).json({ error: "Item not found" });
-    const [stateRow] = await db.select().from(jukeboxState).where(eq2(jukeboxState.communityId, communityId));
+    const [stateRow] = await db.select().from(jukeboxState).where(eq5(jukeboxState.communityId, communityId));
     const isCurrentlyPlaying = stateRow?.isPlaying && (item.youtubeId && item.youtubeId === stateRow.currentVideoYoutubeId || item.videoId != null && item.videoId === stateRow.currentVideoId);
     if (isCurrentlyPlaying) {
       return res.status(400).json({ error: "Cannot remove the currently playing track" });
@@ -5818,13 +7016,13 @@ data: ${data}
     if (addedBy && item.addedBy !== addedBy) {
       return res.status(403).json({ error: "You can only remove your own requests" });
     }
-    await db.delete(jukeboxQueue).where(eq2(jukeboxQueue.id, itemId));
+    await db.delete(jukeboxQueue).where(eq5(jukeboxQueue.id, itemId));
     res.json({ ok: true });
   });
   app2.get("/api/mentor/session/:id", async (req, res) => {
     const id = paramNum(req, "id");
     if (!id) return res.status(400).json({ error: "invalid_session_id" });
-    const [session] = await db.select().from(mentorSessions).where(and2(eq2(mentorSessions.id, id), eq2(mentorSessions.isActive, true)));
+    const [session] = await db.select().from(mentorSessions).where(and5(eq5(mentorSessions.id, id), eq5(mentorSessions.isActive, true)));
     if (!session) return res.status(404).json({ error: "session_not_found" });
     return res.json({
       ...session,
@@ -5834,7 +7032,7 @@ data: ${data}
   app2.get("/api/availability/:userId", async (req, res) => {
     const userId = paramNum(req, "userId");
     if (!userId) return res.status(400).json({ error: "invalid_user_id" });
-    const rows = await db.select().from(liverAvailability).where(eq2(liverAvailability.liverId, userId)).orderBy(asc2(liverAvailability.date), asc2(liverAvailability.startTime));
+    const rows = await db.select().from(liverAvailability).where(eq5(liverAvailability.liverId, userId)).orderBy(asc3(liverAvailability.date), asc3(liverAvailability.startTime));
     return res.json(rows);
   });
   app2.post("/api/mentor/bookings", async (req, res) => {
@@ -5844,7 +7042,7 @@ data: ${data}
     const sid = typeof sessionId === "number" && Number.isFinite(sessionId) ? sessionId : parseInt(String(sessionId ?? ""), 10);
     if (!sid) return res.status(400).json({ error: "session_not_found" });
     if (!scheduledAt) return res.status(400).json({ error: "scheduled_at_required" });
-    const [sessionRow] = await db.select().from(mentorSessions).where(and2(eq2(mentorSessions.id, sid), eq2(mentorSessions.isActive, true)));
+    const [sessionRow] = await db.select().from(mentorSessions).where(and5(eq5(mentorSessions.id, sid), eq5(mentorSessions.isActive, true)));
     if (!sessionRow) return res.status(404).json({ error: "session_not_found" });
     const parsedPrice = Number(sessionRow.price);
     if (!Number.isInteger(parsedPrice) || parsedPrice <= 0) {
@@ -5856,7 +7054,7 @@ data: ${data}
       if (!parsedSlotId || !Number.isFinite(parsedSlotId)) {
         return res.status(400).json({ error: "invalid_slot_id" });
       }
-      const [slot] = await db.select().from(liverAvailability).where(and2(eq2(liverAvailability.id, parsedSlotId), eq2(liverAvailability.liverId, sessionRow.creatorId)));
+      const [slot] = await db.select().from(liverAvailability).where(and5(eq5(liverAvailability.id, parsedSlotId), eq5(liverAvailability.liverId, sessionRow.creatorId)));
       if (!slot) return res.status(404).json({ error: "slot_not_found" });
       if (slot.bookedSlots >= slot.maxSlots) return res.status(409).json({ error: "slot_full" });
     }
@@ -5864,7 +7062,7 @@ data: ${data}
       let bookingId = 0;
       await db.transaction(async (tx) => {
         const userId = String(user.id);
-        const balRows = await tx.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
+        const balRows = await tx.select().from(ticketBalances).where(eq5(ticketBalances.userId, userId)).limit(1);
         const currentBalance = balRows[0]?.balance ?? 0;
         if (currentBalance < parsedPrice) {
           const err = new Error("INSUFFICIENT_TICKETS");
@@ -5873,9 +7071,9 @@ data: ${data}
         }
         if (parsedSlotId != null) {
           const slotRows = await tx.update(liverAvailability).set({ bookedSlots: sql3`${liverAvailability.bookedSlots} + 1` }).where(
-            and2(
-              eq2(liverAvailability.id, parsedSlotId),
-              eq2(liverAvailability.liverId, sessionRow.creatorId),
+            and5(
+              eq5(liverAvailability.id, parsedSlotId),
+              eq5(liverAvailability.liverId, sessionRow.creatorId),
               sql3`${liverAvailability.bookedSlots} < ${liverAvailability.maxSlots}`
             )
           ).returning({ id: liverAvailability.id });
@@ -5887,7 +7085,7 @@ data: ${data}
         if (balRows.length === 0) {
           await tx.insert(ticketBalances).values({ userId, balance: newBalance });
         } else {
-          await tx.update(ticketBalances).set({ balance: newBalance, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
+          await tx.update(ticketBalances).set({ balance: newBalance, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(ticketBalances.userId, userId));
         }
         const [booking] = await tx.insert(mentorBookings).values({
           sessionId: sid,
@@ -5912,7 +7110,7 @@ data: ${data}
           description: `Mentor session booking ${sid}`
         }).returning({ id: ticketTransactions.id });
         const walletId = await getOrCreateUserWallet(sessionRow.creatorId, tx);
-        const [creatorRow] = await tx.select().from(creators).where(eq2(creators.userId, sessionRow.creatorId)).limit(1);
+        const creatorRow = await creatorRowForUserId(tx, sessionRow.creatorId);
         await recordRevenue(
           walletId,
           sessionRow.creatorId,
@@ -5949,7 +7147,7 @@ data: ${data}
   });
   app2.get("/api/mentor/:streamId/bookings", async (req, res) => {
     const streamId = paramNum(req, "streamId");
-    const rows = await db.select().from(mentorBookings).where(eq2(mentorBookings.streamId, streamId)).orderBy(asc2(mentorBookings.queuePosition));
+    const rows = await db.select().from(mentorBookings).where(eq5(mentorBookings.streamId, streamId)).orderBy(asc3(mentorBookings.queuePosition));
     res.json(rows);
   });
   app2.get("/api/mentor/:streamId/queue-count", async (req, res) => {
@@ -5965,9 +7163,9 @@ data: ${data}
       const stripe = await getUncachableStripeClient();
       const [{ total }] = await db.select({ total: count() }).from(mentorBookings).where(sql3`stream_id = ${streamId} AND status IN ('paid','waiting','notified')`);
       const queuePos = Number(total) + 1;
-      const [stream] = await db.select().from(liveStreams).where(eq2(liveStreams.id, streamId));
-      const streamTitle = stream?.title ?? "\u30C4\u30FC\u30B7\u30E7\u30C3\u30C8\u64AE\u5F71";
-      const creatorName = stream?.creator ?? "\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC";
+      const [stream] = await db.select().from(liveStreams).where(eq5(liveStreams.id, streamId));
+      const streamTitle = stream?.title ?? "Two-shot photo session";
+      const creatorName = stream?.creator ?? "Creator";
       const baseUrl = "https://rawstock.live";
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ["card"],
@@ -5977,8 +7175,8 @@ data: ${data}
               currency: "jpy",
               unit_amount: price,
               product_data: {
-                name: `\u30C4\u30FC\u30B7\u30E7\u30C3\u30C8\u64AE\u5F71 with ${creatorName}`,
-                description: `${streamTitle} | \u6574\u7406\u756A\u53F7${queuePos}\u756A`
+                name: `Two-shot photo session with ${creatorName}`,
+                description: `${streamTitle} | Queue #${queuePos}`
               }
             },
             quantity: 1
@@ -6022,7 +7220,7 @@ data: ${data}
       if (session.payment_status !== "paid") {
         return res.status(400).json({ error: "Payment not completed" });
       }
-      const [booking] = await db.select().from(mentorBookings).where(eq2(mentorBookings.stripeSessionId, sessionId));
+      const [booking] = await db.select().from(mentorBookings).where(eq5(mentorBookings.stripeSessionId, sessionId));
       if (!booking) return res.status(404).json({ error: "Booking not found" });
       if (booking.status === "paid") return res.json({ ok: true, booking });
       const metadata = session.metadata ?? {};
@@ -6030,16 +7228,16 @@ data: ${data}
       const slotId = slotIdRaw && slotIdRaw.trim() ? parseInt(slotIdRaw, 10) : NaN;
       let mentorSessionForBooking = null;
       if (booking.sessionId != null) {
-        const [mentorSession] = await db.select().from(mentorSessions).where(eq2(mentorSessions.id, booking.sessionId));
+        const [mentorSession] = await db.select().from(mentorSessions).where(eq5(mentorSessions.id, booking.sessionId));
         mentorSessionForBooking = mentorSession ?? null;
       }
       if (booking.sessionId != null && Number.isFinite(slotId) && slotId > 0) {
         const creatorId = mentorSessionForBooking?.creatorId;
         if (!creatorId) return res.status(404).json({ error: "session_not_found" });
         const updatedSlots = await db.update(liverAvailability).set({ bookedSlots: sql3`${liverAvailability.bookedSlots} + 1` }).where(
-          and2(
-            eq2(liverAvailability.id, slotId),
-            eq2(liverAvailability.liverId, creatorId),
+          and5(
+            eq5(liverAvailability.id, slotId),
+            eq5(liverAvailability.liverId, creatorId),
             sql3`${liverAvailability.bookedSlots} < ${liverAvailability.maxSlots}`
           )
         ).returning();
@@ -6050,23 +7248,23 @@ data: ${data}
       await db.update(mentorBookings).set({
         status: "paid",
         stripePaymentIntentId: session.payment_intent
-      }).where(eq2(mentorBookings.stripeSessionId, sessionId));
+      }).where(eq5(mentorBookings.stripeSessionId, sessionId));
       if (booking.sessionId != null) {
         if (mentorSessionForBooking) {
-          const [creatorUser] = await db.select().from(users).where(eq2(users.id, mentorSessionForBooking.creatorId));
+          const [creatorUser] = await db.select().from(users).where(eq5(users.id, mentorSessionForBooking.creatorId));
           if (creatorUser) {
             const walletId = await getOrCreateUserWallet(creatorUser.id);
-            const [creatorRow] = await db.select().from(creators).where(eq2(creators.name, creatorUser.displayName));
+            const [creatorRow] = await db.select().from(creators).where(eq5(creators.name, creatorUser.displayName));
             await recordRevenue(walletId, creatorUser.id, creatorRow?.id ?? null, booking.price, "mentor", String(booking.id));
           }
         }
-      } else {
-        const [stream] = await db.select().from(liveStreams).where(eq2(liveStreams.id, booking.streamId));
+      } else if (booking.streamId != null) {
+        const [stream] = await db.select().from(liveStreams).where(eq5(liveStreams.id, booking.streamId));
         if (stream) {
-          const [creatorUser] = await db.select().from(users).where(eq2(users.displayName, stream.creator));
+          const [creatorUser] = await db.select().from(users).where(eq5(users.displayName, stream.creator));
           if (creatorUser) {
             const walletId = await getOrCreateUserWallet(creatorUser.id);
-            const [creatorRow] = await db.select().from(creators).where(eq2(creators.name, stream.creator));
+            const [creatorRow] = await db.select().from(creators).where(eq5(creators.name, stream.creator));
             await recordRevenue(walletId, creatorUser.id, creatorRow?.id ?? null, booking.price, "mentor", String(booking.id));
           }
         }
@@ -6078,12 +7276,12 @@ data: ${data}
   });
   app2.post("/api/mentor/:bookingId/notify", async (req, res) => {
     const bookingId = paramNum(req, "bookingId");
-    await db.update(mentorBookings).set({ status: "notified", notifiedAt: /* @__PURE__ */ new Date() }).where(eq2(mentorBookings.id, bookingId));
+    await db.update(mentorBookings).set({ status: "notified", notifiedAt: /* @__PURE__ */ new Date() }).where(eq5(mentorBookings.id, bookingId));
     res.json({ ok: true });
   });
   app2.post("/api/mentor/:bookingId/complete", async (req, res) => {
     const bookingId = paramNum(req, "bookingId");
-    await db.update(mentorBookings).set({ status: "completed", completedAt: /* @__PURE__ */ new Date() }).where(eq2(mentorBookings.id, bookingId));
+    await db.update(mentorBookings).set({ status: "completed", completedAt: /* @__PURE__ */ new Date() }).where(eq5(mentorBookings.id, bookingId));
     res.json({ ok: true });
   });
   app2.post("/api/mentor/:bookingId/cancel", async (req, res) => {
@@ -6092,15 +7290,15 @@ data: ${data}
     await db.update(mentorBookings).set({
       status: "cancelled",
       cancelledAt: /* @__PURE__ */ new Date(),
-      cancelReason: reason ?? "\u30E6\u30FC\u30B6\u30FC\u30AD\u30E3\u30F3\u30BB\u30EB",
+      cancelReason: reason ?? "User cancelled",
       refundable: !isSelfCancel
-    }).where(eq2(mentorBookings.id, bookingId));
+    }).where(eq5(mentorBookings.id, bookingId));
     res.json({ ok: true });
   });
   app2.get("/api/mentor/my-sessions", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const rows = await db.select().from(mentorSessions).where(eq2(mentorSessions.creatorId, user.id)).orderBy(desc(mentorSessions.createdAt));
+    const rows = await db.select().from(mentorSessions).where(eq5(mentorSessions.creatorId, user.id)).orderBy(desc(mentorSessions.createdAt));
     res.json(rows);
   });
   app2.post("/api/mentor/sessions", async (req, res) => {
@@ -6124,7 +7322,7 @@ data: ${data}
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const id = paramNum(req, "id");
-    const [existing] = await db.select().from(mentorSessions).where(eq2(mentorSessions.id, id));
+    const [existing] = await db.select().from(mentorSessions).where(eq5(mentorSessions.id, id));
     if (!existing || existing.creatorId !== user.id) return res.status(403).json({ error: "Forbidden" });
     const { title, category, description, price, duration, maxParticipants } = req.body;
     const [row] = await db.update(mentorSessions).set({
@@ -6135,25 +7333,25 @@ data: ${data}
       duration: duration ?? existing.duration,
       maxParticipants: maxParticipants ?? existing.maxParticipants,
       updatedAt: /* @__PURE__ */ new Date()
-    }).where(eq2(mentorSessions.id, id)).returning();
+    }).where(eq5(mentorSessions.id, id)).returning();
     res.json(row);
   });
   app2.delete("/api/mentor/sessions/:id", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const id = paramNum(req, "id");
-    const [existing] = await db.select().from(mentorSessions).where(eq2(mentorSessions.id, id));
+    const [existing] = await db.select().from(mentorSessions).where(eq5(mentorSessions.id, id));
     if (!existing || existing.creatorId !== user.id) return res.status(403).json({ error: "Forbidden" });
-    await db.update(mentorSessions).set({ isActive: false, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(mentorSessions.id, id));
+    await db.update(mentorSessions).set({ isActive: false, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(mentorSessions.id, id));
     res.json({ ok: true });
   });
   app2.get("/api/mentor/creator-bookings", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const mySessions = await db.select({ id: mentorSessions.id }).from(mentorSessions).where(eq2(mentorSessions.creatorId, user.id));
+    const mySessions = await db.select({ id: mentorSessions.id }).from(mentorSessions).where(eq5(mentorSessions.creatorId, user.id));
     if (mySessions.length === 0) return res.json([]);
     const sessionIds = mySessions.map((s) => s.id);
-    const bookingRows = await db.select().from(mentorBookings).where(and2(
+    const bookingRows = await db.select().from(mentorBookings).where(and5(
       inArray(mentorBookings.sessionId, sessionIds),
       sql3`${mentorBookings.status} NOT IN ('cancelled')`
     )).orderBy(desc(mentorBookings.createdAt));
@@ -6170,7 +7368,7 @@ data: ${data}
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const bookingId = paramNum(req, "bookingId");
-    const [booking] = await db.select().from(mentorBookings).where(eq2(mentorBookings.id, bookingId));
+    const [booking] = await db.select().from(mentorBookings).where(eq5(mentorBookings.id, bookingId));
     if (!booking) return res.status(404).json({ error: "Booking not found" });
     if (booking.whipUrl) {
       return res.json({ whipUrl: booking.whipUrl, whepUrl: booking.whepUrl });
@@ -6178,6 +7376,10 @@ data: ${data}
     if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_STREAM_TOKEN) {
       return res.status(503).json({ error: "Cloudflare Stream not configured" });
     }
+    console.log("[Cloudflare Stream] creating mentor live_input with env:", {
+      accountId: maskSecretPrefix(CLOUDFLARE_ACCOUNT_ID),
+      streamToken: maskSecretPrefix(CLOUDFLARE_STREAM_TOKEN)
+    });
     const cfRes = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/stream/live_inputs`,
       {
@@ -6190,19 +7392,28 @@ data: ${data}
       }
     );
     if (!cfRes.ok) {
-      const err = await cfRes.text();
-      return res.status(502).json({ error: `Cloudflare error: ${err}` });
+      let cfErrorBody = null;
+      try {
+        cfErrorBody = await cfRes.json();
+      } catch {
+        cfErrorBody = await cfRes.text();
+      }
+      return res.status(502).json({
+        error: "Cloudflare live input creation failed",
+        status: cfRes.status,
+        cloudflareResponse: cfErrorBody
+      });
     }
     const cfData = await cfRes.json();
     const { uid, webRTC, webRTCPlayback } = cfData.result;
     const whipUrl = webRTC.url;
     const whepUrl = webRTCPlayback.url;
-    await db.update(mentorBookings).set({ status: "in_progress", whipUrl, whepUrl, cfStreamUid: uid }).where(eq2(mentorBookings.id, bookingId));
+    await db.update(mentorBookings).set({ status: "in_progress", whipUrl, whepUrl, cfStreamUid: uid }).where(eq5(mentorBookings.id, bookingId));
     res.json({ whipUrl, whepUrl });
   });
   app2.get("/api/mentor/bookings/:bookingId/join", async (req, res) => {
     const bookingId = paramNum(req, "bookingId");
-    const [booking] = await db.select().from(mentorBookings).where(eq2(mentorBookings.id, bookingId));
+    const [booking] = await db.select().from(mentorBookings).where(eq5(mentorBookings.id, bookingId));
     if (!booking) return res.status(404).json({ error: "Booking not found" });
     if (!booking.whepUrl) return res.status(409).json({ error: "Session not started yet" });
     res.json({ whepUrl: booking.whepUrl });
@@ -6211,7 +7422,7 @@ data: ${data}
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const bookingId = paramNum(req, "bookingId");
-    const [booking] = await db.select().from(mentorBookings).where(eq2(mentorBookings.id, bookingId));
+    const [booking] = await db.select().from(mentorBookings).where(eq5(mentorBookings.id, bookingId));
     if (!booking) return res.status(404).json({ error: "Booking not found" });
     if (booking.cfStreamUid && CLOUDFLARE_ACCOUNT_ID && CLOUDFLARE_STREAM_TOKEN) {
       await fetch(
@@ -6223,58 +7434,59 @@ data: ${data}
       ).catch(() => {
       });
     }
-    await db.update(mentorBookings).set({ status: "completed", completedAt: /* @__PURE__ */ new Date() }).where(eq2(mentorBookings.id, bookingId));
+    await db.update(mentorBookings).set({ status: "completed", completedAt: /* @__PURE__ */ new Date() }).where(eq5(mentorBookings.id, bookingId));
     res.json({ ok: true });
   });
   app2.post("/api/revenue/record", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u304C\u5FC5\u8981\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Sign-in required" });
     const { amount, source, referenceId } = req.body;
-    if (!amount || amount <= 0) return res.status(400).json({ error: "amount \u306F\u6B63\u306E\u6570\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!amount || amount <= 0) return res.status(400).json({ error: "amount must be a positive number" });
     const src = source ?? "tip";
     if (!["tip", "paid_live", "mentor"].includes(src)) {
-      return res.status(400).json({ error: "source \u306F tip / paid_live / mentor \u306E\u3044\u305A\u308C\u304B\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "source must be tip, paid_live, or mentor" });
     }
     const walletId = await getOrCreateUserWallet(user.id);
-    const [creatorRow] = await db.select().from(creators).where(eq2(creators.name, user.displayName));
+    const [creatorRow] = await db.select().from(creators).where(eq5(creators.name, user.displayName));
     await recordRevenue(walletId, user.id, creatorRow?.id ?? null, amount, src, referenceId ?? null);
     res.status(201).json({ ok: true, amount, source: src });
   });
   app2.get("/api/revenue/summary", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u304C\u5FC5\u8981\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Sign-in required" });
     const userId = `user-${user.id}`;
-    const earningRows = await db.select().from(earnings).where(eq2(earnings.userId, userId));
-    const withdrawalRows = await db.select().from(withdrawals).where(eq2(withdrawals.userId, userId));
+    const earningRows = await db.select().from(earnings).where(eq5(earnings.userId, userId));
+    const withdrawalRows = await db.select().from(withdrawals).where(eq5(withdrawals.userId, userId));
     const totalEarned = earningRows.reduce((s, e) => s + e.netAmount, 0);
     const totalWithdrawn = withdrawalRows.filter((w) => w.status === "completed").reduce((s, w) => s + w.amount, 0);
     const pendingWithdrawal = withdrawalRows.filter((w) => w.status === "pending" || w.status === "processing").reduce((s, w) => s + w.amount, 0);
     const available = totalEarned - totalWithdrawn - pendingWithdrawal;
+    const withdrawalFeePolicy = getWithdrawalFeePolicy();
     const now = /* @__PURE__ */ new Date();
     const monthly = [];
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const label = `${d.getMonth() + 1}\u6708`;
+      const label = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       const monthTotal = earningRows.filter((e) => {
         const ed = new Date(e.createdAt);
         return ed.getFullYear() === d.getFullYear() && ed.getMonth() === d.getMonth();
       }).reduce((s, e) => s + e.netAmount, 0);
       monthly.push({ month: label, amount: monthTotal });
     }
-    res.json({ totalEarned, totalWithdrawn, pendingWithdrawal, available, monthly });
+    res.json({ totalEarned, totalWithdrawn, pendingWithdrawal, available, monthly, withdrawalFeePolicy });
   });
   app2.get("/api/revenue/earnings", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u304C\u5FC5\u8981\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Sign-in required" });
     const userId = `user-${user.id}`;
-    const rows = await db.select().from(earnings).where(eq2(earnings.userId, userId)).orderBy(desc(earnings.createdAt));
+    const rows = await db.select().from(earnings).where(eq5(earnings.userId, userId)).orderBy(desc(earnings.createdAt));
     res.json(rows);
   });
   app2.get("/api/revenue/monthly-rank", async (req, res) => {
     const month = req.query.month ?? "";
     const match = /^(\d{4})-(\d{2})$/.exec(month);
     if (!match) {
-      return res.status(400).json({ error: "month \u306F YYYY-MM \u5F62\u5F0F\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "month must be in YYYY-MM format" });
     }
     const kind = queryStr(req, "kind") || "overall";
     if (queryStr(req, "refresh") === "1") {
@@ -6289,9 +7501,9 @@ data: ${data}
   });
   app2.get("/api/revenue/withdrawals", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u304C\u5FC5\u8981\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Sign-in required" });
     const userId = `user-${user.id}`;
-    const rows = await db.select().from(withdrawals).where(eq2(withdrawals.userId, userId)).orderBy(desc(withdrawals.requestedAt));
+    const rows = await db.select().from(withdrawals).where(eq5(withdrawals.userId, userId)).orderBy(desc(withdrawals.requestedAt));
     res.json(rows);
   });
   app2.post("/api/revenue/withdraw", async (req, res) => {
@@ -6313,36 +7525,55 @@ data: ${data}
     if (!connectAccount?.charges_enabled) {
       return res.status(400).json({ error: "Stripe Connect account charges are not enabled" });
     }
-    const earningRows = await db.select().from(earnings).where(eq2(earnings.userId, userId));
-    const withdrawalRows = await db.select().from(withdrawals).where(eq2(withdrawals.userId, userId));
+    const earningRows = await db.select().from(earnings).where(eq5(earnings.userId, userId));
+    const withdrawalRows = await db.select().from(withdrawals).where(eq5(withdrawals.userId, userId));
     const totalEarned = earningRows.reduce((s, e) => s + e.netAmount, 0);
     const totalUsed = withdrawalRows.filter((w) => w.status !== "failed").reduce((s, w) => s + w.amount, 0);
     const available = totalEarned - totalUsed;
     if (amountUsdCents > available) {
       return res.status(400).json({ error: "Requested amount exceeds available balance" });
     }
+    const { feeUsdCents, netTransferUsdCents } = computeWithdrawalFeeBreakdown2(amountUsdCents);
+    const policy = getWithdrawalFeePolicy();
+    if (netTransferUsdCents < policy.minNetTransferUsdCents) {
+      return res.status(400).json({
+        error: "After payout fees, the transfer would be below the minimum. Increase the withdrawal amount.",
+        minNetTransferUsdCents: policy.minNetTransferUsdCents,
+        feeUsdCents,
+        netTransferUsdCents
+      });
+    }
     const [row] = await db.insert(withdrawals).values({ userId, amount: amountUsdCents, bankName, bankBranch, accountType, accountNumber, accountName, status: "pending" }).returning();
     try {
       const { transferId } = await createTransferToConnectedAccount({
-        amountUsdCents,
+        amountUsdCents: netTransferUsdCents,
         destinationAccountId: user.stripeConnectId,
         metadata: {
           withdrawalId: String(row.id),
-          userId
+          userId,
+          grossUsdCents: String(amountUsdCents),
+          feeUsdCents: String(feeUsdCents)
         }
       });
+      const feeNote = feeUsdCents > 0 ? `feeUsdCents=${feeUsdCents} netTransferUsdCents=${netTransferUsdCents} ` : "";
       const [completedRow] = await db.update(withdrawals).set({
         status: "completed",
         processedAt: /* @__PURE__ */ new Date(),
-        note: `Stripe transfer completed: ${transferId}`
-      }).where(eq2(withdrawals.id, row.id)).returning();
-      return res.json(completedRow);
+        note: `${feeNote}Stripe transfer completed: ${transferId}`
+      }).where(eq5(withdrawals.id, row.id)).returning();
+      return res.json({
+        ...completedRow,
+        grossWithdrawUsdCents: amountUsdCents,
+        feeUsdCents,
+        netTransferUsdCents,
+        stripeTransferId: transferId
+      });
     } catch (error) {
       await db.update(withdrawals).set({
         status: "failed",
         processedAt: /* @__PURE__ */ new Date(),
         note: `Stripe transfer failed: ${error?.message ?? "unknown_error"}`
-      }).where(eq2(withdrawals.id, row.id));
+      }).where(eq5(withdrawals.id, row.id));
       return res.status(500).json({ error: error?.message ?? "Stripe transfer failed" });
     }
   });
@@ -6359,9 +7590,9 @@ data: ${data}
     const date = queryStr(req, "date");
     const rankingType = queryStr(req, "rankingType") || "overall";
     const month = queryStr(req, "month") || getYearMonth();
-    let rows = await db.select().from(creators).orderBy(asc2(creators.rank));
+    let rows = await db.select().from(creators).orderBy(asc3(creators.rank));
     if (rankingType === "overall" || rankingType === "paid_live") {
-      const scores = await db.select().from(creatorMonthlyScores).where(eq2(creatorMonthlyScores.yearMonth, month));
+      const scores = await db.select().from(creatorMonthlyScores).where(eq5(creatorMonthlyScores.yearMonth, month));
       const rankMap = /* @__PURE__ */ new Map();
       scores.forEach((s) => {
         rankMap.set(
@@ -6386,7 +7617,7 @@ data: ${data}
       rows = rows.filter((r) => r.satisfactionScore >= ms);
     }
     if (date) {
-      const avail = await db.select().from(liverAvailability).where(eq2(liverAvailability.date, date));
+      const avail = await db.select().from(liverAvailability).where(eq5(liverAvailability.date, date));
       const availIds = new Set(avail.map((a) => a.liverId));
       rows = rows.filter((r) => availIds.has(r.id));
     }
@@ -6394,24 +7625,24 @@ data: ${data}
   });
   app2.get("/api/livers/:id", async (req, res) => {
     const id = paramNum(req, "id");
-    const [liver] = await db.select().from(creators).where(eq2(creators.id, id));
+    const [liver] = await db.select().from(creators).where(eq5(creators.id, id));
     if (!liver) return res.status(404).json({ error: "Not found" });
     res.json(liver);
   });
   app2.get("/api/livers/me/level-progress", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u304C\u5FC5\u8981\u3067\u3059" });
-    const [creator] = await db.select().from(creators).where(eq2(creators.name, user.displayName));
+    if (!user) return res.status(401).json({ error: "Sign-in required" });
+    const [creator] = await db.select().from(creators).where(eq5(creators.name, user.displayName));
     if (!creator) {
-      return res.status(404).json({ error: "\u914D\u4FE1\u8005\u767B\u9332\u304C\u5FC5\u8981\u3067\u3059" });
+      return res.status(404).json({ error: "Creator registration required" });
     }
     const month = queryStr(req, "month") || getYearMonth();
     await ensureDefaultLevelThresholds();
-    const [score] = await db.select().from(creatorMonthlyScores).where(and2(eq2(creatorMonthlyScores.creatorId, creator.id), eq2(creatorMonthlyScores.yearMonth, month)));
+    const [score] = await db.select().from(creatorMonthlyScores).where(and5(eq5(creatorMonthlyScores.creatorId, creator.id), eq5(creatorMonthlyScores.yearMonth, month)));
     const tipGrossThisMonth = score?.tipGross ?? 0;
     const streamCountThisMonth = score?.streamCountMonthly ?? 0;
     const level = await syncCreatorLevelFromMonthlyProgress(creator.id, month);
-    const thresholds = await db.select().from(creatorLevelThresholds).orderBy(asc2(creatorLevelThresholds.level));
+    const thresholds = await db.select().from(creatorLevelThresholds).orderBy(asc3(creatorLevelThresholds.level));
     const current = thresholds.find((t) => t.level === level) ?? thresholds[0];
     const next = thresholds.find((t) => t.level === level + 1) ?? current;
     const requiredTipGross = next?.requiredTipGross ?? 0;
@@ -6434,16 +7665,16 @@ data: ${data}
   });
   app2.post("/api/livers/me/streams/record", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u30ED\u30B0\u30A4\u30F3\u304C\u5FC5\u8981\u3067\u3059" });
-    const [creator] = await db.select().from(creators).where(eq2(creators.name, user.displayName));
-    if (!creator) return res.status(404).json({ error: "\u914D\u4FE1\u8005\u767B\u9332\u304C\u5FC5\u8981\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Sign-in required" });
+    const [creator] = await db.select().from(creators).where(eq5(creators.name, user.displayName));
+    if (!creator) return res.status(404).json({ error: "Creator registration required" });
     const month = getYearMonth();
-    const [score] = await db.select().from(creatorMonthlyScores).where(and2(eq2(creatorMonthlyScores.creatorId, creator.id), eq2(creatorMonthlyScores.yearMonth, month)));
+    const [score] = await db.select().from(creatorMonthlyScores).where(and5(eq5(creatorMonthlyScores.creatorId, creator.id), eq5(creatorMonthlyScores.yearMonth, month)));
     if (score) {
       await db.update(creatorMonthlyScores).set({
         streamCountMonthly: score.streamCountMonthly + 1,
         updatedAt: /* @__PURE__ */ new Date()
-      }).where(eq2(creatorMonthlyScores.id, score.id));
+      }).where(eq5(creatorMonthlyScores.id, score.id));
     } else {
       await db.insert(creatorMonthlyScores).values({
         creatorId: creator.id,
@@ -6451,31 +7682,31 @@ data: ${data}
         streamCountMonthly: 1
       });
     }
-    await db.update(creators).set({ streamCount: creator.streamCount + 1 }).where(eq2(creators.id, creator.id));
+    await db.update(creators).set({ streamCount: creator.streamCount + 1 }).where(eq5(creators.id, creator.id));
     const newLevel = await syncCreatorLevelFromMonthlyProgress(creator.id, month);
     res.status(201).json({ ok: true, month, currentLevel: newLevel });
   });
   app2.get("/api/profile/roles", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
-    const rows = await db.select().from(creators).where(eq2(creators.name, user.displayName));
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const rows = await db.select().from(creators).where(eq5(creators.name, user.displayName));
     const isEditor = rows.some((r) => r.category === "editor");
     const isMentor = rows.some((r) => r.category === "mentor");
     res.json({ isEditor, isMentor });
   });
   app2.post("/api/profile/register-role", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const { role } = req.body;
     if (role !== "editor" && role !== "mentor") {
-      return res.status(400).json({ error: "role \u306F editor \u304B mentor \u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044" });
+      return res.status(400).json({ error: "role must be editor or mentor" });
     }
     const category = role === "editor" ? "editor" : "mentor";
-    const communityLabel = role === "editor" ? "\u52D5\u753B\u7DE8\u96C6\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC" : "\u30E1\u30F3\u30BF\u30FC\u30BB\u30C3\u30B7\u30E7\u30F3\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC";
+    const communityLabel = role === "editor" ? "Video editor" : "Mentor session creator";
     const existing = await db.select().from(creators).where(
-      and2(
-        eq2(creators.name, user.displayName),
-        eq2(creators.category, category)
+      and5(
+        eq5(creators.name, user.displayName),
+        eq5(creators.category, category)
       )
     );
     if (existing.length > 0) {
@@ -6502,13 +7733,13 @@ data: ${data}
   });
   app2.get("/api/livers/:id/reviews", async (req, res) => {
     const id = paramNum(req, "id");
-    const rows = await db.select().from(liverReviews).where(eq2(liverReviews.liverId, id)).orderBy(desc(liverReviews.createdAt));
+    const rows = await db.select().from(liverReviews).where(eq5(liverReviews.liverId, id)).orderBy(desc(liverReviews.createdAt));
     res.json(rows);
   });
   app2.post("/api/livers/:id/reviews", async (req, res) => {
     const id = paramNum(req, "id");
     const { userId, userName, userAvatar, satisfactionScore, streamCountScore, attendanceScore, comment, sessionDate } = req.body;
-    if (!userName || !comment) return res.status(400).json({ error: "\u5FC5\u9808\u9805\u76EE\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!userName || !comment) return res.status(400).json({ error: "Please fill in all required fields" });
     const overall = ((satisfactionScore ?? 5) + (streamCountScore ?? 5) + (attendanceScore ?? 5)) / 3;
     const [row] = await db.insert(liverReviews).values({
       liverId: id,
@@ -6522,7 +7753,7 @@ data: ${data}
       comment,
       sessionDate: sessionDate ?? (/* @__PURE__ */ new Date()).toISOString().slice(0, 10)
     }).returning();
-    const allReviews = await db.select().from(liverReviews).where(eq2(liverReviews.liverId, id));
+    const allReviews = await db.select().from(liverReviews).where(eq5(liverReviews.liverId, id));
     const avgOverall = allReviews.reduce((s, r) => s + r.overallScore, 0) / allReviews.length;
     const avgSatisfaction = allReviews.reduce((s, r) => s + r.satisfactionScore, 0) / allReviews.length;
     const avgAttendance = allReviews.reduce((s, r) => s + r.attendanceScore, 0) / allReviews.length;
@@ -6530,18 +7761,18 @@ data: ${data}
       heatScore: parseFloat(avgOverall.toFixed(1)),
       satisfactionScore: parseFloat(avgSatisfaction.toFixed(1)),
       attendanceRate: parseFloat(avgAttendance.toFixed(1))
-    }).where(eq2(creators.id, id));
+    }).where(eq5(creators.id, id));
     res.status(201).json(row);
   });
   app2.get("/api/livers/:id/availability", async (req, res) => {
     const id = paramNum(req, "id");
-    const rows = await db.select().from(liverAvailability).where(eq2(liverAvailability.liverId, id)).orderBy(asc2(liverAvailability.date), asc2(liverAvailability.startTime));
+    const rows = await db.select().from(liverAvailability).where(eq5(liverAvailability.liverId, id)).orderBy(asc3(liverAvailability.date), asc3(liverAvailability.startTime));
     res.json(rows);
   });
   app2.post("/api/livers/:id/availability", async (req, res) => {
     const id = paramNum(req, "id");
     const { date, startTime, endTime, maxSlots, note } = req.body;
-    if (!date || !startTime || !endTime) return res.status(400).json({ error: "\u65E5\u4ED8\u3068\u6642\u9593\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" });
+    if (!date || !startTime || !endTime) return res.status(400).json({ error: "Please enter date and time" });
     const [row] = await db.insert(liverAvailability).values({
       liverId: id,
       date,
@@ -6555,43 +7786,43 @@ data: ${data}
   });
   app2.delete("/api/livers/:id/availability/:slotId", async (req, res) => {
     const slotId = paramNum(req, "slotId");
-    await db.delete(liverAvailability).where(eq2(liverAvailability.id, slotId));
+    await db.delete(liverAvailability).where(eq5(liverAvailability.id, slotId));
     res.json({ ok: true });
   });
   app2.post("/api/seed", async (_req, res) => {
     const existingDm = await db.select().from(dmMessages);
     if (existingDm.length === 0) {
       await db.insert(dmMessages).values([
-        { name: "\u685C\u82B1\u30A2\u30EA\u30B9", avatar: "https://images.unsplash.com/photo-1521119989659-a83eee488004?w=100&h=100&fit=crop", lastMessage: "\u3042\u308A\u304C\u3068\u3046\u3054\u3056\u3044\u307E\u3059\uFF01\u6B21\u306E\u914D\u4FE1\u3082\u3088\u308D\u3057\u304F\u304A\u9858\u3044\u3057\u307E\u3059", time: "\u305F\u3063\u305F\u4ECA", unread: 2, online: true, sortOrder: 1 },
-        { name: "\u30A8\u30DF\u30EA\u30FC\u5148\u751F", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop", lastMessage: "\u6B21\u306E\u30EC\u30C3\u30B9\u30F3\u306F3/2\u306E19:00\u304B\u3089\u3067\u3059\u3002\u304A\u697D\u3057\u307F\u306B\uFF01", time: "5\u5206\u524D", unread: 1, online: true, sortOrder: 2 },
-        { name: "\u661F\u7A7A\u308A\u3093", avatar: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=100&h=100&fit=crop", lastMessage: "\u9451\u5B9A\u306E\u7D50\u679C\u3092DM\u3067\u304A\u9001\u308A\u3057\u307E\u3059\u306D", time: "12\u5206\u524D", unread: 0, online: false, sortOrder: 3 },
-        { name: "\u5FC3\u7406\u58EB \u307F\u304F", avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop", lastMessage: "\u304A\u6C17\u6301\u3061\u3092\u805E\u304B\u305B\u3066\u3044\u305F\u3060\u3044\u3066\u3042\u308A\u304C\u3068\u3046\u3054\u3056\u3044\u307E\u3059", time: "1\u6642\u9593\u524D", unread: 0, online: true, sortOrder: 4 },
-        { name: "\u6599\u7406\u5BB6 \u306F\u308B\u304B", avatar: "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=100&h=100&fit=crop", lastMessage: "\u30EC\u30B7\u30D4\u3092\u9001\u308A\u307E\u3057\u305F\uFF01\u305C\u3072\u4F5C\u3063\u3066\u307F\u3066\u304F\u3060\u3055\u3044\u{1F373}", time: "3\u6642\u9593\u524D", unread: 0, online: false, sortOrder: 5 },
-        { name: "\u30E9\u30A4\u30D5\u30B3\u30FC\u30C1 \u3051\u3093\u3058", avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop", lastMessage: "\u76EE\u6A19\u8A2D\u5B9A\u30B7\u30FC\u30C8\u3092\u78BA\u8A8D\u3057\u307E\u3057\u305F\u3002\u7D20\u6674\u3089\u3057\u3044\u9032\u6357\u3067\u3059\uFF01", time: "\u6628\u65E5", unread: 0, online: false, sortOrder: 6 },
-        { name: "\u30E8\u30AC\u8B1B\u5E2B \u306A\u306A", avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&h=100&fit=crop", lastMessage: "\u660E\u65E5\u306E\u30AF\u30E9\u30B9\u3082\u304A\u5F85\u3061\u3057\u3066\u3044\u307E\u3059", time: "\u6628\u65E5", unread: 0, online: false, sortOrder: 7 },
-        { name: "\u5730\u4E0B\u30A2\u30A4\u30C9\u30EB\u754C\u9688", avatar: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=100&h=100&fit=crop", lastMessage: "\u3010\u304A\u77E5\u3089\u305B\u3011\u672C\u65E521:00\u304B\u3089\u30E9\u30A4\u30D6\u914D\u4FE1\u304C\u3042\u308A\u307E\u3059", time: "2\u65E5\u524D", unread: 0, online: false, sortOrder: 8 }
+        { name: "Alice Oka", avatar: "https://images.unsplash.com/photo-1521119989659-a83eee488004?w=100&h=100&fit=crop", lastMessage: "Thanks! Looking forward to your next stream.", time: "Just now", unread: 2, online: true, sortOrder: 1 },
+        { name: "Emily Sensei", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop", lastMessage: "Next lesson is Mar 2 at 7:00 PM. See you then!", time: "5m ago", unread: 1, online: true, sortOrder: 2 },
+        { name: "Rin Hoshizora", avatar: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=100&h=100&fit=crop", lastMessage: "I'll send your reading results in DM.", time: "12m ago", unread: 0, online: false, sortOrder: 3 },
+        { name: "Miku, Psychologist", avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop", lastMessage: "Thank you for sharing how you feel.", time: "1h ago", unread: 0, online: true, sortOrder: 4 },
+        { name: "Haruka, Chef", avatar: "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=100&h=100&fit=crop", lastMessage: "Sent the recipe\u2014hope you try it! \u{1F373}", time: "3h ago", unread: 0, online: false, sortOrder: 5 },
+        { name: "Kenji, Life Coach", avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop", lastMessage: "Reviewed your goals sheet\u2014great progress!", time: "Yesterday", unread: 0, online: false, sortOrder: 6 },
+        { name: "Nana, Yoga Instructor", avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&h=100&fit=crop", lastMessage: "Hope to see you in class tomorrow.", time: "Yesterday", unread: 0, online: false, sortOrder: 7 },
+        { name: "Underground Idols", avatar: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=100&h=100&fit=crop", lastMessage: "[Notice] Live stream tonight at 9:00 PM.", time: "2d ago", unread: 0, online: false, sortOrder: 8 }
       ]);
     }
     const existingAnnouncements = await db.select().from(announcements);
     if (existingAnnouncements.length === 0) {
       await db.insert(announcements).values({
-        title: "\u30E9\u30A4\u30D6\u914D\u4FE1\u30FB\u6280\u8853\u30B3\u30F3\u30C8\u30EA\u30D3\u30E5\u30FC\u30BF\u52DF\u96C6",
-        body: "\u30CD\u30A4\u30C6\u30A3\u30D6 WebRTC\uFF08WHIP\uFF09\u3084\u9060\u9694\u30BB\u30C3\u30B7\u30E7\u30F3\u540C\u671F\u306A\u3069\u3001\u5B9F\u88C5\u30FB\u7814\u7A76\u306B\u5354\u529B\u3044\u305F\u3060\u3051\u308B\u65B9\u3092\u52DF\u96C6\u3057\u3066\u3044\u307E\u3059\u3002\u65B9\u91DD\u306E\u8A73\u7D30\u306F\u30EA\u30DD\u30B8\u30C8\u30EA\u306E docs/LIVE_NATIVE_AND_FILTERS.md \u3092\u3054\u53C2\u7167\u304F\u3060\u3055\u3044\u3002",
+        title: "Live streaming & technical contributors wanted",
+        body: "We are looking for contributors to help with native WebRTC (WHIP), remote session sync, and related implementation work. See docs/LIVE_NATIVE_AND_FILTERS.md in the repository for details.",
         type: "recruiting",
         isPinned: true
       });
     }
     const communityData = [
-      { name: "\u5730\u4E0B\u30A2\u30A4\u30C9\u30EB\u754C\u9688", category: "idol" },
-      { name: "\u304A\u7B11\u3044\u82B8\u4EBA\u754C\u9688", category: "idol" },
-      { name: "\u30AD\u30E3\u30D0\u5B22\u30FB\u30DB\u30B9\u30C8\u754C\u9688", category: "idol" },
-      { name: "JK\u65E5\u5E38\u754C\u9688", category: "idol" },
-      { name: "\u30A2\u30A4\u30C9\u30EB\u90E8", category: "idol" },
-      { name: "\u82F1\u4F1A\u8A71\u30AF\u30E9\u30D6", category: "english" },
-      { name: "\u5360\u3044\u30B5\u30ED\u30F3", category: "fortune" },
-      { name: "\u30D5\u30A3\u30C3\u30C8\u30CD\u30B9\u90E8", category: "coaching" },
-      { name: "\u30AB\u30A6\u30F3\u30BB\u30EA\u30F3\u30B0\u30EB\u30FC\u30E0", category: "counselor" },
-      { name: "\u6599\u7406\u6559\u5BA4", category: "cooking" }
+      { name: "Underground Idols", category: "idol" },
+      { name: "Comedy Circle", category: "idol" },
+      { name: "Nightlife Hosts", category: "idol" },
+      { name: "Daily Vlog Circle", category: "idol" },
+      { name: "Idol Club", category: "idol" },
+      { name: "English Club", category: "english" },
+      { name: "Fortune Salon", category: "fortune" },
+      { name: "Fitness Club", category: "coaching" },
+      { name: "Counseling Room", category: "counselor" },
+      { name: "Cooking School", category: "cooking" }
     ];
     const existingComm = await db.select().from(communities);
     const existingCommNames = new Set(existingComm.map((c) => c.name));
@@ -6614,8 +7845,8 @@ data: ${data}
     const existingNames = new Set(existingCreators.map((c) => c.name));
     const demoCreators = [
       {
-        name: "\u661F\u7A7A\u307F\u3086",
-        community: "\u5730\u4E0B\u30A2\u30A4\u30C9\u30EB\u754C\u9688",
+        name: "Miyu Hoshizora",
+        community: "Underground Idols",
         avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop",
         rank: 1,
         heatScore: 1090.1,
@@ -6626,12 +7857,12 @@ data: ${data}
         revenueShare: 80,
         satisfactionScore: 4.5,
         attendanceRate: 4.3,
-        bio: "\u5730\u4E0B\u30A2\u30A4\u30C9\u30EB\u754C\u9688\u306E\u30C8\u30C3\u30D7\u30E9\u30F3\u30AB\u30FC\u3002\u6B4C\u3068\u30C0\u30F3\u30B9\u3067\u6BCE\u56DE\u8996\u8074\u8005\u3092\u9B45\u4E86\u3059\u308B\u5B9F\u529B\u6D3E\u30E9\u30A4\u30D0\u30FC\u3002",
+        bio: "Top-ranked in Underground Idols. Singer-dancer who wins over viewers every stream.",
         category: "idol"
       },
       {
-        name: "\u30B3\u30F3\u30D3\u82B8\u4EBA\u300C\u30C0\u30D6\u30EB\u30D1\u30F3\u30C1\u300D",
-        community: "\u304A\u7B11\u3044\u82B8\u4EBA\u754C\u9688",
+        name: 'Comedy duo "Double Punch"',
+        community: "Comedy Circle",
         avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop",
         rank: 2,
         heatScore: 923.5,
@@ -6642,12 +7873,12 @@ data: ${data}
         revenueShare: 80,
         satisfactionScore: 4.2,
         attendanceRate: 4.1,
-        bio: "\u304A\u7B11\u3044\u30B3\u30F3\u30D3\u3068\u3057\u3066\u6D3B\u52D5\u4E2D\u3002\u30E9\u30A4\u30D6\u914D\u4FE1\u3067\u3082\u606F\u306E\u5408\u3063\u305F\u30C8\u30FC\u30AF\u3067\u7B11\u3044\u3092\u5C4A\u3051\u307E\u3059\u3002",
+        bio: "Comedy duo delivering sharp, in-sync banter on every live stream.",
         category: "idol"
       },
       {
-        name: "\u9E97\u83EF -REIKA-",
-        community: "\u30AD\u30E3\u30D0\u5B22\u30FB\u30DB\u30B9\u30C8\u754C\u9688",
+        name: "REIKA",
+        community: "Nightlife Hosts",
         avatar: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=100&h=100&fit=crop",
         rank: 3,
         heatScore: 1414,
@@ -6658,12 +7889,12 @@ data: ${data}
         revenueShare: 80,
         satisfactionScore: 4.6,
         attendanceRate: 4.8,
-        bio: "\u30AD\u30E3\u30D0\u5B22\xD7\u30E9\u30A4\u30D0\u30FC\u3068\u3057\u3066\u5927\u4EBA\u6C17\u3002\u30C8\u30FC\u30AF\u529B\u3068\u7F8E\u8C8C\u3067\u591A\u304F\u306E\u30D5\u30A1\u30F3\u3092\u7372\u5F97\u3002",
+        bio: "Host-style streamer with strong talk skills and a loyal fan base.",
         category: "idol"
       },
       {
-        name: "\u307E\u3044\u307E\u304417\u6B73",
-        community: "JK\u65E5\u5E38\u754C\u9688",
+        name: "Maimai, 17",
+        community: "Daily Vlog Circle",
         avatar: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=100&h=100&fit=crop",
         rank: 4,
         heatScore: 865.7,
@@ -6674,12 +7905,12 @@ data: ${data}
         revenueShare: 80,
         satisfactionScore: 4.3,
         attendanceRate: 4.5,
-        bio: "JK\u306E\u30EA\u30A2\u30EB\u306A\u65E5\u5E38\u3092\u767A\u4FE1\u4E2D\u3002\u7D20\u6734\u3067\u89AA\u3057\u307F\u3084\u3059\u3044\u30AD\u30E3\u30E9\u304C\u4EBA\u6C17\u306E\u79D8\u5BC6\u3002",
+        bio: "Daily-life vlogs with a down-to-earth, approachable vibe.",
         category: "idol"
       },
       {
-        name: "\u685C\u4E95 \u307F\u306A\u307F",
-        community: "\u30A2\u30A4\u30C9\u30EB\u90E8",
+        name: "Minami Sakurai",
+        community: "Idol Club",
         avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&h=150&fit=crop",
         rank: 1,
         heatScore: 4.8,
@@ -6690,12 +7921,12 @@ data: ${data}
         revenueShare: 80,
         satisfactionScore: 4.9,
         attendanceRate: 4.7,
-        bio: "\u6BCE\u65E5\u5143\u6C17\u306B\u914D\u4FE1\u4E2D\uFF01\u307F\u3093\u306A\u3068\u4E00\u7DD2\u306B\u697D\u3057\u3044\u6642\u9593\u3092\u904E\u3054\u3057\u305F\u3044\u3067\u3059\u266A",
+        bio: "Streaming daily\u2014here for fun times with everyone.",
         category: "idol"
       },
       {
-        name: "\u7530\u4E2D \u3086\u3046\u304D",
-        community: "\u82F1\u4F1A\u8A71\u30AF\u30E9\u30D6",
+        name: "Yuuki Tanaka",
+        community: "English Club",
         avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop",
         rank: 2,
         heatScore: 4.6,
@@ -6706,12 +7937,12 @@ data: ${data}
         revenueShare: 80,
         satisfactionScore: 4.7,
         attendanceRate: 4.5,
-        bio: "TOEIC 990\u70B9\u53D6\u5F97\u3002\u30D3\u30B8\u30CD\u30B9\u82F1\u8A9E\u304B\u3089\u65E5\u5E38\u4F1A\u8A71\u307E\u3067\u4E01\u5BE7\u306B\u6559\u3048\u307E\u3059\uFF01",
+        bio: "TOEIC 990. Teaches business English through everyday conversation.",
         category: "english"
       },
       {
-        name: "\u795E\u5D0E \u30EA\u30CA",
-        community: "\u5360\u3044\u30B5\u30ED\u30F3",
+        name: "Rina Kanzaki",
+        community: "Fortune Salon",
         avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&h=150&fit=crop",
         rank: 3,
         heatScore: 4.5,
@@ -6722,12 +7953,12 @@ data: ${data}
         revenueShare: 80,
         satisfactionScore: 4.6,
         attendanceRate: 4.3,
-        bio: "\u30BF\u30ED\u30C3\u30C8\u30FB\u897F\u6D0B\u5360\u661F\u8853\u30FB\u6570\u79D8\u8853\u3092\u7D44\u307F\u5408\u308F\u305B\u305F\u72EC\u81EA\u306E\u30EA\u30FC\u30C7\u30A3\u30F3\u30B0\u3067\u3001\u3042\u306A\u305F\u306E\u672A\u6765\u3092\u7167\u3089\u3057\u307E\u3059\u3002",
+        bio: "Tarot, Western astrology, and numerology blended into one-of-a-kind readings.",
         category: "fortune"
       },
       {
-        name: "\u677E\u672C \u3053\u3046\u305F",
-        community: "\u30D5\u30A3\u30C3\u30C8\u30CD\u30B9\u90E8",
+        name: "Kota Matsumoto",
+        community: "Fitness Club",
         avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop",
         rank: 4,
         heatScore: 4.3,
@@ -6738,12 +7969,12 @@ data: ${data}
         revenueShare: 80,
         satisfactionScore: 4.4,
         attendanceRate: 4.8,
-        bio: "\u5143\u30D7\u30ED\u30B5\u30C3\u30AB\u30FC\u9078\u624B\u3002\u30C0\u30A4\u30A8\u30C3\u30C8\u30FB\u7B4B\u30C8\u30EC\u30FB\u30E1\u30F3\u30BF\u30EB\u30B3\u30FC\u30C1\u30F3\u30B0\u3092\u5C02\u9580\u3068\u3059\u308B\u30D1\u30FC\u30BD\u30CA\u30EB\u30C8\u30EC\u30FC\u30CA\u30FC\u3002",
+        bio: "Ex-pro soccer player. Personal trainer focused on diet, strength, and mindset.",
         category: "coaching"
       },
       {
-        name: "\u4F0A\u85E4 \u3055\u3084\u304B",
-        community: "\u30AB\u30A6\u30F3\u30BB\u30EA\u30F3\u30B0\u30EB\u30FC\u30E0",
+        name: "Sayaka Ito",
+        community: "Counseling Room",
         avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&h=150&fit=crop",
         rank: 5,
         heatScore: 4.7,
@@ -6754,12 +7985,12 @@ data: ${data}
         revenueShare: 80,
         satisfactionScore: 4.8,
         attendanceRate: 4.9,
-        bio: "\u81E8\u5E8A\u5FC3\u7406\u58EB\u30FB\u516C\u8A8D\u5FC3\u7406\u5E2B\u3002\u60A9\u307F\u3092\u62B1\u3048\u305F\u65B9\u306E\u8A71\u3092\u4E01\u5BE7\u306B\u8074\u304D\u3001\u4E00\u7DD2\u306B\u89E3\u6C7A\u7B56\u3092\u63A2\u3057\u307E\u3059\u3002",
+        bio: "Clinical psychologist. Listens carefully and works with you on next steps.",
         category: "counselor"
       },
       {
-        name: "\u4E2D\u6751 \u3042\u304A\u3044",
-        community: "\u6599\u7406\u6559\u5BA4",
+        name: "Aoi Nakamura",
+        community: "Cooking School",
         avatar: "https://images.unsplash.com/photo-1502767089025-6572583495b9?w=150&h=150&fit=crop",
         rank: 6,
         heatScore: 4.4,
@@ -6770,7 +8001,7 @@ data: ${data}
         revenueShare: 80,
         satisfactionScore: 4.5,
         attendanceRate: 4.6,
-        bio: "\u30D5\u30E9\u30F3\u30B9\u6599\u7406\u5B66\u6821\u5352\u696D\u3002\u5BB6\u5EAD\u3067\u672C\u683C\u7684\u306A\u30EC\u30B7\u30D4\u3092\u697D\u3057\u304F\u5B66\u3079\u308B\u6599\u7406\u6559\u5BA4\u3092\u958B\u50AC\u4E2D\u3002",
+        bio: "Trained in France. Fun, approachable cooking classes for serious home recipes.",
         category: "cooking"
       }
     ];
@@ -6788,23 +8019,23 @@ data: ${data}
         const dateStr = dt.toISOString().slice(0, 10);
         availData.push({ liverId: c.id, date: dateStr, startTime: "19:00", endTime: "21:00", maxSlots: 3, bookedSlots: Math.floor(Math.random() * 2), note: "" });
         if (d % 2 === 0) {
-          availData.push({ liverId: c.id, date: dateStr, startTime: "13:00", endTime: "15:00", maxSlots: 2, bookedSlots: 0, note: "\u5348\u5F8C\u306E\u90E8" });
+          availData.push({ liverId: c.id, date: dateStr, startTime: "13:00", endTime: "15:00", maxSlots: 2, bookedSlots: 0, note: "Afternoon slot" });
         }
       }
     }
     await db.insert(liverAvailability).values(availData);
     const reviewAuthors = [
-      { name: "\u3086\u304D", avatar: "https://images.unsplash.com/photo-1552374196-c4e7ffc6e126?w=80&h=80&fit=crop" },
-      { name: "\u305F\u304B\u3057", avatar: "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=80&h=80&fit=crop" },
-      { name: "\u306F\u308B\u304B", avatar: "https://images.unsplash.com/photo-1554151228-14d9def656e4?w=80&h=80&fit=crop" },
-      { name: "\u3051\u3093\u3058", avatar: "https://images.unsplash.com/photo-1560250097-0b93528c311a?w=80&h=80&fit=crop" }
+      { name: "Yuki", avatar: "https://images.unsplash.com/photo-1552374196-c4e7ffc6e126?w=80&h=80&fit=crop" },
+      { name: "Takashi", avatar: "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=80&h=80&fit=crop" },
+      { name: "Haruka", avatar: "https://images.unsplash.com/photo-1554151228-14d9def656e4?w=80&h=80&fit=crop" },
+      { name: "Kenji", avatar: "https://images.unsplash.com/photo-1560250097-0b93528c311a?w=80&h=80&fit=crop" }
     ];
     const comments = [
-      "\u3068\u3066\u3082\u697D\u3057\u3044\u6642\u9593\u3067\u3057\u305F\uFF01\u307E\u305F\u4E88\u7D04\u3057\u305F\u3044\u3067\u3059\u3002",
-      "\u4E01\u5BE7\u306A\u5BFE\u5FDC\u3067\u5927\u6E80\u8DB3\u3067\u3059\u3002\u30B9\u30B1\u30B8\u30E5\u30FC\u30EB\u901A\u308A\u306B\u9032\u3093\u3067\u304F\u308C\u307E\u3057\u305F\u3002",
-      "\u7D20\u6674\u3089\u3057\u3044\u914D\u4FE1\u3067\u3057\u305F\u3002\u307E\u305F\u53C2\u52A0\u3057\u305F\u3044\u3068\u601D\u3044\u307E\u3059\uFF01",
-      "\u671F\u5F85\u4EE5\u4E0A\u306E\u5185\u5BB9\u3067\u3057\u305F\u3002\u6BCE\u56DE\u6765\u308B\u306E\u304C\u697D\u3057\u307F\u3067\u3059\u3002",
-      "\u6642\u9593\u3092\u5B88\u3063\u3066\u304F\u308C\u3066\u4FE1\u983C\u3067\u304D\u307E\u3059\u3002\u6B21\u56DE\u3082\u4E88\u7D04\u3057\u307E\u3059\uFF01"
+      "Had a great time\u2014would book again!",
+      "Very thoughtful and stayed on schedule.",
+      "Amazing stream. I want to join the next one too!",
+      "Exceeded expectations. I look forward to every session.",
+      "Reliable and on time. I'll book again!"
     ];
     const reviewData = [];
     for (const c of insertedCreators) {
@@ -6837,25 +8068,25 @@ data: ${data}
         const dt = new Date(today);
         dt.setDate(today.getDate() + i + 1);
         const categories = ["idol", "english", "fortune", "coaching", "counselor"];
-        const labels = ["\u30A2\u30A4\u30C9\u30EB", "\u82F1\u4F1A\u8A71", "\u5360\u3044", "\u30B3\u30FC\u30C1\u30F3\u30B0", "\u30AB\u30A6\u30F3\u30BB\u30E9\u30FC"];
+        const labels = ["Idol", "English", "Fortune", "Coaching", "Counselor"];
         const prices = [3e3, 5e3, 4e3, 6e3, 4500];
         const cat = categories[i % categories.length];
         return {
           creator: c.name,
           category: cat,
           categoryLabel: labels[i % labels.length],
-          title: `${c.name}\u3068\u306E1\u5BFE1\u30BB\u30C3\u30B7\u30E7\u30F3`,
+          title: `1:1 session with ${c.name}`,
           avatar: c.avatar,
           thumbnail: `https://images.unsplash.com/photo-151645036045${i}-9312f5e86fc7?w=400&h=250&fit=crop`,
           date: dt.toISOString().slice(0, 10),
           time: "19:00",
-          duration: "30\u5206",
+          duration: "30 min",
           price: prices[i % prices.length],
           spotsTotal: 5,
           spotsLeft: 2 + i,
           rating: parseFloat((4.3 + Math.random() * 0.7).toFixed(1)),
           reviewCount: 10 + i * 5,
-          tag: i === 0 ? "\u4EBA\u6C17" : null
+          tag: i === 0 ? "Popular" : null
         };
       });
       await db.insert(bookingSessions).values(bookingData);
@@ -6863,16 +8094,16 @@ data: ${data}
     const existingLive = await db.select().from(liveStreams);
     if (existingLive.length === 0) {
       await db.insert(liveStreams).values([
-        { title: "\u661F\u7A7A\u307F\u3086\u266A \u6B4C\u3068\u30C0\u30F3\u30B9\u3067\u304A\u5C4A\u3051\uFF01", creator: "\u661F\u7A7A\u307F\u3086", community: "\u5730\u4E0B\u30A2\u30A4\u30C9\u30EB\u754C\u9688", viewers: 1240, thumbnail: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=40&h=40&fit=crop", timeAgo: "\u914D\u4FE1\u4E88\u5B9A", isLive: true },
-        { title: "\u9E97\u83EF\u306E\u591C\u30C8\u30FC\u30AF\u3010\u672C\u97F3\u3067\u8A9E\u308B\u3088\u3011", creator: "\u9E97\u83EF -REIKA-", community: "\u30AD\u30E3\u30D0\u5B22\u30FB\u30DB\u30B9\u30C8\u754C\u9688", viewers: 890, thumbnail: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=40&h=40&fit=crop", timeAgo: "\u914D\u4FE1\u4E88\u5B9A", isLive: true },
-        { title: "\u671D\u6D3B\uFF01\u4E00\u7DD2\u306B\u30E8\u30AC\u3057\u3088\u3046", creator: "\u677E\u672C \u3053\u3046\u305F", community: "\u30D5\u30A3\u30C3\u30C8\u30CD\u30B9\u90E8", viewers: 420, thumbnail: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=40&h=40&fit=crop", timeAgo: "\u914D\u4FE1\u4E88\u5B9A", isLive: true },
-        { title: "\u795E\u5D0E\u30EA\u30CA\u3010\u6DF1\u591C\u306E\u5360\u3044\u30BF\u30A4\u30E0\u3011", creator: "\u795E\u5D0E \u30EA\u30CA", community: "\u5360\u3044\u30B5\u30ED\u30F3", viewers: 312, thumbnail: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=40&h=40&fit=crop", timeAgo: "\u914D\u4FE1\u4E88\u5B9A", isLive: true }
+        { title: "Miyu Hoshizora \u2014 Song & dance live", creator: "Miyu Hoshizora", community: "Underground Idols", viewers: 1240, thumbnail: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=40&h=40&fit=crop", timeAgo: "Scheduled", isLive: true },
+        { title: "REIKA \u2014 Late-night honest talk", creator: "REIKA", community: "Nightlife Hosts", viewers: 890, thumbnail: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=40&h=40&fit=crop", timeAgo: "Scheduled", isLive: true },
+        { title: "Morning yoga \u2014 join in!", creator: "Kota Matsumoto", community: "Fitness Club", viewers: 420, thumbnail: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=40&h=40&fit=crop", timeAgo: "Scheduled", isLive: true },
+        { title: "Rina Kanzaki \u2014 Late-night readings", creator: "Rina Kanzaki", community: "Fortune Salon", viewers: 312, thumbnail: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=300&h=200&fit=crop", avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=40&h=40&fit=crop", timeAgo: "Scheduled", isLive: true }
       ]);
     }
     res.json({ ok: true, created: insertedCreators.length });
   });
   app2.post("/api/seed-editors", async (_req, res) => {
-    const [idolCommunity] = await db.select({ id: communities.id }).from(communities).where(eq2(communities.name, "\u5730\u4E0B\u30A2\u30A4\u30C9\u30EB\u754C\u9688"));
+    const [idolCommunity] = await db.select({ id: communities.id }).from(communities).where(eq5(communities.name, "Underground Idols"));
     const defaultCommunityId = idolCommunity?.id ?? 1;
     let insertedBase = 0;
     let insertedBoth = 0;
@@ -6880,9 +8111,9 @@ data: ${data}
     if (existingStart.length < 5) {
       const demoEditors = [
         {
-          name: "\u6620\u50CF\u7DE8\u96C6\u30DE\u30F3",
+          name: "Video Edit Man",
           avatar: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150&h=150&fit=crop",
-          bio: "\u30C6\u30ED\u30C3\u30D7\u30FB\u30AB\u30C3\u30C8\u30FB\u30B5\u30E0\u30CD\u307E\u3067\u30EF\u30F3\u30B9\u30C8\u30C3\u30D7\u3067\u5BFE\u5FDC\u3059\u308B\u52D5\u753B\u7DE8\u96C6\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC\u3002",
+          bio: "One-stop editing: captions, cuts, and thumbnails.",
           communityId: defaultCommunityId,
           genres: "YouTube,Variety,Gaming",
           deliveryDays: 3,
@@ -6895,9 +8126,9 @@ data: ${data}
           isAvailable: true
         },
         {
-          name: "\u30B7\u30CD\u30DE\u7DE8\u96C6\u30B9\u30BF\u30B8\u30AA",
+          name: "Cinema Edit Studio",
           avatar: "https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=150&h=150&fit=crop",
-          bio: "\u6620\u753B\u98A8\u306E\u30B7\u30CD\u30DE\u30C6\u30A3\u30C3\u30AF\u306AMV\u5236\u4F5C\u304C\u5F97\u610F\u3067\u3059\u3002",
+          bio: "Cinematic MVs with a film-style look.",
           communityId: defaultCommunityId,
           genres: "MV,Artist,Cinematic",
           deliveryDays: 7,
@@ -6910,9 +8141,9 @@ data: ${data}
           isAvailable: false
         },
         {
-          name: "\u30B7\u30E7\u30FC\u30C8\u52D5\u753B\u8077\u4EBA",
+          name: "Short-form Pro",
           avatar: "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=150&h=150&fit=crop",
-          bio: "TikTok\u30FBYouTube\u30B7\u30E7\u30FC\u30C8\u306E\u4F38\u3073\u308B\u69CB\u6210\u3092\u63D0\u6848\u3057\u307E\u3059\u3002",
+          bio: "Short-form hooks and structures built to perform on TikTok and YouTube Shorts.",
           communityId: defaultCommunityId,
           genres: "Short Video,Vertical,Social Media",
           deliveryDays: 2,
@@ -6925,9 +8156,9 @@ data: ${data}
           isAvailable: true
         },
         {
-          name: "\u30B2\u30FC\u30E0\u5B9F\u6CC1\u30A8\u30C7\u30A3\u30BF\u30FC",
+          name: "Gaming Highlights Editor",
           avatar: "https://images.unsplash.com/photo-1533236897111-3e94666b2dde?w=150&h=150&fit=crop",
-          bio: "APEX/VALORANT\u306A\u3069FPS\u7CFB\u5B9F\u6CC1\u306E\u7DE8\u96C6\u304C\u4E2D\u5FC3\u3067\u3059\u3002",
+          bio: "FPS gameplay edits\u2014Apex, Valorant, and similar titles.",
           communityId: defaultCommunityId,
           genres: "Gaming,Highlights",
           deliveryDays: 4,
@@ -6940,9 +8171,9 @@ data: ${data}
           isAvailable: false
         },
         {
-          name: "\u6559\u80B2\u30C1\u30E3\u30F3\u30CD\u30EB\u7DE8\u96C6\u5BA4",
+          name: "Edu Channel Edit Lab",
           avatar: "https://images.unsplash.com/photo-1525134479668-1bee5c7c6845?w=150&h=150&fit=crop",
-          bio: "\u30D3\u30B8\u30CD\u30B9\u30FB\u6559\u80B2\u7CFB\u306E\u5206\u304B\u308A\u3084\u3059\u3044\u56F3\u89E3\u52D5\u753B\u3092\u5236\u4F5C\u3057\u307E\u3059\u3002",
+          bio: "Clear explainer videos for business and education channels.",
           communityId: defaultCommunityId,
           genres: "Business,Education,Seminar",
           deliveryDays: 5,
@@ -6957,7 +8188,7 @@ data: ${data}
       ];
       for (const row of demoEditors) {
         const v = validateEditorPricing(row);
-        if (!v.ok) return res.status(500).json({ error: v.error });
+        if (v.ok === false) return res.status(500).json({ error: v.error });
       }
       await db.insert(videoEditors).values(demoEditors);
       insertedBase = demoEditors.length;
@@ -6967,9 +8198,9 @@ data: ${data}
     if (!hasBoth) {
       const bothDemo = [
         {
-          name: "\u30D5\u30EB\u30D5\u30EC\u30C3\u30AF\u30B9\u7DE8\u96C6\u6240",
+          name: "Full-flex Edit House",
           avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop",
-          bio: "\u5206\u5358\u4FA1\u3067\u3082\u30EC\u30D9\u30CB\u30E5\u30FC\u30B7\u30A7\u30A2\u3067\u3082\u3054\u76F8\u8AC7\u306B\u5FDC\u3058\u307E\u3059\u3002MV\u30FB\u30E9\u30A4\u30D6\u5207\u308A\u629C\u304D\u4E21\u65B9\u5BFE\u5FDC\u3002",
+          bio: "Per-minute or revenue share\u2014MVs and live highlight reels.",
           communityId: defaultCommunityId,
           genres: "MV,Highlights,Short Video",
           deliveryDays: 4,
@@ -6982,9 +8213,9 @@ data: ${data}
           isAvailable: true
         },
         {
-          name: "\u30CF\u30A4\u30D6\u30EA\u30C3\u30C9\u30FB\u30AF\u30EA\u30C3\u30D7\u30B9",
+          name: "Hybrid Clips",
           avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop",
-          bio: "\u30AF\u30EA\u30A8\u30A4\u30BF\u30FC\u53D6\u308A\u5206\u91CD\u8996\u306E\u6848\u4EF6\u3082\u3001\u56FA\u5B9A\u30EC\u30FC\u30C8\u3082\u67D4\u8EDF\u306B\u3002\u30B2\u30FC\u30E0\u30FB\u97F3\u697D\u5E45\u5E83\u304F\u3002",
+          bio: "Flexible on creator-friendly rev-share or flat rates\u2014gaming, music, and more.",
           communityId: defaultCommunityId,
           genres: "Gaming,Artist,Variety",
           deliveryDays: 3,
@@ -6999,7 +8230,7 @@ data: ${data}
       ];
       for (const row of bothDemo) {
         const v = validateEditorPricing(row);
-        if (!v.ok) return res.status(500).json({ error: v.error });
+        if (v.ok === false) return res.status(500).json({ error: v.error });
       }
       await db.insert(videoEditors).values(bothDemo);
       insertedBoth = bothDemo.length;
@@ -7011,12 +8242,12 @@ data: ${data}
       message: insertedBase === 0 && insertedBoth === 0 ? "Already seeded (base + both)" : void 0
     });
   });
-  const FREE_REQUESTS_PER_DAY = 3;
+  const FREE_REQUESTS_PER_DAY = 20;
   app2.get("/api/coins/balance", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const userId = String(user.id);
-    const rows = await db.select().from(coinBalances).where(eq2(coinBalances.userId, userId)).limit(1);
+    const rows = await db.select().from(coinBalances).where(eq5(coinBalances.userId, userId)).limit(1);
     const balance = rows[0]?.balance ?? 0;
     return res.json({ balance });
   });
@@ -7027,10 +8258,10 @@ data: ${data}
     if (isNaN(communityId)) return res.status(400).json({ error: "communityId required" });
     const userId = String(user.id);
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    const rows = await db.select().from(jukeboxRequestCounts).where(and2(
-      eq2(jukeboxRequestCounts.userId, userId),
-      eq2(jukeboxRequestCounts.communityId, communityId),
-      eq2(jukeboxRequestCounts.date, today)
+    const rows = await db.select().from(jukeboxRequestCounts).where(and5(
+      eq5(jukeboxRequestCounts.userId, userId),
+      eq5(jukeboxRequestCounts.communityId, communityId),
+      eq5(jukeboxRequestCounts.date, today)
     )).limit(1);
     const count2 = rows[0]?.count ?? 0;
     const freeRemaining = Math.max(0, FREE_REQUESTS_PER_DAY - count2);
@@ -7043,13 +8274,13 @@ data: ${data}
     if (!communityId) return res.status(400).json({ error: "communityId required" });
     const userId = String(user.id);
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    const balRows = await db.select().from(coinBalances).where(eq2(coinBalances.userId, userId)).limit(1);
+    const balRows = await db.select().from(coinBalances).where(eq5(coinBalances.userId, userId)).limit(1);
     const currentBalance = balRows[0]?.balance ?? 0;
     if (currentBalance < 1) return res.status(402).json({ error: "Insufficient coins", balance: currentBalance });
     if (balRows.length === 0) {
       await db.insert(coinBalances).values({ userId, balance: -1 });
     } else {
-      await db.update(coinBalances).set({ balance: currentBalance - 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(coinBalances.userId, userId));
+      await db.update(coinBalances).set({ balance: currentBalance - 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(coinBalances.userId, userId));
     }
     await db.insert(coinTransactions).values({
       userId,
@@ -7058,15 +8289,15 @@ data: ${data}
       referenceId: queueItemId ? String(queueItemId) : null,
       description: `Jukebox request in community ${communityId}`
     });
-    const countRows = await db.select().from(jukeboxRequestCounts).where(and2(
-      eq2(jukeboxRequestCounts.userId, userId),
-      eq2(jukeboxRequestCounts.communityId, communityId),
-      eq2(jukeboxRequestCounts.date, today)
+    const countRows = await db.select().from(jukeboxRequestCounts).where(and5(
+      eq5(jukeboxRequestCounts.userId, userId),
+      eq5(jukeboxRequestCounts.communityId, communityId),
+      eq5(jukeboxRequestCounts.date, today)
     )).limit(1);
     if (countRows.length === 0) {
       await db.insert(jukeboxRequestCounts).values({ userId, communityId, date: today, count: 1 });
     } else {
-      await db.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(jukeboxRequestCounts.id, countRows[0].id));
+      await db.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(jukeboxRequestCounts.id, countRows[0].id));
     }
     return res.json({ success: true, newBalance: currentBalance - 1 });
   });
@@ -7077,15 +8308,15 @@ data: ${data}
     if (!communityId) return res.status(400).json({ error: "communityId required" });
     const userId = String(user.id);
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    const countRows = await db.select().from(jukeboxRequestCounts).where(and2(
-      eq2(jukeboxRequestCounts.userId, userId),
-      eq2(jukeboxRequestCounts.communityId, communityId),
-      eq2(jukeboxRequestCounts.date, today)
+    const countRows = await db.select().from(jukeboxRequestCounts).where(and5(
+      eq5(jukeboxRequestCounts.userId, userId),
+      eq5(jukeboxRequestCounts.communityId, communityId),
+      eq5(jukeboxRequestCounts.date, today)
     )).limit(1);
     if (countRows.length === 0) {
       await db.insert(jukeboxRequestCounts).values({ userId, communityId, date: today, count: 1 });
     } else {
-      await db.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(jukeboxRequestCounts.id, countRows[0].id));
+      await db.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(jukeboxRequestCounts.id, countRows[0].id));
     }
     return res.json({ success: true });
   });
@@ -7097,12 +8328,12 @@ data: ${data}
     const userId = String(user.id);
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     const COIN_PRICE_USD = 30;
-    const walletRows = await db.select().from(wallets).where(eq2(wallets.userId, user.id)).limit(1);
+    const walletRows = await db.select().from(wallets).where(eq5(wallets.userId, user.id)).limit(1);
     const walletBalance = walletRows[0]?.balanceAvailable ?? 0;
     if (walletBalance < COIN_PRICE_USD) {
       return res.status(402).json({ error: "Insufficient revenue balance", balance: walletBalance });
     }
-    await db.update(wallets).set({ balanceAvailable: walletBalance - COIN_PRICE_USD, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(wallets.userId, user.id));
+    await db.update(wallets).set({ balanceAvailable: walletBalance - COIN_PRICE_USD, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(wallets.userId, user.id));
     await db.insert(coinTransactions).values({
       userId,
       amount: -1,
@@ -7110,15 +8341,15 @@ data: ${data}
       referenceId: queueItemId ? String(queueItemId) : null,
       description: `Revenue balance used for jukebox request in community ${communityId} ($${(COIN_PRICE_USD / 100).toFixed(2)})`
     });
-    const countRows = await db.select().from(jukeboxRequestCounts).where(and2(
-      eq2(jukeboxRequestCounts.userId, userId),
-      eq2(jukeboxRequestCounts.communityId, communityId),
-      eq2(jukeboxRequestCounts.date, today)
+    const countRows = await db.select().from(jukeboxRequestCounts).where(and5(
+      eq5(jukeboxRequestCounts.userId, userId),
+      eq5(jukeboxRequestCounts.communityId, communityId),
+      eq5(jukeboxRequestCounts.date, today)
     )).limit(1);
     if (countRows.length === 0) {
       await db.insert(jukeboxRequestCounts).values({ userId, communityId, date: today, count: 1 });
     } else {
-      await db.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(jukeboxRequestCounts.id, countRows[0].id));
+      await db.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(jukeboxRequestCounts.id, countRows[0].id));
     }
     return res.json({ success: true, newWalletBalance: walletBalance - COIN_PRICE_USD });
   });
@@ -7180,20 +8411,20 @@ data: ${data}
       if (!coins || metaUserId !== String(user.id)) {
         return res.status(400).json({ error: "Invalid session" });
       }
-      const existing = await db.select().from(coinTransactions).where(and2(
-        eq2(coinTransactions.userId, String(user.id)),
-        eq2(coinTransactions.referenceId, sessionId)
+      const existing = await db.select().from(coinTransactions).where(and5(
+        eq5(coinTransactions.userId, String(user.id)),
+        eq5(coinTransactions.referenceId, sessionId)
       )).limit(1);
       if (existing.length > 0) {
-        const balRows2 = await db.select().from(coinBalances).where(eq2(coinBalances.userId, String(user.id))).limit(1);
+        const balRows2 = await db.select().from(coinBalances).where(eq5(coinBalances.userId, String(user.id))).limit(1);
         return res.json({ success: true, alreadyGranted: true, balance: balRows2[0]?.balance ?? 0 });
       }
-      const balRows = await db.select().from(coinBalances).where(eq2(coinBalances.userId, String(user.id))).limit(1);
+      const balRows = await db.select().from(coinBalances).where(eq5(coinBalances.userId, String(user.id))).limit(1);
       const currentBalance = balRows[0]?.balance ?? 0;
       if (balRows.length === 0) {
         await db.insert(coinBalances).values({ userId: String(user.id), balance: coins });
       } else {
-        await db.update(coinBalances).set({ balance: currentBalance + coins, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(coinBalances.userId, String(user.id)));
+        await db.update(coinBalances).set({ balance: currentBalance + coins, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(coinBalances.userId, String(user.id)));
       }
       await db.insert(coinTransactions).values({
         userId: String(user.id),
@@ -7208,14 +8439,14 @@ data: ${data}
       return res.status(500).json({ error: "Failed to verify purchase" });
     }
   });
-  const FREE_JUKEBOX_PER_DAY = 3;
-  const TICKETS_PER_JUKEBOX = 30;
+  const FREE_JUKEBOX_PER_DAY = 20;
+  const TICKETS_PER_JUKEBOX = 10;
   const MENTOR_TICKET_PRICE = 500;
   app2.get("/api/tickets/balance", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const userId = String(user.id);
-    const rows = await db.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
+    const rows = await db.select().from(ticketBalances).where(eq5(ticketBalances.userId, userId)).limit(1);
     return res.json({ balance: rows[0]?.balance ?? 0 });
   });
   app2.get("/api/tickets/request-count", async (req, res) => {
@@ -7225,10 +8456,10 @@ data: ${data}
     if (isNaN(communityId)) return res.status(400).json({ error: "communityId required" });
     const userId = String(user.id);
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    const rows = await db.select().from(jukeboxRequestCounts).where(and2(
-      eq2(jukeboxRequestCounts.userId, userId),
-      eq2(jukeboxRequestCounts.communityId, communityId),
-      eq2(jukeboxRequestCounts.date, today)
+    const rows = await db.select().from(jukeboxRequestCounts).where(and5(
+      eq5(jukeboxRequestCounts.userId, userId),
+      eq5(jukeboxRequestCounts.communityId, communityId),
+      eq5(jukeboxRequestCounts.date, today)
     )).limit(1);
     const count2 = rows[0]?.count ?? 0;
     const freeRemaining = Math.max(0, FREE_JUKEBOX_PER_DAY - count2);
@@ -7241,15 +8472,15 @@ data: ${data}
     if (!communityId) return res.status(400).json({ error: "communityId required" });
     const userId = String(user.id);
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    const countRows = await db.select().from(jukeboxRequestCounts).where(and2(
-      eq2(jukeboxRequestCounts.userId, userId),
-      eq2(jukeboxRequestCounts.communityId, communityId),
-      eq2(jukeboxRequestCounts.date, today)
+    const countRows = await db.select().from(jukeboxRequestCounts).where(and5(
+      eq5(jukeboxRequestCounts.userId, userId),
+      eq5(jukeboxRequestCounts.communityId, communityId),
+      eq5(jukeboxRequestCounts.date, today)
     )).limit(1);
     if (countRows.length === 0) {
       await db.insert(jukeboxRequestCounts).values({ userId, communityId, date: today, count: 1 });
     } else {
-      await db.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(jukeboxRequestCounts.id, countRows[0].id));
+      await db.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(jukeboxRequestCounts.id, countRows[0].id));
     }
     return res.json({ success: true });
   });
@@ -7263,12 +8494,12 @@ data: ${data}
     try {
       let newBalance = 0;
       await db.transaction(async (tx) => {
-        const [comm] = await tx.select().from(communities).where(eq2(communities.id, communityId)).limit(1);
+        const [comm] = await tx.select().from(communities).where(eq5(communities.id, communityId)).limit(1);
         const creatorUserId = comm?.ownerId ?? comm?.adminId;
         if (!creatorUserId) {
           throw new Error("COMMUNITY_NO_OWNER");
         }
-        const balRows = await tx.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
+        const balRows = await tx.select().from(ticketBalances).where(eq5(ticketBalances.userId, userId)).limit(1);
         const currentBalance = balRows[0]?.balance ?? 0;
         if (currentBalance < TICKETS_PER_JUKEBOX) {
           const err = new Error("INSUFFICIENT_TICKETS");
@@ -7279,7 +8510,7 @@ data: ${data}
         if (balRows.length === 0) {
           await tx.insert(ticketBalances).values({ userId, balance: newBalance });
         } else {
-          await tx.update(ticketBalances).set({ balance: newBalance, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
+          await tx.update(ticketBalances).set({ balance: newBalance, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(ticketBalances.userId, userId));
         }
         const [spendTx] = await tx.insert(ticketTransactions).values({
           userId,
@@ -7289,7 +8520,7 @@ data: ${data}
           description: `Jukebox request in community ${communityId}`
         }).returning({ id: ticketTransactions.id });
         const walletId = await getOrCreateUserWallet(creatorUserId, tx);
-        const [creatorRow] = await tx.select().from(creators).where(eq2(creators.userId, creatorUserId)).limit(1);
+        const creatorRow = await creatorRowForUserId(tx, creatorUserId);
         await recordRevenue(
           walletId,
           creatorUserId,
@@ -7300,16 +8531,16 @@ data: ${data}
           tx
         );
         const countRows = await tx.select().from(jukeboxRequestCounts).where(
-          and2(
-            eq2(jukeboxRequestCounts.userId, userId),
-            eq2(jukeboxRequestCounts.communityId, communityId),
-            eq2(jukeboxRequestCounts.date, today)
+          and5(
+            eq5(jukeboxRequestCounts.userId, userId),
+            eq5(jukeboxRequestCounts.communityId, communityId),
+            eq5(jukeboxRequestCounts.date, today)
           )
         ).limit(1);
         if (countRows.length === 0) {
           await tx.insert(jukeboxRequestCounts).values({ userId, communityId, date: today, count: 1 });
         } else {
-          await tx.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(jukeboxRequestCounts.id, countRows[0].id));
+          await tx.update(jukeboxRequestCounts).set({ count: countRows[0].count + 1, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(jukeboxRequestCounts.id, countRows[0].id));
         }
       });
       return res.json({ success: true, newBalance });
@@ -7332,19 +8563,61 @@ data: ${data}
   app2.post("/api/tickets/spend", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { amount, type, referenceId, description, creatorId } = req.body;
+    const { amount, type, referenceId, description, creatorId, videoId: rawVideoId } = req.body;
     if (!amount || amount <= 0) return res.status(400).json({ error: "amount must be positive" });
     if (!type) return res.status(400).json({ error: "type required" });
     const userId = String(user.id);
     const revenueTypes = /* @__PURE__ */ new Set(["spend_session", "spend_gift", "spend_jukebox", "spend_tip"]);
     const needsRevenueRecord = revenueTypes.has(type);
-    if (needsRevenueRecord && (!Number.isInteger(creatorId) || creatorId <= 0)) {
+    let videoIdForGift = null;
+    if (rawVideoId !== void 0 && rawVideoId !== null && String(rawVideoId).trim() !== "") {
+      const v = typeof rawVideoId === "number" ? rawVideoId : parseInt(String(rawVideoId), 10);
+      if (Number.isFinite(v) && v > 0) videoIdForGift = v;
+    }
+    if (type === "spend_gift" && videoIdForGift == null && referenceId != null && /^\d+$/.test(String(referenceId).trim())) {
+      const v = parseInt(String(referenceId).trim(), 10);
+      if (Number.isFinite(v) && v > 0) videoIdForGift = v;
+    }
+    if (needsRevenueRecord && type !== "spend_gift" && (!Number.isInteger(creatorId) || creatorId <= 0)) {
       return res.status(400).json({ error: "creatorId required for revenue-eligible spend type" });
+    }
+    if (needsRevenueRecord && type === "spend_gift" && videoIdForGift == null && (!Number.isInteger(creatorId) || creatorId <= 0)) {
+      return res.status(400).json({ error: "videoId or creatorId required for video purchase (spend_gift)" });
     }
     try {
       let newBalance = 0;
       await db.transaction(async (tx) => {
-        const balRows = await tx.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
+        let payoutCreatorUserId = null;
+        if (needsRevenueRecord) {
+          if (type === "spend_gift") {
+            if (videoIdForGift != null) {
+              const sellerId = await resolveVideoSellerUserId(tx, videoIdForGift);
+              if (!sellerId) {
+                const err = new Error("VIDEO_SELLER_NOT_FOUND");
+                throw err;
+              }
+              const [vrow] = await tx.select({ price: videos.price, hidden: videos.hidden }).from(videos).where(eq5(videos.id, videoIdForGift)).limit(1);
+              if (!vrow || vrow.hidden) {
+                throw new Error("VIDEO_NOT_FOUND");
+              }
+              const expected = vrow.price ?? 0;
+              if (expected <= 0) {
+                throw new Error("VIDEO_NOT_PAID");
+              }
+              if (amount !== expected) {
+                const err = new Error("VIDEO_PRICE_MISMATCH");
+                err.meta = { expected };
+                throw err;
+              }
+              payoutCreatorUserId = sellerId;
+            } else {
+              payoutCreatorUserId = Number(creatorId);
+            }
+          } else {
+            payoutCreatorUserId = Number(creatorId);
+          }
+        }
+        const balRows = await tx.select().from(ticketBalances).where(eq5(ticketBalances.userId, userId)).limit(1);
         const currentBalance = balRows[0]?.balance ?? 0;
         if (currentBalance < amount) {
           const err = new Error("INSUFFICIENT_TICKETS");
@@ -7355,7 +8628,7 @@ data: ${data}
         if (balRows.length === 0) {
           await tx.insert(ticketBalances).values({ userId, balance: newBalance });
         } else {
-          await tx.update(ticketBalances).set({ balance: newBalance, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
+          await tx.update(ticketBalances).set({ balance: newBalance, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(ticketBalances.userId, userId));
         }
         const [spendTx] = await tx.insert(ticketTransactions).values({
           userId,
@@ -7364,12 +8637,11 @@ data: ${data}
           referenceId: referenceId ?? null,
           description: description ?? null
         }).returning({ id: ticketTransactions.id });
-        if (needsRevenueRecord) {
-          const creatorUserId = Number(creatorId);
-          const walletId = await getOrCreateUserWallet(creatorUserId, tx);
-          const [creatorRow] = await tx.select().from(creators).where(eq2(creators.userId, creatorUserId)).limit(1);
+        if (needsRevenueRecord && payoutCreatorUserId != null) {
+          const walletId = await getOrCreateUserWallet(payoutCreatorUserId, tx);
+          const creatorRow = await creatorRowForUserId(tx, payoutCreatorUserId);
           const source = type === "spend_tip" ? "tip" : "paid_live";
-          await recordRevenue(walletId, creatorUserId, creatorRow?.id ?? null, amount, source, String(spendTx.id), tx);
+          await recordRevenue(walletId, payoutCreatorUserId, creatorRow?.id ?? null, amount, source, String(spendTx.id), tx);
         }
       });
       return res.json({ success: true, newBalance });
@@ -7377,6 +8649,15 @@ data: ${data}
       if (e?.message === "INSUFFICIENT_TICKETS") {
         const meta = e?.meta ?? {};
         return res.status(402).json({ error: "Insufficient tickets", balance: meta.balance ?? 0, required: meta.required ?? amount });
+      }
+      if (e?.message === "VIDEO_SELLER_NOT_FOUND" || e?.message === "VIDEO_NOT_FOUND") {
+        return res.status(404).json({ error: "Video or seller not found for payout" });
+      }
+      if (e?.message === "VIDEO_NOT_PAID") {
+        return res.status(400).json({ error: "Video has no ticket price" });
+      }
+      if (e?.message === "VIDEO_PRICE_MISMATCH") {
+        return res.status(400).json({ error: "Amount does not match video price", expected: e?.meta?.expected });
       }
       console.error("[tickets/spend] failed:", e);
       return res.status(500).json({ error: "Failed to spend tickets" });
@@ -7413,6 +8694,7 @@ data: ${data}
         success_url: `${origin}/tickets?session_id={CHECKOUT_SESSION_ID}&tickets=${ticketCount}`,
         cancel_url: `${origin}/tickets`,
         metadata: {
+          type: "ticket_purchase",
           userId: String(user.id),
           tickets: String(ticketCount)
         }
@@ -7431,37 +8713,19 @@ data: ${data}
     try {
       const stripe = await getUncachableStripeClient();
       const session = await stripe.checkout.sessions.retrieve(sessionId);
-      if (session.payment_status !== "paid") {
-        return res.status(402).json({ error: "Payment not completed" });
-      }
       const tickets = parseInt(session.metadata?.tickets ?? "0");
       const metaUserId = session.metadata?.userId;
       if (!tickets || metaUserId !== String(user.id)) {
         return res.status(400).json({ error: "Invalid session" });
       }
-      const existing = await db.select().from(ticketTransactions).where(and2(
-        eq2(ticketTransactions.userId, String(user.id)),
-        eq2(ticketTransactions.referenceId, sessionId)
-      )).limit(1);
-      if (existing.length > 0) {
-        const balRows2 = await db.select().from(ticketBalances).where(eq2(ticketBalances.userId, String(user.id))).limit(1);
-        return res.json({ success: true, alreadyGranted: true, balance: balRows2[0]?.balance ?? 0 });
+      const credited = await creditTicketsFromTicketCheckoutSession(db, session);
+      if (!credited.ok) {
+        if (credited.reason === "not_paid") {
+          return res.status(402).json({ error: "Payment not completed" });
+        }
+        return res.status(400).json({ error: "Invalid session" });
       }
-      const balRows = await db.select().from(ticketBalances).where(eq2(ticketBalances.userId, String(user.id))).limit(1);
-      const currentBalance = balRows[0]?.balance ?? 0;
-      if (balRows.length === 0) {
-        await db.insert(ticketBalances).values({ userId: String(user.id), balance: tickets });
-      } else {
-        await db.update(ticketBalances).set({ balance: currentBalance + tickets, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, String(user.id)));
-      }
-      await db.insert(ticketTransactions).values({
-        userId: String(user.id),
-        amount: tickets,
-        type: "purchase",
-        referenceId: sessionId,
-        description: `Purchased ${tickets} tickets via Stripe`
-      });
-      return res.json({ success: true, newBalance: currentBalance + tickets });
+      return res.json({ success: true, alreadyGranted: credited.alreadyGranted, newBalance: credited.newBalance });
     } catch (err) {
       console.error("Verify ticket purchase error:", err);
       return res.status(500).json({ error: "Failed to verify purchase" });
@@ -7472,7 +8736,7 @@ data: ${data}
   });
   app2.get("/api/platform-banners", async (_req, res) => {
     try {
-      const rows = await db.select().from(bannerAds).where(eq2(bannerAds.isActive, true)).orderBy(asc2(bannerAds.displayOrder), desc(bannerAds.createdAt));
+      const rows = await db.select().from(bannerAds).where(eq5(bannerAds.isActive, true)).orderBy(asc3(bannerAds.displayOrder), desc(bannerAds.createdAt));
       res.json(rows);
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -7480,10 +8744,10 @@ data: ${data}
   });
   app2.post("/api/platform-banners", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
-    if (user.role !== "ADMIN") return res.status(403).json({ error: "\u7BA1\u7406\u8005\u306E\u307F\u64CD\u4F5C\u3067\u304D\u307E\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    if (user.role !== "ADMIN") return res.status(403).json({ error: "Only admins can perform this action" });
     const { title, imageUrl, linkUrl, description, displayOrder } = req.body;
-    if (!title) return res.status(400).json({ error: "title \u306F\u5FC5\u9808\u3067\u3059" });
+    if (!title) return res.status(400).json({ error: "title is required" });
     try {
       const [row] = await db.insert(bannerAds).values({
         title,
@@ -7500,8 +8764,8 @@ data: ${data}
   });
   app2.patch("/api/platform-banners/:id", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
-    if (user.role !== "ADMIN") return res.status(403).json({ error: "\u7BA1\u7406\u8005\u306E\u307F\u64CD\u4F5C\u3067\u304D\u307E\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    if (user.role !== "ADMIN") return res.status(403).json({ error: "Only admins can perform this action" });
     const id = paramNum(req, "id");
     const { title, imageUrl, linkUrl, description, isActive, displayOrder } = req.body;
     try {
@@ -7512,7 +8776,7 @@ data: ${data}
       if (description !== void 0) updates.description = description;
       if (isActive !== void 0) updates.isActive = isActive;
       if (displayOrder !== void 0) updates.displayOrder = displayOrder;
-      const [row] = await db.update(bannerAds).set(updates).where(eq2(bannerAds.id, id)).returning();
+      const [row] = await db.update(bannerAds).set(updates).where(eq5(bannerAds.id, id)).returning();
       if (!row) return res.status(404).json({ error: "Not found" });
       res.json(row);
     } catch (e) {
@@ -7521,11 +8785,11 @@ data: ${data}
   });
   app2.delete("/api/platform-banners/:id", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
-    if (user.role !== "ADMIN") return res.status(403).json({ error: "\u7BA1\u7406\u8005\u306E\u307F\u64CD\u4F5C\u3067\u304D\u307E\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    if (user.role !== "ADMIN") return res.status(403).json({ error: "Only admins can perform this action" });
     const id = paramNum(req, "id");
     try {
-      await db.delete(bannerAds).where(eq2(bannerAds.id, id));
+      await db.delete(bannerAds).where(eq5(bannerAds.id, id));
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -7533,11 +8797,11 @@ data: ${data}
   });
   app2.post("/api/daily-login", async (req, res) => {
     const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "\u672A\u8A8D\u8A3C\u3067\u3059" });
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     try {
       await db.insert(dailyLogins).values({ userId: user.id, date: today }).onConflictDoNothing();
-      const [{ cnt }] = await db.select({ cnt: count() }).from(dailyLogins).where(eq2(dailyLogins.date, today));
+      const [{ cnt }] = await db.select({ cnt: count() }).from(dailyLogins).where(eq5(dailyLogins.date, today));
       res.json({ date: today, count: Number(cnt) });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -7546,7 +8810,7 @@ data: ${data}
   app2.get("/api/daily-login/count", async (_req, res) => {
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     try {
-      const [{ cnt }] = await db.select({ cnt: count() }).from(dailyLogins).where(eq2(dailyLogins.date, today));
+      const [{ cnt }] = await db.select({ cnt: count() }).from(dailyLogins).where(eq5(dailyLogins.date, today));
       res.json({ date: today, count: Number(cnt) });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -7554,6 +8818,75 @@ data: ${data}
   });
   const AI_EDIT_PLAN_TICKETS = { 15: 200, 30: 400, 45: 600, 60: 800 };
   const AI_EDIT_REVISION_TICKETS = 100;
+  const AI_EDIT_RENDERING_STATUS = "rendering";
+  function isEditPlan(value) {
+    return Boolean(
+      value && typeof value === "object" && Array.isArray(value.edl) && typeof value.title === "string"
+    );
+  }
+  function parseStoredEditPlan(json) {
+    if (!json?.trim()) return null;
+    const stored = parseAIEditStoredResult(json);
+    if (stored) return stored.plan;
+    try {
+      const parsed = JSON.parse(json);
+      return isEditPlan(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  function parseJobVideoUrls2(job) {
+    if (job.videoUrls) {
+      try {
+        const parsed = JSON.parse(job.videoUrls);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((value) => typeof value === "string").map((value) => value.trim()).filter(Boolean);
+        }
+      } catch {
+      }
+    }
+    return job.videoUrl?.trim() ? [job.videoUrl.trim()] : [];
+  }
+  function getBaseVideoSpec2(job) {
+    const stored = parseAIEditStoredResult(job.result ?? null);
+    return stored?.baseSpec ?? parseStoredVideoSpec(job.videoSpec ?? null);
+  }
+  function getRenderVideoSpec(job) {
+    const stored = parseAIEditStoredResult(job.result ?? null);
+    return stored?.renderSpec ?? parseStoredVideoSpec(job.videoSpec ?? null);
+  }
+  async function refundAIEditTickets2(params) {
+    const { userId, amount, type, description, referenceId } = params;
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    const key = String(userId);
+    const balRows = await db.select().from(ticketBalances).where(eq5(ticketBalances.userId, key)).limit(1);
+    const currentBalance = balRows[0]?.balance ?? 0;
+    if (balRows.length === 0) {
+      await db.insert(ticketBalances).values({ userId: key, balance: amount });
+    } else {
+      await db.update(ticketBalances).set({ balance: currentBalance + amount, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(ticketBalances.userId, key));
+    }
+    await db.insert(ticketTransactions).values({
+      userId: key,
+      amount,
+      type,
+      referenceId,
+      description
+    });
+  }
+  async function scheduleAIEditPlanGeneration(params) {
+    const { jobId, revisionPrompt, refundAmount = 0, refundType, refundDescription } = params;
+    if (!useAIEditMemoryQueue()) {
+      await processAIEditJobInline({ jobId, revisionPrompt, refundAmount, refundType, refundDescription });
+      return;
+    }
+    void (async () => {
+      await db.update(aiEditJobs).set({ status: "processing", updatedAt: /* @__PURE__ */ new Date() }).where(eq5(aiEditJobs.id, jobId));
+      enqueueAIEditJob(`ai-edit:${jobId}:${revisionPrompt?.trim() ?? "initial"}`, async () => {
+        await runAIEditPlanWorker({ jobId, revisionPrompt, refundAmount, refundType, refundDescription });
+      });
+    })();
+  }
   app2.post("/api/ai-edit/jobs", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -7566,6 +8899,9 @@ data: ${data}
       }
       videoSpecJson = normalized;
     }
+    if (!videoSpecJson) {
+      return res.status(400).json({ error: "AI Edit requires a source spec built from the uploaded videos" });
+    }
     if (!planMinutes || !(planMinutes in AI_EDIT_PLAN_TICKETS)) {
       return res.status(400).json({ error: "planMinutes must be 15, 30, 45, or 60" });
     }
@@ -7577,7 +8913,7 @@ data: ${data}
     }
     const ticketCost = AI_EDIT_PLAN_TICKETS[planMinutes];
     const userId = String(user.id);
-    const balRows = await db.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
+    const balRows = await db.select().from(ticketBalances).where(eq5(ticketBalances.userId, userId)).limit(1);
     const currentBalance = balRows[0]?.balance ?? 0;
     if (currentBalance < ticketCost) {
       return res.status(402).json({ error: "Insufficient tickets", balance: currentBalance, required: ticketCost });
@@ -7585,7 +8921,7 @@ data: ${data}
     if (balRows.length === 0) {
       await db.insert(ticketBalances).values({ userId, balance: -ticketCost });
     } else {
-      await db.update(ticketBalances).set({ balance: currentBalance - ticketCost, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
+      await db.update(ticketBalances).set({ balance: currentBalance - ticketCost, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(ticketBalances.userId, userId));
     }
     await db.insert(ticketTransactions).values({
       userId,
@@ -7608,65 +8944,40 @@ data: ${data}
       ticketCost,
       videoSpec: videoSpecJson
     }).returning();
-    (async () => {
-      try {
-        await db.update(aiEditJobs).set({ status: "processing", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, job.id));
-        const editInput = {
-          planMinutes,
-          videoUrls,
-          logoUrl,
-          telop,
-          targetAudience,
-          tone,
-          prompt: prompt.trim()
-        };
-        const plan = await generateEditPlan(editInput);
-        await db.update(aiEditJobs).set({
-          status: "completed",
-          result: JSON.stringify(plan),
-          updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq2(aiEditJobs.id, job.id));
-      } catch (e) {
-        console.error("[ai-edit] Processing failed:", e);
-        await db.update(aiEditJobs).set({ status: "failed", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, job.id));
-      }
-    })();
-    res.json({ id: job.id, status: job.status });
+    await scheduleAIEditPlanGeneration({
+      jobId: job.id,
+      refundAmount: ticketCost,
+      refundType: "refund_ai_edit",
+      refundDescription: `Refund: AI Edit ${planMinutes}min plan (job ${job.id})`
+    });
+    const [finalJob] = await db.select({ status: aiEditJobs.status }).from(aiEditJobs).where(eq5(aiEditJobs.id, job.id));
+    res.json({ id: job.id, status: finalJob?.status ?? job.status });
   });
   app2.get("/api/ai-edit/jobs/:id", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const id = paramNum(req, "id");
-    const [job] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.id, id));
+    const [job] = await db.select().from(aiEditJobs).where(eq5(aiEditJobs.id, id));
     if (!job) return res.status(404).json({ error: "Job not found" });
     if (job.userId !== user.id) {
       return res.status(403).json({ error: "Forbidden" });
     }
-    let result = null;
-    if (job.result) {
-      try {
-        result = JSON.parse(job.result);
-      } catch {
-        result = null;
-      }
-    }
-    let parsedVideoUrls = null;
-    if (job.videoUrls) {
-      try {
-        parsedVideoUrls = JSON.parse(job.videoUrls);
-      } catch {
-        parsedVideoUrls = null;
-      }
-    }
-    const videoSpec = parseStoredVideoSpec(job.videoSpec ?? null);
+    const storedResult = parseAIEditStoredResult(job.result ?? null);
+    const result = storedResult?.plan ?? parseStoredEditPlan(job.result ?? null);
+    const parsedVideoUrls = parseJobVideoUrls2(job);
+    const videoSpec = storedResult?.renderSpec ?? parseStoredVideoSpec(job.videoSpec ?? null);
+    const baseVideoSpec = storedResult?.baseSpec ?? videoSpec;
     res.json({
       id: job.id,
       userId: job.userId,
       videoUrl: job.videoUrl,
-      videoUrls: parsedVideoUrls,
+      videoUrls: parsedVideoUrls.length > 0 ? parsedVideoUrls : null,
       prompt: job.prompt,
       status: job.status,
       result,
+      analysis: storedResult?.analysis ?? null,
+      promptUsed: storedResult?.promptUsed ?? job.prompt,
+      revisionPrompt: storedResult?.revisionPrompt ?? null,
       planMinutes: job.planMinutes,
       logoUrl: job.logoUrl,
       telop: job.telop,
@@ -7675,6 +8986,7 @@ data: ${data}
       revisionCount: job.revisionCount ?? 0,
       ticketCost: job.ticketCost,
       videoSpec,
+      baseVideoSpec,
       templatedRenderId: job.templatedRenderId ?? null,
       deliveredUrl: job.deliveredUrl ?? null,
       deliveredAt: job.deliveredAt ?? null,
@@ -7694,33 +9006,31 @@ data: ${data}
       return res.status(503).json({ error: "Templated is not configured (TEMPLATED_API_KEY)" });
     }
     const id = paramNum(req, "id");
-    const [job] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.id, id));
+    const [job] = await db.select().from(aiEditJobs).where(eq5(aiEditJobs.id, id));
     if (!job) return res.status(404).json({ error: "Job not found" });
     if (job.userId !== user.id) {
       return res.status(403).json({ error: "Forbidden" });
     }
-    const spec = parseStoredVideoSpec(job.videoSpec ?? null);
+    if (!["completed", "approved", AI_EDIT_RENDERING_STATUS].includes(job.status)) {
+      return res.status(400).json({ error: "Only completed or approved jobs can be rendered" });
+    }
+    if (job.status === AI_EDIT_RENDERING_STATUS && job.templatedRenderId) {
+      return res.status(409).json({ error: "A render is already in progress for this job" });
+    }
+    if (job.status === "delivered" && job.deliveredUrl?.trim()) {
+      return res.status(409).json({ error: "This job has already been delivered" });
+    }
+    const spec = getRenderVideoSpec(job);
     if (!spec) {
-      return res.status(400).json({ error: "Job has no valid video spec (DSL). Submit the order with spec from the AI Edit form." });
+      return res.status(400).json({ error: "Job has no renderable AI edit spec yet. Wait for the edit plan to finish." });
     }
-    let videoUrls = [];
-    if (job.videoUrls) {
-      try {
-        videoUrls = JSON.parse(job.videoUrls);
-      } catch {
-        videoUrls = [];
-      }
-    }
-    if (videoUrls.length === 0 && job.videoUrl) {
-      videoUrls = [job.videoUrl];
-    }
-    const inputVideoUrl = videoUrls[0]?.trim();
-    if (!inputVideoUrl) {
-      return res.status(400).json({ error: "No source video URL on this job" });
+    const videoUrls = parseJobVideoUrls2(job);
+    if (videoUrls.length === 0) {
+      return res.status(400).json({ error: "No source video URLs on this job" });
     }
     const webhookUrl = `${templatedPublicBaseUrl()}/api/webhooks/templated`;
     const renderRequest = dslToTemplated(spec, {
-      inputVideoUrl,
+      inputVideoUrls: videoUrls,
       logoUrl: job.logoUrl ?? void 0,
       webhookUrl,
       async: true
@@ -7740,23 +9050,23 @@ data: ${data}
     const now = /* @__PURE__ */ new Date();
     const syncUrl = renderRes.url?.trim();
     await db.update(aiEditJobs).set({
+      status: syncUrl ? "delivered" : AI_EDIT_RENDERING_STATUS,
       templatedRenderId: renderRes.id,
       ...syncUrl ? {
-        status: "delivered",
         deliveredUrl: syncUrl,
         deliveredAt: now
       } : {},
       updatedAt: now
-    }).where(eq2(aiEditJobs.id, id));
+    }).where(eq5(aiEditJobs.id, id));
     if (syncUrl) {
       try {
-        const [owner] = await db.select().from(users).where(eq2(users.id, job.userId));
+        const [owner] = await db.select().from(users).where(eq5(users.id, job.userId));
         await db.insert(notifications).values({
           type: "ai_edit_delivered",
           title: "Your edited video is ready",
           body: `Your AI Edit job #${job.id}${job.planMinutes ? ` (${job.planMinutes}-min plan)` : ""} has been delivered. Tap to download.`,
           amount: null,
-          avatar: owner?.avatar ?? null,
+          avatar: owner?.profileImageUrl ?? null,
           thumbnail: null,
           timeAgo: "Just now"
         });
@@ -7786,7 +9096,7 @@ data: ${data}
         if (Number.isFinite(n)) jobId = n;
       }
       if (jobId == null && typeof body.id === "string") {
-        const [row] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.templatedRenderId, body.id));
+        const [row] = await db.select().from(aiEditJobs).where(eq5(aiEditJobs.templatedRenderId, body.id));
         if (row) jobId = row.id;
       }
       if (jobId == null) {
@@ -7795,11 +9105,11 @@ data: ${data}
       }
       if (!succeeded || !url?.trim()) {
         if (statusRaw === "failed" || statusRaw === "error") {
-          await db.update(aiEditJobs).set({ status: "failed", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, jobId));
+          await db.update(aiEditJobs).set({ status: "failed", updatedAt: /* @__PURE__ */ new Date() }).where(eq5(aiEditJobs.id, jobId));
         }
         return res.status(200).json({ ok: true, ignored: true });
       }
-      const [job] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.id, jobId));
+      const [job] = await db.select().from(aiEditJobs).where(eq5(aiEditJobs.id, jobId));
       if (!job) {
         return res.status(200).json({ ok: false, reason: "job_missing" });
       }
@@ -7809,15 +9119,15 @@ data: ${data}
         deliveredUrl: url.trim(),
         deliveredAt: now,
         updatedAt: now
-      }).where(eq2(aiEditJobs.id, jobId));
+      }).where(eq5(aiEditJobs.id, jobId));
       try {
-        const [owner] = await db.select().from(users).where(eq2(users.id, job.userId));
+        const [owner] = await db.select().from(users).where(eq5(users.id, job.userId));
         await db.insert(notifications).values({
           type: "ai_edit_delivered",
           title: "Your edited video is ready",
           body: `Your AI Edit job #${job.id}${job.planMinutes ? ` (${job.planMinutes}-min plan)` : ""} has been delivered. Tap to download.`,
           amount: null,
-          avatar: owner?.avatar ?? null,
+          avatar: owner?.profileImageUrl ?? null,
           thumbnail: null,
           timeAgo: "Just now"
         });
@@ -7834,7 +9144,7 @@ data: ${data}
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const id = paramNum(req, "id");
-    const [job] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.id, id));
+    const [job] = await db.select().from(aiEditJobs).where(eq5(aiEditJobs.id, id));
     if (!job) return res.status(404).json({ error: "Job not found" });
     if (job.userId !== user.id) {
       return res.status(403).json({ error: "Forbidden" });
@@ -7842,14 +9152,15 @@ data: ${data}
     if (job.status !== "completed") {
       return res.status(400).json({ error: "Only completed jobs can be approved" });
     }
-    await db.update(aiEditJobs).set({ status: "approved", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, id));
+    await db.update(aiEditJobs).set({ status: "approved", updatedAt: /* @__PURE__ */ new Date() }).where(eq5(aiEditJobs.id, id));
     res.json({ ok: true, id, status: "approved" });
   });
   app2.post("/api/ai-edit/jobs/:id/revise", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const id = paramNum(req, "id");
-    const [job] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.id, id));
+    const { revisionPrompt } = req.body;
+    const [job] = await db.select().from(aiEditJobs).where(eq5(aiEditJobs.id, id));
     if (!job) return res.status(404).json({ error: "Job not found" });
     if (job.userId !== user.id) {
       return res.status(403).json({ error: "Forbidden" });
@@ -7860,7 +9171,7 @@ data: ${data}
     const revisionCount = job.revisionCount ?? 0;
     if (revisionCount >= 1) {
       const userId = String(user.id);
-      const balRows = await db.select().from(ticketBalances).where(eq2(ticketBalances.userId, userId)).limit(1);
+      const balRows = await db.select().from(ticketBalances).where(eq5(ticketBalances.userId, userId)).limit(1);
       const currentBalance = balRows[0]?.balance ?? 0;
       if (currentBalance < AI_EDIT_REVISION_TICKETS) {
         return res.status(402).json({ error: "Insufficient tickets", balance: currentBalance, required: AI_EDIT_REVISION_TICKETS });
@@ -7868,7 +9179,7 @@ data: ${data}
       if (balRows.length === 0) {
         await db.insert(ticketBalances).values({ userId, balance: -AI_EDIT_REVISION_TICKETS });
       } else {
-        await db.update(ticketBalances).set({ balance: currentBalance - AI_EDIT_REVISION_TICKETS, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(ticketBalances.userId, userId));
+        await db.update(ticketBalances).set({ balance: currentBalance - AI_EDIT_REVISION_TICKETS, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(ticketBalances.userId, userId));
       }
       await db.insert(ticketTransactions).values({
         userId,
@@ -7879,32 +9190,28 @@ data: ${data}
       });
     }
     const newRevisionCount = revisionCount + 1;
-    await db.update(aiEditJobs).set({ status: "processing", revisionCount: newRevisionCount, updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, id));
-    let videoUrlsArr;
-    try {
-      videoUrlsArr = job.videoUrls ? JSON.parse(job.videoUrls) : [job.videoUrl];
-    } catch {
-      videoUrlsArr = [job.videoUrl];
-    }
-    const reviseInput = {
-      planMinutes: job.planMinutes ?? 15,
-      videoUrls: videoUrlsArr,
-      logoUrl: job.logoUrl,
-      telop: job.telop,
-      targetAudience: job.targetAudience,
-      tone: job.tone,
-      prompt: job.prompt
-    };
-    (async () => {
-      try {
-        const plan = await generateEditPlan(reviseInput);
-        await db.update(aiEditJobs).set({ status: "completed", result: JSON.stringify(plan), updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, id));
-      } catch (e) {
-        console.error("[ai-edit] Revision failed:", e);
-        await db.update(aiEditJobs).set({ status: "failed", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, id));
-      }
-    })();
-    res.json({ ok: true, revisionCount: newRevisionCount, free: revisionCount === 0 });
+    await db.update(aiEditJobs).set({
+      status: "pending",
+      revisionCount: newRevisionCount,
+      templatedRenderId: null,
+      deliveredUrl: null,
+      deliveredAt: null,
+      updatedAt: /* @__PURE__ */ new Date()
+    }).where(eq5(aiEditJobs.id, id));
+    await scheduleAIEditPlanGeneration({
+      jobId: id,
+      revisionPrompt,
+      refundAmount: revisionCount >= 1 ? AI_EDIT_REVISION_TICKETS : 0,
+      refundType: "refund_ai_edit_revision",
+      refundDescription: `Refund: AI Edit Revision #${newRevisionCount} (job ${job.id})`
+    });
+    const [reviseFinal] = await db.select({ status: aiEditJobs.status }).from(aiEditJobs).where(eq5(aiEditJobs.id, id));
+    res.json({
+      ok: true,
+      revisionCount: newRevisionCount,
+      free: revisionCount === 0,
+      status: reviseFinal?.status
+    });
   });
   app2.post("/api/ai-edit/jobs/:id/deliver", async (req, res) => {
     const editor = await getAuthUser(req);
@@ -7914,7 +9221,7 @@ data: ${data}
     if (!deliveredUrl?.trim()) {
       return res.status(400).json({ error: "deliveredUrl is required" });
     }
-    const [job] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.id, id));
+    const [job] = await db.select().from(aiEditJobs).where(eq5(aiEditJobs.id, id));
     if (!job) return res.status(404).json({ error: "Job not found" });
     if (job.status === "delivered") {
       return res.status(409).json({ error: "This job has already been delivered" });
@@ -7928,15 +9235,15 @@ data: ${data}
       deliveredUrl: deliveredUrl.trim(),
       deliveredAt: now,
       updatedAt: now
-    }).where(eq2(aiEditJobs.id, id));
+    }).where(eq5(aiEditJobs.id, id));
     try {
-      const [owner] = await db.select().from(users).where(eq2(users.id, job.userId));
+      const [owner] = await db.select().from(users).where(eq5(users.id, job.userId));
       await db.insert(notifications).values({
         type: "ai_edit_delivered",
         title: "Your edited video is ready",
         body: `Your AI Edit job #${job.id}${job.planMinutes ? ` (${job.planMinutes}-min plan)` : ""} has been delivered. Tap to download.`,
         amount: null,
-        avatar: owner?.avatar ?? null,
+        avatar: owner?.profileImageUrl ?? null,
         thumbnail: null,
         timeAgo: "Just now"
       });
@@ -7944,6 +9251,24 @@ data: ${data}
       console.error("[ai-edit/deliver] Failed to send notification:", notifErr);
     }
     res.json({ ok: true, id, status: "delivered", deliveredUrl: deliveredUrl.trim() });
+  });
+  app2.get("/api/cron/ai-edit-process", async (req, res) => {
+    const expected = process.env.CRON_SECRET?.trim() || process.env.AI_EDIT_CRON_SECRET?.trim() || "";
+    if (!expected) {
+      return res.status(503).json({ error: "CRON_SECRET or AI_EDIT_CRON_SECRET is not configured" });
+    }
+    const auth = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
+    if (auth !== `Bearer ${expected}`) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const limit = Math.min(15, Math.max(1, parseInt(String(req.query.limit ?? "5"), 10) || 5));
+    let processed = 0;
+    for (let i = 0; i < limit; i++) {
+      const r = await claimAndProcessNextPendingAIEditJob();
+      if (!r.processed) break;
+      processed++;
+    }
+    res.json({ ok: true, processed });
   });
 }
 
@@ -8026,7 +9351,7 @@ import { createProxyMiddleware } from "http-proxy-middleware";
 
 // lib/brand.ts
 var DEFAULT_RAWSTOCK_LOGO_URL = "https://d2xsxph8kpxj0f.cloudfront.net/310519663449879480/M2pBP9b9EdXaS65j3mPhNW/RawStock_logo_3fd8a263.webp";
-var DEFAULT_HERO_VIDEO_URL = "https://assets.mixkit.co/videos/preview/mixkit-people-dancing-at-a-concert-1754-large.mp4";
+var DEFAULT_HERO_VIDEO_URL = "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
 var DEFAULT_HERO_POSTER_URL = "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=1920&q=80";
 var RAWSTOCK_LOGO_URL = typeof process !== "undefined" && process.env.PUBLIC_LOGO_URL?.trim() || DEFAULT_RAWSTOCK_LOGO_URL;
 var RAWSTOCK_HERO_VIDEO_URL = typeof process !== "undefined" && process.env.PUBLIC_HERO_VIDEO_URL?.trim() || DEFAULT_HERO_VIDEO_URL;

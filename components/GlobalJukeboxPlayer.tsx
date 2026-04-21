@@ -5,7 +5,6 @@ import {
   StyleSheet,
   Text,
   View,
-  Dimensions,
 } from "react-native";
 import { usePathname, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -13,6 +12,8 @@ import { Image } from "expo-image";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { C } from "@/constants/colors";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
+import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
+import { JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY } from "@/lib/useJukeboxPulse";
 import { usePlayingVideo } from "@/lib/playing-video-context";
 // NOTE: 音声再生は jukebox/[id].tsx の NowPlaying 内の IFrame API プレイヤーが担当。
 // GJP はミニプレイヤー UI のみを担当する。
@@ -37,6 +38,7 @@ type QueueItem = {
   youtubeId?: string | null;
   addedBy: string;
   addedByAvatar: string | null;
+  addedByUserId?: number | null;
   isPlayed: boolean;
 };
 
@@ -63,24 +65,11 @@ function parseCommunityId(pathname: string | null): number | null {
   return null;
 }
 
-const CARD_W = 280;
-const CARD_H = 72;
-
-function useScreenSize() {
-  const [size, setSize] = useState(() => Dimensions.get("window"));
-  useEffect(() => {
-    const sub = Dimensions.addEventListener("change", ({ window }) => setSize(window));
-    return () => sub?.remove();
-  }, []);
-  return size;
-}
-
 // ============================================================
 // GlobalJukeboxPlayer
 // 役割: ミニプレイヤー UI のみ（音声再生は jukebox/[id].tsx の NowPlaying が担当）
 // ============================================================
 export function GlobalJukeboxPlayer() {
-  const { width: SCREEN_W, height: SCREEN_H } = useScreenSize();
   const pathname = usePathname();
   const { setJukeboxIsActive, setJukeboxCommunityId } = usePlayingVideo();
   const [communityId, setCommunityId] = useState<number | null>(() =>
@@ -173,6 +162,11 @@ export function GlobalJukeboxPlayer() {
       if (!communityId) return;
       await apiRequest("POST", `/api/jukebox/${communityId}/next`);
     },
+    onSuccess: () => {
+      if (!communityId) return;
+      qc.invalidateQueries({ queryKey: [`/api/jukebox/${communityId}`] });
+      qc.invalidateQueries({ queryKey: JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY });
+    },
   });
 
   const state = data?.state ?? null;
@@ -259,15 +253,16 @@ export function GlobalJukeboxPlayer() {
       ? Math.min(elapsed / state.currentVideoDurationSecs, 1)
       : 0;
 
-  const addedBy = queue.find((q) => !q.isPlayed)?.addedBy ?? "";
+  const nextQueueItem = queue.find((q) => !q.isPlayed);
+  const addedBy = nextQueueItem?.addedBy ?? "";
 
   if (dismissed) {
     return null;
   }
 
-  // Spotify 風画面下部固定バー
+  // 全画面ラッパは使わない（Web で背面タッチが死ぬことがある）。バー幅だけを占める。
   return (
-    <View pointerEvents="box-none" style={[styles.root, { left: 0, right: 0, top: 0, bottom: 0 }]}>
+    <View pointerEvents="box-none" style={styles.root}>
       <View style={styles.bar}>
         {/* プログレスバー（バー上部） */}
         <View style={styles.barProgress}>
@@ -302,9 +297,19 @@ export function GlobalJukeboxPlayer() {
               {state.currentVideoTitle ?? "Watch party"}
             </Text>
             {addedBy ? (
-              <Text style={styles.barSubtitle} numberOfLines={1}>
-                {addedBy} picked this track
-              </Text>
+              <Pressable
+                onPress={() =>
+                  navigateToUserOrLiverProfile({
+                    userId: nextQueueItem?.addedByUserId ?? null,
+                    displayName: nextQueueItem?.addedByUserId ? null : addedBy,
+                  })
+                }
+                hitSlop={4}
+              >
+                <Text style={styles.barSubtitle} numberOfLines={1}>
+                  {addedBy} picked this track
+                </Text>
+              </Pressable>
             ) : null}
           </Pressable>
 
@@ -334,16 +339,13 @@ export function GlobalJukeboxPlayer() {
 const styles = StyleSheet.create({
   root: {
     position: "absolute",
-    right: 16,
-    bottom: 16,
-    left: 16,
-    pointerEvents: "box-none",
-  },
-  bar: {
-    position: "absolute",
     left: 8,
     right: 8,
     bottom: 68,
+    zIndex: 1000,
+    pointerEvents: "box-none",
+  },
+  bar: {
     backgroundColor: "rgba(18,18,18,0.97)",
     borderRadius: 12,
     borderWidth: 1,

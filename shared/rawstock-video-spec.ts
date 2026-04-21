@@ -32,6 +32,12 @@ export interface RawStockClip {
   type: RawStockClipType;
   energy: RawStockClipEnergy;
   intent?: string;
+  /** 元ソース動画の index（複数動画アップロード時の対応付け） */
+  sourceIndex?: number;
+  /** 元ソース動画内の開始秒。未指定時は start を trim に使う。 */
+  sourceStart?: number;
+  /** 元ソース動画内の終了秒。未指定時は end を trim に使う。 */
+  sourceEnd?: number;
 }
 
 export type RawStockCutSpeed = "slow" | "medium" | "fast";

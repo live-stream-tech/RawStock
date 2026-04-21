@@ -78,6 +78,9 @@ export function buildOrderVideoSpec(params: {
       type: clipTypeForIndex(i, videos.length),
       energy: rawStockClipEnergy(0.5),
       intent: i === 0 && intentTrim ? intentTrim : undefined,
+      sourceIndex: i,
+      sourceStart: 0,
+      sourceEnd: dur,
     };
   });
 

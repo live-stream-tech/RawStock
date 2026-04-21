@@ -2,7 +2,7 @@ import React, { useEffect } from "react";
 import { View, Text, ActivityIndicator, Platform } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useAuth } from "@/lib/auth";
-import { getLoginReturn } from "@/lib/login-return";
+import { consumeLoginRedirectPath } from "@/lib/login-return";
 import { C } from "@/constants/colors";
 
 /**
@@ -48,10 +48,7 @@ export default function PopupFallbackScreen() {
       try {
         await loginWithToken(token);
         if (cancelled) return;
-        const saved = getLoginReturn();
-        let returnTo = saved ?? "/(tabs)/profile";
-        if (returnTo.startsWith("/auth/")) returnTo = "/(tabs)/profile";
-        router.replace(returnTo as any);
+        router.replace(consumeLoginRedirectPath() as any);
       } catch {
         if (!cancelled) router.replace("/auth/login?auth_error=me_failed" as any);
       }

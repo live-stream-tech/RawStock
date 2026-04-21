@@ -23,11 +23,14 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { C } from "@/constants/colors";
 import { apiRequest, ApiError } from "@/lib/query-client";
+import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { useAuth } from "@/lib/auth";
 import { Linking } from "react-native";
 import { getApiUrl } from "@/lib/query-client";
+import { JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY } from "@/lib/useJukeboxPulse";
 import { saveLoginReturn } from "@/lib/login-return";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
+import { TranslateButton } from "@/components/TranslateButton";
 import { webScrollStyle } from "@/constants/layout";
 
 type JukeboxState = {
@@ -53,6 +56,7 @@ type QueueItem = {
   youtubeId?: string | null;
   addedBy: string;
   addedByAvatar: string | null;
+  addedByUserId?: number | null;
   isPlayed: boolean;
 };
 
@@ -371,8 +375,14 @@ function NowPlaying({
   useEffect(() => {
     if (Platform.OS !== "web" || typeof window === "undefined") return;
     const onResizeGroup = () => throttledScheduleTryResume();
+    /** 端末回転で WebKit が一時停止しやすい — 遅延で複数回 resume */
+    const onOrientation = () => {
+      throttledScheduleTryResume();
+      setTimeout(() => scheduleTryResume(), 350);
+      setTimeout(() => scheduleTryResume(), 800);
+    };
     window.addEventListener("resize", onResizeGroup);
-    window.addEventListener("orientationchange", onResizeGroup);
+    window.addEventListener("orientationchange", onOrientation);
     const vv = window.visualViewport;
     vv?.addEventListener("resize", onResizeGroup);
     const onVis = () => {
@@ -384,7 +394,7 @@ function NowPlaying({
     document.addEventListener("visibilitychange", onVis);
     return () => {
       window.removeEventListener("resize", onResizeGroup);
-      window.removeEventListener("orientationchange", onResizeGroup);
+      window.removeEventListener("orientationchange", onOrientation);
       vv?.removeEventListener("resize", onResizeGroup);
       document.removeEventListener("visibilitychange", onVis);
     };
@@ -583,7 +593,17 @@ function QueueRow({
           </Text>
           <View style={styles.queueItemVerticalMeta}>
             {item.addedByAvatar ? (
-              <Image source={{ uri: item.addedByAvatar }} style={styles.queueItemAvatar} contentFit="cover" />
+              <Pressable
+                onPress={() =>
+                  navigateToUserOrLiverProfile({
+                    userId: item.addedByUserId ?? null,
+                    displayName: item.addedByUserId ? null : item.addedBy,
+                  })
+                }
+                hitSlop={4}
+              >
+                <Image source={{ uri: item.addedByAvatar }} style={styles.queueItemAvatar} contentFit="cover" />
+              </Pressable>
             ) : null}
             <Text style={styles.queueItemByVertical}>{item.addedBy}</Text>
           </View>
@@ -612,7 +632,17 @@ function QueueRow({
         </Text>
         <View style={styles.queueItemByRow}>
           {item.addedByAvatar ? (
-            <Image source={{ uri: item.addedByAvatar }} style={styles.queueItemAvatar} contentFit="cover" />
+            <Pressable
+              onPress={() =>
+                navigateToUserOrLiverProfile({
+                  userId: item.addedByUserId ?? null,
+                  displayName: item.addedByUserId ? null : item.addedBy,
+                })
+              }
+              hitSlop={4}
+            >
+              <Image source={{ uri: item.addedByAvatar }} style={styles.queueItemAvatar} contentFit="cover" />
+            </Pressable>
           ) : null}
           <Text style={styles.queueItemBy}>{item.addedBy}</Text>
         </View>
@@ -807,8 +837,8 @@ export default function JukeboxScreen() {
   });
 
   const ticketBalance = ticketData?.balance ?? 0;
-  const freeRemaining = reqCountData?.freeRemaining ?? 3;
-  const ticketsPerRequest = reqCountData?.ticketsPerRequest ?? 30;
+  const freeRemaining = reqCountData?.freeRemaining ?? 20;
+  const ticketsPerRequest = reqCountData?.ticketsPerRequest ?? 10;
 
   const state = data?.state ?? null;
   const queue = data?.queue ?? [];
@@ -852,13 +882,15 @@ export default function JukeboxScreen() {
   const nextMutation = useMutation({
     mutationFn: () => apiRequest("POST", `/api/jukebox/${communityId}/next`),
     onSuccess: () => {
-      if (Platform.OS !== "web") qc.invalidateQueries({ queryKey: jukeboxKey });
+      // Web でも refetch する（Vercel 等で POST と SSE が別インスタンスだと EventEmitter に届かない）
+      qc.invalidateQueries({ queryKey: jukeboxKey });
+      qc.invalidateQueries({ queryKey: JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY });
     },
   });
 
   const addMutation = useMutation({
     mutationFn: async (video: Video) => {
-      const currentFreeRemaining = reqCountData?.freeRemaining ?? 3;
+      const currentFreeRemaining = reqCountData?.freeRemaining ?? 20;
 
       if (currentFreeRemaining > 0) {
         // Free request — just record it
@@ -903,13 +935,21 @@ export default function JukeboxScreen() {
     onSuccess: () => {
       setYtUrl("");
       setShowAddModal(false);
-      if (Platform.OS !== "web") qc.invalidateQueries({ queryKey: jukeboxKey });
+      qc.invalidateQueries({ queryKey: jukeboxKey });
+      qc.invalidateQueries({ queryKey: JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY });
+      qc.invalidateQueries({ queryKey: [`/api/tickets/request-count?communityId=${communityId}`] });
     },
     onError: (err: any) => {
       if (err?.code === "insufficient_tickets") {
+        const freeLimit =
+          (
+            qc.getQueryData([
+              `/api/tickets/request-count?communityId=${communityId}`,
+            ]) as { freeLimit?: number } | undefined
+          )?.freeLimit ?? 20;
         Alert.alert(
           "Not Enough Tickets 🎟",
-          `You've used your 3 free requests today.\n\nYou need ${err.required} 🎟 to add more songs but only have ${err.balance} 🎟.`,
+          `You've used your ${freeLimit} free requests today.\n\nYou need ${err.required} 🎟 to add more songs but only have ${err.balance} 🎟.`,
           [
             { text: "Cancel", style: "cancel" },
             { text: "Get Tickets", onPress: () => router.push("/tickets") },
@@ -933,7 +973,8 @@ export default function JukeboxScreen() {
       return apiRequest("DELETE", `/api/jukebox/${communityId}/queue/${itemId}${addedBy}`);
     },
     onSuccess: () => {
-      if (Platform.OS !== "web") qc.invalidateQueries({ queryKey: jukeboxKey });
+      qc.invalidateQueries({ queryKey: jukeboxKey });
+      qc.invalidateQueries({ queryKey: JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY });
     },
   });
 
@@ -1355,6 +1396,11 @@ export default function JukeboxScreen() {
                 </Text>
               </Pressable>
               <Text style={styles.headerTitle}>Watch Party</Text>
+              <Text style={styles.jukeboxPricingHint} numberOfLines={3}>
+                {user
+                  ? `${freeRemaining} free left today (max ${reqCountData?.freeLimit ?? 20}/day) · then ${ticketsPerRequest} tickets/request`
+                  : `Sign in: up to ${reqCountData?.freeLimit ?? 20} free requests per community per day, then ${ticketsPerRequest} tickets each.`}
+              </Text>
             </View>
             <View style={{ width: 36 }} />
           </View>
@@ -1398,17 +1444,26 @@ export default function JukeboxScreen() {
               removeClippedSubviews={false}
               renderItem={({ item }) => (
                 <View style={[styles.chatMsg, item.username === (user?.name ?? "Guest") && styles.chatMsgMine]}>
-                  {item.username !== (user?.name ?? "Guest") &&
-                    (item.avatar ? (
-                      <Image source={{ uri: item.avatar }} style={styles.chatAvatar} contentFit="cover" />
-                    ) : (
-                      <View style={[styles.chatAvatar, { backgroundColor: C.surface3, alignItems: "center", justifyContent: "center" }]}>
-                        <Ionicons name="person" size={12} color={C.textMuted} />
-                      </View>
-                    ))}
+                  {item.username !== (user?.name ?? "Guest") && (
+                    <Pressable
+                      onPress={() => navigateToUserOrLiverProfile({ displayName: item.username })}
+                      hitSlop={4}
+                    >
+                      {item.avatar ? (
+                        <Image source={{ uri: item.avatar }} style={styles.chatAvatar} contentFit="cover" />
+                      ) : (
+                        <View style={[styles.chatAvatar, { backgroundColor: C.surface3, alignItems: "center", justifyContent: "center" }]}>
+                          <Ionicons name="person" size={12} color={C.textMuted} />
+                        </View>
+                      )}
+                    </Pressable>
+                  )}
                   <View style={[styles.chatBubble, item.username === (user?.name ?? "Guest") && styles.chatBubbleMine]}>
                     {item.username !== (user?.name ?? "Guest") && <Text style={styles.chatUsername}>{item.username}</Text>}
                     <Text style={[styles.chatText, item.username === (user?.name ?? "Guest") && styles.chatTextMine]}>{item.message}</Text>
+                    {item.username !== (user?.name ?? "Guest") && item.message ? (
+                      <TranslateButton text={item.message} compact />
+                    ) : null}
                   </View>
                 </View>
               )}
@@ -1482,6 +1537,11 @@ export default function JukeboxScreen() {
                 </Text>
               </Pressable>
               <Text style={styles.headerTitle}>Watch Party</Text>
+              <Text style={styles.jukeboxPricingHint} numberOfLines={3}>
+                {user
+                  ? `${freeRemaining} free left today (max ${reqCountData?.freeLimit ?? 20}/day) · then ${ticketsPerRequest} tickets/request`
+                  : `Sign in: up to ${reqCountData?.freeLimit ?? 20} free requests per community per day, then ${ticketsPerRequest} tickets each.`}
+              </Text>
             </View>
             <View style={{ width: 36 }} />
           </View>
@@ -1531,13 +1591,18 @@ export default function JukeboxScreen() {
                 renderItem={({ item }) => (
                   <View style={[styles.chatMsg, item.username === (user?.name ?? "Guest") && styles.chatMsgMine]}>
                     {item.username !== (user?.name ?? "Guest") && (
-                      item.avatar ? (
-                        <Image source={{ uri: item.avatar }} style={styles.chatAvatar} contentFit="cover" />
-                      ) : (
-                        <View style={[styles.chatAvatar, { backgroundColor: C.surface3, alignItems: "center", justifyContent: "center" }]}>
-                          <Ionicons name="person" size={12} color={C.textMuted} />
-                        </View>
-                      )
+                      <Pressable
+                        onPress={() => navigateToUserOrLiverProfile({ displayName: item.username })}
+                        hitSlop={4}
+                      >
+                        {item.avatar ? (
+                          <Image source={{ uri: item.avatar }} style={styles.chatAvatar} contentFit="cover" />
+                        ) : (
+                          <View style={[styles.chatAvatar, { backgroundColor: C.surface3, alignItems: "center", justifyContent: "center" }]}>
+                            <Ionicons name="person" size={12} color={C.textMuted} />
+                          </View>
+                        )}
+                      </Pressable>
                     )}
                     <View style={[styles.chatBubble, item.username === (user?.name ?? "Guest") && styles.chatBubbleMine]}>
                       {item.username !== (user?.name ?? "Guest") && (
@@ -1546,6 +1611,9 @@ export default function JukeboxScreen() {
                       <Text style={[styles.chatText, item.username === (user?.name ?? "Guest") && styles.chatTextMine]}>
                         {item.message}
                       </Text>
+                      {item.username !== (user?.name ?? "Guest") && item.message ? (
+                        <TranslateButton text={item.message} compact />
+                      ) : null}
                     </View>
                   </View>
                 )}
@@ -1608,6 +1676,15 @@ export default function JukeboxScreen() {
               </Text>
             </Pressable>
 
+            <Text
+              style={[styles.landscapePricingHint, { top: insets.top + 44, left: insets.left + 52, right: insets.right + 52 }]}
+              numberOfLines={2}
+            >
+              {user
+                ? `${freeRemaining} free · then ${ticketsPerRequest} tickets`
+                : `${reqCountData?.freeLimit ?? 20} free/day · then ${ticketsPerRequest} tickets`}
+            </Text>
+
             {!chatPanelOpen && (
               <Pressable
                 style={[styles.landscapeChatBar, { bottom: insets.bottom + 8, left: insets.left + 12, right: insets.right + 12 }]}
@@ -1653,13 +1730,18 @@ export default function JukeboxScreen() {
                   renderItem={({ item }) => (
                     <View style={[styles.chatMsg, item.username === (user?.name ?? "Guest") && styles.chatMsgMine]}>
                       {item.username !== (user?.name ?? "Guest") && (
-                        item.avatar ? (
-                          <Image source={{ uri: item.avatar }} style={styles.chatAvatar} contentFit="cover" />
-                        ) : (
-                          <View style={[styles.chatAvatar, { backgroundColor: C.surface3, alignItems: "center", justifyContent: "center" }]}>
-                            <Ionicons name="person" size={12} color={C.textMuted} />
-                          </View>
-                        )
+                        <Pressable
+                          onPress={() => navigateToUserOrLiverProfile({ displayName: item.username })}
+                          hitSlop={4}
+                        >
+                          {item.avatar ? (
+                            <Image source={{ uri: item.avatar }} style={styles.chatAvatar} contentFit="cover" />
+                          ) : (
+                            <View style={[styles.chatAvatar, { backgroundColor: C.surface3, alignItems: "center", justifyContent: "center" }]}>
+                              <Ionicons name="person" size={12} color={C.textMuted} />
+                            </View>
+                          )}
+                        </Pressable>
                       )}
                       <View style={[styles.chatBubble, item.username === (user?.name ?? "Guest") && styles.chatBubbleMine]}>
                         {item.username !== (user?.name ?? "Guest") && (
@@ -1668,6 +1750,9 @@ export default function JukeboxScreen() {
                         <Text style={[styles.chatText, item.username === (user?.name ?? "Guest") && styles.chatTextMine]}>
                           {item.message}
                         </Text>
+                        {item.username !== (user?.name ?? "Guest") && item.message ? (
+                          <TranslateButton text={item.message} compact />
+                        ) : null}
                       </View>
                     </View>
                   )}
@@ -1775,6 +1860,16 @@ const styles = StyleSheet.create({
   },
   jukeboxBadgeText: { color: "#fff", fontSize: 10, fontWeight: "800" },
   headerTitle: { color: C.textSec, fontSize: 11, marginTop: 1 },
+  jukeboxPricingHint: {
+    fontSize: 10,
+    color: C.textMuted,
+    textAlign: "center",
+    marginTop: 4,
+    paddingHorizontal: 8,
+    lineHeight: 14,
+    maxWidth: 320,
+    alignSelf: "center",
+  },
 
   landscapeCommunityPill: {
     position: "absolute",
@@ -1798,6 +1893,14 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textAlign: "center",
     minWidth: 0,
+  },
+  landscapePricingHint: {
+    position: "absolute",
+    zIndex: 44,
+    fontSize: 10,
+    color: "rgba(255,255,255,0.78)",
+    textAlign: "center",
+    lineHeight: 13,
   },
 
   nowPlaying: {
