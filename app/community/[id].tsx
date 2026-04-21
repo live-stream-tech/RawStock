@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -28,6 +28,7 @@ import { navigateToUserOrLiverProfile, navigateFromVideoCreatorRow } from "@/lib
 import { useAuth } from "@/lib/auth";
 import { webScrollStyle } from "@/constants/layout";
 import { TranslateButton } from "@/components/TranslateButton";
+import { isMusicGenreCommunityCategory } from "@/lib/communityGenreBoard";
 
 type AdData = { title: string; sub: string; cta: string; bg: string; accent: string; thumb: string };
 
@@ -678,7 +679,11 @@ type CommunityCreatorsResponse = {
 };
 
 export default function CommunityDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, tab: tabParam, openThread: openThreadParam } = useLocalSearchParams<{
+    id: string;
+    tab?: string;
+    openThread?: string;
+  }>();
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<Tab>("Latest");
   const [following, setFollowing] = useState(false);
@@ -698,6 +703,9 @@ export default function CommunityDetailScreen() {
   const communityId = Number(community.id ?? numericId);
   const ad = getAd(community.name);
   const bottomInset = Platform.OS === "web" ? 34 : 0;
+  const announceBoard = isMusicGenreCommunityCategory(
+    typeof community?.category === "string" ? community.category : undefined,
+  );
 
   type StaffData = {
     adminId: number | null;
@@ -714,6 +722,22 @@ export default function CommunityDetailScreen() {
   useEffect(() => {
     if (meMemberData?.isMember !== undefined) setFollowing(meMemberData.isMember);
   }, [meMemberData?.isMember]);
+
+  useEffect(() => {
+    const t = (tabParam ?? "").trim().toLowerCase();
+    if (t === "board") setActiveTab("Board");
+  }, [tabParam]);
+
+  const consumedOpenThreadKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (activeTab !== "Board" || !openThreadParam) return;
+    const key = `${communityId}:${openThreadParam}`;
+    if (consumedOpenThreadKey.current === key) return;
+    const n = parseInt(String(openThreadParam), 10);
+    if (!Number.isFinite(n) || n <= 0) return;
+    consumedOpenThreadKey.current = key;
+    setSelectedThreadId(n);
+  }, [openThreadParam, activeTab, communityId]);
   const [requestEditor, setRequestEditor] = useState<VideoEditor | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<number | null>(null);
   const [showCreateThread, setShowCreateThread] = useState(false);
@@ -743,6 +767,9 @@ export default function CommunityDetailScreen() {
   const qc = useQueryClient();
   const isCommunityAdmin = !!staffData?.adminId && user?.id === staffData.adminId;
   const isModerator = staffData?.moderatorIds?.includes(user?.id ?? 0) ?? false;
+  const isPlatformAdmin = (user?.role ?? "").toUpperCase() === "ADMIN";
+  /** メンバー以外でも、コミュニティ運営・モデレーター・プラットフォーム管理者は告知を投稿できる */
+  const canPostToBoard = following || isCommunityAdmin || isModerator || isPlatformAdmin;
 
   const { data: editors = [], isLoading: editorsLoading } = useQuery<VideoEditor[]>({
     queryKey: [`/api/communities/${communityId}/editors`],
@@ -765,6 +792,13 @@ export default function CommunityDetailScreen() {
     enabled: activeTab === "Board" && communityId > 0,
     refetchInterval: activeTab === "Board" ? 30000 : false,
   });
+  const displayThreads = useMemo(() => {
+    if (!announceBoard) return threads;
+    return [...threads].sort((a, b) => {
+      if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+  }, [threads, announceBoard]);
   const { data: threadDetail, refetch: refetchThreadDetail } = useQuery<ThreadDetail>({
     queryKey: [`/api/communities/${communityId}/threads/${selectedThreadId}`],
     enabled: !!selectedThreadId && communityId > 0,
@@ -1084,7 +1118,9 @@ export default function CommunityDetailScreen() {
               style={[styles.tabItem, activeTab === tab && styles.tabItemActive]}
               onPress={() => setActiveTab(tab)}
             >
-              <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>{tab}</Text>
+              <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
+                {tab === "Board" && announceBoard ? "告知" : tab}
+              </Text>
             </Pressable>
           ))}
         </View>
@@ -1238,33 +1274,57 @@ export default function CommunityDetailScreen() {
 
         {activeTab === "Board" && (
           <View style={styles.boardList}>
+            {announceBoard ? (
+              <View style={styles.boardAnnounceIntro}>
+                <View style={styles.boardAnnounceIntroIcon}>
+                  <Ionicons name="megaphone-outline" size={22} color={C.accent} />
+                </View>
+                <View style={{ flex: 1, gap: 4 }}>
+                  <Text style={styles.boardAnnounceIntroTitle}>告知・スケジュール</Text>
+                  <Text style={styles.boardAnnounceIntroSub}>
+                    ライブ・イベント・募集など、一目で伝わる短い投稿向けです。固定（ピン留め）は上に並びます。
+                  </Text>
+                </View>
+              </View>
+            ) : null}
             <View style={styles.boardHeader}>
-              <Text style={styles.boardSectionTitle}>Threads</Text>
-              {following && (
+              <Text style={styles.boardSectionTitle}>{announceBoard ? "告知一覧" : "Threads"}</Text>
+              {canPostToBoard && (
                 <Pressable
                   style={styles.createThreadBtn}
                   onPress={() => {
-                    if (!requireAuth("Create Thread")) return;
+                    if (!requireAuth(announceBoard ? "投稿する" : "Create Thread")) return;
                     setShowCreateThread(true);
                   }}
                 >
                   <Ionicons name="add" size={16} color="#fff" />
-                  <Text style={styles.createThreadBtnText}>New Thread</Text>
+                  <Text style={styles.createThreadBtnText}>{announceBoard ? "新規告知" : "New Thread"}</Text>
                 </Pressable>
               )}
             </View>
-            {following && (
+            {canPostToBoard && !following ? (
+              <Text style={styles.boardStaffHint}>
+                {announceBoard
+                  ? "管理者・モデレーター、またはサイト管理者は、フォロー（参加）していなくてもこの画面から告知を投稿できます。"
+                  : "管理者・モデレーター、またはサイト管理者は、フォローせずにスレッドを投稿できます。"}
+              </Text>
+            ) : null}
+            {canPostToBoard && (
               <View style={styles.createThreadForm}>
                 <TextInput
                   style={styles.createThreadInput}
-                  placeholder="Title"
+                  placeholder={announceBoard ? "タイトル（例: 4/20 配信・イベント名）" : "Title"}
                   placeholderTextColor={C.textMuted}
                   value={newThreadTitle}
                   onChangeText={setNewThreadTitle}
                 />
                 <TextInput
                   style={[styles.createThreadInput, styles.createThreadInputBody]}
-                  placeholder="Body (optional)"
+                  placeholder={
+                    announceBoard
+                      ? "本文（日時・場所・リンク・参加方法など。箇条書き可）"
+                      : "Body (optional)"
+                  }
                   placeholderTextColor={C.textMuted}
                   value={newThreadBody}
                   onChangeText={setNewThreadBody}
@@ -1279,15 +1339,53 @@ export default function CommunityDetailScreen() {
                   {creatingThread ? (
                     <ActivityIndicator color="#fff" size="small" />
                   ) : (
-                    <Text style={styles.createThreadSubmitText}>Post Thread</Text>
+                    <Text style={styles.createThreadSubmitText}>{announceBoard ? "告知を投稿" : "Post Thread"}</Text>
                   )}
                 </Pressable>
               </View>
             )}
-            {threads.length === 0 ? (
-              <Text style={styles.boardEmpty}>No threads yet</Text>
+            {displayThreads.length === 0 ? (
+              <Text style={styles.boardEmpty}>{announceBoard ? "まだ告知がありません" : "No threads yet"}</Text>
+            ) : announceBoard ? (
+              displayThreads.map((t) => (
+                <Pressable
+                  key={t.id}
+                  style={[styles.boardCardAnnounce, t.pinned ? styles.boardCardAnnouncePinned : null]}
+                  onPress={() => setSelectedThreadId(t.id)}
+                >
+                  <View style={styles.boardAnnounceTopRow}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1, flexWrap: "wrap" }}>
+                      {t.pinned ? (
+                        <View style={styles.boardAnnouncePinnedPill}>
+                          <Ionicons name="pin" size={12} color={C.orange} />
+                          <Text style={styles.boardAnnouncePinnedText}>固定</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text style={styles.boardAnnounceDateStrong}>{formatThreadDate(t.createdAt)}</Text>
+                  </View>
+                  <Text style={styles.boardTitleAnnounce} numberOfLines={3}>
+                    {t.title}
+                  </Text>
+                  {t.body ? (
+                    <Text style={styles.boardDetailAnnounce} numberOfLines={4}>
+                      {t.body}
+                    </Text>
+                  ) : null}
+                  <View style={styles.boardAnnounceFooter}>
+                    <Text style={styles.boardAnnounceAuthor} numberOfLines={1}>
+                      {t.author.displayName}
+                    </Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                      <Ionicons name="chatbubble-outline" size={12} color={C.textMuted} />
+                      <Text style={styles.boardAnnounceReplyCount}>{t.postCount}</Text>
+                      <Ionicons name="chevron-forward" size={14} color={C.textMuted} />
+                    </View>
+                  </View>
+                </Pressable>
+              ))
             ) : (
-              threads.map((t) => (
+              displayThreads.map((t) => (
                 <View key={t.id} style={styles.boardCard}>
                   <Pressable
                     onPress={() => navigateToUserOrLiverProfile({ userId: t.authorUserId })}
@@ -2391,6 +2489,77 @@ const styles = StyleSheet.create({
   createThreadSubmitText: { color: "#fff", fontSize: 14, fontWeight: "700" },
   boardEmpty: { color: C.textMuted, fontSize: 14, paddingVertical: 24, textAlign: "center" },
   boardPostCount: { color: C.textMuted, fontSize: 10, marginTop: 2 },
+  boardAnnounceIntro: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    backgroundColor: C.surface,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: C.accent + "44",
+  },
+  boardAnnounceIntroIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: C.accent + "18",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  boardAnnounceIntroTitle: { color: C.text, fontSize: 15, fontWeight: "800" },
+  boardAnnounceIntroSub: { color: C.textSec, fontSize: 12, lineHeight: 18 },
+  boardStaffHint: {
+    color: C.textSec,
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: 8,
+    paddingHorizontal: 2,
+  },
+  boardCardAnnounce: {
+    backgroundColor: C.surface,
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: C.border,
+    gap: 8,
+  },
+  boardCardAnnouncePinned: {
+    borderColor: C.orange + "66",
+    backgroundColor: C.orange + "0c",
+  },
+  boardAnnounceTopRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  boardAnnouncePinnedPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: C.orange + "22",
+  },
+  boardAnnouncePinnedText: { color: C.orange, fontSize: 11, fontWeight: "800" },
+  boardAnnounceDateStrong: { color: C.textMuted, fontSize: 12, fontWeight: "700" },
+  boardTitleAnnounce: { color: C.text, fontSize: 17, fontWeight: "800", lineHeight: 23 },
+  boardDetailAnnounce: { color: C.textSec, fontSize: 14, lineHeight: 21 },
+  boardAnnounceFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 4,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: C.border,
+  },
+  boardAnnounceAuthor: { color: C.textMuted, fontSize: 12, fontWeight: "600", flex: 1, marginRight: 8 },
+  boardAnnounceReplyCount: { color: C.textMuted, fontSize: 12, fontWeight: "700" },
   threadDetailHeader: { padding: 16, borderBottomWidth: 1, borderBottomColor: C.border },
   threadDetailTitleRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 8, gap: 8 },
   threadDetailTitle: { color: C.text, fontSize: 16, fontWeight: "800", flex: 1 },

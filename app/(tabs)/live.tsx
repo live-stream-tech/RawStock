@@ -21,6 +21,7 @@ import { F } from "@/constants/fonts";
 import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/layout";
 import { MetallicLine } from "@/components/MetallicLine";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
+import { GlobalLiveAnnouncementsFeed } from "@/components/GlobalLiveAnnouncementsFeed";
 import type { BookingSession } from "@/constants/data";
 const MENTOR_CATEGORY_ICONS: Record<string, string> = {
   english: "language-outline",
@@ -501,7 +502,7 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
 
 export default function LiveScreen() {
   const insets = useSafeAreaInsets();
-  const [activeTab, setActiveTab] = useState<"now" | "booking">("now");
+  const [activeTab, setActiveTab] = useState<"now" | "booking" | "feed">("now");
   const [modalVisible, setModalVisible] = useState(false);
   const [liveSearch, setLiveSearch] = useState("");
   const [creatorFilter, setCreatorFilter] = useState<"WEEKLY" | "MONTHLY" | "ALL">("MONTHLY");
@@ -541,7 +542,7 @@ export default function LiveScreen() {
         <Ionicons name="search-outline" size={18} color={C.textMuted} />
         <TextInput
           style={styles.liveSearchInput}
-          placeholder="Search artists & shows"
+          placeholder={activeTab === "feed" ? "告知をキーワード検索" : "Search artists & shows"}
           placeholderTextColor={C.textMuted}
           value={liveSearch}
           onChangeText={setLiveSearch}
@@ -569,8 +570,26 @@ export default function LiveScreen() {
           <Ionicons name="lock-closed-outline" size={13} color={activeTab === "booking" ? C.accent : C.textMuted} />
           <Text style={[styles.tabText, activeTab === "booking" && styles.tabTextActive]}>Paid Sessions</Text>
         </Pressable>
+        <Pressable
+          style={[styles.tabItem, activeTab === "feed" && styles.tabItemActive]}
+          onPress={() => setActiveTab("feed")}
+        >
+          <Ionicons name="earth-outline" size={13} color={activeTab === "feed" ? C.accent : C.textMuted} />
+          <Text style={[styles.tabText, activeTab === "feed" && styles.tabTextActive]} numberOfLines={1}>
+            世界の告知
+          </Text>
+        </Pressable>
       </View>
 
+      {activeTab === "feed" ? (
+        <View style={{ flex: 1, minHeight: 0 }}>
+          <GlobalLiveAnnouncementsFeed
+            searchQuery={liveSearch}
+            onSearchQueryChange={setLiveSearch}
+            bottomInset={bottomInset}
+          />
+        </View>
+      ) : (
       <ScrollView
         style={webScrollStyle(styles.scroll)}
         showsVerticalScrollIndicator={scrollShowsVertical}
@@ -705,6 +724,7 @@ export default function LiveScreen() {
           </View>
         )}
       </ScrollView>
+      )}
 
       <LiveStartModal visible={modalVisible} onClose={() => setModalVisible(false)} />
     </View>

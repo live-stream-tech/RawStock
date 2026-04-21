@@ -4394,14 +4394,84 @@ async function registerRoutes(app2) {
       }))
     );
   });
+  app2.get("/api/community-announcements/feed", async (_req, res) => {
+    const limit = Math.min(100, Math.max(1, parseInt(String(_req.query.limit ?? "80"), 10) || 80));
+    const qRaw = typeof _req.query.q === "string" ? _req.query.q.trim() : "";
+    const liveOnly = String(_req.query.liveOnly ?? "") === "1" || String(_req.query.liveOnly ?? "").toLowerCase() === "true";
+    const fetchLimit = liveOnly ? Math.min(300, limit * 4) : limit;
+    const rows = await db.select({
+      id: communityThreads.id,
+      communityId: communityThreads.communityId,
+      title: communityThreads.title,
+      body: communityThreads.body,
+      pinned: communityThreads.pinned,
+      createdAt: communityThreads.createdAt,
+      authorUserId: communityThreads.authorUserId,
+      communityName: communities.name,
+      communityCategory: communities.category,
+      communityThumbnail: communities.thumbnail
+    }).from(communityThreads).innerJoin(communities, eq5(communities.id, communityThreads.communityId)).orderBy(desc(communityThreads.pinned), desc(communityThreads.createdAt)).limit(fetchLimit);
+    const liveHints = [
+      "live",
+      "\u914D\u4FE1",
+      "\u30E9\u30A4\u30D6",
+      "stream",
+      "twitch",
+      "youtube",
+      "youtu.be",
+      "\u516C\u6F14",
+      "concert",
+      "tour",
+      "tiktok",
+      "ticket",
+      "\u30C1\u30B1\u30C3\u30C8",
+      "streaming",
+      "premiere"
+    ];
+    let out = rows;
+    if (qRaw) {
+      const ql = qRaw.toLowerCase();
+      out = out.filter((r) => `${r.title} ${r.body}`.toLowerCase().includes(ql));
+    }
+    if (liveOnly) {
+      out = out.filter((r) => {
+        const blob = `${r.title} ${r.body}`.toLowerCase();
+        return liveHints.some((h) => blob.includes(h));
+      });
+    }
+    out = out.slice(0, limit);
+    const authorIds = [...new Set(out.map((r) => r.authorUserId))];
+    const authorRows = authorIds.length > 0 ? await db.select({ id: users.id, displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(users).where(inArray(users.id, authorIds)) : [];
+    const authorMap = new Map(authorRows.map((a) => [a.id, a]));
+    res.json(
+      out.map((r) => ({
+        id: r.id,
+        communityId: r.communityId,
+        communityName: r.communityName,
+        communityCategory: r.communityCategory,
+        communityThumbnail: r.communityThumbnail,
+        title: r.title,
+        body: r.body,
+        pinned: r.pinned,
+        createdAt: r.createdAt,
+        authorUserId: r.authorUserId,
+        author: authorMap.get(r.authorUserId) ?? { displayName: "Unknown", profileImageUrl: null }
+      }))
+    );
+  });
   app2.post("/api/communities/:id/threads", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const communityId = paramNum(req, "id");
     const [community] = await db.select().from(communities).where(eq5(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
-    const memberRows = await db.select().from(communityMembers).where(and5(eq5(communityMembers.communityId, communityId), eq5(communityMembers.userId, user.id)));
-    if (memberRows.length === 0) return res.status(403).json({ error: "Join the community first" });
+    const [memberRow] = await db.select({ id: communityMembers.id }).from(communityMembers).where(and5(eq5(communityMembers.communityId, communityId), eq5(communityMembers.userId, user.id))).limit(1);
+    const isCommunityOwner = community.adminId === user.id;
+    const [boardModRow] = await db.select({ userId: communityModerators.userId }).from(communityModerators).where(and5(eq5(communityModerators.communityId, communityId), eq5(communityModerators.userId, user.id))).limit(1);
+    const canPostAsStaff = isCommunityOwner || !!boardModRow || isAdminRole(user.role);
+    if (!memberRow && !canPostAsStaff) {
+      return res.status(403).json({ error: "Join the community first, or post as admin/moderator" });
+    }
     const { title, body } = req.body;
     if (!title || !title.trim()) return res.status(400).json({ error: "Please enter a title" });
     const combinedText = [title, body].filter(Boolean).join(" ");
@@ -4476,8 +4546,15 @@ async function registerRoutes(app2) {
     const threadId = paramNum(req, "threadId");
     const [thread] = await db.select().from(communityThreads).where(and5(eq5(communityThreads.communityId, communityId), eq5(communityThreads.id, threadId)));
     if (!thread) return res.status(404).json({ message: "Not found" });
-    const memberRows = await db.select().from(communityMembers).where(and5(eq5(communityMembers.communityId, communityId), eq5(communityMembers.userId, user.id)));
-    if (memberRows.length === 0) return res.status(403).json({ error: "Join the community first" });
+    const [memberRow] = await db.select({ id: communityMembers.id }).from(communityMembers).where(and5(eq5(communityMembers.communityId, communityId), eq5(communityMembers.userId, user.id))).limit(1);
+    const [communityForReply] = await db.select().from(communities).where(eq5(communities.id, communityId));
+    if (!communityForReply) return res.status(404).json({ message: "Not found" });
+    const isCommunityOwner = communityForReply.adminId === user.id;
+    const [replyModRow] = await db.select({ userId: communityModerators.userId }).from(communityModerators).where(and5(eq5(communityModerators.communityId, communityId), eq5(communityModerators.userId, user.id))).limit(1);
+    const canReplyAsStaff = isCommunityOwner || !!replyModRow || isAdminRole(user.role);
+    if (!memberRow && !canReplyAsStaff) {
+      return res.status(403).json({ error: "Join the community first, or reply as admin/moderator" });
+    }
     const { body } = req.body;
     if (!body || !body.trim()) return res.status(400).json({ error: "Please enter body text" });
     const modResult = await moderateContent(body);

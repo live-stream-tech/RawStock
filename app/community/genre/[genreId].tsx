@@ -17,14 +17,7 @@ import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/l
 import { AppLogo } from "@/components/AppLogo";
 import { COMMUNITIES } from "@/constants/data";
 import { useQuery } from "@tanstack/react-query";
-
-const GENRE_TO_CATEGORY: Record<string, string[]> = {
-  pop: ["Pop", "J-Pop", "K-Pop", "Music"],
-  rock: ["Rock", "Band", "Music"],
-  hiphop: ["Hip-Hop", "HipHop", "Rap"],
-  edm: ["EDM", "Electronic", "DJ"],
-  ai: ["AI", "AI Music", "Generative"],
-};
+import { GENRE_TO_CATEGORY } from "@/lib/communityGenreBoard";
 
 const GENRE_DATA: Record<string, { name: string; icon: string; color: string }> = {
   pop: { name: "Pop", icon: "musical-note-outline", color: "#FF4081" },

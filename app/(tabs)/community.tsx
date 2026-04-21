@@ -185,6 +185,14 @@ export default function CommunityScreen() {
         <AppLogo height={36} />
       </View>
       <MetallicLine thickness={1} style={{ marginHorizontal: 16 }} />
+      <Pressable style={styles.globalAnnounceCta} onPress={() => router.push("/live-announcements")}>
+        <Ionicons name="earth-outline" size={22} color={C.accent} />
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.globalAnnounceTitle}>世界のライブ告知フィード</Text>
+          <Text style={styles.globalAnnounceSub}>全コミュニティの掲示板から横断表示 · タップで開く</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color={C.textMuted} />
+      </Pressable>
       <View style={styles.searchRow}>
         <View style={styles.searchWrap}>
           <Ionicons name="search-outline" size={16} color={C.textMuted} style={styles.searchIcon} />
@@ -278,6 +286,21 @@ export default function CommunityScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
+  globalAnnounceCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 4,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.accent + "44",
+  },
+  globalAnnounceTitle: { color: C.text, fontSize: 15, fontWeight: "800" },
+  globalAnnounceSub: { color: C.textMuted, fontSize: 12, marginTop: 4 },
   header: {
     flexDirection: "row",
     alignItems: "center",
