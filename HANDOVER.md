@@ -81,7 +81,7 @@
 | `EXPO_PUBLIC_DOMAIN` | **公開アプリのオリジン**（ビルド時埋め込み） | `getApiUrl()` が `EXPO_PUBLIC_API_URL` 未設定時に API ベースとして解釈する。`getPublicWebOrigin()` が Stripe の戻り先オリジンに使う。ローカル Web で **Google OAuth まで試すなら `http://localhost:5001`（Express 入口）** を推奨。8081 直＋`FRONTEND_URL=8081` はコールバックが Metro に当たり画面が真っ黒になりやすい。 |
 | `EXPO_PUBLIC_API_URL` | **API サーバー専用オリジン**（任意・ローカル Web 推奨） | 設定時は `getApiUrl()` がこちらを最優先。Metro（:8081）を `EXPO_PUBLIC_DOMAIN` にしているときに Express（:5001）へ向ける用途。 |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare アカウント ID | ダッシュボードで確認（公開ドキュメントに生値を書かないこと） |
-| `CLOUDFLARE_STREAM_TOKEN` | Stream API | Account→Stream→Edit 相当のトークン。未設定時は **`CLOUDFLARE_API_TOKEN`** をフォールバック参照 |
+| `CLOUDFLARE_STREAM_TOKEN` | Stream API | Account→Stream→Edit 相当のトークン。`server/routes.ts` は **この変数のみ参照**（`CLOUDFLARE_API_TOKEN` フォールバックなし） |
 | `R2_ACCESS_KEY_ID` | R2 | |
 | `R2_SECRET_ACCESS_KEY` | R2 | |
 | `R2_BUCKET_NAME` | R2 | 例: `rawstock-assets` |
@@ -220,7 +220,7 @@ Vercel では **`VERCEL_URL` が自動注入**され、OAuth のフォールバ�
 
 | 問題 | 状況 |
 |------|------|
-| Cloudflare Stream 403 エラー | `CLOUDFLARE_STREAM_TOKEN` に Account→Stream→Edit 権限があることは確認済み。本番動作未確認。**切り分け**: (1) トークンが Global API Key ではなく Account Scoped か (2) `CLOUDFLARE_ACCOUNT_ID` と Stream ダッシュボードの Account が一致するか (3) 署名付き URL / WHEP の生成 API が参照している video UID が同一アカウントか (4) R2 経由の公開 URL と Stream のオリジン制限の干渉がないか。 |
+| Cloudflare Stream 403 / 500 エラー | 403（`code:10002`）はトークン権限・アカウント不一致を疑う。500（`column "host_user_id" of relation "streams" does not exist`）は **DBスキーマ不足** が原因。対策: `0025_streams_runtime_columns_guard.sql` を適用し、`streams` に `host_user_id / whip_url / visibility / ticket_price / restricted_community_id` などの列を補完する。 |
 | DATABASE_URL の外部アクセス | Vercel からアクセス可能かどうか要確認。Replit内部DBの場合は Neon/Supabase 等への移行が必要。 |
 | Google OAuth コールバックURL | 詳細は下節「Google OAuth」。`redirect_uri_mismatch` は GCP の URI と `FRONTEND_URL` 由来の `callbackUrl` の不一致が典型 |
 
