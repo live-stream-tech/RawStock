@@ -20,8 +20,8 @@
   },
   "crons": [
     {
-      "path": "/api/cron/ai-edit-process?limit=5",
-      "schedule": "*/3 * * * *"
+      "path": "/api/cron/ai-edit-process?limit=15",
+      "schedule": "0 6 * * *"
     }
   ],
   "rewrites": [
