@@ -98,9 +98,15 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 
 const JWT_SECRET = process.env.SESSION_SECRET ?? "livestage-dev-secret";
-const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID ?? "";
-const CLOUDFLARE_STREAM_TOKEN = process.env.CLOUDFLARE_STREAM_TOKEN ?? process.env.CLOUDFLARE_API_TOKEN ?? "";
+const CLOUDFLARE_ACCOUNT_ID = (process.env.CLOUDFLARE_ACCOUNT_ID ?? "").trim();
+const CLOUDFLARE_STREAM_TOKEN = (process.env.CLOUDFLARE_STREAM_TOKEN ?? "").trim();
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
+
+function maskSecretPrefix(value: string): string {
+  if (!value) return "(empty, len=0)";
+  const prefix = value.slice(0, 3);
+  return `${prefix}*** (len=${value.length})`;
+}
 
 /**
  * Google OAuth 完了後のリダイレクト先オリジン（末尾スラッシュなし)。
@@ -4735,6 +4741,10 @@ export async function registerRoutes(app: Express): Promise<void> {
     try {
       const displayTitle = (typeof title === "string" && title.trim()) || (typeof name === "string" && name.trim()) || "";
       const metaName = displayTitle || `RawStock Stream by ${user.displayName}`;
+      console.log("[Cloudflare Stream] creating live_input with env:", {
+        accountId: maskSecretPrefix(CLOUDFLARE_ACCOUNT_ID),
+        streamToken: maskSecretPrefix(CLOUDFLARE_STREAM_TOKEN),
+      });
 
       const cfRes = await fetch(
         `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/stream/live_inputs`,
@@ -4780,6 +4790,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           error: "Failed to create Cloudflare Stream live input",
           ...(detail ? { detail } : {}),
           ...(hint ? { hint } : {}),
+          cloudflareResponse: json,
         });
       }
 
@@ -5876,6 +5887,10 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_STREAM_TOKEN) {
       return res.status(503).json({ error: "Cloudflare Stream not configured" });
     }
+    console.log("[Cloudflare Stream] creating mentor live_input with env:", {
+      accountId: maskSecretPrefix(CLOUDFLARE_ACCOUNT_ID),
+      streamToken: maskSecretPrefix(CLOUDFLARE_STREAM_TOKEN),
+    });
     const cfRes = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/stream/live_inputs`,
       {
@@ -5888,8 +5903,17 @@ export async function registerRoutes(app: Express): Promise<void> {
       }
     );
     if (!cfRes.ok) {
-      const err = await cfRes.text();
-      return res.status(502).json({ error: `Cloudflare error: ${err}` });
+      let cfErrorBody: unknown = null;
+      try {
+        cfErrorBody = await cfRes.json();
+      } catch {
+        cfErrorBody = await cfRes.text();
+      }
+      return res.status(502).json({
+        error: "Cloudflare live input creation failed",
+        status: cfRes.status,
+        cloudflareResponse: cfErrorBody,
+      });
     }
     const cfData = await cfRes.json() as { result: { uid: string; webRTC: { url: string }; webRTCPlayback: { url: string } } };
     const { uid, webRTC, webRTCPlayback } = cfData.result;
