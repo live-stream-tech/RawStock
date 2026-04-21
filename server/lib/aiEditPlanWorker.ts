@@ -72,6 +72,18 @@ export type AIEditPlanWorkerParams = {
   refundDescription?: string;
 };
 
+/**
+ * メモリキューなし（Vercel 本番など）で、pending ジョブを即座に処理する。
+ * `processing` に遷移してから `runAIEditPlanWorker` を実行する。
+ */
+export async function processAIEditJobInline(params: AIEditPlanWorkerParams): Promise<void> {
+  await db
+    .update(aiEditJobs)
+    .set({ status: "processing", updatedAt: new Date() } as Partial<InferSelectModel<typeof aiEditJobs>>)
+    .where(eq(aiEditJobs.id, params.jobId));
+  await runAIEditPlanWorker(params);
+}
+
 /** Claude プラン生成を 1 ジョブ分実行（失敗時は failed + 返金）。呼び出し元で `processing` に遷移済みであること。 */
 export async function runAIEditPlanWorker(params: AIEditPlanWorkerParams): Promise<void> {
   const { jobId, revisionPrompt, refundAmount = 0, refundType, refundDescription } = params;

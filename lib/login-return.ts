@@ -31,3 +31,27 @@ export function getLoginReturn(): string | null {
   return null;
 }
 
+const DEFAULT_AFTER_LOGIN = "/(tabs)/profile";
+
+/** OAuth 完了後の `router.replace` 用。`getLoginReturn` と同じ除外ルールを `auth/callback` と共有する */
+export function consumeLoginRedirectPath(): string {
+  const saved = getLoginReturn();
+  let returnTo = saved ?? DEFAULT_AFTER_LOGIN;
+  const isInvalidReturn =
+    returnTo.startsWith("/auth/") ||
+    returnTo.startsWith("/jukebox") ||
+    returnTo.startsWith("/lp") ||
+    returnTo.startsWith("/teamz") ||
+    returnTo.startsWith("/rawstock-lp") ||
+    returnTo.startsWith("/terms") ||
+    returnTo.startsWith("/privacy") ||
+    returnTo.startsWith("/dmca") ||
+    returnTo.startsWith("/community-guidelines") ||
+    returnTo === "/legal" ||
+    returnTo.startsWith("/legal?") ||
+    returnTo.startsWith("/legal-notice") ||
+    returnTo.startsWith("/tokusho");
+  if (isInvalidReturn) returnTo = DEFAULT_AFTER_LOGIN;
+  return returnTo;
+}
+

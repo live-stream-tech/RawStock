@@ -118,6 +118,43 @@ export class ApiError extends Error {
   }
 }
 
+function parseJsonApiMessage(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{")) return null;
+  try {
+    const o = JSON.parse(trimmed) as { error?: unknown; message?: unknown };
+    const errLine = typeof o.error === "string" ? o.error.trim() : "";
+    const msgLine = typeof o.message === "string" ? o.message.trim() : "";
+    const line = errLine || msgLine;
+    return line || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Alert や画面表示用。`ApiError` は JSON の `error` / `message` を優先し、それ以外は本文を短く整形する。
+ */
+export function formatUserFacingApiError(err: unknown): string {
+  if (err instanceof ApiError) {
+    const fromJson = parseJsonApiMessage(err.body);
+    if (fromJson) {
+      return `${fromJson} (HTTP ${err.status})`;
+    }
+    const flat = err.body.replace(/\s+/g, " ").trim();
+    if (flat.length > 0) {
+      const max = 280;
+      const cut = flat.length > max ? `${flat.slice(0, max)}…` : flat;
+      return `${cut} (HTTP ${err.status})`;
+    }
+    return `Request failed (HTTP ${err.status})`;
+  }
+  if (err instanceof Error && err.message) {
+    return err.message;
+  }
+  return "Something went wrong. Please try again.";
+}
+
 async function readAuthToken(): Promise<string | null> {
   try {
     const token = await AsyncStorage.getItem("auth_token");

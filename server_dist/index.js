@@ -1882,6 +1882,10 @@ async function refundAIEditTickets(params) {
     description
   });
 }
+async function processAIEditJobInline(params) {
+  await db.update(aiEditJobs).set({ status: "processing", updatedAt: /* @__PURE__ */ new Date() }).where(eq2(aiEditJobs.id, params.jobId));
+  await runAIEditPlanWorker(params);
+}
 async function runAIEditPlanWorker(params) {
   const { jobId, revisionPrompt, refundAmount = 0, refundType, refundDescription } = params;
   const [freshJob] = await db.select().from(aiEditJobs).where(eq2(aiEditJobs.id, jobId));
@@ -2703,12 +2707,13 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 var JWT_SECRET = process.env.SESSION_SECRET ?? "livestage-dev-secret";
 var CLOUDFLARE_ACCOUNT_ID = (process.env.CLOUDFLARE_ACCOUNT_ID ?? "").trim();
-var CLOUDFLARE_STREAM_TOKEN = (() => {
-  const fromStream = (process.env.CLOUDFLARE_STREAM_TOKEN ?? "").trim();
-  if (fromStream) return fromStream;
-  return (process.env.CLOUDFLARE_API_TOKEN ?? "").trim();
-})();
+var CLOUDFLARE_STREAM_TOKEN = (process.env.CLOUDFLARE_STREAM_TOKEN ?? "").trim();
 var ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
+function maskSecretPrefix(value) {
+  if (!value) return "(empty, len=0)";
+  const prefix = value.slice(0, 3);
+  return `${prefix}*** (len=${value.length})`;
+}
 function resolvePublicAppOrigin() {
   const fromEnv = process.env.FRONTEND_URL?.trim().replace(/\/$/, "");
   if (fromEnv) return fromEnv;
@@ -4919,9 +4924,11 @@ async function registerRoutes(app2) {
           ticketTransactionId: String(spendTx.id),
           status: "pending"
         });
-        const walletId = await getOrCreateUserWallet(editor.userId, tx);
-        const creatorRow = await creatorRowForUserId(tx, editor.userId);
-        await recordRevenue(walletId, editor.userId, creatorRow?.id ?? null, fee, "paid_live", String(spendTx.id), tx);
+        if (editor.userId != null) {
+          const walletId = await getOrCreateUserWallet(editor.userId, tx);
+          const creatorRow = await creatorRowForUserId(tx, editor.userId);
+          await recordRevenue(walletId, editor.userId, creatorRow?.id ?? null, fee, "paid_live", String(spendTx.id), tx);
+        }
         return requestRow;
       });
       await db.insert(notifications).values({
@@ -6537,6 +6544,10 @@ data: ${data}
     try {
       const displayTitle = typeof title === "string" && title.trim() || typeof name === "string" && name.trim() || "";
       const metaName = displayTitle || `RawStock Stream by ${user.displayName}`;
+      console.log("[Cloudflare Stream] creating live_input with env:", {
+        accountId: maskSecretPrefix(CLOUDFLARE_ACCOUNT_ID),
+        streamToken: maskSecretPrefix(CLOUDFLARE_STREAM_TOKEN)
+      });
       const cfRes = await fetch(
         `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/stream/live_inputs`,
         {
@@ -6562,7 +6573,8 @@ data: ${data}
         return res.status(502).json({
           error: "Failed to create Cloudflare Stream live input",
           ...detail ? { detail } : {},
-          ...hint ? { hint } : {}
+          ...hint ? { hint } : {},
+          cloudflareResponse: json
         });
       }
       const result = json.result;
@@ -7364,6 +7376,10 @@ data: ${data}
     if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_STREAM_TOKEN) {
       return res.status(503).json({ error: "Cloudflare Stream not configured" });
     }
+    console.log("[Cloudflare Stream] creating mentor live_input with env:", {
+      accountId: maskSecretPrefix(CLOUDFLARE_ACCOUNT_ID),
+      streamToken: maskSecretPrefix(CLOUDFLARE_STREAM_TOKEN)
+    });
     const cfRes = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/stream/live_inputs`,
       {
@@ -7376,8 +7392,17 @@ data: ${data}
       }
     );
     if (!cfRes.ok) {
-      const err = await cfRes.text();
-      return res.status(502).json({ error: `Cloudflare error: ${err}` });
+      let cfErrorBody = null;
+      try {
+        cfErrorBody = await cfRes.json();
+      } catch {
+        cfErrorBody = await cfRes.text();
+      }
+      return res.status(502).json({
+        error: "Cloudflare live input creation failed",
+        status: cfRes.status,
+        cloudflareResponse: cfErrorBody
+      });
     }
     const cfData = await cfRes.json();
     const { uid, webRTC, webRTCPlayback } = cfData.result;
@@ -8849,9 +8874,10 @@ data: ${data}
       description
     });
   }
-  function scheduleAIEditPlanGeneration(params) {
+  async function scheduleAIEditPlanGeneration(params) {
     const { jobId, revisionPrompt, refundAmount = 0, refundType, refundDescription } = params;
     if (!useAIEditMemoryQueue()) {
+      await processAIEditJobInline({ jobId, revisionPrompt, refundAmount, refundType, refundDescription });
       return;
     }
     void (async () => {
@@ -8918,13 +8944,14 @@ data: ${data}
       ticketCost,
       videoSpec: videoSpecJson
     }).returning();
-    scheduleAIEditPlanGeneration({
+    await scheduleAIEditPlanGeneration({
       jobId: job.id,
       refundAmount: ticketCost,
       refundType: "refund_ai_edit",
       refundDescription: `Refund: AI Edit ${planMinutes}min plan (job ${job.id})`
     });
-    res.json({ id: job.id, status: job.status });
+    const [finalJob] = await db.select({ status: aiEditJobs.status }).from(aiEditJobs).where(eq5(aiEditJobs.id, job.id));
+    res.json({ id: job.id, status: finalJob?.status ?? job.status });
   });
   app2.get("/api/ai-edit/jobs/:id", async (req, res) => {
     const user = await getAuthUser(req);
@@ -9171,14 +9198,20 @@ data: ${data}
       deliveredAt: null,
       updatedAt: /* @__PURE__ */ new Date()
     }).where(eq5(aiEditJobs.id, id));
-    scheduleAIEditPlanGeneration({
+    await scheduleAIEditPlanGeneration({
       jobId: id,
       revisionPrompt,
       refundAmount: revisionCount >= 1 ? AI_EDIT_REVISION_TICKETS : 0,
       refundType: "refund_ai_edit_revision",
       refundDescription: `Refund: AI Edit Revision #${newRevisionCount} (job ${job.id})`
     });
-    res.json({ ok: true, revisionCount: newRevisionCount, free: revisionCount === 0 });
+    const [reviseFinal] = await db.select({ status: aiEditJobs.status }).from(aiEditJobs).where(eq5(aiEditJobs.id, id));
+    res.json({
+      ok: true,
+      revisionCount: newRevisionCount,
+      free: revisionCount === 0,
+      status: reviseFinal?.status
+    });
   });
   app2.post("/api/ai-edit/jobs/:id/deliver", async (req, res) => {
     const editor = await getAuthUser(req);
@@ -9318,7 +9351,7 @@ import { createProxyMiddleware } from "http-proxy-middleware";
 
 // lib/brand.ts
 var DEFAULT_RAWSTOCK_LOGO_URL = "https://d2xsxph8kpxj0f.cloudfront.net/310519663449879480/M2pBP9b9EdXaS65j3mPhNW/RawStock_logo_3fd8a263.webp";
-var DEFAULT_HERO_VIDEO_URL = "https://assets.mixkit.co/videos/preview/mixkit-people-dancing-at-a-concert-1754-large.mp4";
+var DEFAULT_HERO_VIDEO_URL = "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
 var DEFAULT_HERO_POSTER_URL = "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=1920&q=80";
 var RAWSTOCK_LOGO_URL = typeof process !== "undefined" && process.env.PUBLIC_LOGO_URL?.trim() || DEFAULT_RAWSTOCK_LOGO_URL;
 var RAWSTOCK_HERO_VIDEO_URL = typeof process !== "undefined" && process.env.PUBLIC_HERO_VIDEO_URL?.trim() || DEFAULT_HERO_VIDEO_URL;

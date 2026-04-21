@@ -91,7 +91,12 @@ import type { EditPlan } from "../shared/ai-edit";
 import { normalizeVideoSpecPayload, parseStoredVideoSpec } from "./lib/parseVideoSpec";
 import { buildAIEditStoredResult, parseAIEditStoredResult } from "./lib/aiEditArtifacts";
 import { enqueueAIEditJob } from "./lib/aiEditJobQueue";
-import { claimAndProcessNextPendingAIEditJob, runAIEditPlanWorker, useAIEditMemoryQueue } from "./lib/aiEditPlanWorker";
+import {
+  claimAndProcessNextPendingAIEditJob,
+  processAIEditJobInline,
+  runAIEditPlanWorker,
+  useAIEditMemoryQueue,
+} from "./lib/aiEditPlanWorker";
 import { creditTicketsFromTicketCheckoutSession } from "./lib/stripeTicketPurchase";
 import { computeWithdrawalFeeBreakdown, getWithdrawalFeePolicy } from "./lib/withdrawalFees";
 import { dslToTemplated } from "./lib/dslToTemplated";
@@ -8283,7 +8288,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     });
   }
 
-  function scheduleAIEditPlanGeneration(params: {
+  async function scheduleAIEditPlanGeneration(params: {
     jobId: number;
     revisionPrompt?: string | null;
     refundAmount?: number;
@@ -8292,6 +8297,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   }) {
     const { jobId, revisionPrompt, refundAmount = 0, refundType, refundDescription } = params;
     if (!useAIEditMemoryQueue()) {
+      await processAIEditJobInline({ jobId, revisionPrompt, refundAmount, refundType, refundDescription });
       return;
     }
     void (async () => {
@@ -8385,14 +8391,15 @@ export async function registerRoutes(app: Express): Promise<void> {
       } as typeof aiEditJobs.$inferInsert)
       .returning();
 
-    scheduleAIEditPlanGeneration({
+    await scheduleAIEditPlanGeneration({
       jobId: job.id,
       refundAmount: ticketCost,
       refundType: "refund_ai_edit",
       refundDescription: `Refund: AI Edit ${planMinutes}min plan (job ${job.id})`,
     });
 
-    res.json({ id: job.id, status: job.status });
+    const [finalJob] = await db.select({ status: aiEditJobs.status }).from(aiEditJobs).where(eq(aiEditJobs.id, job.id));
+    res.json({ id: job.id, status: finalJob?.status ?? job.status });
   });
 
   // GET /api/ai-edit/jobs/:id — get job status and result (owner only)
@@ -8723,7 +8730,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       } as Partial<InferSelectModel<typeof aiEditJobs>>)
       .where(eq(aiEditJobs.id, id));
 
-    scheduleAIEditPlanGeneration({
+    await scheduleAIEditPlanGeneration({
       jobId: id,
       revisionPrompt,
       refundAmount: revisionCount >= 1 ? AI_EDIT_REVISION_TICKETS : 0,
@@ -8731,7 +8738,13 @@ export async function registerRoutes(app: Express): Promise<void> {
       refundDescription: `Refund: AI Edit Revision #${newRevisionCount} (job ${job.id})`,
     });
 
-    res.json({ ok: true, revisionCount: newRevisionCount, free: revisionCount === 0 });
+    const [reviseFinal] = await db.select({ status: aiEditJobs.status }).from(aiEditJobs).where(eq(aiEditJobs.id, id));
+    res.json({
+      ok: true,
+      revisionCount: newRevisionCount,
+      free: revisionCount === 0,
+      status: reviseFinal?.status,
+    });
   });
 
   // POST /api/ai-edit/jobs/:id/deliver — editor uploads the finished video and marks the job as delivered

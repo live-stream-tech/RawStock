@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/query-client";
+import { apiRequest, formatUserFacingApiError } from "@/lib/query-client";
 import { C } from "@/constants/colors";
 import type { RawStockVideoSpec } from "../../shared/rawstock-video-spec";
 import type { AIEditAnalysis, EditPlan } from "../../shared/ai-edit";
@@ -111,7 +111,7 @@ export default function AIEditJobScreen() {
   const [revisionPrompt, setRevisionPrompt] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const { data: job, isLoading, isError } = useQuery<Job>({
+  const { data: job, isLoading, isError, error: jobQueryError } = useQuery<Job>({
     queryKey: [`/api/ai-edit/jobs/${id}`],
     enabled: !!id,
     refetchInterval: false,
@@ -166,16 +166,14 @@ export default function AIEditJobScreen() {
         await qc.invalidateQueries({ queryKey: [`/api/ai-edit/jobs/${id}`] });
         Alert.alert(
           "Approved",
-          renderErr?.message
-            ? `Your edit plan was approved, but MP4 render could not start yet.\n\n${renderErr.message}`
-            : "Your edit plan was approved, but MP4 render could not start yet.",
+          `Your edit plan was approved, but MP4 render could not start yet.\n\n${formatUserFacingApiError(renderErr)}`,
         );
         return;
       }
       await qc.invalidateQueries({ queryKey: [`/api/ai-edit/jobs/${id}`] });
       Alert.alert("Approved", "Your edit plan was approved and MP4 rendering has started.");
-    } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "Failed to approve. Please try again.");
+    } catch (e: unknown) {
+      Alert.alert("Error", formatUserFacingApiError(e));
     } finally {
       setApproving(false);
     }
@@ -188,8 +186,8 @@ export default function AIEditJobScreen() {
       await apiRequest("POST", `/api/ai-edit/jobs/${job.id}/render`);
       await qc.invalidateQueries({ queryKey: [`/api/ai-edit/jobs/${id}`] });
       Alert.alert("Render Started", "MP4 rendering is now in progress.");
-    } catch (e: any) {
-      Alert.alert("Render Failed", e?.message ?? "Failed to start MP4 render.");
+    } catch (e: unknown) {
+      Alert.alert("Render Failed", formatUserFacingApiError(e));
     } finally {
       setRendering(false);
     }
@@ -210,17 +208,13 @@ export default function AIEditJobScreen() {
           onPress: async () => {
             setRevising(true);
             try {
-              const res = await apiRequest("POST", `/api/ai-edit/jobs/${job.id}/revise`, {
+              await apiRequest("POST", `/api/ai-edit/jobs/${job.id}/revise`, {
                 revisionPrompt: revisionPrompt.trim() || undefined,
               });
-              if (!res.ok) {
-                const err = (await res.json()) as { error?: string };
-                throw new Error(err.error ?? "Failed to request revision");
-              }
               setRevisionPrompt("");
               await qc.invalidateQueries({ queryKey: [`/api/ai-edit/jobs/${id}`] });
-            } catch (e: any) {
-              Alert.alert("Error", e?.message ?? "Failed to request revision.");
+            } catch (e: unknown) {
+              Alert.alert("Error", formatUserFacingApiError(e));
             } finally {
               setRevising(false);
             }
@@ -249,7 +243,29 @@ export default function AIEditJobScreen() {
     );
   }
 
-  if (isError || !job) {
+  if (isError) {
+    return (
+      <View style={styles.container}>
+        <View style={[styles.header, { paddingTop: topInset + 12 }]}>
+          <Pressable style={styles.backBtn} onPress={() => router.back()}>
+            <Ionicons name="chevron-back" size={22} color={C.text} />
+          </Pressable>
+          <Text style={styles.headerTitle}>AI Edit Assistant</Text>
+          <View style={{ width: 40 }} />
+        </View>
+        <View style={styles.centered}>
+          <Ionicons name="alert-circle-outline" size={40} color={C.live} />
+          <Text style={styles.errorText}>Could not load this job.</Text>
+          <Text style={styles.errorDetail}>{formatUserFacingApiError(jobQueryError)}</Text>
+          <Pressable style={styles.ghostBtn} onPress={() => router.replace("/ai-edit")}>
+            <Text style={styles.ghostBtnText}>Go Back</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  if (!job) {
     return (
       <View style={styles.container}>
         <View style={[styles.header, { paddingTop: topInset + 12 }]}>
@@ -637,6 +653,14 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 },
   errorText: { color: C.textSec, fontSize: 15, textAlign: "center" },
+  errorDetail: {
+    color: C.textMuted,
+    fontSize: 12,
+    textAlign: "center",
+    lineHeight: 18,
+    maxWidth: 320,
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+  },
 
   // Status card
   statusCard: {
