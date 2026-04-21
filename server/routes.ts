@@ -2973,9 +2973,11 @@ export async function registerRoutes(app: Express): Promise<void> {
           status: "pending",
         } as typeof editingRequests.$inferInsert);
 
-        const walletId = await getOrCreateUserWallet(editor.userId, tx);
-        const creatorRow = await creatorRowForUserId(tx, editor.userId);
-        await recordRevenue(walletId, editor.userId, creatorRow?.id ?? null, fee, "paid_live", String(spendTx.id), tx);
+        if (editor.userId != null) {
+          const walletId = await getOrCreateUserWallet(editor.userId, tx);
+          const creatorRow = await creatorRowForUserId(tx, editor.userId);
+          await recordRevenue(walletId, editor.userId, creatorRow?.id ?? null, fee, "paid_live", String(spendTx.id), tx);
+        }
 
         return requestRow;
       });
