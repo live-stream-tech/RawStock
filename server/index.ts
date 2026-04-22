@@ -165,12 +165,17 @@ function configureExpoAndLanding(app: express.Application) {
 
   log("Serving static Expo files with dynamic manifest routing");
 
-  // Serve /lp route with landing page HTML
+  const lpStandalonePath = path.resolve(
+    process.cwd(),
+    "public/lp-standalone.html",
+  );
+
+  // Serve /lp route using the standalone LP source
   app.get("/lp", (req: Request, res: Response) => {
-    const raw = fs.readFileSync(
-      path.resolve(process.cwd(), "server/templates/landing-page.html"),
-      "utf-8",
-    );
+    if (!fs.existsSync(lpStandalonePath)) {
+      return res.status(404).send("lp-standalone.html not found");
+    }
+    const raw = fs.readFileSync(lpStandalonePath, "utf-8");
     const html = injectLpMarketingHtml(
       raw,
       canonicalPageUrlFromReq(req, "/lp"),
@@ -179,10 +184,6 @@ function configureExpoAndLanding(app: express.Application) {
     res.status(200).send(html);
   });
 
-  const lpStandalonePath = path.resolve(
-    process.cwd(),
-    "public/lp-standalone.html",
-  );
   app.get("/lp-standalone.html", (req: Request, res: Response) => {
     if (!fs.existsSync(lpStandalonePath)) {
       return res.status(404).send("lp-standalone.html not found");

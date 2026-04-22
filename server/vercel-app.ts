@@ -89,11 +89,14 @@ export async function createApiApp(): Promise<express.Application> {
 
   app.get("/healthcheck", (_req, res) => res.status(200).send("OK"));
   app.get("/api/healthcheck", (_req, res) => res.status(200).send("OK"));
+  const lpStandalonePath = path.resolve(process.cwd(), "public/lp-standalone.html");
 
   app.get("/lp", (req: Request, res: Response) => {
     try {
-      const templatePath = path.resolve(process.cwd(), "server/templates/landing-page.html");
-      const raw = fs.readFileSync(templatePath, "utf-8");
+      if (!fs.existsSync(lpStandalonePath)) {
+        return res.status(404).send("lp-standalone.html not found");
+      }
+      const raw = fs.readFileSync(lpStandalonePath, "utf-8");
       const html = injectLpMarketingHtml(raw, canonicalPageUrlFromReq(req, "/lp"));
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.status(200).send(html);
@@ -102,7 +105,6 @@ export async function createApiApp(): Promise<express.Application> {
     }
   });
 
-  const lpStandalonePath = path.resolve(process.cwd(), "public/lp-standalone.html");
   app.get("/lp-standalone.html", (req: Request, res: Response) => {
     if (!fs.existsSync(lpStandalonePath)) {
       return res.status(404).send("lp-standalone.html not found");
