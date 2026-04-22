@@ -7,7 +7,7 @@ const DEFAULT_HERO_VIDEO_URL =
   "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
 
 const DEFAULT_HERO_POSTER_URL =
-  "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=1920&q=80";
+  "https://d2xsxph8kpxj0f.cloudfront.net/310519663449879480/Y3Yn5f8wK9BzVPCXiSHai5/hero-bg-2AFwCiErEpzEQtgr4Vk2Df.webp";
 
 export const RAWSTOCK_LOGO_URL =
   (typeof process !== "undefined" && process.env.PUBLIC_LOGO_URL?.trim()) ||
