@@ -4,7 +4,7 @@ import { Platform, Text, View } from "react-native";
 /** Express serves this with logo URL injected from lib/brand (see server/index.ts). */
 function lpStandaloneSrcForWeb(): string {
   if (typeof window === "undefined") {
-    return "https://rawstock-lp.vercel.app/ja";
+    return "/lp-standalone.html";
   }
   const externalLp = process.env.EXPO_PUBLIC_LP_STANDALONE_URL?.trim();
   if (externalLp) {
@@ -27,9 +27,9 @@ function lpStandaloneSrcForWeb(): string {
     }
   }
   if (process.env.NODE_ENV !== "production") {
-    return "https://rawstock-lp.vercel.app/ja";
+    return "http://localhost:5001/lp-standalone.html";
   }
-  return "https://rawstock-lp.vercel.app/ja";
+  return `${window.location.origin}/lp-standalone.html`;
 }
 
 export function RawstockLpContent() {
