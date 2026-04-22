@@ -1,11 +1,6 @@
 /**
- * 公式コミュニティ再構築スクリプト
- * 実行: npx tsx scripts/reset-official-communities.ts
- *
- * 方針:
- * - 既存のコミュニティ関連ダミーデータを全削除
- * - 公式コミュニティ10件を再投入（idempotentに近い運用のため毎回全再構築）
- * - 画像はフリー素材URL（Unsplash）
+ * Rebuild official communities with realistic announcement threads.
+ * Run: npx tsx scripts/reset-official-communities.ts
  */
 import "dotenv/config";
 import { Pool } from "pg";
@@ -21,8 +16,8 @@ type OfficialCommunity = {
   members: number;
   online: boolean;
   thumbnail: string;
-  announcementTitle: string;
-  announcementBody: string;
+  homeCity: string;
+  baseVenue: string;
 };
 
 const OFFICIAL_COMMUNITIES: OfficialCommunity[] = [
@@ -33,9 +28,8 @@ const OFFICIAL_COMMUNITIES: OfficialCommunity[] = [
     online: true,
     thumbnail:
       "https://images.unsplash.com/photo-1547355253-ff0740f6e8c1?w=800&h=800&fit=crop",
-    announcementTitle: "今週のアンダーグラウンドライブ情報",
-    announcementBody:
-      "ローカル箱・フリースタイルイベント・ビートライブの告知をこのスレに集約してください。開催日、場所、出演者、チケットリンクを明記すると見つけやすくなります。",
+    homeCity: "Los Angeles",
+    baseVenue: "Echo Yard",
   },
   {
     name: "Mainstream Hip-Hop / Dancehall",
@@ -44,9 +38,8 @@ const OFFICIAL_COMMUNITIES: OfficialCommunity[] = [
     online: true,
     thumbnail:
       "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=800&h=800&fit=crop",
-    announcementTitle: "今週のメインストリーム Hip-Hop / Dancehall",
-    announcementBody:
-      "大型イベント、人気クルー、話題公演の情報を優先して投稿してください。先行販売・一般販売の区別がある場合は本文で分かるように記載してください。",
+    homeCity: "Miami",
+    baseVenue: "Bayfront Arena",
   },
   {
     name: "Reggae / Dub",
@@ -55,9 +48,8 @@ const OFFICIAL_COMMUNITIES: OfficialCommunity[] = [
     online: true,
     thumbnail:
       "https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=800&h=800&fit=crop",
-    announcementTitle: "Reggae / Dub ライブ告知",
-    announcementBody:
-      "セレクターイベント、サウンドシステム、Dubセッションの開催情報を共有しましょう。深夜帯イベントは開始・終了時刻も明記してください。",
+    homeCity: "Kingston",
+    baseVenue: "Harbor Sound Yard",
   },
   {
     name: "R&B / Neo Soul",
@@ -66,9 +58,8 @@ const OFFICIAL_COMMUNITIES: OfficialCommunity[] = [
     online: true,
     thumbnail:
       "https://images.unsplash.com/photo-1516280440614-37939bbacd81?w=800&h=800&fit=crop",
-    announcementTitle: "R&B / Neo Soul の公演情報",
-    announcementBody:
-      "ライブハウス、ラウンジ、セッションイベントの告知をまとめるスレです。出演者のSNS・音源リンクがあると初見ユーザーにも伝わりやすいです。",
+    homeCity: "Chicago",
+    baseVenue: "Velvet Room",
   },
   {
     name: "Punk / Hardcore",
@@ -77,9 +68,8 @@ const OFFICIAL_COMMUNITIES: OfficialCommunity[] = [
     online: true,
     thumbnail:
       "https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=800&h=800&fit=crop",
-    announcementTitle: "Punk / Hardcore 現場速報",
-    announcementBody:
-      "DIY企画、対バン、地方遠征を含むライブ情報を投稿してください。フライヤー画像とタイムテーブルを添えると参加判断がしやすくなります。",
+    homeCity: "Berlin",
+    baseVenue: "Basement Riot Hall",
   },
   {
     name: "Metal / Loud",
@@ -88,9 +78,8 @@ const OFFICIAL_COMMUNITIES: OfficialCommunity[] = [
     online: false,
     thumbnail:
       "https://images.unsplash.com/photo-1506157786151-b8491531f063?w=800&h=800&fit=crop",
-    announcementTitle: "Metal / Loud 公演カレンダー",
-    announcementBody:
-      "重低音系、ラウド系、メタル系の公演情報を集約します。年齢制限や入場条件がある場合は必ず本文に記載してください。",
+    homeCity: "Helsinki",
+    baseVenue: "Iron Dome Club",
   },
   {
     name: "Shoegaze / Indie Rock",
@@ -99,9 +88,8 @@ const OFFICIAL_COMMUNITIES: OfficialCommunity[] = [
     online: true,
     thumbnail:
       "https://images.unsplash.com/photo-1498038432885-c6f3f1b912ee?w=800&h=800&fit=crop",
-    announcementTitle: "Shoegaze / Indie Rock 告知スレ",
-    announcementBody:
-      "国内外のインディー公演、リリースパーティー、レコ発情報を共有してください。映像アーカイブ販売の告知も歓迎です。",
+    homeCity: "London",
+    baseVenue: "Fogline Theater",
   },
   {
     name: "Japanese Indie Bands",
@@ -110,9 +98,8 @@ const OFFICIAL_COMMUNITIES: OfficialCommunity[] = [
     online: true,
     thumbnail:
       "https://images.unsplash.com/photo-1516280440614-37939bbacd81?w=800&h=800&fit=crop",
-    announcementTitle: "日本のインディーズバンド情報",
-    announcementBody:
-      "羊文学、リーガルリリー、KOTORI、bacho、Helsinki Lambda Club など国内インディーバンドのライブ・リリース情報を投稿してください。地方遠征や自主企画の告知も歓迎です。",
+    homeCity: "Tokyo",
+    baseVenue: "Shibuya Orbit",
   },
   {
     name: "Japan Indie Livehouses",
@@ -121,9 +108,8 @@ const OFFICIAL_COMMUNITIES: OfficialCommunity[] = [
     online: true,
     thumbnail:
       "https://images.unsplash.com/photo-1517457373958-b7bdd4587205?w=800&h=800&fit=crop",
-    announcementTitle: "日本のインディー箱ライブ告知",
-    announcementBody:
-      "下北沢・新宿・心斎橋・名古屋・福岡など、国内ライブハウスのインディー公演を集約するスレです。出演順、開演時刻、チケットURLを明記してください。",
+    homeCity: "Osaka",
+    baseVenue: "Namba Circuit Hall",
   },
   {
     name: "Techno / House",
@@ -132,9 +118,8 @@ const OFFICIAL_COMMUNITIES: OfficialCommunity[] = [
     online: true,
     thumbnail:
       "https://images.unsplash.com/photo-1571266028243-d220c9d4bb31?w=800&h=800&fit=crop",
-    announcementTitle: "Techno / House ライブ&パーティー情報",
-    announcementBody:
-      "クラブイベント、ライブセット、デイイベントの告知を投稿してください。会場規模と出演時間を記載すると比較しやすくなります。",
+    homeCity: "Amsterdam",
+    baseVenue: "North Dock Club",
   },
   {
     name: "Drum & Bass / UK Bass",
@@ -143,9 +128,8 @@ const OFFICIAL_COMMUNITIES: OfficialCommunity[] = [
     online: true,
     thumbnail:
       "https://images.unsplash.com/photo-1507878866276-a947ef722fee?w=800&h=800&fit=crop",
-    announcementTitle: "Drum & Bass / UK Bass 告知",
-    announcementBody:
-      "DnB、Jungle、UK Bass周辺のイベント情報を集めるスレです。BPM帯やサブジャンルを書いておくと検索しやすくなります。",
+    homeCity: "Bristol",
+    baseVenue: "Voltage Warehouse",
   },
   {
     name: "Classical",
@@ -154,11 +138,120 @@ const OFFICIAL_COMMUNITIES: OfficialCommunity[] = [
     online: false,
     thumbnail:
       "https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=800&h=800&fit=crop",
-    announcementTitle: "Classical 公演・演奏会情報",
-    announcementBody:
-      "オーケストラ、室内楽、ソロリサイタルなどの公演情報を投稿してください。会場音響や撮影可否の情報もあれば追記をお願いします。",
+    homeCity: "Vienna",
+    baseVenue: "Danube Recital Hall",
   },
 ];
+
+type AnnouncementSeed = {
+  title: string;
+  body: string;
+  pinned: boolean;
+};
+
+const FLYERS = [
+  "https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=1200&h=1600&fit=crop",
+  "https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=1200&h=1600&fit=crop",
+  "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=1200&h=1600&fit=crop",
+  "https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=1200&h=1600&fit=crop",
+  "https://images.unsplash.com/photo-1506157786151-b8491531f063?w=1200&h=1600&fit=crop",
+  "https://images.unsplash.com/photo-1516280440614-37939bbacd81?w=1200&h=1600&fit=crop",
+  "https://images.unsplash.com/photo-1517457373958-b7bdd4587205?w=1200&h=1600&fit=crop",
+  "https://images.unsplash.com/photo-1571266028243-d220c9d4bb31?w=1200&h=1600&fit=crop",
+  "https://images.unsplash.com/photo-1507878866276-a947ef722fee?w=1200&h=1600&fit=crop",
+  "https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=1200&h=1600&fit=crop",
+] as const;
+
+const SHORT_VIDEOS = [
+  "https://www.youtube.com/shorts/aqz-KE-bpKQ",
+  "https://www.youtube.com/shorts/9bZkp7q19f0",
+  "https://www.youtube.com/shorts/kJQP7kiw5Fk",
+  "https://www.youtube.com/shorts/JGwWNGJdvx8",
+  "https://www.youtube.com/shorts/fJ9rUzIMcZQ",
+] as const;
+
+function buildAnnouncementBody(opts: {
+  city: string;
+  venue: string;
+  dateLabel: string;
+  lineup: string;
+  tickets: string;
+  flyer: string;
+  shortVideo?: string;
+  note: string;
+}) {
+  return [
+    `City: ${opts.city}`,
+    `Venue: ${opts.venue}`,
+    `Date: ${opts.dateLabel}`,
+    `Lineup: ${opts.lineup}`,
+    `Tickets: ${opts.tickets}`,
+    `Info: ${opts.note}`,
+    `FLYER_IMAGE: ${opts.flyer}`,
+    opts.shortVideo ? `SHORT_VIDEO: ${opts.shortVideo}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildAnnouncements(community: OfficialCommunity): AnnouncementSeed[] {
+  const slots = [
+    "Fri Apr 24, 19:30",
+    "Sat Apr 25, 20:00",
+    "Sun Apr 26, 17:00",
+    "Tue Apr 28, 21:00",
+    "Thu Apr 30, 18:30",
+    "Fri May 01, 22:00",
+    "Sat May 02, 19:00",
+    "Sun May 03, 16:30",
+    "Wed May 06, 20:30",
+    "Fri May 08, 19:45",
+  ] as const;
+
+  const lineups = [
+    "Headliner set + local support",
+    "International guest + resident DJs",
+    "Three-band showcase night",
+    "Openers selected from community submissions",
+    "Late-night extended set",
+    "Release party with live visual team",
+    "Back-to-back special session",
+    "All-ages early evening show",
+    "Label night with surprise guests",
+    "Closing set streamed globally",
+  ] as const;
+
+  const notes = [
+    "Doors open 60 minutes before showtime.",
+    "Limited presale allocation, walk-ins if capacity allows.",
+    "Merch booth and meet-and-greet after the main act.",
+    "Please bring photo ID for will-call pickup.",
+    "Livestream replay available for 48 hours.",
+    "Early bird tier ends 72 hours before doors.",
+    "Accessibility seating available via venue contact.",
+    "Outside food and drink are not permitted.",
+    "Official afterparty details posted on event day.",
+    "Final timetable is posted in this thread.",
+  ] as const;
+
+  return slots.map((dateLabel, i) => {
+    const titlePrefix = i === 0 ? "Pinned" : `Live Update #${i + 1}`;
+    return {
+      pinned: i === 0,
+      title: `${titlePrefix}: ${community.name} @ ${community.homeCity}`,
+      body: buildAnnouncementBody({
+        city: community.homeCity,
+        venue: `${community.baseVenue} ${String.fromCharCode(65 + (i % 4))}`,
+        dateLabel,
+        lineup: lineups[i],
+        tickets: `https://tickets.rawstock.live/${community.category}/${i + 1}`,
+        note: notes[i],
+        flyer: FLYERS[i],
+        shortVideo: i % 2 === 0 ? SHORT_VIDEOS[i % SHORT_VIDEOS.length] : undefined,
+      }),
+    };
+  });
+}
 
 const DELETE_STATEMENTS: Array<{ table: string; sql: string }> = [
   { table: "reports", sql: "DELETE FROM reports WHERE content_type IN ('video', 'comment')" },
@@ -196,11 +289,11 @@ async function deleteIfTableExists(
   const existsRes = await client.query("SELECT to_regclass($1) AS table_name", [table]);
   const exists = Boolean(existsRes.rows[0]?.table_name);
   if (!exists) {
-    console.log(`  - ${table}: テーブル未作成のためスキップ`);
+    console.log(`  - ${table}: skipped (table does not exist)`);
     return;
   }
   const res = await client.query(sql);
-  console.log(`  ✓ ${table}: ${res.rowCount ?? 0} 行削除`);
+  console.log(`  ✓ ${table}: deleted ${res.rowCount ?? 0} rows`);
 }
 
 async function pickAdminUserIds(): Promise<number[]> {
@@ -220,7 +313,7 @@ async function pickAdminUserIds(): Promise<number[]> {
        LIMIT 1`
     );
     if (fallbackRes.rows.length === 0) {
-      throw new Error("users テーブルにユーザーが存在しません。先に管理ユーザーを作成してください。");
+      throw new Error("No users found. Create at least one admin or moderator first.");
     }
     return [fallbackRes.rows[0].id as number];
   } finally {
@@ -230,7 +323,7 @@ async function pickAdminUserIds(): Promise<number[]> {
 
 async function main() {
   if (!process.env.DATABASE_URL) {
-    console.error("DATABASE_URL が設定されていません");
+    console.error("DATABASE_URL is not set");
     process.exit(1);
   }
 
@@ -239,12 +332,12 @@ async function main() {
   try {
     await client.query("BEGIN");
 
-    console.log("🧹 既存コミュニティ関連データを削除中...");
+    console.log("🧹 Deleting existing community-related data...");
     for (const item of DELETE_STATEMENTS) {
       await deleteIfTableExists(client, item.table, item.sql);
     }
 
-    console.log(`\n🏘️ 公式コミュニティ${OFFICIAL_COMMUNITIES.length}件を投入中...`);
+    console.log(`\n🏘️ Inserting ${OFFICIAL_COMMUNITIES.length} official communities...`);
     for (let i = 0; i < OFFICIAL_COMMUNITIES.length; i++) {
       const community = OFFICIAL_COMMUNITIES[i];
       const adminUserId = adminUserIds[i % adminUserIds.length];
@@ -272,25 +365,23 @@ async function main() {
         [communityId, adminUserId]
       );
 
-      await client.query(
-        `INSERT INTO community_threads (community_id, author_user_id, title, body, pinned)
-         VALUES ($1, $2, $3, $4, true)`,
-        [
-          communityId,
-          adminUserId,
-          community.announcementTitle,
-          community.announcementBody,
-        ]
-      );
+      const announcements = buildAnnouncements(community);
+      for (const announcement of announcements) {
+        await client.query(
+          `INSERT INTO community_threads (community_id, author_user_id, title, body, pinned)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [communityId, adminUserId, announcement.title, announcement.body, announcement.pinned]
+        );
+      }
 
-      console.log(`  ✓ ${community.name}`);
+      console.log(`  ✓ ${community.name}: ${announcements.length} announcement threads`);
     }
 
     await client.query("COMMIT");
-    console.log(`\n✅ 完了: 公式コミュニティ${OFFICIAL_COMMUNITIES.length}件へ再構築しました`);
+    console.log(`\n✅ Done: rebuilt ${OFFICIAL_COMMUNITIES.length} official communities`);
   } catch (error) {
     await client.query("ROLLBACK");
-    console.error("エラー:", error);
+    console.error("Error:", error);
     process.exit(1);
   } finally {
     client.release();

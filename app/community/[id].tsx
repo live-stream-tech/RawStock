@@ -11,6 +11,7 @@ import {
   Modal,
   Alert,
   ActivityIndicator,
+  Linking,
 } from "react-native";
 import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
@@ -28,6 +29,7 @@ import { useAuth } from "@/lib/auth";
 import { webScrollStyle } from "@/constants/layout";
 import { TranslateButton } from "@/components/TranslateButton";
 import { isMusicGenreCommunityCategory } from "@/lib/communityGenreBoard";
+import { parseThreadBody, youtubeThumbnailFromVideoUrl } from "@/lib/parse-thread-body";
 
 type AdData = { title: string; sub: string; cta: string; bg: string; accent: string; thumb: string };
 
@@ -152,7 +154,7 @@ type JukeboxData = {
 
 type VideoEditor = {
   id: number;
-  /** 登録ユーザー（API の video_editors 行） */
+  /** Registered users (rows from the video_editors API) */
   userId?: number | null;
   name: string;
   avatar: string;
@@ -192,34 +194,6 @@ function formatThreadDate(dateStr: string): string {
   if (diffDay === 1) return "Yesterday";
   if (diffDay < 7) return `${diffDay}d ago`;
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function parseThreadBody(raw: string | null | undefined): { flyerImageUrl: string | null; text: string } {
-  const body = String(raw ?? "");
-  if (!body.trim()) return { flyerImageUrl: null, text: "" };
-  const lines = body.split("\n");
-  let flyerImageUrl: string | null = null;
-  const kept: string[] = [];
-  const directImageRe = /(https?:\/\/\S+\.(?:png|jpe?g|webp|gif)(?:\?\S*)?)/i;
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!flyerImageUrl && /^FLYER_IMAGE\s*:/i.test(trimmed)) {
-      const m = trimmed.match(/https?:\/\/\S+/i);
-      flyerImageUrl = m ? m[0] : null;
-      continue;
-    }
-    if (!flyerImageUrl && /^フライヤー画像\s*:/i.test(trimmed)) {
-      const m = trimmed.match(/https?:\/\/\S+/i);
-      flyerImageUrl = m ? m[0] : null;
-      continue;
-    }
-    if (!flyerImageUrl) {
-      const m = trimmed.match(directImageRe);
-      if (m?.[1]) flyerImageUrl = m[1];
-    }
-    kept.push(line);
-  }
-  return { flyerImageUrl, text: kept.join("\n").trim() };
 }
 
 function EmbeddedJukebox({ communityId }: { communityId: number }) {
@@ -584,6 +558,10 @@ function ThreadDetailContent({
   const [posting, setPosting] = useState(false);
   const qc = useQueryClient();
   const parsedThreadBody = parseThreadBody(thread.body);
+  const shortVideoThumb =
+    parsedThreadBody.shortVideoUrl != null
+      ? youtubeThumbnailFromVideoUrl(parsedThreadBody.shortVideoUrl)
+      : null;
 
   async function handlePostReply() {
     const text = replyText.trim();
@@ -642,6 +620,22 @@ function ThreadDetailContent({
         </View>
         {parsedThreadBody.flyerImageUrl ? (
           <Image source={{ uri: parsedThreadBody.flyerImageUrl }} style={styles.threadDetailFlyer} contentFit="cover" />
+        ) : null}
+        {parsedThreadBody.shortVideoUrl ? (
+          <Pressable
+            style={styles.threadDetailShortClip}
+            onPress={() => Linking.openURL(parsedThreadBody.shortVideoUrl!)}
+          >
+            {shortVideoThumb ? (
+              <Image source={{ uri: shortVideoThumb }} style={styles.threadDetailShortThumb} contentFit="cover" />
+            ) : (
+              <View style={[styles.threadDetailShortThumb, styles.threadDetailShortPlaceholder]} />
+            )}
+            <View style={styles.threadDetailShortOverlay} pointerEvents="none">
+              <Ionicons name="play-circle" size={48} color="#ffffffee" />
+              <Text style={styles.threadDetailShortLabel}>Watch short clip</Text>
+            </View>
+          </Pressable>
         ) : null}
         {parsedThreadBody.text ? <Text style={styles.threadDetailBody}>{parsedThreadBody.text}</Text> : null}
       </View>
@@ -794,7 +788,7 @@ export default function CommunityDetailScreen() {
   const isCommunityAdmin = !!staffData?.adminId && user?.id === staffData.adminId;
   const isModerator = staffData?.moderatorIds?.includes(user?.id ?? 0) ?? false;
   const isPlatformAdmin = (user?.role ?? "").toUpperCase() === "ADMIN";
-  /** メンバー以外でも、コミュニティ運営・モデレーター・プラットフォーム管理者は告知を投稿できる */
+  /** Admins/moderators/platform admins can post announcements without joining */
   const canPostToBoard = following || isCommunityAdmin || isModerator || isPlatformAdmin;
 
   const { data: editors = [], isLoading: editorsLoading } = useQuery<VideoEditor[]>({
@@ -1180,7 +1174,7 @@ export default function CommunityDetailScreen() {
               onPress={() => setActiveTab(tab)}
             >
               <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-                {tab === "Board" && announceBoard ? "告知" : tab}
+                {tab === "Board" && announceBoard ? "Announcements" : tab}
               </Text>
             </Pressable>
           ))}
@@ -1341,40 +1335,40 @@ export default function CommunityDetailScreen() {
                   <Ionicons name="megaphone-outline" size={22} color={C.accent} />
                 </View>
                 <View style={{ flex: 1, gap: 4 }}>
-                  <Text style={styles.boardAnnounceIntroTitle}>告知・スケジュール</Text>
+                  <Text style={styles.boardAnnounceIntroTitle}>Announcements & Schedule</Text>
                   <Text style={styles.boardAnnounceIntroSub}>
-                    ライブ・イベント・募集など、一目で伝わる短い投稿向けです。固定（ピン留め）は上に並びます。
+                    Use concise posts for live shows, events, or open calls. Pinned posts stay at the top.
                   </Text>
                 </View>
               </View>
             ) : null}
             <View style={styles.boardHeader}>
-              <Text style={styles.boardSectionTitle}>{announceBoard ? "告知一覧" : "Threads"}</Text>
+              <Text style={styles.boardSectionTitle}>{announceBoard ? "Announcements" : "Threads"}</Text>
               {canPostToBoard && (
                 <Pressable
                   style={styles.createThreadBtn}
                   onPress={() => {
-                    if (!requireAuth(announceBoard ? "投稿する" : "Create Thread")) return;
+                    if (!requireAuth(announceBoard ? "Post announcement" : "Create Thread")) return;
                     setShowCreateThread(true);
                   }}
                 >
                   <Ionicons name="add" size={16} color="#fff" />
-                  <Text style={styles.createThreadBtnText}>{announceBoard ? "新規告知" : "New Thread"}</Text>
+                  <Text style={styles.createThreadBtnText}>{announceBoard ? "New Announcement" : "New Thread"}</Text>
                 </Pressable>
               )}
             </View>
             {canPostToBoard && !following ? (
               <Text style={styles.boardStaffHint}>
                 {announceBoard
-                  ? "管理者・モデレーター、またはサイト管理者は、フォロー（参加）していなくてもこの画面から告知を投稿できます。"
-                  : "管理者・モデレーター、またはサイト管理者は、フォローせずにスレッドを投稿できます。"}
+                  ? "Admins, moderators, and platform admins can post announcements from here even without joining."
+                  : "Admins, moderators, and platform admins can post threads without joining."}
               </Text>
             ) : null}
             {canPostToBoard && (
               <View style={styles.createThreadForm}>
                 <TextInput
                   style={styles.createThreadInput}
-                  placeholder={announceBoard ? "タイトル（例: 4/20 配信・イベント名）" : "Title"}
+                  placeholder={announceBoard ? "Title (e.g. Apr 20 live stream / event name)" : "Title"}
                   placeholderTextColor={C.textMuted}
                   value={newThreadTitle}
                   onChangeText={setNewThreadTitle}
@@ -1383,7 +1377,7 @@ export default function CommunityDetailScreen() {
                   style={[styles.createThreadInput, styles.createThreadInputBody]}
                   placeholder={
                     announceBoard
-                      ? "本文（日時・場所・リンク・参加方法など。箇条書き可）"
+                      ? "Body (date, venue, links, how to join. Bullet points are welcome)"
                       : "Body (optional)"
                   }
                   placeholderTextColor={C.textMuted}
@@ -1400,13 +1394,13 @@ export default function CommunityDetailScreen() {
                   {creatingThread ? (
                     <ActivityIndicator color="#fff" size="small" />
                   ) : (
-                    <Text style={styles.createThreadSubmitText}>{announceBoard ? "告知を投稿" : "Post Thread"}</Text>
+                    <Text style={styles.createThreadSubmitText}>{announceBoard ? "Post Announcement" : "Post Thread"}</Text>
                   )}
                 </Pressable>
               </View>
             )}
             {displayThreads.length === 0 ? (
-              <Text style={styles.boardEmpty}>{announceBoard ? "まだ告知がありません" : "No threads yet"}</Text>
+              <Text style={styles.boardEmpty}>{announceBoard ? "No announcements yet" : "No threads yet"}</Text>
             ) : announceBoard ? (
               displayThreads.map((t) => {
                 const parsed = parseThreadBody(t.body);
@@ -1421,7 +1415,7 @@ export default function CommunityDetailScreen() {
                         {t.pinned ? (
                           <View style={styles.boardAnnouncePinnedPill}>
                             <Ionicons name="pin" size={12} color={C.orange} />
-                            <Text style={styles.boardAnnouncePinnedText}>固定</Text>
+                            <Text style={styles.boardAnnouncePinnedText}>Pinned</Text>
                           </View>
                         ) : null}
                       </View>
@@ -1429,6 +1423,21 @@ export default function CommunityDetailScreen() {
                     </View>
                     {parsed.flyerImageUrl ? (
                       <Image source={{ uri: parsed.flyerImageUrl }} style={styles.boardFlyerImageAnnounce} contentFit="cover" />
+                    ) : null}
+                    {parsed.shortVideoUrl ? (
+                      <Pressable
+                        style={styles.boardShortClipRow}
+                        onPress={(e) => {
+                          e?.stopPropagation?.();
+                          Linking.openURL(parsed.shortVideoUrl!);
+                        }}
+                      >
+                        <Ionicons name="logo-youtube" size={18} color="#ff4d4d" />
+                        <Text style={styles.boardShortClipText} numberOfLines={1}>
+                          Short clip
+                        </Text>
+                        <Ionicons name="open-outline" size={16} color={C.textMuted} />
+                      </Pressable>
                     ) : null}
                     <Text style={styles.boardTitleAnnounce} numberOfLines={3}>
                       {t.title}
@@ -2629,9 +2638,22 @@ const styles = StyleSheet.create({
     height: 170,
     borderRadius: 10,
     marginTop: 10,
-    marginBottom: 10,
+    marginBottom: 4,
     backgroundColor: C.surface2,
   },
+  boardShortClipRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+    marginBottom: 8,
+  },
+  boardShortClipText: { flex: 1, color: C.accent, fontSize: 13, fontWeight: "800" },
   boardDetailAnnounce: { color: C.textSec, fontSize: 14, lineHeight: 21 },
   boardAnnounceFooter: {
     flexDirection: "row",
@@ -2661,6 +2683,25 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     backgroundColor: C.surface2,
   },
+  threadDetailShortClip: {
+    width: "100%",
+    height: 160,
+    borderRadius: 10,
+    marginTop: 4,
+    marginBottom: 10,
+    overflow: "hidden",
+    backgroundColor: C.surface2,
+  },
+  threadDetailShortThumb: { width: "100%", height: "100%" },
+  threadDetailShortPlaceholder: { alignItems: "center", justifyContent: "center" },
+  threadDetailShortOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  threadDetailShortLabel: { color: "#fff", fontSize: 13, fontWeight: "800" },
   threadDetailBody: { color: C.textSec, fontSize: 13, lineHeight: 20 },
   threadDetailPosts: { maxHeight: 280, padding: 16 },
   threadPostRow: { flexDirection: "row", gap: 10, marginBottom: 14 },

@@ -44,6 +44,8 @@ import {
 const app = express();
 const log = console.log;
 
+const LP_HTML_CACHE_CONTROL = "private, no-store, max-age=0, must-revalidate";
+
 function injectLpMarketingHtml(html: string, canonicalUrl: string): string {
   let out = html
     .split(RAWSTOCK_LOGO_URL_PLACEHOLDER)
@@ -181,6 +183,7 @@ function configureExpoAndLanding(app: express.Application) {
       canonicalPageUrlFromReq(req, "/lp"),
     );
     res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
     res.status(200).send(html);
   });
 
@@ -194,6 +197,7 @@ function configureExpoAndLanding(app: express.Application) {
       canonicalPageUrlFromReq(req, "/lp-standalone.html"),
     );
     res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
     res.status(200).send(html);
   });
 
@@ -208,6 +212,7 @@ function configureExpoAndLanding(app: express.Application) {
       canonicalPageUrlFromReq(req, "/teamz"),
     );
     res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
     res.status(200).send(html);
   });
 

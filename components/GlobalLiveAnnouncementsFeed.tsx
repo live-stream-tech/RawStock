@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { View, Text, StyleSheet, Pressable, TextInput, ActivityIndicator, Platform, ScrollView } from "react-native";
+import { View, Text, StyleSheet, Pressable, TextInput, ActivityIndicator, Platform, ScrollView, Linking } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
@@ -9,6 +9,7 @@ import { getApiUrl } from "@/lib/query-client";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { webScrollStyle } from "@/constants/layout";
 import { TranslateButton } from "@/components/TranslateButton";
+import { parseThreadBody } from "@/lib/parse-thread-body";
 
 export type GlobalAnnouncementItem = {
   id: number;
@@ -25,10 +26,10 @@ export type GlobalAnnouncementItem = {
 };
 
 type Props = {
-  /** 親（Live タブなど）と検索欄を共有する場合 */
+  /** Use when parent screen controls the search query */
   searchQuery?: string;
   onSearchQueryChange?: (q: string) => void;
-  /** 画面下部の余白（タブバー分） */
+  /** Bottom inset (for tab bar spacing) */
   bottomInset?: number;
 };
 
@@ -127,7 +128,9 @@ export function GlobalLiveAnnouncementsFeed({ searchQuery = "", onSearchQueryCha
         ) : data.length === 0 ? (
           <Text style={styles.empty}>No matching posts. Try different keywords or turn off the live filter.</Text>
         ) : (
-          data.map((item) => (
+          data.map((item) => {
+            const parsed = parseThreadBody(item.body);
+            return (
             <Pressable
               key={`${item.communityId}-${item.id}`}
               style={[styles.card, item.pinned && styles.cardPinned]}
@@ -158,12 +161,29 @@ export function GlobalLiveAnnouncementsFeed({ searchQuery = "", onSearchQueryCha
                   {item.title}
                 </Text>
               </View>
-              {item.body ? (
+              {parsed.flyerImageUrl ? (
+                <Image source={{ uri: parsed.flyerImageUrl }} style={styles.cardFlyer} contentFit="cover" />
+              ) : null}
+              {parsed.shortVideoUrl ? (
+                <Pressable
+                  style={styles.cardClipRow}
+                  onPress={(ev) => {
+                    (ev as { stopPropagation?: () => void }).stopPropagation?.();
+                    Linking.openURL(parsed.shortVideoUrl!);
+                  }}
+                >
+                  <Ionicons name="play-circle" size={20} color={C.accent} />
+                  <Text style={styles.cardClipText} numberOfLines={1}>
+                    Short clip attached
+                  </Text>
+                </Pressable>
+              ) : null}
+              {parsed.text ? (
                 <Text style={styles.body} numberOfLines={3}>
-                  {item.body}
+                  {parsed.text}
                 </Text>
               ) : null}
-              {item.body ? <TranslateButton text={item.body} dstLang="en" compact /> : null}
+              {parsed.text ? <TranslateButton text={parsed.text} dstLang="en" compact /> : null}
               <View style={styles.footer}>
                 <Text style={styles.author} numberOfLines={1}>
                   {item.author.displayName}
@@ -171,7 +191,8 @@ export function GlobalLiveAnnouncementsFeed({ searchQuery = "", onSearchQueryCha
                 <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
               </View>
             </Pressable>
-          ))
+            );
+          })
         )}
       </ScrollView>
     </View>
@@ -265,6 +286,26 @@ const styles = StyleSheet.create({
   },
   pinText: { color: C.orange, fontSize: 10, fontWeight: "800" },
   title: { color: C.text, fontSize: 16, fontWeight: "800", lineHeight: 22 },
+  cardFlyer: {
+    width: "100%",
+    height: 140,
+    borderRadius: 10,
+    marginTop: 4,
+    backgroundColor: C.surface2,
+  },
+  cardClipRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  cardClipText: { flex: 1, color: C.accent, fontSize: 12, fontWeight: "800" },
   body: { color: C.textSec, fontSize: 13, lineHeight: 19 },
   footer: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 },
   author: { color: C.textMuted, fontSize: 12, fontWeight: "600", flex: 1, marginRight: 8 },

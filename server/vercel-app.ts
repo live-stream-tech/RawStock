@@ -67,6 +67,8 @@ function injectLpMarketingHtml(html: string, canonicalUrl: string): string {
   return out;
 }
 
+const LP_HTML_CACHE_CONTROL = "private, no-store, max-age=0, must-revalidate";
+
 function canonicalPageUrlFromReq(req: Request, pathname: string): string {
   const forwardedProto = req.header("x-forwarded-proto");
   const protocol = forwardedProto || req.protocol || "https";
@@ -99,6 +101,7 @@ export async function createApiApp(): Promise<express.Application> {
       const raw = fs.readFileSync(lpStandalonePath, "utf-8");
       const html = injectLpMarketingHtml(raw, canonicalPageUrlFromReq(req, "/lp"));
       res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
       res.status(200).send(html);
     } catch (e) {
       res.status(500).send("Landing page template not found");
@@ -112,6 +115,7 @@ export async function createApiApp(): Promise<express.Application> {
     const raw = fs.readFileSync(lpStandalonePath, "utf-8");
     const html = injectLpMarketingHtml(raw, canonicalPageUrlFromReq(req, "/lp-standalone.html"));
     res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
     res.status(200).send(html);
   });
 
@@ -123,6 +127,7 @@ export async function createApiApp(): Promise<express.Application> {
     const raw = fs.readFileSync(teamzPath, "utf-8");
     const html = injectLpMarketingHtml(raw, canonicalPageUrlFromReq(req, "/teamz"));
     res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
     res.status(200).send(html);
   });
 

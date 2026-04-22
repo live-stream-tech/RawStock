@@ -1,7 +1,11 @@
 import React from "react";
 import { Platform, Text, View } from "react-native";
 
-/** Express serves this with logo URL injected from lib/brand (see server/index.ts). */
+/**
+ * Production LP content lives in `public/lp-standalone.html`.
+ * The server injects asset URLs (see `injectLpMarketingHtml` in server/index.ts and server/vercel-app.ts).
+ * `vite-app/app/rawstock-lp/LandingPage.tsx` is not wired into this iframe unless you add a build step.
+ */
 function lpStandaloneSrcForWeb(): string {
   if (typeof window === "undefined") {
     return "/lp-standalone.html";
