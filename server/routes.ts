@@ -2409,6 +2409,9 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
     out = out.slice(0, limit);
 
+    const forceLang = typeof _req.query.lang === "string" ? _req.query.lang.trim().toLowerCase() : "";
+    const forceEnglish = forceLang === "en";
+
     const authorIds = [...new Set(out.map((r) => r.authorUserId))];
     const authorRows =
       authorIds.length > 0
@@ -2419,8 +2422,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         : [];
     const authorMap = new Map(authorRows.map((a) => [a.id, a]));
 
-    res.json(
-      out.map((r) => ({
+    const mapped = out.map((r) => ({
         id: r.id,
         communityId: r.communityId,
         communityName: r.communityName,
@@ -2432,8 +2434,45 @@ export async function registerRoutes(app: Express): Promise<void> {
         createdAt: r.createdAt,
         authorUserId: r.authorUserId,
         author: authorMap.get(r.authorUserId) ?? { displayName: "Unknown", profileImageUrl: null },
-      }))
+      }));
+
+    if (!forceEnglish) {
+      return res.json(mapped);
+    }
+
+    const translated = await Promise.all(
+      mapped.map(async (row) => {
+        const next = { ...row };
+
+        const titleLang = await detectContentLang(next.title).catch(() => null);
+        if (titleLang && titleLang !== "en") {
+          const tr = await translateText({
+            text: next.title,
+            srcLang: titleLang,
+            dstLang: "en",
+          });
+          if (!tr.error && !tr.skipped && tr.text.trim()) {
+            next.title = tr.text.trim();
+          }
+        }
+
+        const bodyLang = await detectContentLang(next.body).catch(() => null);
+        if (next.body && bodyLang && bodyLang !== "en") {
+          const tr = await translateText({
+            text: next.body,
+            srcLang: bodyLang,
+            dstLang: "en",
+          });
+          if (!tr.error && !tr.skipped && tr.text.trim()) {
+            next.body = tr.text.trim();
+          }
+        }
+
+        return next;
+      }),
     );
+
+    return res.json(translated);
   });
 
   app.post("/api/communities/:id/threads", async (req: Request, res: Response) => {

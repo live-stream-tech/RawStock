@@ -258,26 +258,25 @@ function LiveCard({ item }: { item: any }) {
 }
 
 function AnnouncementCard({ item }: { item: any }) {
-  const flyer = parseFlyerFromBody(item.body) || item.communityThumbnail || FALLBACK_VIDEO_THUMB;
+  const flyer = parseFlyerFromBody(item.body);
   return (
     <Pressable
       style={styles.announceCard}
       onPress={() => router.push(`/community/${item.communityId}?tab=Board&openThread=${item.id}` as any)}
     >
       <View style={styles.announceThumbWrap}>
-        <Image source={{ uri: resolveVideoMediaUri(flyer) }} style={styles.announceThumb} contentFit="cover" cachePolicy="memory-disk" />
-        <LinearGradient colors={["transparent", "rgba(0,0,0,0.8)"]} style={styles.announceThumbGradient} />
-        <View style={styles.announceBadge}>
-          <Ionicons name="megaphone-outline" size={10} color={C.accent} />
-          <Text style={styles.announceBadgeText}>LIVE INFO</Text>
-        </View>
+        {flyer ? (
+          <Image source={{ uri: resolveVideoMediaUri(flyer) }} style={styles.announceThumb} contentFit="contain" cachePolicy="memory-disk" />
+        ) : (
+          <View style={styles.announceThumbPlaceholder}>
+            <Text style={styles.announceThumbPlaceholderText}>No flyer image</Text>
+          </View>
+        )}
+        <LinearGradient colors={["transparent", "rgba(0,0,0,0.72)"]} style={styles.announceThumbGradient} />
       </View>
-      <View style={styles.liveInfo}>
-        <View style={styles.creatorRow}>
-          <Image source={{ uri: resolveVideoMediaUri(item.communityThumbnail) }} style={styles.smallAvatar} contentFit="cover" cachePolicy="memory-disk" />
-          <Text style={styles.communityText} numberOfLines={1}>{item.communityName}</Text>
-        </View>
-        <Text style={styles.videoTitle} numberOfLines={2}>{item.title}</Text>
+      <View style={styles.announceInfo}>
+        <Text style={styles.announceTitle} numberOfLines={2}>{item.title}</Text>
+        <Text style={styles.announceCommunityMini} numberOfLines={1}>{item.communityName}</Text>
       </View>
     </Pressable>
   );
@@ -343,9 +342,33 @@ function SessionCard({ item }: { item: any }) {
 
 // ─── Dummy Data ───────────────────────────────────────────────────────────────
 const DUMMY_PAID = [
-  { id: 1, thumbnail: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&h=520&fit=crop", avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=40&h=40&fit=crop", community: "Language Lab", title: "Business English Intensive — from a perfect-score instructor", views: 31200, price: 1000 },
-  { id: 2, thumbnail: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=800&h=520&fit=crop", avatar: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=40&h=40&fit=crop", community: "Night Scene", title: "Tonight's Talk — love advice, anything goes ✨", views: 8900, price: 500 },
-  { id: 3, thumbnail: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=800&h=520&fit=crop", avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=40&h=40&fit=crop", community: "Mystic Lounge", title: "Tarot Reading — Your fortune for this week revealed", views: 19800, price: 300 },
+  {
+    id: 1,
+    thumbnail: "https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=800&h=520&fit=crop",
+    avatar: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=40&h=40&fit=crop",
+    community: "Shimokitazawa Livehouses",
+    title: "Basement Gig Archive — 4/20 下北沢3会場ダイジェスト",
+    views: 31200,
+    price: 1000,
+  },
+  {
+    id: 2,
+    thumbnail: "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=800&h=520&fit=crop",
+    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=40&h=40&fit=crop",
+    community: "Tokyo Club Circuit",
+    title: "Warehouse Rave Recap — Peak Time Set + Crowd Cam",
+    views: 18900,
+    price: 800,
+  },
+  {
+    id: 3,
+    thumbnail: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=800&h=520&fit=crop",
+    avatar: "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=40&h=40&fit=crop",
+    community: "Japan Indie Livehouses",
+    title: "インディーツアー最終日 — Encoreまでノーカット収録",
+    views: 14200,
+    price: 600,
+  },
 ];
 
 const DUMMY_LIVE = [
@@ -354,9 +377,45 @@ const DUMMY_LIVE = [
 ];
 
 const DUMMY_SESSIONS = [
-  { id: 1, thumbnail: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300&h=169&fit=crop", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=40&h=40&fit=crop", creator: "Yuki", title: "Open talk — I'll listen to anything", categoryLabel: "Counseling", price: 2000, duration: "30 min", spotsLeft: 3, date: "Apr 2", time: "20:00" },
-  { id: 2, thumbnail: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&h=169&fit=crop", avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=40&h=40&fit=crop", creator: "Kenji", title: "Business English Intensive", categoryLabel: "English", price: 3500, duration: "45 min", spotsLeft: 5, date: "Apr 3", time: "19:00" },
-  { id: 3, thumbnail: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=300&h=169&fit=crop", avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=40&h=40&fit=crop", creator: "Hana", title: "Guitar for beginners — from scratch", categoryLabel: "Music", price: 2500, duration: "30 min", spotsLeft: 2, date: "Apr 5", time: "18:00" },
+  {
+    id: 1,
+    thumbnail: "https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=300&h=169&fit=crop",
+    avatar: "https://images.unsplash.com/photo-1519340241574-2cec6aef0c01?w=40&h=40&fit=crop",
+    creator: "TAKA DRUMS",
+    title: "ライブ本番前ドラムチューニング相談",
+    categoryLabel: "Music",
+    price: 2000,
+    duration: "30 min",
+    spotsLeft: 3,
+    date: "Apr 2",
+    time: "20:00",
+  },
+  {
+    id: 2,
+    thumbnail: "https://images.unsplash.com/photo-1498038432885-c6f3f1b912ee?w=300&h=169&fit=crop",
+    avatar: "https://images.unsplash.com/photo-1507591064344-4c6ce005b128?w=40&h=40&fit=crop",
+    creator: "Frame Edit RIKU",
+    title: "ライブ映像の切り抜き設計レビュー",
+    categoryLabel: "Editing",
+    price: 3500,
+    duration: "45 min",
+    spotsLeft: 5,
+    date: "Apr 3",
+    time: "19:00",
+  },
+  {
+    id: 3,
+    thumbnail: "https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=300&h=169&fit=crop",
+    avatar: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=40&h=40&fit=crop",
+    creator: "HANA KOBAYASHI",
+    title: "弾き語りライブの曲順・MC構成相談",
+    categoryLabel: "Live Coaching",
+    price: 2500,
+    duration: "30 min",
+    spotsLeft: 2,
+    date: "Apr 5",
+    time: "18:00",
+  },
 ];
 
 
@@ -466,12 +525,15 @@ export default function HomeScreen() {
           }
         />
         <HorizontalScroll contentContainerStyle={styles.hScroll}>
-          {(liveAnnouncements.length > 0 ? liveAnnouncements.slice(0, 8) : allLiveStreams).map((item: any) =>
-            item.communityId ? (
+          {liveAnnouncements.length > 0 ? (
+            liveAnnouncements.slice(0, 8).map((item: any) => (
               <AnnouncementCard key={`a-${item.communityId}-${item.id}`} item={item} />
-            ) : (
-              <LiveCard key={`l-${item.id}`} item={item} />
-            ),
+            ))
+          ) : (
+            <View style={styles.announceEmptyCard}>
+              <Ionicons name="megaphone-outline" size={18} color={C.textMuted} />
+              <Text style={styles.announceEmptyText}>ライブ告知は準備中です</Text>
+            </View>
           )}
         </HorizontalScroll>
 
@@ -712,25 +774,33 @@ const styles = StyleSheet.create({
   },
   viewerText: { color: "#fff", fontSize: 10, fontFamily: F.mono },
   liveInfo: { paddingHorizontal: 10, paddingVertical: 8, gap: 4, backgroundColor: C.surface },
-  announceCard: { width: 220, overflow: "hidden", backgroundColor: C.surface },
-  announceThumbWrap: { position: "relative", overflow: "hidden", aspectRatio: 16 / 9 },
-  announceThumb: { width: 220, aspectRatio: 16 / 9 },
-  announceThumbGradient: { position: "absolute", left: 0, right: 0, bottom: 0, height: "60%" },
-  announceBadge: {
-    position: "absolute",
-    top: 8,
-    left: 8,
-    flexDirection: "row",
+  announceCard: { width: 260, overflow: "hidden", backgroundColor: C.surface },
+  announceThumbWrap: { position: "relative", overflow: "hidden", aspectRatio: 3 / 4, backgroundColor: "#000" },
+  announceThumb: { width: 260, aspectRatio: 3 / 4, backgroundColor: "#000" },
+  announceThumbPlaceholder: {
+    width: 260,
+    aspectRatio: 3 / 4,
     alignItems: "center",
-    gap: 4,
-    backgroundColor: "rgba(0,0,0,0.66)",
-    borderRadius: 2,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderWidth: 1,
-    borderColor: C.accent + "88",
+    justifyContent: "center",
+    backgroundColor: C.surface2,
   },
-  announceBadgeText: { color: C.accent, fontSize: 9, fontFamily: F.mono, letterSpacing: 1 },
+  announceThumbPlaceholderText: { color: C.textMuted, fontSize: 11, fontFamily: F.mono },
+  announceThumbGradient: { position: "absolute", left: 0, right: 0, bottom: 0, height: "35%" },
+  announceInfo: { paddingHorizontal: 10, paddingVertical: 8, gap: 2, backgroundColor: C.surface },
+  announceTitle: { color: C.text, fontSize: 12, fontWeight: "700", lineHeight: 16 },
+  announceCommunityMini: { color: C.textMuted, fontSize: 10, fontFamily: F.mono },
+  announceEmptyCard: {
+    width: 260,
+    height: 160,
+    borderRadius: 2,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  announceEmptyText: { color: C.textMuted, fontSize: 12, fontWeight: "600" },
 
   // Session Card
   sessionCard: { width: MENTOR_W, overflow: "hidden", backgroundColor: C.surface },

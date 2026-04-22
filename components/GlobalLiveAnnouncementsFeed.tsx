@@ -8,6 +8,7 @@ import { C } from "@/constants/colors";
 import { getApiUrl } from "@/lib/query-client";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { webScrollStyle } from "@/constants/layout";
+import { TranslateButton } from "@/components/TranslateButton";
 
 export type GlobalAnnouncementItem = {
   id: number;
@@ -48,6 +49,7 @@ export function GlobalLiveAnnouncementsFeed({ searchQuery = "", onSearchQueryCha
     queryFn: async () => {
       const u = new URL("/api/community-announcements/feed", getApiUrl());
       u.searchParams.set("limit", "80");
+      u.searchParams.set("lang", "en");
       if (q) u.searchParams.set("q", q);
       if (liveOnly) u.searchParams.set("liveOnly", "1");
       const res = await fetch(u.toString(), { credentials: "include" });
@@ -161,6 +163,7 @@ export function GlobalLiveAnnouncementsFeed({ searchQuery = "", onSearchQueryCha
                   {item.body}
                 </Text>
               ) : null}
+              {item.body ? <TranslateButton text={item.body} dstLang="en" compact /> : null}
               <View style={styles.footer}>
                 <Text style={styles.author} numberOfLines={1}>
                   {item.author.displayName}
