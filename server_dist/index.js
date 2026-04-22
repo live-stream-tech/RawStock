@@ -3239,6 +3239,7 @@ async function registerRoutes(app2) {
     });
   });
   app2.get("/api/auth/me", async (req, res) => {
+    res.setHeader("Cache-Control", "private, no-store");
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const [u] = await db.select({
@@ -5818,6 +5819,7 @@ async function registerRoutes(app2) {
     }
   });
   app2.get("/api/videos", async (req, res) => {
+    res.setHeader("Cache-Control", "private, no-store");
     const genreId = req.query?.genre;
     const communityIdParam = req.query?.communityId;
     let rows = await db.select().from(videos).where(and5(eq5(videos.isRanked, false), eq5(videos.hidden, false))).orderBy(desc(videos.createdAt));
@@ -6135,6 +6137,7 @@ async function registerRoutes(app2) {
     res.json(updated ?? { ok: true });
   });
   app2.get("/api/notifications/unread-count", async (_req, res) => {
+    res.setHeader("Cache-Control", "private, no-store");
     const [{ count: count2 }] = await db.select({ count: sql3`count(*)::int` }).from(notifications).where(eq5(notifications.isRead, false));
     res.json({ count: count2 ?? 0 });
   });
@@ -8001,6 +8004,7 @@ data: ${data}
   const TICKETS_PER_JUKEBOX = 10;
   const MENTOR_TICKET_PRICE = 500;
   app2.get("/api/tickets/balance", async (req, res) => {
+    res.setHeader("Cache-Control", "private, no-store");
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const userId = String(user.id);
