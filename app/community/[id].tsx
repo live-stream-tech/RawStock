@@ -284,6 +284,11 @@ function EmbeddedJukebox({ communityId }: { communityId: number }) {
     chatMutation.mutate(msg);
   }, [comment]);
 
+  const elapsedSecsEmbedded =
+    state && state.currentVideoDurationSecs > 0
+      ? Math.min(progress * state.currentVideoDurationSecs, state.currentVideoDurationSecs)
+      : 0;
+
   return (
     <View style={jukeStyles.container}>
       <View style={jukeStyles.header}>
@@ -295,8 +300,9 @@ function EmbeddedJukebox({ communityId }: { communityId: number }) {
           <Ionicons name="people" size={11} color="rgba(255,255,255,0.7)" />
           <Text style={jukeStyles.watchersText}>{state?.watchersCount ?? 0} watching</Text>
         </View>
-        <Pressable style={jukeStyles.fullBtn} onPress={() => router.push(`/jukebox/${communityId}`)}>
-          <Ionicons name="expand" size={13} color={C.textMuted} />
+        <Pressable style={jukeStyles.openRoomBtn} onPress={() => router.push(`/jukebox/${communityId}`)} hitSlop={6}>
+          <Text style={jukeStyles.openRoomText}>Open room</Text>
+          <Ionicons name="chevron-forward" size={14} color={C.accent} />
         </Pressable>
       </View>
 
@@ -333,12 +339,11 @@ function EmbeddedJukebox({ communityId }: { communityId: number }) {
               </Pressable>
             )}
             <View style={jukeStyles.progressRow}>
+              <Text style={[jukeStyles.progressTime, jukeStyles.progressTimeL]}>{fmtSecs(elapsedSecsEmbedded)}</Text>
               <View style={jukeStyles.progressTrack}>
                 <View style={[jukeStyles.progressFill, { width: `${progress * 100}%` as any }]} />
               </View>
-              <Text style={jukeStyles.progressTime}>
-                {fmtSecs(state.currentVideoDurationSecs)}
-              </Text>
+              <Text style={[jukeStyles.progressTime, jukeStyles.progressTimeR]}>{fmtSecs(state.currentVideoDurationSecs)}</Text>
             </View>
           </View>
         </View>
@@ -346,6 +351,15 @@ function EmbeddedJukebox({ communityId }: { communityId: number }) {
         <View style={jukeStyles.emptyPlayer}>
           <Ionicons name="musical-notes-outline" size={24} color={C.textMuted} />
           <Text style={jukeStyles.emptyText}>No video playing</Text>
+        </View>
+      )}
+
+      {upcoming.length > 0 && (
+        <View style={jukeStyles.upNextRow}>
+          <Ionicons name="play-forward-outline" size={14} color={C.textMuted} />
+          <Text style={jukeStyles.upNextText} numberOfLines={1}>
+            Up next · {upcoming.length} queued
+          </Text>
         </View>
       )}
 
@@ -365,7 +379,7 @@ function EmbeddedJukebox({ communityId }: { communityId: number }) {
       <View style={jukeStyles.commentInput}>
         <TextInput
           style={jukeStyles.input}
-          placeholder="Comment (not saved)"
+          placeholder="Comment in jukebox chat…"
           placeholderTextColor={C.textMuted}
           value={comment}
           onChangeText={setComment}
@@ -624,20 +638,10 @@ function ThreadDetailContent({
           </View>
         </View>
         <View style={styles.threadDetailMeta}>
-          <Pressable
-            onPress={() => navigateToUserOrLiverProfile({ userId: thread.authorUserId })}
-            hitSlop={4}
-          >
-            {thread.author.profileImageUrl ? (
-              <Image source={{ uri: thread.author.profileImageUrl }} style={styles.threadDetailAvatar} contentFit="cover" />
-            ) : (
-              <View style={[styles.threadDetailAvatar, styles.threadAvatarFallback]}>
-                <Text style={styles.threadAvatarInitial}>{(thread.author.displayName ?? "?")[0]}</Text>
-              </View>
-            )}
+          <Pressable onPress={() => navigateToUserOrLiverProfile({ userId: thread.authorUserId })} hitSlop={4}>
+            <Text style={styles.threadDetailAuthor}>{thread.author.displayName}</Text>
           </Pressable>
-          <Text style={styles.threadDetailAuthor}>{thread.author.displayName}</Text>
-          <Text style={styles.threadDetailDate}>{formatThreadDate(thread.createdAt)}</Text>
+          <Text style={styles.threadDetailDate}> · {formatThreadDate(thread.createdAt)}</Text>
         </View>
         {parsedThreadBody.flyerImageUrl ? (
           <Image source={{ uri: parsedThreadBody.flyerImageUrl }} style={styles.threadDetailFlyer} contentFit="cover" />
@@ -716,7 +720,7 @@ function ThreadDetailContent({
   );
 }
 
-const TABS = ["Latest", "Creators", "Board"] as const;
+const TABS = ["Board", "Latest", "Creators"] as const;
 type Tab = typeof TABS[number];
 
 type CommunityCreatorsResponse = {
@@ -731,7 +735,7 @@ export default function CommunityDetailScreen() {
     openThread?: string;
   }>();
   const insets = useSafeAreaInsets();
-  const [activeTab, setActiveTab] = useState<Tab>("Latest");
+  const [activeTab, setActiveTab] = useState<Tab>("Board");
   const [following, setFollowing] = useState(false);
   const { user, token, requireAuth } = useAuth();
   const numericId = Number(id);
@@ -766,6 +770,8 @@ export default function CommunityDetailScreen() {
   useEffect(() => {
     const t = (tabParam ?? "").trim().toLowerCase();
     if (t === "board") setActiveTab("Board");
+    else if (t === "latest") setActiveTab("Latest");
+    else if (t === "creators") setActiveTab("Creators");
   }, [tabParam]);
 
   const consumedOpenThreadKey = useRef<string | null>(null);
@@ -1079,32 +1085,33 @@ export default function CommunityDetailScreen() {
           </View>
         </View>
 
-        <Pressable style={[styles.adBanner, { backgroundColor: ad.bg }]}>
-          <View style={styles.adPrBadge}>
-            <Text style={styles.adPrText}>PR</Text>
-          </View>
-          <Image source={{ uri: ad.thumb }} style={styles.adThumb} contentFit="cover" />
-          <View style={styles.adBody}>
-            <Text style={styles.adTitle} numberOfLines={1}>{ad.title}</Text>
-            <Text style={styles.adSub} numberOfLines={1}>{ad.sub}</Text>
-          </View>
-          <View style={[styles.adCtaBtn, { backgroundColor: ad.accent }]}>
-            <Text style={styles.adCtaText}>{ad.cta}</Text>
-          </View>
-        </Pressable>
+        <View style={styles.promoRow}>
+          <Pressable style={[styles.adBanner, styles.adBannerFlex, { backgroundColor: ad.bg }]}>
+            <View style={styles.adPrBadge}>
+              <Text style={styles.adPrText}>PR</Text>
+            </View>
+            <Image source={{ uri: ad.thumb }} style={styles.adThumb} contentFit="cover" />
+            <View style={styles.adBody}>
+              <Text style={styles.adTitle} numberOfLines={1}>{ad.title}</Text>
+              <Text style={styles.adSub} numberOfLines={1}>{ad.sub}</Text>
+            </View>
+            <View style={[styles.adCtaBtn, { backgroundColor: ad.accent }]}>
+              <Text style={styles.adCtaText}>{ad.cta}</Text>
+            </View>
+          </Pressable>
+          <Pressable
+            style={styles.placeAdSideBtn}
+            onPress={() => {
+              if (!requireAuth("Ad Placement")) return;
+              router.push(`/community/ad-apply?communityId=${communityId}`);
+            }}
+          >
+            <Ionicons name="megaphone-outline" size={20} color="#fff" />
+            <Text style={styles.placeAdSideText}>Place{"\n"}Ad</Text>
+          </Pressable>
+        </View>
 
-        <Pressable
-          style={styles.bannerCheckoutBtn}
-          onPress={() => {
-            if (!requireAuth("Ad Placement")) return;
-            router.push(`/community/ad-apply?communityId=${communityId}`);
-          }}
-        >
-          <Ionicons name="megaphone" size={18} color="#fff" />
-          <Text style={styles.bannerCheckoutBtnText}>Place an Ad</Text>
-        </Pressable>
-
-        <View style={styles.profileSection}>
+        <View style={[styles.profileSection, styles.profileSectionTight]}>
           <View style={styles.profileRow}>
             <View style={styles.communityAvatarContainer}>
               <Image source={{ uri: community.thumbnail }} style={styles.communityAvatar} contentFit="cover" />
@@ -1112,13 +1119,40 @@ export default function CommunityDetailScreen() {
             </View>
             <View style={styles.profileInfo}>
               <View style={styles.nameRow}>
-                <Text style={styles.communityName}>{community.name}</Text>
+                <Text style={styles.communityName} numberOfLines={2}>{community.name}</Text>
                 <View style={styles.officialBadge}>
                   <Text style={styles.officialText}>OFFICIAL</Text>
                 </View>
               </View>
               <Text style={styles.categoryText}>{community.category}</Text>
             </View>
+            <Pressable
+              style={[styles.followBtnChip, following && styles.followBtnChipActive]}
+              onPress={async () => {
+                if (following) {
+                  setFollowing(false);
+                  return;
+                }
+                if (!requireAuth("Follow")) return;
+                try {
+                  await apiRequest("POST", `/api/communities/${communityId}/join`);
+                  setFollowing(true);
+                  qc.invalidateQueries({ queryKey: [`/api/communities/${communityId}/members`] });
+                } catch {
+                  setFollowing(true);
+                }
+              }}
+              hitSlop={6}
+            >
+              <Ionicons
+                name={following ? "checkmark" : "add"}
+                size={14}
+                color={following ? C.textSec : "#fff"}
+              />
+              <Text style={[styles.followBtnChipText, following && styles.followBtnChipTextActive]}>
+                {following ? "Following" : "Follow"}
+              </Text>
+            </Pressable>
           </View>
 
           <Text style={styles.description}>Support community for {community.name} — connect through live streams and photo sessions</Text>
@@ -1148,120 +1182,7 @@ export default function CommunityDetailScreen() {
             <Ionicons name="chevron-forward" size={16} color={C.accent} />
           </Pressable>
 
-          {(staffData?.admin || (staffData?.moderators && staffData.moderators.length > 0)) && (
-            <View style={styles.staffHintRow}>
-              <Ionicons name="shield-checkmark-outline" size={13} color={C.accent} />
-              <Text style={styles.staffHintText}>This community has an admin and moderators</Text>
-            </View>
-          )}
-
-          <Pressable
-            style={[styles.followBtn, following && styles.followBtnActive]}
-            onPress={async () => {
-              if (following) {
-                setFollowing(false);
-                return;
-              }
-              if (!requireAuth("Follow")) return;
-              try {
-                await apiRequest("POST", `/api/communities/${communityId}/join`);
-                setFollowing(true);
-                qc.invalidateQueries({ queryKey: [`/api/communities/${communityId}/members`] });
-              } catch {
-                // Already a member, etc.
-                setFollowing(true);
-              }
-            }}
-          >
-            <Ionicons
-              name={following ? "checkmark" : "add"}
-              size={16}
-              color={following ? C.textSec : "#fff"}
-            />
-            <Text style={[styles.followBtnText, following && styles.followBtnTextActive]}>
-              {following ? "Following" : "Follow"}
-            </Text>
-          </Pressable>
-
-          {(staffData?.admin || (staffData?.moderators && staffData.moderators.length > 0)) && (
-            <View style={styles.staffSection}>
-              <View style={styles.staffSectionHeader}>
-                <Text style={styles.staffSectionTitle}>Admin & Moderators</Text>
-                {(isCommunityAdmin || isModerator) && (
-                  <View style={styles.staffAdminLinks}>
-                    {isCommunityAdmin && (
-                      <>
-                        <Pressable
-                          onPress={() => {
-                            setSelectedAdminId(staffData?.adminId ?? null);
-                            setSelectedModeratorIds(staffData?.moderatorIds ?? []);
-                            setStaffModalVisible(true);
-                          }}
-                        >
-                          <Text style={styles.staffEditLink}>Edit</Text>
-                        </Pressable>
-                        <Pressable onPress={() => router.push("/community/ad-review")}>
-                          <Text style={styles.staffEditLink}>Ad Review</Text>
-                        </Pressable>
-                      </>
-                    )}
-                    <Pressable onPress={() => router.push(`/community/${communityId}/admin`)}>
-                      <Text style={styles.staffEditLink}>Admin Panel</Text>
-                    </Pressable>
-                  </View>
-                )}
-              </View>
-              {staffData?.admin && (
-                <Pressable
-                  style={styles.staffRow}
-                  onPress={() => router.push(`/user/${staffData.admin!.id}`)}
-                >
-                  <Image source={{ uri: staffData.admin.profileImageUrl ?? undefined }} style={styles.staffAvatar} contentFit="cover" />
-                  <Text style={styles.staffLabel}>Admin</Text>
-                  <Text style={styles.staffName}>{staffData.admin.displayName}</Text>
-                  <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
-                </Pressable>
-              )}
-              {staffData?.moderators && staffData.moderators.length > 0 && (
-                staffData.moderators.map((m) => (
-                  <Pressable
-                    key={m.id}
-                    style={styles.staffRow}
-                    onPress={() => router.push(`/user/${m.id}`)}
-                  >
-                    <Image source={{ uri: m.profileImageUrl ?? undefined }} style={styles.staffAvatar} contentFit="cover" />
-                    <Text style={styles.staffLabel}>Moderator</Text>
-                    <Text style={styles.staffName}>{m.displayName}</Text>
-                    <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
-                  </Pressable>
-                ))
-              )}
-            </View>
-          )}
-
         </View>
-
-        {/* Jukebox CTA */}
-        <Pressable
-          style={styles.jukeboxCta}
-          onPress={() => router.push(`/jukebox/${communityId}`)}
-        >
-          <View style={styles.jukeboxCtaLeft}>
-            <View style={styles.jukeboxCtaBadge}>
-              <Ionicons name="musical-notes" size={14} color="#fff" />
-              <Text style={styles.jukeboxCtaBadgeText}>JUKEBOX</Text>
-            </View>
-            <Text style={styles.jukeboxCtaTitle} numberOfLines={2}>
-              Watch together in this community
-            </Text>
-            <Text style={styles.jukeboxCtaSub} numberOfLines={1}>
-              Add YouTube or uploaded videos to the queue
-            </Text>
-          </View>
-          <View style={styles.jukeboxCtaRight}>
-            <Ionicons name="play-circle" size={26} color="#fff" />
-          </View>
-        </Pressable>
 
         <EmbeddedJukebox communityId={communityId} />
 
@@ -1552,20 +1473,20 @@ export default function CommunityDetailScreen() {
                     style={[styles.boardCardAnnounce, t.pinned ? styles.boardCardAnnouncePinned : null]}
                     onPress={() => setSelectedThreadId(t.id)}
                   >
+                    {parsed.flyerImageUrl ? (
+                      <Image source={{ uri: parsed.flyerImageUrl }} style={styles.boardFlyerImageAnnounce} contentFit="cover" />
+                    ) : null}
                     <View style={styles.boardAnnounceTopRow}>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1, flexWrap: "wrap" }}>
                         {t.pinned ? (
                           <View style={styles.boardAnnouncePinnedPill}>
-                            <Ionicons name="pin" size={12} color={C.orange} />
+                            <Ionicons name="pin" size={11} color={C.orange} />
                             <Text style={styles.boardAnnouncePinnedText}>Pinned</Text>
                           </View>
                         ) : null}
                       </View>
                       <Text style={styles.boardAnnounceDateStrong}>{formatThreadDate(t.createdAt)}</Text>
                     </View>
-                    {parsed.flyerImageUrl ? (
-                      <Image source={{ uri: parsed.flyerImageUrl }} style={styles.boardFlyerImageAnnounce} contentFit="cover" />
-                    ) : null}
                     {parsed.shortVideoUrl ? (
                       <Pressable
                         style={styles.boardShortClipRow}
@@ -1594,8 +1515,9 @@ export default function CommunityDetailScreen() {
                         {t.author.displayName}
                       </Text>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                        <Ionicons name="chatbubble-outline" size={12} color={C.textMuted} />
-                        <Text style={styles.boardAnnounceReplyCount}>{t.postCount}</Text>
+                        <Text style={styles.boardAnnounceReplyCount}>
+                          {t.postCount === 1 ? "1 reply" : `${t.postCount} replies`}
+                        </Text>
                         <Ionicons name="chevron-forward" size={14} color={C.textMuted} />
                       </View>
                     </View>
@@ -1605,18 +1527,6 @@ export default function CommunityDetailScreen() {
             ) : (
               displayThreads.map((t) => (
                 <View key={t.id} style={styles.boardCard}>
-                  <Pressable
-                    onPress={() => navigateToUserOrLiverProfile({ userId: t.authorUserId })}
-                    hitSlop={4}
-                  >
-                    {t.author.profileImageUrl ? (
-                      <Image source={{ uri: t.author.profileImageUrl }} style={styles.boardAuthorAvatar} contentFit="cover" />
-                    ) : (
-                      <View style={[styles.boardAuthorAvatar, styles.threadAvatarFallback]}>
-                        <Text style={styles.threadAvatarInitial}>{(t.author.displayName ?? "?")[0]}</Text>
-                      </View>
-                    )}
-                  </Pressable>
                   <Pressable style={styles.boardBody} onPress={() => setSelectedThreadId(t.id)}>
                     {(() => {
                       const parsed = parseThreadBody(t.body);
@@ -1699,6 +1609,62 @@ export default function CommunityDetailScreen() {
                   </View>
                 )}
               </View>
+            )}
+          </View>
+        )}
+
+        {(staffData?.admin || (staffData?.moderators && staffData.moderators.length > 0)) && (
+          <View style={styles.staffSection}>
+            <View style={styles.staffSectionHeader}>
+              <Text style={styles.staffSectionTitle}>Admin & moderators</Text>
+              {(isCommunityAdmin || isModerator) && (
+                <View style={styles.staffAdminLinks}>
+                  {isCommunityAdmin && (
+                    <>
+                      <Pressable
+                        onPress={() => {
+                          setSelectedAdminId(staffData?.adminId ?? null);
+                          setSelectedModeratorIds(staffData?.moderatorIds ?? []);
+                          setStaffModalVisible(true);
+                        }}
+                      >
+                        <Text style={styles.staffEditLink}>Edit</Text>
+                      </Pressable>
+                      <Pressable onPress={() => router.push("/community/ad-review")}>
+                        <Text style={styles.staffEditLink}>Ad Review</Text>
+                      </Pressable>
+                    </>
+                  )}
+                  <Pressable onPress={() => router.push(`/community/${communityId}/admin`)}>
+                    <Text style={styles.staffEditLink}>Admin Panel</Text>
+                  </Pressable>
+                </View>
+              )}
+            </View>
+            {staffData?.admin && (
+              <Pressable
+                style={styles.staffRow}
+                onPress={() => router.push(`/user/${staffData.admin!.id}`)}
+              >
+                <Image source={{ uri: staffData.admin.profileImageUrl ?? undefined }} style={styles.staffAvatar} contentFit="cover" />
+                <Text style={styles.staffLabel}>Admin</Text>
+                <Text style={styles.staffName}>{staffData.admin.displayName}</Text>
+                <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+              </Pressable>
+            )}
+            {staffData?.moderators && staffData.moderators.length > 0 && (
+              staffData.moderators.map((m) => (
+                <Pressable
+                  key={m.id}
+                  style={styles.staffRow}
+                  onPress={() => router.push(`/user/${m.id}`)}
+                >
+                  <Image source={{ uri: m.profileImageUrl ?? undefined }} style={styles.staffAvatar} contentFit="cover" />
+                  <Text style={styles.staffLabel}>Moderator</Text>
+                  <Text style={styles.staffName}>{m.displayName}</Text>
+                  <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+                </Pressable>
+              ))
             )}
           </View>
         )}
@@ -2072,9 +2038,10 @@ export default function CommunityDetailScreen() {
 const jukeStyles = StyleSheet.create({
   container: {
     marginHorizontal: 16,
+    marginTop: 6,
     marginBottom: 12,
-    backgroundColor: C.surface,
-    borderRadius: 14,
+    backgroundColor: C.surface2,
+    borderRadius: 16,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: C.border,
@@ -2084,8 +2051,8 @@ const jukeStyles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
+    paddingVertical: 9,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: C.border,
   },
   badge: {
@@ -2119,11 +2086,22 @@ const jukeStyles = StyleSheet.create({
     color: C.textSec,
     fontSize: 11,
   },
-  fullBtn: {
-    width: 28,
-    height: 28,
+  openRoomBtn: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    gap: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.accent + "55",
+    flexShrink: 0,
+  },
+  openRoomText: {
+    color: C.accent,
+    fontSize: 11,
+    fontWeight: "700",
   },
   playerRow: {
     flexDirection: "row",
@@ -2195,6 +2173,25 @@ const jukeStyles = StyleSheet.create({
   progressTime: {
     color: C.textMuted,
     fontSize: 10,
+    width: 36,
+    fontVariant: ["tabular-nums"] as any,
+  },
+  progressTimeL: { textAlign: "right" },
+  progressTimeR: { textAlign: "left" },
+  upNextRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: C.border,
+  },
+  upNextText: {
+    flex: 1,
+    color: C.textSec,
+    fontSize: 11,
+    fontWeight: "600",
   },
   emptyPlayer: {
     flexDirection: "row",
@@ -2282,15 +2279,42 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  promoRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    marginHorizontal: 16,
+    marginBottom: 10,
+    gap: 8,
+  },
   adBanner: {
     flexDirection: "row",
     alignItems: "center",
-    height: 76,
+    minHeight: 72,
     paddingHorizontal: 12,
     gap: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.06)",
     overflow: "hidden",
+    borderRadius: 12,
+  },
+  adBannerFlex: {
+    flex: 1,
+    minWidth: 0,
+  },
+  placeAdSideBtn: {
+    width: 72,
+    borderRadius: 12,
+    backgroundColor: C.accent,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+  },
+  placeAdSideText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "800",
+    textAlign: "center",
+    lineHeight: 13,
   },
   adPrBadge: {
     backgroundColor: "rgba(255,255,255,0.15)",
@@ -2312,21 +2336,8 @@ const styles = StyleSheet.create({
   adSub: { color: "rgba(255,255,255,0.55)", fontSize: 11 },
   adCtaBtn: { paddingHorizontal: 10, paddingVertical: 7, borderRadius: 6 },
   adCtaText: { color: "#fff", fontSize: 11, fontWeight: "800" },
-  bannerCheckoutBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    marginHorizontal: 16,
-    marginTop: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    backgroundColor: C.accent,
-  },
-  bannerCheckoutBtnDisabled: { opacity: 0.7 },
-  bannerCheckoutBtnText: { color: "#fff", fontSize: 14, fontWeight: "700" },
   profileSection: { padding: 16, gap: 10 },
+  profileSectionTight: { paddingTop: 12, gap: 8 },
   profileRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -2369,16 +2380,18 @@ const styles = StyleSheet.create({
   categoryText: { color: C.textSec, fontSize: 12 },
   description: { color: C.textSec, fontSize: 13, lineHeight: 19 },
   staffSection: {
-    marginTop: 16,
-    paddingTop: 16,
+    marginTop: 20,
+    paddingTop: 14,
+    paddingHorizontal: 16,
+    paddingBottom: 6,
     borderTopWidth: 1,
     borderTopColor: C.border,
-    gap: 10,
+    gap: 8,
   },
   staffSectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  staffSectionTitle: { color: C.textMuted, fontSize: 12, fontWeight: "600" },
-  staffAdminLinks: { flexDirection: "row", alignItems: "center", gap: 16 },
-  staffEditLink: { color: C.accent, fontSize: 13, fontWeight: "600" },
+  staffSectionTitle: { color: C.textMuted, fontSize: 11, fontWeight: "600" },
+  staffAdminLinks: { flexDirection: "row", alignItems: "center", gap: 12 },
+  staffEditLink: { color: C.accent, fontSize: 12, fontWeight: "600" },
   staffRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   staffAvatar: { width: 28, height: 28, borderRadius: 14, backgroundColor: C.surface3 },
   staffLabel: { color: C.textMuted, fontSize: 11, width: 72 },
@@ -2430,29 +2443,24 @@ const styles = StyleSheet.create({
     borderColor: C.border,
   },
   membersLinkText: { color: C.accent, fontSize: 14, fontWeight: "600" },
-  staffHintRow: {
+  followBtnChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginTop: 6,
-  },
-  staffHintText: { color: C.textMuted, fontSize: 11 },
-  followBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
+    alignSelf: "center",
+    gap: 4,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 999,
     backgroundColor: C.accent,
-    borderRadius: 10,
-    paddingVertical: 11,
+    flexShrink: 0,
   },
-  followBtnActive: {
+  followBtnChipActive: {
     backgroundColor: C.surface2,
     borderWidth: 1,
     borderColor: C.border,
   },
-  followBtnText: { color: "#fff", fontSize: 14, fontWeight: "700" },
-  followBtnTextActive: { color: C.textSec },
+  followBtnChipText: { color: "#fff", fontSize: 12, fontWeight: "600" },
+  followBtnChipTextActive: { color: C.textSec },
   tabRow: {
     flexDirection: "row",
     borderBottomWidth: 1,
@@ -2824,11 +2832,12 @@ const styles = StyleSheet.create({
   boardCardAnnounce: {
     backgroundColor: C.surface,
     borderRadius: 14,
-    padding: 16,
+    padding: 12,
     marginBottom: 10,
     borderWidth: 1,
     borderColor: C.border,
-    gap: 8,
+    gap: 6,
+    overflow: "hidden",
   },
   boardCardAnnouncePinned: {
     borderColor: C.orange + "66",
@@ -2849,15 +2858,15 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: C.orange + "22",
   },
-  boardAnnouncePinnedText: { color: C.orange, fontSize: 11, fontWeight: "800" },
-  boardAnnounceDateStrong: { color: C.textMuted, fontSize: 12, fontWeight: "700" },
-  boardTitleAnnounce: { color: C.text, fontSize: 17, fontWeight: "800", lineHeight: 23 },
+  boardAnnouncePinnedText: { color: C.orange, fontSize: 10, fontWeight: "800" },
+  boardAnnounceDateStrong: { color: C.textMuted, fontSize: 11, fontWeight: "600" },
+  boardTitleAnnounce: { color: C.text, fontSize: 14, fontWeight: "700", lineHeight: 19 },
   boardFlyerImageAnnounce: {
     width: "100%",
-    height: 170,
-    borderRadius: 10,
-    marginTop: 10,
-    marginBottom: 4,
+    aspectRatio: 4 / 5,
+    maxHeight: 320,
+    borderRadius: 12,
+    marginBottom: 6,
     backgroundColor: C.surface2,
   },
   boardShortClipRow: {
@@ -2872,24 +2881,29 @@ const styles = StyleSheet.create({
     borderColor: C.border,
     marginBottom: 8,
   },
-  boardShortClipText: { flex: 1, color: C.accent, fontSize: 13, fontWeight: "800" },
-  boardDetailAnnounce: { color: C.textSec, fontSize: 14, lineHeight: 21 },
+  boardShortClipText: { flex: 1, color: C.accent, fontSize: 12, fontWeight: "700" },
+  boardDetailAnnounce: { color: C.textSec, fontSize: 12, lineHeight: 17 },
   boardAnnounceFooter: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 4,
-    paddingTop: 10,
+    marginTop: 2,
+    paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: C.border,
   },
-  boardAnnounceAuthor: { color: C.textMuted, fontSize: 12, fontWeight: "600", flex: 1, marginRight: 8 },
-  boardAnnounceReplyCount: { color: C.textMuted, fontSize: 12, fontWeight: "700" },
+  boardAnnounceAuthor: { color: C.textMuted, fontSize: 11, fontWeight: "600", flex: 1, marginRight: 8 },
+  boardAnnounceReplyCount: { color: C.textMuted, fontSize: 11, fontWeight: "600" },
   threadDetailHeader: { padding: 16, borderBottomWidth: 1, borderBottomColor: C.border },
   threadDetailTitleRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 8, gap: 8 },
   threadDetailTitle: { color: C.text, fontSize: 16, fontWeight: "800", flex: 1 },
-  threadDetailMeta: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
-  threadDetailAvatar: { width: 28, height: 28, borderRadius: 14 },
+  threadDetailMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 4,
+    marginBottom: 8,
+  },
   threadAvatarFallback: { backgroundColor: C.surface2, alignItems: "center", justifyContent: "center" },
   threadAvatarInitial: { color: C.textMuted, fontSize: 12, fontWeight: "700" },
   threadDetailAuthor: { color: C.textSec, fontSize: 12, fontWeight: "600" },
@@ -2990,8 +3004,8 @@ const styles = StyleSheet.create({
   pollAddOptionText: { color: C.accent, fontSize: 13, fontWeight: "600" },
   boardCard: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
+    alignItems: "stretch",
+    gap: 10,
     backgroundColor: C.surface,
     borderRadius: 12,
     padding: 14,
@@ -3002,12 +3016,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
-  },
-  boardAuthorAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: C.surface3,
   },
   boardBody: { flex: 1, gap: 4 },
   boardFlyerImageCompact: {
@@ -3044,51 +3052,6 @@ const styles = StyleSheet.create({
   boardDetail: {
     color: C.textSec,
     fontSize: 11,
-  },
-  jukeboxCta: {
-    marginHorizontal: 16,
-    marginBottom: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 14,
-    backgroundColor: C.accentDark,
-    borderWidth: 1,
-    borderColor: C.accent,
-    gap: 10,
-  },
-  jukeboxCtaLeft: {
-    flex: 1,
-    gap: 4,
-  },
-  jukeboxCtaBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  jukeboxCtaBadgeText: {
-    color: "#fff",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  jukeboxCtaTitle: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  jukeboxCtaSub: {
-    color: "rgba(255,255,255,0.7)",
-    fontSize: 11,
-  },
-  jukeboxCtaRight: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(0,0,0,0.35)",
-    alignItems: "center",
-    justifyContent: "center",
   },
   requestModalOverlay: {
     flex: 1,

@@ -347,7 +347,7 @@ const DUMMY_PAID = [
     thumbnail: "https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=800&h=520&fit=crop",
     avatar: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=40&h=40&fit=crop",
     community: "Shimokitazawa Livehouses",
-    title: "Basement Gig Archive — 4/20 下北沢3会場ダイジェスト",
+    title: "Basement Gig Archive — 4/20 Shimokitazawa 3-venue digest",
     views: 31200,
     price: 1000,
   },
@@ -365,7 +365,7 @@ const DUMMY_PAID = [
     thumbnail: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=800&h=520&fit=crop",
     avatar: "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=40&h=40&fit=crop",
     community: "Japan Indie Livehouses",
-    title: "インディーツアー最終日 — Encoreまでノーカット収録",
+    title: "Indie tour finale — full set through encore (no cuts)",
     views: 14200,
     price: 600,
   },
@@ -382,7 +382,7 @@ const DUMMY_SESSIONS = [
     thumbnail: "https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=300&h=169&fit=crop",
     avatar: "https://images.unsplash.com/photo-1519340241574-2cec6aef0c01?w=40&h=40&fit=crop",
     creator: "TAKA DRUMS",
-    title: "ライブ本番前ドラムチューニング相談",
+    title: "Pre-show drum tuning consult",
     categoryLabel: "Music",
     price: 2000,
     duration: "30 min",
@@ -395,7 +395,7 @@ const DUMMY_SESSIONS = [
     thumbnail: "https://images.unsplash.com/photo-1498038432885-c6f3f1b912ee?w=300&h=169&fit=crop",
     avatar: "https://images.unsplash.com/photo-1507591064344-4c6ce005b128?w=40&h=40&fit=crop",
     creator: "Frame Edit RIKU",
-    title: "ライブ映像の切り抜き設計レビュー",
+    title: "Live edit highlight plan review",
     categoryLabel: "Editing",
     price: 3500,
     duration: "45 min",
@@ -408,7 +408,7 @@ const DUMMY_SESSIONS = [
     thumbnail: "https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=300&h=169&fit=crop",
     avatar: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=40&h=40&fit=crop",
     creator: "HANA KOBAYASHI",
-    title: "弾き語りライブの曲順・MC構成相談",
+    title: "Acoustic setlist & MC flow consult",
     categoryLabel: "Live Coaching",
     price: 2500,
     duration: "30 min",
@@ -532,7 +532,7 @@ export default function HomeScreen() {
           ) : (
             <View style={styles.announceEmptyCard}>
               <Ionicons name="megaphone-outline" size={18} color={C.textMuted} />
-              <Text style={styles.announceEmptyText}>ライブ告知は準備中です</Text>
+              <Text style={styles.announceEmptyText}>Live announcements coming soon.</Text>
             </View>
           )}
         </HorizontalScroll>

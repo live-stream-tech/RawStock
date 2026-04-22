@@ -1159,8 +1159,8 @@ export default function JukeboxScreen() {
   const jukeboxAddPanelCore = (
     <>
       <Text style={styles.modalTitle}>Add to Jukebox</Text>
-      <Text style={{ fontSize: 11, color: C.textMuted, textAlign: "center", marginBottom: 8, lineHeight: 16 }}>
-        ⚠️ Videos longer than 10 minutes will be skipped at the 10-minute mark
+      <Text style={styles.addPanelIntro}>
+        Search YouTube, paste a link, or choose from your playlists. The room plays tracks in order until they end or someone taps Skip.
       </Text>
       <View style={styles.ytInputSection}>
         <Text style={styles.ytLabel}>Search YouTube</Text>
@@ -2378,6 +2378,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "800",
     marginBottom: 8,
+  },
+  addPanelIntro: {
+    fontSize: 11,
+    color: C.textMuted,
+    textAlign: "center",
+    lineHeight: 16,
+    marginBottom: 12,
+    paddingHorizontal: 4,
   },
   modalSubtitle: {
     color: C.textSec,
