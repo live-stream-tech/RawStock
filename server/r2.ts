@@ -19,6 +19,13 @@ const r2Client =
           accessKeyId,
           secretAccessKey,
         },
+        /**
+         * ランタイムの既定は WHEN_SUPPORTED のため、環境や ~/.aws/config 次第で
+         * PutObject の presign に CRC 系クエリが載り、ブラウザの単純 PUT と両立しない。
+         * ここで明示すると Vercel 上の AWS_* 設定より優先され、presign が安定する。
+         */
+        requestChecksumCalculation: "WHEN_REQUIRED",
+        responseChecksumValidation: "WHEN_REQUIRED",
         // R2 / S3 互換では path-style が安定（署名 URL とブラウザ PUT の不一致を防ぐ）
         forcePathStyle: true,
       })

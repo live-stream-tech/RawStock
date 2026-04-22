@@ -4,7 +4,11 @@ import { Platform, Text, View } from "react-native";
 /** Express serves this with logo URL injected from lib/brand (see server/index.ts). */
 function lpStandaloneSrcForWeb(): string {
   if (typeof window === "undefined") {
-    return "/lp-standalone.html";
+    return "https://rawstock-lp.vercel.app/ja";
+  }
+  const externalLp = process.env.EXPO_PUBLIC_LP_STANDALONE_URL?.trim();
+  if (externalLp) {
+    return externalLp;
   }
   const env =
     process.env.EXPO_PUBLIC_DOMAIN?.trim() ||
@@ -23,9 +27,9 @@ function lpStandaloneSrcForWeb(): string {
     }
   }
   if (process.env.NODE_ENV !== "production") {
-    return "http://localhost:5001/lp-standalone.html";
+    return "https://rawstock-lp.vercel.app/ja";
   }
-  return `${window.location.origin}/lp-standalone.html`;
+  return "https://rawstock-lp.vercel.app/ja";
 }
 
 export function RawstockLpContent() {
@@ -40,18 +44,17 @@ export function RawstockLpContent() {
   }
 
   return (
-    <iframe
-      src={lpStandaloneSrcForWeb()}
-      title="RawStock LP"
-      style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        width: "100%",
-        height: "100%",
-        border: "none",
-        display: "block",
-      }}
-    />
+    <View style={{ flex: 1, width: "100%", height: "100%", overflow: "hidden" }}>
+      <iframe
+        src={lpStandaloneSrcForWeb()}
+        title="RawStock LP"
+        style={{
+          width: "100%",
+          height: "100%",
+          border: "none",
+          display: "block",
+        }}
+      />
+    </View>
   );
 }

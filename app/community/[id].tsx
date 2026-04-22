@@ -194,6 +194,34 @@ function formatThreadDate(dateStr: string): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+function parseThreadBody(raw: string | null | undefined): { flyerImageUrl: string | null; text: string } {
+  const body = String(raw ?? "");
+  if (!body.trim()) return { flyerImageUrl: null, text: "" };
+  const lines = body.split("\n");
+  let flyerImageUrl: string | null = null;
+  const kept: string[] = [];
+  const directImageRe = /(https?:\/\/\S+\.(?:png|jpe?g|webp|gif)(?:\?\S*)?)/i;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!flyerImageUrl && /^FLYER_IMAGE\s*:/i.test(trimmed)) {
+      const m = trimmed.match(/https?:\/\/\S+/i);
+      flyerImageUrl = m ? m[0] : null;
+      continue;
+    }
+    if (!flyerImageUrl && /^フライヤー画像\s*:/i.test(trimmed)) {
+      const m = trimmed.match(/https?:\/\/\S+/i);
+      flyerImageUrl = m ? m[0] : null;
+      continue;
+    }
+    if (!flyerImageUrl) {
+      const m = trimmed.match(directImageRe);
+      if (m?.[1]) flyerImageUrl = m[1];
+    }
+    kept.push(line);
+  }
+  return { flyerImageUrl, text: kept.join("\n").trim() };
+}
+
 function EmbeddedJukebox({ communityId }: { communityId: number }) {
   const qc = useQueryClient();
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -555,6 +583,7 @@ function ThreadDetailContent({
   const [replyText, setReplyText] = useState("");
   const [posting, setPosting] = useState(false);
   const qc = useQueryClient();
+  const parsedThreadBody = parseThreadBody(thread.body);
 
   async function handlePostReply() {
     const text = replyText.trim();
@@ -611,7 +640,10 @@ function ThreadDetailContent({
           <Text style={styles.threadDetailAuthor}>{thread.author.displayName}</Text>
           <Text style={styles.threadDetailDate}>{formatThreadDate(thread.createdAt)}</Text>
         </View>
-        {thread.body ? <Text style={styles.threadDetailBody}>{thread.body}</Text> : null}
+        {parsedThreadBody.flyerImageUrl ? (
+          <Image source={{ uri: parsedThreadBody.flyerImageUrl }} style={styles.threadDetailFlyer} contentFit="cover" />
+        ) : null}
+        {parsedThreadBody.text ? <Text style={styles.threadDetailBody}>{parsedThreadBody.text}</Text> : null}
       </View>
       <ScrollView style={webScrollStyle(styles.threadDetailPosts)} showsVerticalScrollIndicator={scrollShowsVertical}>
         {thread.posts.map((p) => (
@@ -1376,43 +1408,49 @@ export default function CommunityDetailScreen() {
             {displayThreads.length === 0 ? (
               <Text style={styles.boardEmpty}>{announceBoard ? "まだ告知がありません" : "No threads yet"}</Text>
             ) : announceBoard ? (
-              displayThreads.map((t) => (
-                <Pressable
-                  key={t.id}
-                  style={[styles.boardCardAnnounce, t.pinned ? styles.boardCardAnnouncePinned : null]}
-                  onPress={() => setSelectedThreadId(t.id)}
-                >
-                  <View style={styles.boardAnnounceTopRow}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1, flexWrap: "wrap" }}>
-                      {t.pinned ? (
-                        <View style={styles.boardAnnouncePinnedPill}>
-                          <Ionicons name="pin" size={12} color={C.orange} />
-                          <Text style={styles.boardAnnouncePinnedText}>固定</Text>
-                        </View>
-                      ) : null}
+              displayThreads.map((t) => {
+                const parsed = parseThreadBody(t.body);
+                return (
+                  <Pressable
+                    key={t.id}
+                    style={[styles.boardCardAnnounce, t.pinned ? styles.boardCardAnnouncePinned : null]}
+                    onPress={() => setSelectedThreadId(t.id)}
+                  >
+                    <View style={styles.boardAnnounceTopRow}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1, flexWrap: "wrap" }}>
+                        {t.pinned ? (
+                          <View style={styles.boardAnnouncePinnedPill}>
+                            <Ionicons name="pin" size={12} color={C.orange} />
+                            <Text style={styles.boardAnnouncePinnedText}>固定</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      <Text style={styles.boardAnnounceDateStrong}>{formatThreadDate(t.createdAt)}</Text>
                     </View>
-                    <Text style={styles.boardAnnounceDateStrong}>{formatThreadDate(t.createdAt)}</Text>
-                  </View>
-                  <Text style={styles.boardTitleAnnounce} numberOfLines={3}>
-                    {t.title}
-                  </Text>
-                  {t.body ? (
-                    <Text style={styles.boardDetailAnnounce} numberOfLines={4}>
-                      {t.body}
+                    {parsed.flyerImageUrl ? (
+                      <Image source={{ uri: parsed.flyerImageUrl }} style={styles.boardFlyerImageAnnounce} contentFit="cover" />
+                    ) : null}
+                    <Text style={styles.boardTitleAnnounce} numberOfLines={3}>
+                      {t.title}
                     </Text>
-                  ) : null}
-                  <View style={styles.boardAnnounceFooter}>
-                    <Text style={styles.boardAnnounceAuthor} numberOfLines={1}>
-                      {t.author.displayName}
-                    </Text>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                      <Ionicons name="chatbubble-outline" size={12} color={C.textMuted} />
-                      <Text style={styles.boardAnnounceReplyCount}>{t.postCount}</Text>
-                      <Ionicons name="chevron-forward" size={14} color={C.textMuted} />
+                    {parsed.text ? (
+                      <Text style={styles.boardDetailAnnounce} numberOfLines={4}>
+                        {parsed.text}
+                      </Text>
+                    ) : null}
+                    <View style={styles.boardAnnounceFooter}>
+                      <Text style={styles.boardAnnounceAuthor} numberOfLines={1}>
+                        {t.author.displayName}
+                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                        <Ionicons name="chatbubble-outline" size={12} color={C.textMuted} />
+                        <Text style={styles.boardAnnounceReplyCount}>{t.postCount}</Text>
+                        <Ionicons name="chevron-forward" size={14} color={C.textMuted} />
+                      </View>
                     </View>
-                  </View>
-                </Pressable>
-              ))
+                  </Pressable>
+                );
+              })
             ) : (
               displayThreads.map((t) => (
                 <View key={t.id} style={styles.boardCard}>
@@ -1429,6 +1467,12 @@ export default function CommunityDetailScreen() {
                     )}
                   </Pressable>
                   <Pressable style={styles.boardBody} onPress={() => setSelectedThreadId(t.id)}>
+                    {(() => {
+                      const parsed = parseThreadBody(t.body);
+                      return parsed.flyerImageUrl ? (
+                        <Image source={{ uri: parsed.flyerImageUrl }} style={styles.boardFlyerImageCompact} contentFit="cover" />
+                      ) : null;
+                    })()}
                     <View style={styles.boardTagRow}>
                       {t.pinned && (
                         <View style={[styles.boardTag, { backgroundColor: C.orange + "33" }]}>
@@ -1440,7 +1484,10 @@ export default function CommunityDetailScreen() {
                       </Text>
                     </View>
                     <Text style={styles.boardTitle}>{t.title}</Text>
-                    {t.body ? <Text style={styles.boardDetail} numberOfLines={1}>{t.body}</Text> : null}
+                    {(() => {
+                      const parsed = parseThreadBody(t.body);
+                      return parsed.text ? <Text style={styles.boardDetail} numberOfLines={1}>{parsed.text}</Text> : null;
+                    })()}
                     <Text style={styles.boardPostCount}>{t.postCount} replies</Text>
                   </Pressable>
                   <Pressable onPress={() => setSelectedThreadId(t.id)} hitSlop={8} style={{ justifyContent: "center" }}>
@@ -2577,6 +2624,14 @@ const styles = StyleSheet.create({
   boardAnnouncePinnedText: { color: C.orange, fontSize: 11, fontWeight: "800" },
   boardAnnounceDateStrong: { color: C.textMuted, fontSize: 12, fontWeight: "700" },
   boardTitleAnnounce: { color: C.text, fontSize: 17, fontWeight: "800", lineHeight: 23 },
+  boardFlyerImageAnnounce: {
+    width: "100%",
+    height: 170,
+    borderRadius: 10,
+    marginTop: 10,
+    marginBottom: 10,
+    backgroundColor: C.surface2,
+  },
   boardDetailAnnounce: { color: C.textSec, fontSize: 14, lineHeight: 21 },
   boardAnnounceFooter: {
     flexDirection: "row",
@@ -2598,6 +2653,14 @@ const styles = StyleSheet.create({
   threadAvatarInitial: { color: C.textMuted, fontSize: 12, fontWeight: "700" },
   threadDetailAuthor: { color: C.textSec, fontSize: 12, fontWeight: "600" },
   threadDetailDate: { color: C.textMuted, fontSize: 11 },
+  threadDetailFlyer: {
+    width: "100%",
+    height: 220,
+    borderRadius: 10,
+    marginTop: 8,
+    marginBottom: 10,
+    backgroundColor: C.surface2,
+  },
   threadDetailBody: { color: C.textSec, fontSize: 13, lineHeight: 20 },
   threadDetailPosts: { maxHeight: 280, padding: 16 },
   threadPostRow: { flexDirection: "row", gap: 10, marginBottom: 14 },
@@ -2687,6 +2750,13 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface3,
   },
   boardBody: { flex: 1, gap: 4 },
+  boardFlyerImageCompact: {
+    width: "100%",
+    height: 96,
+    borderRadius: 8,
+    marginBottom: 4,
+    backgroundColor: C.surface2,
+  },
   boardTagRow: {
     flexDirection: "row",
     alignItems: "center",

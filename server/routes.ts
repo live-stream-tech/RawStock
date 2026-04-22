@@ -60,6 +60,7 @@ import {
   userFollows,
   dmThreads,
   dmThreadMessages,
+  lpLeads,
 } from "./schema";
 import {
   eq,
@@ -702,6 +703,44 @@ async function resolveVideoSellerUserId(executor: DbOrTx, videoId: number): Prom
 
 export async function registerRoutes(app: Express): Promise<void> {
   await promoteAdminByEmail();
+
+  // ── LP lead capture (email / LINE) ───────────────────────────────
+  app.post("/api/lp/leads", async (req: Request, res: Response) => {
+    const rawEmail = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+    const source = typeof req.body?.source === "string" ? req.body.source.trim().toLowerCase() : "email_form";
+    const locale = typeof req.body?.locale === "string" ? req.body.locale.trim().slice(0, 16) : null;
+    const campaign = typeof req.body?.campaign === "string" ? req.body.campaign.trim().slice(0, 120) : null;
+
+    if (!rawEmail) {
+      return res.status(400).json({ error: "Email is required" });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail)) {
+      return res.status(400).json({ error: "Invalid email format" });
+    }
+    if (source !== "email_form" && source !== "line_cta") {
+      return res.status(400).json({ error: "Invalid source" });
+    }
+
+    try {
+      const [row] = await db
+        .insert(lpLeads)
+        .values({
+          email: rawEmail,
+          source,
+          locale,
+          campaign,
+        })
+        .onConflictDoUpdate({
+          target: lpLeads.email,
+          set: { source, locale, campaign, updatedAt: new Date() },
+        })
+        .returning({ id: lpLeads.id });
+      return res.json({ ok: true, id: row?.id ?? null });
+    } catch (error) {
+      console.error("[lp-leads] upsert failed", error);
+      return res.status(500).json({ error: "Failed to save lead" });
+    }
+  });
 
   // ── Email/Password Auth ──────────────────────────────────────────────
   app.post("/api/auth/register", async (req: Request, res: Response) => {

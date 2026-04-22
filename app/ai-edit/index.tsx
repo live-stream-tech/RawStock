@@ -157,6 +157,19 @@ async function uploadToR2(file: File): Promise<string> {
   if (!json.uploadUrl || !json.url) {
     throw new Error("Could not start upload (invalid response from server).");
   }
+  const presign = json.uploadUrl;
+  if (
+    /x-amz-sdk-checksum-algorithm=/i.test(presign) ||
+    /x-amz-checksum-/i.test(presign) ||
+    /[?&]x-amz-checksum-crc32=/i.test(presign) ||
+    /_cksum-crc32/i.test(presign)
+  ) {
+    throw new Error(
+      "The upload URL from the server includes SDK checksum parameters, which browsers cannot send on a simple PUT. " +
+        "Redeploy the API with the latest server (R2 client uses requestChecksumCalculation WHEN_REQUIRED), " +
+        "or unset AWS_REQUEST_CHECKSUM_CALCULATION on the server if it is set to WHEN_SUPPORTED.",
+    );
+  }
   let put: Response;
   try {
     put = await fetch(json.uploadUrl, {
