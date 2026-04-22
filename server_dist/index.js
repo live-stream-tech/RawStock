@@ -6,6 +6,16 @@ var __export = (target, all) => {
 
 // server/index.ts
 import "dotenv/config";
+
+// server/aws-sdk-env.ts
+if (!process.env.AWS_REQUEST_CHECKSUM_CALCULATION) {
+  process.env.AWS_REQUEST_CHECKSUM_CALCULATION = "WHEN_REQUIRED";
+}
+if (!process.env.AWS_RESPONSE_CHECKSUM_VALIDATION) {
+  process.env.AWS_RESPONSE_CHECKSUM_VALIDATION = "WHEN_REQUIRED";
+}
+
+// server/index.ts
 import express2 from "express";
 import { createServer } from "node:http";
 
