@@ -1467,95 +1467,125 @@ export default function CommunityDetailScreen() {
             ) : announceBoard ? (
               displayThreads.map((t) => {
                 const parsed = parseThreadBody(t.body);
+                const hasFlyer = !!parsed.flyerImageUrl;
                 return (
                   <Pressable
                     key={t.id}
-                    style={[styles.boardCardAnnounce, t.pinned ? styles.boardCardAnnouncePinned : null]}
+                    style={[
+                      hasFlyer ? styles.boardCardAnnouncePeatix : styles.boardCardAnnounce,
+                      t.pinned ? styles.boardCardAnnouncePinned : null,
+                    ]}
                     onPress={() => setSelectedThreadId(t.id)}
                   >
-                    {parsed.flyerImageUrl ? (
-                      <Image source={{ uri: parsed.flyerImageUrl }} style={styles.boardFlyerImageAnnounce} contentFit="cover" />
-                    ) : null}
-                    <View style={styles.boardAnnounceTopRow}>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1, flexWrap: "wrap" }}>
+                    {hasFlyer ? (
+                      <View style={styles.boardFlyerHeroWrap}>
+                        <Image source={{ uri: parsed.flyerImageUrl! }} style={styles.boardFlyerImageHero} contentFit="cover" />
                         {t.pinned ? (
-                          <View style={styles.boardAnnouncePinnedPill}>
+                          <View style={styles.boardFlyerPinnedBadge}>
                             <Ionicons name="pin" size={11} color={C.orange} />
                             <Text style={styles.boardAnnouncePinnedText}>Pinned</Text>
                           </View>
                         ) : null}
                       </View>
-                      <Text style={styles.boardAnnounceDateStrong}>{formatThreadDate(t.createdAt)}</Text>
-                    </View>
-                    {parsed.shortVideoUrl ? (
-                      <Pressable
-                        style={styles.boardShortClipRow}
-                        onPress={(e) => {
-                          e?.stopPropagation?.();
-                          Linking.openURL(parsed.shortVideoUrl!);
-                        }}
-                      >
-                        <Ionicons name="logo-youtube" size={18} color="#ff4d4d" />
-                        <Text style={styles.boardShortClipText} numberOfLines={1}>
-                          Short clip
-                        </Text>
-                        <Ionicons name="open-outline" size={16} color={C.textMuted} />
-                      </Pressable>
-                    ) : null}
-                    <Text style={styles.boardTitleAnnounce} numberOfLines={3}>
-                      {t.title}
-                    </Text>
-                    {parsed.text ? (
-                      <Text style={styles.boardDetailAnnounce} numberOfLines={4}>
-                        {parsed.text}
+                    ) : (
+                      <View style={styles.boardAnnounceTopRow}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1, flexWrap: "wrap" }}>
+                          {t.pinned ? (
+                            <View style={styles.boardAnnouncePinnedPill}>
+                              <Ionicons name="pin" size={11} color={C.orange} />
+                              <Text style={styles.boardAnnouncePinnedText}>Pinned</Text>
+                            </View>
+                          ) : null}
+                        </View>
+                        <Text style={styles.boardAnnounceDateStrong}>{formatThreadDate(t.createdAt)}</Text>
+                      </View>
+                    )}
+                    <View style={hasFlyer ? styles.boardAnnouncePeatixBody : undefined}>
+                      {hasFlyer ? (
+                        <View style={styles.boardAnnouncePeatixMetaRow}>
+                          <Text style={styles.boardAnnounceDateStrong}>{formatThreadDate(t.createdAt)}</Text>
+                        </View>
+                      ) : null}
+                      {parsed.shortVideoUrl ? (
+                        <Pressable
+                          style={styles.boardShortClipRow}
+                          onPress={(e) => {
+                            e?.stopPropagation?.();
+                            Linking.openURL(parsed.shortVideoUrl!);
+                          }}
+                        >
+                          <Ionicons name="logo-youtube" size={18} color="#ff4d4d" />
+                          <Text style={styles.boardShortClipText} numberOfLines={1}>
+                            Short clip
+                          </Text>
+                          <Ionicons name="open-outline" size={16} color={C.textMuted} />
+                        </Pressable>
+                      ) : null}
+                      <Text style={hasFlyer ? styles.boardTitleAnnouncePeatix : styles.boardTitleAnnounce} numberOfLines={hasFlyer ? 2 : 3}>
+                        {t.title}
                       </Text>
-                    ) : null}
-                    <View style={styles.boardAnnounceFooter}>
-                      <Text style={styles.boardAnnounceAuthor} numberOfLines={1}>
-                        {t.author.displayName}
-                      </Text>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                        <Text style={styles.boardAnnounceReplyCount}>
-                          {t.postCount === 1 ? "1 reply" : `${t.postCount} replies`}
+                      {parsed.text ? (
+                        <Text style={styles.boardDetailAnnounce} numberOfLines={hasFlyer ? 3 : 4}>
+                          {parsed.text}
                         </Text>
-                        <Ionicons name="chevron-forward" size={14} color={C.textMuted} />
+                      ) : null}
+                      <View style={[styles.boardAnnounceFooter, hasFlyer && styles.boardAnnounceFooterPeatix]}>
+                        <Text style={styles.boardAnnounceAuthor} numberOfLines={1}>
+                          {t.author.displayName}
+                        </Text>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                          <Text style={styles.boardAnnounceReplyCount}>
+                            {t.postCount === 1 ? "1 reply" : `${t.postCount} replies`}
+                          </Text>
+                          <Ionicons name="chevron-forward" size={14} color={C.textMuted} />
+                        </View>
                       </View>
                     </View>
                   </Pressable>
                 );
               })
             ) : (
-              displayThreads.map((t) => (
-                <View key={t.id} style={styles.boardCard}>
-                  <Pressable style={styles.boardBody} onPress={() => setSelectedThreadId(t.id)}>
-                    {(() => {
-                      const parsed = parseThreadBody(t.body);
-                      return parsed.flyerImageUrl ? (
-                        <Image source={{ uri: parsed.flyerImageUrl }} style={styles.boardFlyerImageCompact} contentFit="cover" />
-                      ) : null;
-                    })()}
-                    <View style={styles.boardTagRow}>
-                      {t.pinned && (
-                        <View style={[styles.boardTag, { backgroundColor: C.orange + "33" }]}>
-                          <Text style={[styles.boardTagText, { color: C.orange }]}>Pinned</Text>
+              displayThreads.map((t) => {
+                const parsed = parseThreadBody(t.body);
+                const hasFlyer = !!parsed.flyerImageUrl;
+                return (
+                  <View key={t.id} style={[styles.boardCard, hasFlyer && styles.boardCardPeatixThread]}>
+                    {hasFlyer ? (
+                      <Image source={{ uri: parsed.flyerImageUrl! }} style={styles.boardFlyerThreadHero} contentFit="cover" />
+                    ) : null}
+                    <View
+                      style={[
+                        styles.boardThreadRow,
+                        !hasFlyer && styles.boardThreadRowGrow,
+                        hasFlyer && styles.boardThreadRowUnderFlyer,
+                      ]}
+                    >
+                      <Pressable style={styles.boardBody} onPress={() => setSelectedThreadId(t.id)}>
+                        <View style={styles.boardTagRow}>
+                          {t.pinned && (
+                            <View style={[styles.boardTag, { backgroundColor: C.orange + "33" }]}>
+                              <Text style={[styles.boardTagText, { color: C.orange }]}>Pinned</Text>
+                            </View>
+                          )}
+                          <Text style={styles.boardDate}>
+                            {t.author.displayName} · {formatThreadDate(t.createdAt)}
+                          </Text>
                         </View>
-                      )}
-                      <Text style={styles.boardDate}>
-                        {t.author.displayName} · {formatThreadDate(t.createdAt)}
-                      </Text>
+                        <Text style={[styles.boardTitle, hasFlyer && styles.boardTitleUnderFlyer]}>{t.title}</Text>
+                        {parsed.text ? (
+                          <Text style={[styles.boardDetail, hasFlyer && styles.boardDetailUnderFlyer]} numberOfLines={hasFlyer ? 2 : 1}>
+                            {parsed.text}
+                          </Text>
+                        ) : null}
+                        <Text style={styles.boardPostCount}>{t.postCount} replies</Text>
+                      </Pressable>
+                      <Pressable onPress={() => setSelectedThreadId(t.id)} hitSlop={8} style={{ justifyContent: "center" }}>
+                        <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+                      </Pressable>
                     </View>
-                    <Text style={styles.boardTitle}>{t.title}</Text>
-                    {(() => {
-                      const parsed = parseThreadBody(t.body);
-                      return parsed.text ? <Text style={styles.boardDetail} numberOfLines={1}>{parsed.text}</Text> : null;
-                    })()}
-                    <Text style={styles.boardPostCount}>{t.postCount} replies</Text>
-                  </Pressable>
-                  <Pressable onPress={() => setSelectedThreadId(t.id)} hitSlop={8} style={{ justifyContent: "center" }}>
-                    <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
-                  </Pressable>
-                </View>
-              ))
+                  </View>
+                );
+              })
             )}
 
             {/* No-Confidence Motion — members only */}
@@ -2839,6 +2869,62 @@ const styles = StyleSheet.create({
     gap: 6,
     overflow: "hidden",
   },
+  /** Peatix-style: edge-to-edge flyer, meta + title below */
+  boardCardAnnouncePeatix: {
+    backgroundColor: C.surface,
+    borderRadius: 16,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+    overflow: "hidden",
+    padding: 0,
+  },
+  boardFlyerHeroWrap: {
+    width: "100%",
+    position: "relative",
+    backgroundColor: C.surface2,
+  },
+  boardFlyerImageHero: {
+    width: "100%",
+    aspectRatio: 2 / 3,
+    maxHeight: 520,
+    backgroundColor: C.surface2,
+  },
+  boardFlyerPinnedBadge: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: "rgba(0,0,0,0.72)",
+    borderWidth: 1,
+    borderColor: C.orange + "66",
+  },
+  boardAnnouncePeatixBody: {
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 12,
+    gap: 8,
+  },
+  boardAnnouncePeatixMetaRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+  },
+  boardTitleAnnouncePeatix: {
+    color: C.text,
+    fontSize: 18,
+    fontWeight: "800",
+    lineHeight: 24,
+    marginTop: 2,
+  },
+  boardAnnounceFooterPeatix: {
+    marginTop: 4,
+    paddingTop: 10,
+  },
   boardCardAnnouncePinned: {
     borderColor: C.orange + "66",
     backgroundColor: C.orange + "0c",
@@ -2861,14 +2947,6 @@ const styles = StyleSheet.create({
   boardAnnouncePinnedText: { color: C.orange, fontSize: 10, fontWeight: "800" },
   boardAnnounceDateStrong: { color: C.textMuted, fontSize: 11, fontWeight: "600" },
   boardTitleAnnounce: { color: C.text, fontSize: 14, fontWeight: "700", lineHeight: 19 },
-  boardFlyerImageAnnounce: {
-    width: "100%",
-    aspectRatio: 4 / 5,
-    maxHeight: 320,
-    borderRadius: 12,
-    marginBottom: 6,
-    backgroundColor: C.surface2,
-  },
   boardShortClipRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -2910,8 +2988,9 @@ const styles = StyleSheet.create({
   threadDetailDate: { color: C.textMuted, fontSize: 11 },
   threadDetailFlyer: {
     width: "100%",
-    height: 220,
-    borderRadius: 10,
+    aspectRatio: 2 / 3,
+    maxHeight: 560,
+    borderRadius: 12,
     marginTop: 8,
     marginBottom: 10,
     backgroundColor: C.surface2,
@@ -3010,6 +3089,30 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 14,
   },
+  boardCardPeatixThread: {
+    flexDirection: "column",
+    padding: 0,
+    overflow: "hidden",
+    borderRadius: 14,
+  },
+  boardFlyerThreadHero: {
+    width: "100%",
+    aspectRatio: 2 / 3,
+    maxHeight: 480,
+    backgroundColor: C.surface2,
+  },
+  boardThreadRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  boardThreadRowGrow: { flex: 1 },
+  boardThreadRowUnderFlyer: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: C.border,
+  },
   boardIconWrap: {
     width: 44,
     height: 44,
@@ -3049,9 +3152,20 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 17,
   },
+  boardTitleUnderFlyer: {
+    fontSize: 16,
+    fontWeight: "800",
+    lineHeight: 21,
+    marginTop: 2,
+  },
   boardDetail: {
     color: C.textSec,
     fontSize: 11,
+  },
+  boardDetailUnderFlyer: {
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 2,
   },
   requestModalOverlay: {
     flex: 1,
