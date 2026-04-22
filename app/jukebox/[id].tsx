@@ -566,6 +566,7 @@ function QueueRow({
   userName,
   onDelete,
   variant = "horizontal",
+  showAddInHeader = false,
 }: {
   items: QueueItem[];
   state: JukeboxState | null;
@@ -573,6 +574,7 @@ function QueueRow({
   userName?: string | null;
   onDelete?: (id: number) => void;
   variant?: "horizontal" | "vertical";
+  showAddInHeader?: boolean;
 }) {
   // Exclude played and currently-playing tracks from queue display.
   const upcoming = items.filter(
@@ -656,6 +658,12 @@ function QueueRow({
         <Ionicons name="list" size={14} color={C.accent} />
         <Text style={styles.queueHeaderText}>UP NEXT</Text>
         <Text style={styles.queueCount}>{upcoming.length}</Text>
+        {showAddInHeader ? (
+          <Pressable style={styles.queueAddHeaderBtn} onPress={onAdd} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Ionicons name="add" size={14} color={C.accent} />
+            <Text style={styles.queueAddHeaderText}>Add</Text>
+          </Pressable>
+        ) : null}
       </View>
       {isVertical ? (
         <ScrollView
@@ -1281,7 +1289,11 @@ export default function JukeboxScreen() {
           )}
         </View>
       )}
-      <ScrollView style={webScrollStyle(styles.modalList)} showsVerticalScrollIndicator={scrollShowsVertical}>
+      <ScrollView
+        style={webScrollStyle(styles.modalList)}
+        showsVerticalScrollIndicator={scrollShowsVertical}
+        contentContainerStyle={styles.modalListContent}
+      >
         {ytResults.length > 0 && (
           <>
             <Text style={styles.modalSubtitle}>YouTube Results</Text>
@@ -1571,7 +1583,7 @@ export default function JukeboxScreen() {
             <QueueRow items={queue} state={state} userName={user?.name} onDelete={(id) => deleteMutation.mutate(id)} onAdd={() => {
               if (!user) { router.push("/auth/login"); return; }
               setShowAddModal(true);
-            }} />
+            }} showAddInHeader />
 
             <View style={styles.chatSection}>
               <View style={styles.chatHeader}>
@@ -2151,6 +2163,18 @@ const styles = StyleSheet.create({
   },
   queueHeaderText: { color: C.accent, fontSize: 11, fontWeight: "800", flex: 1 },
   queueCount: { color: C.textMuted, fontSize: 11 },
+  queueAddHeaderBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(41,182,207,0.14)",
+    borderWidth: 1,
+    borderColor: C.accent + "66",
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  queueAddHeaderText: { color: C.accent, fontSize: 11, fontWeight: "700" },
   queueScroll: { paddingHorizontal: 16, gap: 8, paddingBottom: 10 },
   queueItem: {
     width: 110,
@@ -2419,6 +2443,10 @@ const styles = StyleSheet.create({
   },
   modalList: {
     maxHeight: 200,
+  },
+  modalListContent: {
+    paddingRight: Platform.OS === "web" ? 10 : 0,
+    paddingBottom: 4,
   },
   modalItem: {
     flexDirection: "row",
