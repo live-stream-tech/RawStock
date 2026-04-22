@@ -38,6 +38,7 @@ import {
   RAWSTOCK_LP_STEP_IMG_SHOOT,
   RAWSTOCK_LP_STEP_IMG_SHOOT_PLACEHOLDER,
 } from "../lib/brand";
+import { rawstockLpRedirectUrl } from "../lib/rawstockLpSite";
 
 function injectLpMarketingHtml(html: string, canonicalUrl: string): string {
   let out = html
@@ -91,32 +92,14 @@ export async function createApiApp(): Promise<express.Application> {
 
   app.get("/healthcheck", (_req, res) => res.status(200).send("OK"));
   app.get("/api/healthcheck", (_req, res) => res.status(200).send("OK"));
-  const lpStandalonePath = path.resolve(process.cwd(), "public/lp-standalone.html");
-
   app.get("/lp", (req: Request, res: Response) => {
-    try {
-      if (!fs.existsSync(lpStandalonePath)) {
-        return res.status(404).send("lp-standalone.html not found");
-      }
-      const raw = fs.readFileSync(lpStandalonePath, "utf-8");
-      const html = injectLpMarketingHtml(raw, canonicalPageUrlFromReq(req, "/lp"));
-      res.setHeader("Content-Type", "text/html; charset=utf-8");
-      res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
-      res.status(200).send(html);
-    } catch (e) {
-      res.status(500).send("Landing page template not found");
-    }
+    const target = rawstockLpRedirectUrl(req.get("accept-language"));
+    res.redirect(302, target);
   });
 
   app.get("/lp-standalone.html", (req: Request, res: Response) => {
-    if (!fs.existsSync(lpStandalonePath)) {
-      return res.status(404).send("lp-standalone.html not found");
-    }
-    const raw = fs.readFileSync(lpStandalonePath, "utf-8");
-    const html = injectLpMarketingHtml(raw, canonicalPageUrlFromReq(req, "/lp-standalone.html"));
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
-    res.status(200).send(html);
+    const target = rawstockLpRedirectUrl(req.get("accept-language"));
+    res.redirect(302, target);
   });
 
   const teamzPath = path.resolve(process.cwd(), "public/teamz.html");

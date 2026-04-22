@@ -1,3 +1,7 @@
+/**
+ * Not the production LP source of truth. Canonical site: https://github.com/live-stream-tech/rawstock-lp
+ * (embedded in the Expo app via components/RawstockLpContent.tsx → rawstock-lp deployment).
+ */
 import { motion } from "motion/react";
 import { useNavigate } from "react-router";
 import { 

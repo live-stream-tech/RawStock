@@ -1,39 +1,52 @@
 import React from "react";
 import { Platform, Text, View } from "react-native";
 
+import { RAWSTOCK_LP_SITE_DEFAULT } from "@/lib/rawstockLpSite";
+
 /**
- * Production LP content lives in `public/lp-standalone.html`.
- * The server injects asset URLs (see `injectLpMarketingHtml` in server/index.ts and server/vercel-app.ts).
- * `vite-app/app/rawstock-lp/LandingPage.tsx` is not wired into this iframe unless you add a build step.
+ * Canonical LP: https://github.com/live-stream-tech/rawstock-lp (`/` UK, `/ja` Japanese).
+ * Override with EXPO_PUBLIC_RAWSTOCK_LP_URL or legacy EXPO_PUBLIC_LP_STANDALONE_URL (full URL).
+ * Legacy `public/lp-standalone.html` is only used when USE_LEGACY_LP_HTML=1 (local/dev escape hatch).
  */
 function lpStandaloneSrcForWeb(): string {
   if (typeof window === "undefined") {
-    return "/lp-standalone.html";
+    return `${RAWSTOCK_LP_SITE_DEFAULT}/`;
   }
-  const externalLp = process.env.EXPO_PUBLIC_LP_STANDALONE_URL?.trim();
-  if (externalLp) {
-    return externalLp;
+  const explicit =
+    process.env.EXPO_PUBLIC_RAWSTOCK_LP_URL?.trim() ||
+    process.env.EXPO_PUBLIC_LP_STANDALONE_URL?.trim();
+  if (explicit) {
+    return explicit;
   }
-  const env =
-    process.env.EXPO_PUBLIC_DOMAIN?.trim() ||
-    process.env.EXPO_PUBLIC_API_URL?.trim();
-  if (env) {
-    try {
-      const withScheme = /^https?:\/\//i.test(env)
-        ? env
-        : env.includes("localhost") || env.startsWith("127.")
-          ? `http://${env}`
-          : `https://${env}`;
-      const origin = new URL(withScheme).origin;
-      return `${origin}/lp-standalone.html`;
-    } catch {
-      /* fall through */
+  if (process.env.EXPO_PUBLIC_USE_LEGACY_LP_HTML === "1") {
+    const env =
+      process.env.EXPO_PUBLIC_DOMAIN?.trim() ||
+      process.env.EXPO_PUBLIC_API_URL?.trim();
+    if (env) {
+      try {
+        const withScheme = /^https?:\/\//i.test(env)
+          ? env
+          : env.includes("localhost") || env.startsWith("127.")
+            ? `http://${env}`
+            : `https://${env}`;
+        const origin = new URL(withScheme).origin;
+        return `${origin}/lp-standalone.html`;
+      } catch {
+        /* fall through */
+      }
     }
+    if (process.env.NODE_ENV !== "production") {
+      return "http://localhost:5001/lp-standalone.html";
+    }
+    return `${window.location.origin}/lp-standalone.html`;
   }
-  if (process.env.NODE_ENV !== "production") {
-    return "http://localhost:5001/lp-standalone.html";
+
+  const base = RAWSTOCK_LP_SITE_DEFAULT.replace(/\/+$/, "");
+  const lang = typeof navigator !== "undefined" ? navigator.language || "" : "";
+  if (/^ja\b/i.test(lang)) {
+    return `${base}/ja`;
   }
-  return `${window.location.origin}/lp-standalone.html`;
+  return `${base}/`;
 }
 
 export function RawstockLpContent() {

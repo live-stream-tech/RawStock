@@ -40,6 +40,7 @@ import {
   RAWSTOCK_LP_STEP_IMG_SHOOT,
   RAWSTOCK_LP_STEP_IMG_SHOOT_PLACEHOLDER,
 } from "../lib/brand";
+import { rawstockLpRedirectUrl } from "../lib/rawstockLpSite";
 
 const app = express();
 const log = console.log;
@@ -167,38 +168,15 @@ function configureExpoAndLanding(app: express.Application) {
 
   log("Serving static Expo files with dynamic manifest routing");
 
-  const lpStandalonePath = path.resolve(
-    process.cwd(),
-    "public/lp-standalone.html",
-  );
-
-  // Serve /lp route using the standalone LP source
+  /** Marketing LP: canonical Vite app (UK `/`, JA `/ja`). Override origin with PUBLIC_RAWSTOCK_LP_URL. */
   app.get("/lp", (req: Request, res: Response) => {
-    if (!fs.existsSync(lpStandalonePath)) {
-      return res.status(404).send("lp-standalone.html not found");
-    }
-    const raw = fs.readFileSync(lpStandalonePath, "utf-8");
-    const html = injectLpMarketingHtml(
-      raw,
-      canonicalPageUrlFromReq(req, "/lp"),
-    );
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
-    res.status(200).send(html);
+    const target = rawstockLpRedirectUrl(req.get("accept-language"));
+    res.redirect(302, target);
   });
 
   app.get("/lp-standalone.html", (req: Request, res: Response) => {
-    if (!fs.existsSync(lpStandalonePath)) {
-      return res.status(404).send("lp-standalone.html not found");
-    }
-    const raw = fs.readFileSync(lpStandalonePath, "utf-8");
-    const html = injectLpMarketingHtml(
-      raw,
-      canonicalPageUrlFromReq(req, "/lp-standalone.html"),
-    );
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
-    res.status(200).send(html);
+    const target = rawstockLpRedirectUrl(req.get("accept-language"));
+    res.redirect(302, target);
   });
 
   const teamzPath = path.resolve(process.cwd(), "public/teamz.html");

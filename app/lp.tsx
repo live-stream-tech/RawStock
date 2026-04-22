@@ -1,6 +1,6 @@
 /**
- * Web: the visible LP is loaded from `public/lp-standalone.html` (iframe in RawstockLpContent).
- * Edit that file (and deploy) to change production /lp — not this screen’s wrapper alone.
+ * Web: LP is the canonical site from https://github.com/live-stream-tech/rawstock-lp
+ * (embedded iframe; see components/RawstockLpContent.tsx and lib/rawstockLpSite.ts).
  */
 import { RawstockLpContent } from "@/components/RawstockLpContent";
 import { View } from "react-native";
