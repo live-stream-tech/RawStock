@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -9,7 +9,10 @@ import {
   Platform,
   Alert,
   ActivityIndicator,
+  Modal,
+  BackHandler,
 } from "react-native";
+import { usePreventRemove } from "@react-navigation/native";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -87,36 +90,90 @@ function fmtDuration(totalSec: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+const VIDEO_METADATA_TIMEOUT_MS = 120_000;
+
 async function getVideoDuration(file: File): Promise<number> {
   if (typeof document === "undefined") return 0;
   return new Promise((resolve) => {
+    let settled = false;
+    const done = (dur: number) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(dur);
+    };
+    const timer = setTimeout(() => {
+      try {
+        URL.revokeObjectURL(video.src);
+      } catch {
+        /* ignore */
+      }
+      done(0);
+    }, VIDEO_METADATA_TIMEOUT_MS);
+
     const video = document.createElement("video");
     video.preload = "metadata";
     video.onloadedmetadata = () => {
       const dur = video.duration;
       URL.revokeObjectURL(video.src);
-      resolve(isFinite(dur) ? dur : 0);
+      done(isFinite(dur) ? dur : 0);
     };
     video.onerror = () => {
       URL.revokeObjectURL(video.src);
-      resolve(0);
+      done(0);
     };
     video.src = URL.createObjectURL(file);
   });
 }
 
+function isLikelyBrowserNetworkBlock(err: unknown): boolean {
+  if (err instanceof TypeError) return true;
+  if (err instanceof Error) {
+    const m = err.message;
+    return /Failed to fetch|NetworkError|Load failed|network error/i.test(m);
+  }
+  return false;
+}
+
+/** 署名 URL の Content-Type と PUT ヘッダを一致させる（空 type は iPhone 動画などで起きる） */
+function resolveUploadContentType(file: File): string {
+  const t = file.type?.trim();
+  if (t) return t;
+  const lower = file.name.toLowerCase();
+  if (lower.endsWith(".mp4")) return "video/mp4";
+  if (lower.endsWith(".webm")) return "video/webm";
+  if (lower.endsWith(".mov") || lower.endsWith(".qt")) return "video/quicktime";
+  return "application/octet-stream";
+}
+
 async function uploadToR2(file: File): Promise<string> {
+  const contentType = resolveUploadContentType(file);
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
   const res = await apiRequest("POST", "/api/upload-url", {
     fileName: safeName,
-    contentType: file.type,
+    contentType,
   });
-  const { uploadUrl, url } = (await res.json()) as { uploadUrl: string; url: string };
-  const put = await fetch(uploadUrl, {
-    method: "PUT",
-    body: file,
-    headers: { "Content-Type": file.type },
-  });
+  const json = (await res.json()) as { uploadUrl?: string; url?: string };
+  if (!json.uploadUrl || !json.url) {
+    throw new Error("Could not start upload (invalid response from server).");
+  }
+  let put: Response;
+  try {
+    put = await fetch(json.uploadUrl, {
+      method: "PUT",
+      body: file,
+      headers: { "Content-Type": contentType },
+    });
+  } catch (err: unknown) {
+    console.error("[ai-edit] R2 PUT failed:", err);
+    if (isLikelyBrowserNetworkBlock(err)) {
+      throw new Error(
+        "Browser could not upload the file to storage (often CORS or a blocked cross-origin request). " +
+          "In Cloudflare R2, allow PUT from https://rawstock.live with header Content-Type, or try another browser.",
+      );
+    }
+    throw err instanceof Error ? err : new Error(String(err));
+  }
   if (!put.ok) {
     const detail = (await put.text().catch(() => "")).trim().replace(/\s+/g, " ");
     throw new Error(
@@ -125,7 +182,7 @@ async function uploadToR2(file: File): Promise<string> {
         : `Upload to storage failed (HTTP ${put.status})`,
     );
   }
-  return url;
+  return json.url;
 }
 
 function openFilePicker(options: {
@@ -162,6 +219,40 @@ export default function AIEditIndexScreen() {
   const [prompt, setPrompt] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
+  const [preparingVideos, setPreparingVideos] = useState(false);
+  const [prepareProgress, setPrepareProgress] = useState("");
+  const [flowError, setFlowError] = useState<string | null>(null);
+
+  const blockingInteraction = uploading || preparingVideos;
+  const blockerTitle = preparingVideos ? "Preparing videos" : "Upload in progress";
+  const blockerMessage = preparingVideos
+    ? prepareProgress || "Reading file metadata…"
+    : uploadProgress || "Processing…";
+
+  usePreventRemove(blockingInteraction, () => {
+    Alert.alert(
+      preparingVideos ? "Please wait" : "Upload in progress",
+      preparingVideos
+        ? "Still reading your video files. Please wait."
+        : "Upload is still running. Please wait until it finishes.",
+    );
+  });
+
+  useEffect(() => {
+    if (!blockingInteraction) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => true);
+    return () => sub.remove();
+  }, [blockingInteraction]);
+
+  useEffect(() => {
+    if (!blockingInteraction || Platform.OS !== "web" || typeof window === "undefined") return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [blockingInteraction]);
 
   const plan = PLANS.find((p) => p.id === selectedPlan)!;
   const motionPreview = useMemo(() => {
@@ -188,13 +279,28 @@ export default function AIEditIndexScreen() {
       accept: "video/*",
       multiple: true,
       onFiles: async (files) => {
-        const added: VideoFile[] = [];
-        for (let i = 0; i < files.length; i++) {
-          const file = files[i];
-          const durationSec = await getVideoDuration(file);
-          added.push({ file, name: file.name, durationSec });
+        setPreparingVideos(true);
+        setPrepareProgress("");
+        setFlowError(null);
+        try {
+          const added: VideoFile[] = [];
+          const n = files.length;
+          for (let i = 0; i < n; i++) {
+            const file = files[i];
+            setPrepareProgress(`Reading video ${i + 1} of ${n}…`);
+            const durationSec = await getVideoDuration(file);
+            added.push({ file, name: file.name, durationSec });
+          }
+          setVideos((prev) => [...prev, ...added]);
+        } catch (e: unknown) {
+          const msg = formatUserFacingApiError(e);
+          setFlowError(msg);
+          console.error("[ai-edit] prepare videos:", e);
+          Alert.alert("Could not prepare videos", msg);
+        } finally {
+          setPreparingVideos(false);
+          setPrepareProgress("");
         }
-        setVideos((prev) => [...prev, ...added]);
       },
     });
   }
@@ -256,6 +362,7 @@ export default function AIEditIndexScreen() {
       return;
     }
 
+    setFlowError(null);
     setUploading(true);
     try {
       const videoUrls: string[] = [];
@@ -293,7 +400,19 @@ export default function AIEditIndexScreen() {
       const data = (await res.json()) as { id: number; status: string };
       router.replace(`/ai-edit/${data.id}`);
     } catch (e: unknown) {
-      Alert.alert("Error", formatUserFacingApiError(e));
+      const msg = formatUserFacingApiError(e);
+      setFlowError(msg);
+      console.error("[ai-edit] submit failed:", e);
+      Alert.alert("Error", msg);
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        queueMicrotask(() => {
+          try {
+            window.alert(`Upload / submit failed\n\n${msg}`);
+          } catch {
+            /* ignore */
+          }
+        });
+      }
     } finally {
       setUploading(false);
       setUploadProgress("");
@@ -308,20 +427,51 @@ export default function AIEditIndexScreen() {
     !!tone &&
     !!prompt.trim() &&
     canAfford &&
-    !uploading;
+    !uploading &&
+    !preparingVideos;
 
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <View style={[styles.container, { paddingBottom: bottomInset }]}>
+      <Modal visible={blockingInteraction} transparent animationType="fade" statusBarTranslucent>
+        <View style={styles.uploadBlocker}>
+          <ActivityIndicator size="large" color={C.accent} />
+          <Text style={styles.uploadBlockerTitle}>{blockerTitle}</Text>
+          <Text style={styles.uploadBlockerMessage}>{blockerMessage}</Text>
+          <Text style={styles.uploadBlockerHint}>
+            Do not leave this screen or close the app until this finishes.
+          </Text>
+        </View>
+      </Modal>
+
       {/* Header */}
       <View style={[styles.header, { paddingTop: topInset + 12 }]}>
-        <Pressable style={styles.backBtn} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={22} color={C.text} />
+        <Pressable
+          style={[styles.backBtn, blockingInteraction && styles.backBtnDisabled]}
+          onPress={() => !blockingInteraction && router.back()}
+          disabled={blockingInteraction}
+        >
+          <Ionicons name="chevron-back" size={22} color={blockingInteraction ? C.textMuted : C.text} />
         </Pressable>
         <Text style={styles.headerTitle}>AI Edit Assistant</Text>
         <View style={{ width: 40 }} />
       </View>
+
+      {flowError ? (
+        <View style={styles.flowErrorBanner}>
+          <Ionicons name="warning-outline" size={20} color="#ffb4b4" style={{ marginTop: 1 }} />
+          <Text style={styles.flowErrorText}>{flowError}</Text>
+          <Pressable
+            onPress={() => setFlowError(null)}
+            hitSlop={12}
+            accessibilityLabel="Dismiss error"
+            style={styles.flowErrorDismiss}
+          >
+            <Ionicons name="close" size={22} color={C.textMuted} />
+          </Pressable>
+        </View>
+      ) : null}
 
       <ScrollView
         style={webScrollStyle(styles.scroll)}
@@ -569,14 +719,6 @@ export default function AIEditIndexScreen() {
           textAlignVertical="top"
         />
 
-        {/* ── Upload progress ── */}
-        {uploading && (
-          <View style={styles.uploadingCard}>
-            <ActivityIndicator size="small" color={C.accent} />
-            <Text style={styles.uploadingText}>{uploadProgress || "Processing…"}</Text>
-          </View>
-        )}
-
         {/* ── Submit ── */}
         <Pressable
           style={[styles.submitBtn, !canSubmit && styles.submitBtnDisabled]}
@@ -593,7 +735,7 @@ export default function AIEditIndexScreen() {
           </Text>
         </Pressable>
 
-        {!canAfford && !uploading && (
+        {!canAfford && !uploading && !preparingVideos && (
           <Pressable onPress={() => router.push("/tickets")} style={styles.noTicketsRow}>
             <Ionicons name="ticket-outline" size={13} color={C.live} />
             <Text style={styles.noTicketsText}>
@@ -610,6 +752,55 @@ export default function AIEditIndexScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
+  uploadBlocker: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.72)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 28,
+    gap: 14,
+  },
+  uploadBlockerTitle: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  uploadBlockerMessage: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 14,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  uploadBlockerHint: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: "center",
+    marginTop: 4,
+  },
+  flowErrorBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    marginHorizontal: 12,
+    marginTop: 8,
+    marginBottom: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: "rgba(180, 40, 40, 0.22)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 120, 120, 0.45)",
+  },
+  flowErrorText: {
+    flex: 1,
+    color: "#ffc9c9",
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "600",
+  },
+  flowErrorDismiss: { padding: 2 },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -620,6 +811,7 @@ const styles = StyleSheet.create({
     borderBottomColor: C.border,
   },
   backBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  backBtnDisabled: { opacity: 0.45 },
   headerTitle: {
     flex: 1,
     textAlign: "center",
@@ -852,21 +1044,6 @@ const styles = StyleSheet.create({
   },
   chipText: { color: C.textSec, fontSize: 13, fontWeight: "600" },
   chipTextSelected: { color: C.accent },
-
-  // Upload progress
-  uploadingCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginHorizontal: 16,
-    marginBottom: 12,
-    backgroundColor: C.surface,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: C.borderDim,
-    padding: 14,
-  },
-  uploadingText: { color: C.textSec, fontSize: 13, flex: 1 },
 
   // Submit
   submitBtn: {

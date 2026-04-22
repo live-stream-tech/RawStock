@@ -813,6 +813,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   // ── Auth ──────────────────────────────────────────────
   app.get("/api/auth/me", async (req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "private, no-store");
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const [u] = await db.select({
@@ -4199,14 +4200,20 @@ export async function registerRoutes(app: Express): Promise<void> {
       userId: user.id,
     });
 
-    const { fileName, contentType } = req.body as {
+    const { fileName, contentType: rawContentType } = req.body as {
       fileName?: string;
       contentType?: string;
     };
 
-    if (!fileName || !contentType) {
-      return res.status(400).json({ error: "fileName and contentType are required" });
+    if (!fileName) {
+      return res.status(400).json({ error: "fileName is required" });
     }
+
+    /** ブラウザが video/* で空文字を返すことがある。署名と PUT ヘッダを一致させるため octet-stream に落とす */
+    const contentType =
+      typeof rawContentType === "string" && rawContentType.trim().length > 0
+        ? rawContentType.trim()
+        : "application/octet-stream";
 
     const safeName = String(fileName).replace(/[^a-zA-Z0-9_.-]/g, "_");
     const key = `rawstock_${Date.now()}_${safeName}`;
@@ -4241,6 +4248,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   // ── Videos ───────────────────────────────────────────────────────
   app.get("/api/videos", async (req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "private, no-store");
     const genreId = (req as any).query?.genre;
     const communityIdParam = (req as any).query?.communityId;
     let rows = await db
@@ -4735,6 +4743,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   // ── Notifications ─────────────────────────────────────────────────
   app.get("/api/notifications/unread-count", async (_req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "private, no-store");
     const [{ count }] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(notifications)
@@ -7276,6 +7285,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   /** GET /api/tickets/balance */
   app.get("/api/tickets/balance", async (req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "private, no-store");
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const userId = String(user.id);
