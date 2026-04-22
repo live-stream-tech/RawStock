@@ -1,4 +1,5 @@
 import "dotenv/config";
+import "./aws-sdk-env";
 import express from "express";
 import type { Request, Response } from "express";
 import * as fs from "fs";
