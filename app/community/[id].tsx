@@ -23,13 +23,34 @@ import { C } from "@/constants/colors";
 import { formatEditorRevenueShareLabel, formatEditorTicketsPerMinute, PRICE_PER_TICKET_USD } from "@/constants/tickets";
 import { AppLogo } from "@/components/AppLogo";
 import { CreatorPromoBanner } from "@/components/CreatorPromoBanner";
-import { apiRequest } from "@/lib/query-client";
+import { apiRequest, formatUserFacingApiError } from "@/lib/query-client";
 import { navigateToUserOrLiverProfile, navigateFromVideoCreatorRow } from "@/lib/navigate-profile";
 import { useAuth } from "@/lib/auth";
 import { webScrollStyle } from "@/constants/layout";
 import { TranslateButton } from "@/components/TranslateButton";
 import { isMusicGenreCommunityCategory } from "@/lib/communityGenreBoard";
 import { parseThreadBody, youtubeThumbnailFromVideoUrl } from "@/lib/parse-thread-body";
+import * as ImagePicker from "expo-image-picker";
+
+const MAX_ANNOUNCEMENT_FLYER_BYTES = 15 * 1024 * 1024;
+
+async function uploadImageBlobToR2(blob: Blob, fileName: string, mime: string): Promise<string> {
+  const resp = await apiRequest("POST", "/api/upload-url", {
+    fileName,
+    contentType: mime,
+  });
+  const { uploadUrl, url } = (await resp.json()) as { uploadUrl: string; url: string };
+  const putRes = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: { "Content-Type": mime },
+    body: blob,
+  });
+  if (!putRes.ok) {
+    const hint = await putRes.text().catch(() => "");
+    throw new Error(`Storage upload failed (${putRes.status})${hint ? `: ${hint.slice(0, 160)}` : ""}`);
+  }
+  return url;
+}
 
 type AdData = { title: string; sub: string; cta: string; bg: string; accent: string; thumb: string };
 
@@ -762,6 +783,8 @@ export default function CommunityDetailScreen() {
   const [showCreateThread, setShowCreateThread] = useState(false);
   const [newThreadTitle, setNewThreadTitle] = useState("");
   const [newThreadBody, setNewThreadBody] = useState("");
+  const [announcementFlyerUrl, setAnnouncementFlyerUrl] = useState<string | null>(null);
+  const [uploadingFlyer, setUploadingFlyer] = useState(false);
   const [creatingThread, setCreatingThread] = useState(false);
   const [requestTitle, setRequestTitle] = useState("");
   const [requestDescription, setRequestDescription] = useState("");
@@ -835,9 +858,14 @@ export default function CommunityDetailScreen() {
 
   const createThreadMutation = useMutation({
     mutationFn: async () => {
+      const title = newThreadTitle.trim();
+      const text = newThreadBody.trim();
+      const flyer = announcementFlyerUrl?.trim() ?? "";
+      const body =
+        announceBoard && flyer ? (text ? `FLYER_IMAGE: ${flyer}\n\n${text}` : `FLYER_IMAGE: ${flyer}`) : text;
       const res = await apiRequest("POST", `/api/communities/${communityId}/threads`, {
-        title: newThreadTitle.trim(),
-        body: newThreadBody.trim(),
+        title,
+        body,
       });
       return res.json();
     },
@@ -845,17 +873,88 @@ export default function CommunityDetailScreen() {
       setShowCreateThread(false);
       setNewThreadTitle("");
       setNewThreadBody("");
+      setAnnouncementFlyerUrl(null);
       refetchThreads();
       setSelectedThreadId(data.id);
     },
   });
+
+  function closeCreateThreadModal() {
+    setShowCreateThread(false);
+    setAnnouncementFlyerUrl(null);
+  }
+
+  async function pickAnnouncementFlyer() {
+    if (!requireAuth(announceBoard ? "Post announcement" : "Create Thread")) return;
+    if (Platform.OS === "web") {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/jpeg,image/png,image/webp,image/gif";
+      input.onchange = async (e: Event) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (!file) return;
+        if (file.size > MAX_ANNOUNCEMENT_FLYER_BYTES) {
+          Alert.alert("", "Image must be under 15MB");
+          return;
+        }
+        try {
+          setUploadingFlyer(true);
+          const mime =
+            file.type && /^image\/(jpeg|png|webp|gif)$/i.test(file.type) ? file.type : "image/jpeg";
+          const name = (file.name || "flyer.jpg").replace(/[^\w.-]/g, "_");
+          const url = await uploadImageBlobToR2(file, name, mime);
+          setAnnouncementFlyerUrl(url);
+        } catch (err: unknown) {
+          Alert.alert("Upload failed", formatUserFacingApiError(err));
+        } finally {
+          setUploadingFlyer(false);
+        }
+      };
+      document.body.appendChild(input);
+      input.click();
+      document.body.removeChild(input);
+      return;
+    }
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission required", "Allow photo library access to attach a flyer.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: false,
+      quality: 0.92,
+    });
+    if (result.canceled || !result.assets[0]) return;
+    const asset = result.assets[0];
+    try {
+      setUploadingFlyer(true);
+      const mime = asset.mimeType ?? "image/jpeg";
+      const name = asset.fileName ?? "flyer.jpg";
+      const blob = await (await fetch(asset.uri)).blob();
+      if (blob.size > MAX_ANNOUNCEMENT_FLYER_BYTES) {
+        Alert.alert("", "Image must be under 15MB");
+        return;
+      }
+      const url = await uploadImageBlobToR2(blob, name.replace(/[^\w.-]/g, "_"), mime);
+      setAnnouncementFlyerUrl(url);
+    } catch (err: unknown) {
+      Alert.alert("Upload failed", formatUserFacingApiError(err));
+    } finally {
+      setUploadingFlyer(false);
+    }
+  }
 
   async function handleCreateThread() {
     if (!newThreadTitle.trim()) {
       Alert.alert("", "Please enter a title");
       return;
     }
-    if (!requireAuth("Create Thread")) return;
+    if (announceBoard && !newThreadBody.trim() && !announcementFlyerUrl?.trim()) {
+      Alert.alert("", "Add flyer image and/or body text for your announcement.");
+      return;
+    }
+    if (!requireAuth(announceBoard ? "Post announcement" : "Create thread")) return;
     setCreatingThread(true);
     try {
       await createThreadMutation.mutateAsync();
@@ -1377,7 +1476,7 @@ export default function CommunityDetailScreen() {
                   style={[styles.createThreadInput, styles.createThreadInputBody]}
                   placeholder={
                     announceBoard
-                      ? "Body (date, venue, links, how to join. Bullet points are welcome)"
+                      ? "Body (date, venue, links, how to join). Optional if you attach a flyer below."
                       : "Body (optional)"
                   }
                   placeholderTextColor={C.textMuted}
@@ -1386,10 +1485,53 @@ export default function CommunityDetailScreen() {
                   multiline
                   textAlignVertical="top"
                 />
+                {announceBoard ? (
+                  <View style={styles.flyerAttachBlock}>
+                    <Pressable
+                      style={[styles.flyerAttachBtn, (uploadingFlyer || creatingThread) && styles.flyerAttachBtnDisabled]}
+                      onPress={pickAnnouncementFlyer}
+                      disabled={uploadingFlyer || creatingThread}
+                    >
+                      {uploadingFlyer ? (
+                        <ActivityIndicator color="#fff" size="small" />
+                      ) : (
+                        <>
+                          <Ionicons name="image-outline" size={18} color="#fff" />
+                          <Text style={styles.flyerAttachBtnText}>Attach flyer image</Text>
+                        </>
+                      )}
+                    </Pressable>
+                    {announcementFlyerUrl ? (
+                      <View style={styles.flyerPreviewWrap}>
+                        <Image source={{ uri: announcementFlyerUrl }} style={styles.flyerPreviewImg} contentFit="cover" />
+                        <Pressable
+                          style={styles.flyerRemoveBtn}
+                          onPress={() => setAnnouncementFlyerUrl(null)}
+                          hitSlop={8}
+                        >
+                          <Ionicons name="trash-outline" size={18} color="#ff6b6b" />
+                          <Text style={styles.flyerRemoveText}>Remove</Text>
+                        </Pressable>
+                      </View>
+                    ) : null}
+                  </View>
+                ) : null}
                 <Pressable
-                  style={[styles.createThreadSubmitBtn, (!newThreadTitle.trim() || creatingThread) && styles.createThreadSubmitBtnDisabled]}
+                  style={[
+                    styles.createThreadSubmitBtn,
+                    (!newThreadTitle.trim() ||
+                      creatingThread ||
+                      uploadingFlyer ||
+                      (announceBoard && !newThreadBody.trim() && !announcementFlyerUrl?.trim())) &&
+                      styles.createThreadSubmitBtnDisabled,
+                  ]}
                   onPress={handleCreateThread}
-                  disabled={!newThreadTitle.trim() || creatingThread}
+                  disabled={
+                    !newThreadTitle.trim() ||
+                    creatingThread ||
+                    uploadingFlyer ||
+                    (announceBoard && !newThreadBody.trim() && !announcementFlyerUrl?.trim())
+                  }
                 >
                   {creatingThread ? (
                     <ActivityIndicator color="#fff" size="small" />
@@ -1616,45 +1758,90 @@ export default function CommunityDetailScreen() {
         visible={showCreateThread}
         transparent
         animationType="slide"
-        onRequestClose={() => setShowCreateThread(false)}
+        onRequestClose={closeCreateThreadModal}
       >
         <View style={styles.requestModalOverlay}>
-          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setShowCreateThread(false)} />
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={closeCreateThreadModal} />
           <View style={styles.requestModalSheet}>
             <View style={styles.requestModalHandle} />
             <View style={styles.requestModalHeader}>
-              <Text style={styles.requestModalTitle}>New Thread</Text>
-              <Pressable onPress={() => setShowCreateThread(false)} hitSlop={8}>
+              <Text style={styles.requestModalTitle}>{announceBoard ? "New announcement" : "New thread"}</Text>
+              <Pressable onPress={closeCreateThreadModal} hitSlop={8}>
                 <Ionicons name="close" size={24} color={C.textMuted} />
               </Pressable>
             </View>
             <Text style={styles.requestLabel}>Title</Text>
             <TextInput
               style={styles.requestInput}
-              placeholder="Thread title"
+              placeholder={announceBoard ? "Event or live title" : "Thread title"}
               placeholderTextColor={C.textMuted}
               value={newThreadTitle}
               onChangeText={setNewThreadTitle}
             />
-            <Text style={styles.requestLabel}>Body (optional)</Text>
+            <Text style={styles.requestLabel}>{announceBoard ? "Details (optional if flyer attached)" : "Body (optional)"}</Text>
             <TextInput
               style={[styles.requestInput, styles.requestInputMultiline]}
-              placeholder="Opening post content"
+              placeholder={
+                announceBoard
+                  ? "Date, venue, ticket link, access notes…"
+                  : "Opening post content"
+              }
               placeholderTextColor={C.textMuted}
               value={newThreadBody}
               onChangeText={setNewThreadBody}
               multiline
               textAlignVertical="top"
             />
+            {announceBoard ? (
+              <View style={styles.flyerAttachBlock}>
+                <Pressable
+                  style={[styles.flyerAttachBtn, (uploadingFlyer || creatingThread) && styles.flyerAttachBtnDisabled]}
+                  onPress={pickAnnouncementFlyer}
+                  disabled={uploadingFlyer || creatingThread}
+                >
+                  {uploadingFlyer ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <>
+                      <Ionicons name="image-outline" size={18} color="#fff" />
+                      <Text style={styles.flyerAttachBtnText}>Attach flyer image</Text>
+                    </>
+                  )}
+                </Pressable>
+                {announcementFlyerUrl ? (
+                  <View style={styles.flyerPreviewWrap}>
+                    <Image source={{ uri: announcementFlyerUrl }} style={styles.flyerPreviewImg} contentFit="cover" />
+                    <Pressable style={styles.flyerRemoveBtn} onPress={() => setAnnouncementFlyerUrl(null)} hitSlop={8}>
+                      <Ionicons name="trash-outline" size={18} color="#ff6b6b" />
+                      <Text style={styles.flyerRemoveText}>Remove</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
             <Pressable
-              style={[styles.requestSubmitBtn, creatingThread && styles.requestSubmitBtnDisabled]}
+              style={[
+                styles.requestSubmitBtn,
+                (creatingThread ||
+                  uploadingFlyer ||
+                  !newThreadTitle.trim() ||
+                  (announceBoard && !newThreadBody.trim() && !announcementFlyerUrl?.trim())) &&
+                  styles.requestSubmitBtnDisabled,
+              ]}
               onPress={handleCreateThread}
-              disabled={creatingThread}
+              disabled={
+                creatingThread ||
+                uploadingFlyer ||
+                !newThreadTitle.trim() ||
+                (announceBoard && !newThreadBody.trim() && !announcementFlyerUrl?.trim())
+              }
             >
               {creatingThread ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
-                <Text style={styles.requestSubmitBtnText}>Create</Text>
+                <Text style={styles.requestSubmitBtnText}>
+                  {announceBoard ? "Post announcement" : "Create thread"}
+                </Text>
               )}
             </Pressable>
           </View>
@@ -2572,6 +2759,38 @@ const styles = StyleSheet.create({
   },
   createThreadSubmitBtnDisabled: { opacity: 0.5 },
   createThreadSubmitText: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  flyerAttachBlock: { marginTop: 10, gap: 10 },
+  flyerAttachBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  flyerAttachBtnDisabled: { opacity: 0.45 },
+  flyerAttachBtnText: { color: C.text, fontSize: 14, fontWeight: "700" },
+  flyerPreviewWrap: {
+    borderRadius: 10,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface2,
+  },
+  flyerPreviewImg: { width: "100%", height: 160, backgroundColor: C.surface2 },
+  flyerRemoveBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    backgroundColor: C.surface,
+  },
+  flyerRemoveText: { color: "#ff6b6b", fontSize: 13, fontWeight: "700" },
   boardEmpty: { color: C.textMuted, fontSize: 14, paddingVertical: 24, textAlign: "center" },
   boardPostCount: { color: C.textMuted, fontSize: 10, marginTop: 2 },
   boardAnnounceIntro: {
