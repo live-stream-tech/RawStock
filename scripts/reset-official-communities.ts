@@ -104,6 +104,28 @@ const OFFICIAL_COMMUNITIES: OfficialCommunity[] = [
       "国内外のインディー公演、リリースパーティー、レコ発情報を共有してください。映像アーカイブ販売の告知も歓迎です。",
   },
   {
+    name: "Japanese Indie Bands",
+    category: "indie",
+    members: 2410,
+    online: true,
+    thumbnail:
+      "https://images.unsplash.com/photo-1516280440614-37939bbacd81?w=800&h=800&fit=crop",
+    announcementTitle: "日本のインディーズバンド情報",
+    announcementBody:
+      "羊文学、リーガルリリー、KOTORI、bacho、Helsinki Lambda Club など国内インディーバンドのライブ・リリース情報を投稿してください。地方遠征や自主企画の告知も歓迎です。",
+  },
+  {
+    name: "Japan Indie Livehouses",
+    category: "indie",
+    members: 1680,
+    online: true,
+    thumbnail:
+      "https://images.unsplash.com/photo-1517457373958-b7bdd4587205?w=800&h=800&fit=crop",
+    announcementTitle: "日本のインディー箱ライブ告知",
+    announcementBody:
+      "下北沢・新宿・心斎橋・名古屋・福岡など、国内ライブハウスのインディー公演を集約するスレです。出演順、開演時刻、チケットURLを明記してください。",
+  },
+  {
     name: "Techno / House",
     category: "edm",
     members: 3010,
@@ -222,7 +244,7 @@ async function main() {
       await deleteIfTableExists(client, item.table, item.sql);
     }
 
-    console.log("\n🏘️ 公式コミュニティ10件を投入中...");
+    console.log(`\n🏘️ 公式コミュニティ${OFFICIAL_COMMUNITIES.length}件を投入中...`);
     for (let i = 0; i < OFFICIAL_COMMUNITIES.length; i++) {
       const community = OFFICIAL_COMMUNITIES[i];
       const adminUserId = adminUserIds[i % adminUserIds.length];
@@ -265,7 +287,7 @@ async function main() {
     }
 
     await client.query("COMMIT");
-    console.log("\n✅ 完了: 公式コミュニティ10件へ再構築しました");
+    console.log(`\n✅ 完了: 公式コミュニティ${OFFICIAL_COMMUNITIES.length}件へ再構築しました`);
   } catch (error) {
     await client.query("ROLLBACK");
     console.error("エラー:", error);

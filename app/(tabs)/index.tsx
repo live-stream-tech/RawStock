@@ -66,6 +66,21 @@ function formatNumber(n: number): string {
   return n.toLocaleString();
 }
 
+function parseFlyerFromBody(raw: unknown): string | null {
+  const body = typeof raw === "string" ? raw : "";
+  if (!body) return null;
+  const lines = body.split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (/^FLYER_IMAGE\s*:/i.test(trimmed) || /^フライヤー画像\s*:/i.test(trimmed)) {
+      const m = trimmed.match(/https?:\/\/\S+/i);
+      if (m?.[0]) return m[0];
+    }
+  }
+  const direct = body.match(/https?:\/\/\S+\.(?:png|jpe?g|webp|gif)(?:\?\S*)?/i);
+  return direct?.[0] ?? null;
+}
+
 /** Matches /live thumbnail LIVE badge (solid dot, no pulse) */
 function LiveOnAirDot() {
   return <View style={styles.liveOnAirDot} />;
@@ -242,6 +257,32 @@ function LiveCard({ item }: { item: any }) {
   );
 }
 
+function AnnouncementCard({ item }: { item: any }) {
+  const flyer = parseFlyerFromBody(item.body) || item.communityThumbnail || FALLBACK_VIDEO_THUMB;
+  return (
+    <Pressable
+      style={styles.announceCard}
+      onPress={() => router.push(`/community/${item.communityId}?tab=Board&openThread=${item.id}` as any)}
+    >
+      <View style={styles.announceThumbWrap}>
+        <Image source={{ uri: resolveVideoMediaUri(flyer) }} style={styles.announceThumb} contentFit="cover" cachePolicy="memory-disk" />
+        <LinearGradient colors={["transparent", "rgba(0,0,0,0.8)"]} style={styles.announceThumbGradient} />
+        <View style={styles.announceBadge}>
+          <Ionicons name="megaphone-outline" size={10} color={C.accent} />
+          <Text style={styles.announceBadgeText}>LIVE INFO</Text>
+        </View>
+      </View>
+      <View style={styles.liveInfo}>
+        <View style={styles.creatorRow}>
+          <Image source={{ uri: resolveVideoMediaUri(item.communityThumbnail) }} style={styles.smallAvatar} contentFit="cover" cachePolicy="memory-disk" />
+          <Text style={styles.communityText} numberOfLines={1}>{item.communityName}</Text>
+        </View>
+        <Text style={styles.videoTitle} numberOfLines={2}>{item.title}</Text>
+      </View>
+    </Pressable>
+  );
+}
+
 // ─── Session Card ─────────────────────────────────────────────────────────────
 function SessionCard({ item }: { item: any }) {
   return (
@@ -330,6 +371,16 @@ export default function HomeScreen() {
   const { data: apiVideos = [] } = useQuery<any[]>({ queryKey: ["/api/videos"] });
   const { data: apiLive = [] } = useQuery<any[]>({ queryKey: ["/api/live-streams"] });
   const { data: communities = [] } = useQuery<any[]>({ queryKey: ["/api/communities"] });
+  const { data: liveAnnouncements = [] } = useQuery<any[]>({
+    queryKey: ["/api/community-announcements/feed", "top"],
+    queryFn: async () => {
+      const qs = new URLSearchParams({ limit: "12", liveOnly: "1" });
+      const res = await fetch(`/api/community-announcements/feed?${qs.toString()}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return (await res.json()) as any[];
+    },
+    staleTime: 60_000,
+  });
   const { data: announcementRows = [] } = useQuery<
     { id: number; title: string; isPinned: boolean; createdAt: string | null }[]
   >({
@@ -403,10 +454,26 @@ export default function HomeScreen() {
 
       <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
 
-        {/* ── Paid Hero ── */}
-        <PaidHeroSection videos={paidVideos} isDemo={usingDemoPaid} />
-
-        <CreatorPromoBanner />
+        {/* ── Live Announcements First ── */}
+        <View style={styles.sectionGap} />
+        <SectionHeader
+          title="LIVE ANNOUNCEMENTS"
+          accent
+          right={
+            <Pressable onPress={() => router.push("/live-announcements" as any)}>
+              <Text style={styles.viewAllText}>VIEW ALL</Text>
+            </Pressable>
+          }
+        />
+        <HorizontalScroll contentContainerStyle={styles.hScroll}>
+          {(liveAnnouncements.length > 0 ? liveAnnouncements.slice(0, 8) : allLiveStreams).map((item: any) =>
+            item.communityId ? (
+              <AnnouncementCard key={`a-${item.communityId}-${item.id}`} item={item} />
+            ) : (
+              <LiveCard key={`l-${item.id}`} item={item} />
+            ),
+          )}
+        </HorizontalScroll>
 
         {/* ── Jukebox Banner ── */}
         <Pressable
@@ -436,6 +503,12 @@ export default function HomeScreen() {
           </View>
           <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
         </Pressable>
+
+        {/* ── Paid Hero ── */}
+        <View style={styles.sectionGap} />
+        <PaidHeroSection videos={paidVideos} isDemo={usingDemoPaid} />
+
+        <CreatorPromoBanner />
 
         {/* ── Now Live ── */}
         <View style={styles.sectionGap} />
@@ -639,6 +712,25 @@ const styles = StyleSheet.create({
   },
   viewerText: { color: "#fff", fontSize: 10, fontFamily: F.mono },
   liveInfo: { paddingHorizontal: 10, paddingVertical: 8, gap: 4, backgroundColor: C.surface },
+  announceCard: { width: 220, overflow: "hidden", backgroundColor: C.surface },
+  announceThumbWrap: { position: "relative", overflow: "hidden", aspectRatio: 16 / 9 },
+  announceThumb: { width: 220, aspectRatio: 16 / 9 },
+  announceThumbGradient: { position: "absolute", left: 0, right: 0, bottom: 0, height: "60%" },
+  announceBadge: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(0,0,0,0.66)",
+    borderRadius: 2,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: C.accent + "88",
+  },
+  announceBadgeText: { color: C.accent, fontSize: 9, fontFamily: F.mono, letterSpacing: 1 },
 
   // Session Card
   sessionCard: { width: MENTOR_W, overflow: "hidden", backgroundColor: C.surface },

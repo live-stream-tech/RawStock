@@ -6,6 +6,10 @@ function lpStandaloneSrcForWeb(): string {
   if (typeof window === "undefined") {
     return "/lp-standalone.html";
   }
+  const externalLp = process.env.EXPO_PUBLIC_LP_STANDALONE_URL?.trim();
+  if (externalLp) {
+    return externalLp;
+  }
   const env =
     process.env.EXPO_PUBLIC_DOMAIN?.trim() ||
     process.env.EXPO_PUBLIC_API_URL?.trim();
@@ -40,18 +44,17 @@ export function RawstockLpContent() {
   }
 
   return (
-    <iframe
-      src={lpStandaloneSrcForWeb()}
-      title="RawStock LP"
-      style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        width: "100%",
-        height: "100%",
-        border: "none",
-        display: "block",
-      }}
-    />
+    <View style={{ flex: 1, width: "100%", height: "100%", overflow: "hidden" }}>
+      <iframe
+        src={lpStandaloneSrcForWeb()}
+        title="RawStock LP"
+        style={{
+          width: "100%",
+          height: "100%",
+          border: "none",
+          display: "block",
+        }}
+      />
+    </View>
   );
 }

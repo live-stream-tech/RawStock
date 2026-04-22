@@ -1293,8 +1293,8 @@
 
       var saved = "";
       try { saved = localStorage.getItem(KEY) || ""; } catch (e) {}
-      // Default EN on first visit; only switch to JA if the user saved that choice.
-      var preferred = saved === "ja" || saved === "en" ? saved : "en";
+      // Default JA on first visit. If the user has already chosen a language, keep it.
+      var preferred = saved === "ja" || saved === "en" ? saved : "ja";
       apply(preferred === "ja" ? "ja" : "en");
     })();
   </script>

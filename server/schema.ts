@@ -539,6 +539,24 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+/** LP先行案内のリード（メール / LINE導線の流入計測） */
+export const lpLeads = pgTable(
+  "lp_leads",
+  {
+    id: serial("id").primaryKey(),
+    email: text("email").notNull(),
+    /** email_form | line_cta */
+    source: text("source").notNull().default("email_form"),
+    /** en | ja など */
+    locale: text("locale"),
+    /** UTM campaign など */
+    campaign: text("campaign"),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (t) => [unique("lp_leads_email_unique").on(t.email)],
+);
+
 // migrations/0023_translations_and_glossary.sql — 自動翻訳キャッシュ
 export const translations = pgTable(
   "translations",

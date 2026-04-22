@@ -77,6 +77,9 @@ function BroadcastWeb() {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const rawStreamRef = useRef<MediaStream | null>(null);
+  const processorVideoRef = useRef<HTMLVideoElement | null>(null);
+  const processorCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const processorRafRef = useRef<number | null>(null);
 
   const [phase, setPhase] = useState<"idle" | "creating" | "ready" | "starting" | "live" | "stopping">("idle");
   const [streamId, setStreamId] = useState<number | null>(null);
@@ -87,11 +90,18 @@ function BroadcastWeb() {
   const [webPreviewLoading, setWebPreviewLoading] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [lastLiveError, setLastLiveError] = useState<string | null>(null);
+  const [beautyEnabled, setBeautyEnabled] = useState(true);
+  const [beautyStrength, setBeautyStrength] = useState<number>(70);
   const blinkAnim = useRef(new Animated.Value(1)).current;
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const viewersPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const filterSettingsRef = useRef({ enabled: true, strength: 70 });
 
   const webNeedsCameraTap = webBroadcastNeedsUserGestureForCamera();
+
+  useEffect(() => {
+    filterSettingsRef.current = { enabled: beautyEnabled, strength: beautyStrength };
+  }, [beautyEnabled, beautyStrength]);
 
   useEffect(() => {
     if (!webNeedsCameraTap) void startWebCamera();
@@ -158,6 +168,68 @@ function BroadcastWeb() {
     setPhase("ready");
   };
 
+  const applyBeautyFilterToStream = async (source: MediaStream): Promise<MediaStream> => {
+    try {
+      const videoTrack = source.getVideoTracks()[0];
+      if (!videoTrack) return source;
+
+      const hiddenVideo = document.createElement("video");
+      hiddenVideo.muted = true;
+      hiddenVideo.playsInline = true;
+      hiddenVideo.autoplay = true;
+      hiddenVideo.srcObject = new MediaStream([videoTrack]);
+      hiddenVideo.style.position = "fixed";
+      hiddenVideo.style.opacity = "0";
+      hiddenVideo.style.pointerEvents = "none";
+      hiddenVideo.style.width = "1px";
+      hiddenVideo.style.height = "1px";
+      hiddenVideo.style.left = "-9999px";
+      hiddenVideo.style.top = "-9999px";
+      document.body.appendChild(hiddenVideo);
+
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+      if (!context) {
+        hiddenVideo.remove();
+        return source;
+      }
+
+      processorVideoRef.current = hiddenVideo;
+      processorCanvasRef.current = canvas;
+
+      await hiddenVideo.play().catch(() => undefined);
+
+      const draw = () => {
+        const vw = hiddenVideo.videoWidth || 1280;
+        const vh = hiddenVideo.videoHeight || 720;
+        if (canvas.width !== vw || canvas.height !== vh) {
+          canvas.width = vw;
+          canvas.height = vh;
+        }
+        const { enabled, strength } = filterSettingsRef.current;
+        const amount = Math.max(0, Math.min(100, strength)) / 100;
+        if (enabled) {
+          const brightness = 1 + 0.24 * amount;
+          const contrast = 1 + 0.15 * amount;
+          const saturate = 1 + 0.12 * amount;
+          const blurPx = 0.25 + 1.45 * amount;
+          context.filter = `brightness(${brightness}) contrast(${contrast}) saturate(${saturate}) blur(${blurPx}px)`;
+        } else {
+          context.filter = "none";
+        }
+        context.drawImage(hiddenVideo, 0, 0, canvas.width, canvas.height);
+        processorRafRef.current = requestAnimationFrame(draw);
+      };
+      draw();
+
+      const filtered = canvas.captureStream(30);
+      source.getAudioTracks().forEach((track) => filtered.addTrack(track));
+      return filtered;
+    } catch {
+      return source;
+    }
+  };
+
   useEffect(() => {
     if (!cameraStream) return;
     void bindWebPreview(cameraStream);
@@ -166,9 +238,10 @@ function BroadcastWeb() {
   const startWebCamera = async () => {
     setWebPreviewLoading(true);
     try {
-      const stream = await acquireBroadcastMediaStream();
-      rawStreamRef.current = stream;
-      setCameraStream(stream);
+      const raw = await acquireBroadcastMediaStream();
+      rawStreamRef.current = raw;
+      const filtered = await applyBeautyFilterToStream(raw);
+      setCameraStream(filtered);
     } catch {
       setCameraError(true);
     } finally {
@@ -191,6 +264,21 @@ function BroadcastWeb() {
       });
       rawStreamRef.current = null;
     }
+    if (processorRafRef.current != null) {
+      cancelAnimationFrame(processorRafRef.current);
+      processorRafRef.current = null;
+    }
+    if (processorVideoRef.current) {
+      try {
+        processorVideoRef.current.pause();
+        processorVideoRef.current.srcObject = null;
+      } catch {
+        /* ignore */
+      }
+      processorVideoRef.current.remove();
+      processorVideoRef.current = null;
+    }
+    processorCanvasRef.current = null;
     setCameraStream(null);
     if (videoRef.current) videoRef.current.srcObject = null;
   };
@@ -208,10 +296,11 @@ function BroadcastWeb() {
     }
     if (!localStreamRef.current) {
       try {
-        const stream = await acquireBroadcastMediaStream();
-        rawStreamRef.current = stream;
-        setCameraStream(stream);
-        await bindWebPreview(stream);
+        const raw = await acquireBroadcastMediaStream();
+        rawStreamRef.current = raw;
+        const filtered = await applyBeautyFilterToStream(raw);
+        setCameraStream(filtered);
+        await bindWebPreview(filtered);
       } catch {
         const msg = t.cameraPermissionPWA;
         alertMessage(t.alertTitleLive, msg);
@@ -396,6 +485,44 @@ function BroadcastWeb() {
 
       <View style={[styles.controls, { paddingBottom: bottomInset + 12 }]}>
         {!isLive && (
+          <View style={styles.beautyPanel}>
+            <View style={styles.beautyHeaderRow}>
+              <Text style={styles.beautyTitle}>Face Filter</Text>
+              <Pressable
+                style={[styles.beautyToggle, beautyEnabled && styles.beautyToggleActive]}
+                onPress={() => setBeautyEnabled((v) => !v)}
+              >
+                <Text style={[styles.beautyToggleText, beautyEnabled && styles.beautyToggleTextActive]}>
+                  {beautyEnabled ? "ON" : "OFF"}
+                </Text>
+              </Pressable>
+            </View>
+            <View style={styles.beautyStrengthRow}>
+              {[
+                { label: "Natural", value: 55 },
+                { label: "Strong", value: 78 },
+                { label: "Ultra", value: 95 },
+              ].map((preset) => (
+                <Pressable
+                  key={preset.label}
+                  style={[styles.strengthChip, beautyStrength === preset.value && styles.strengthChipActive]}
+                  onPress={() => setBeautyStrength(preset.value)}
+                >
+                  <Text
+                    style={[
+                      styles.strengthChipText,
+                      beautyStrength === preset.value && styles.strengthChipTextActive,
+                    ]}
+                  >
+                    {preset.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {!isLive && (
           <View style={styles.titleRow}>
             <Ionicons name="create-outline" size={16} color={C.textMuted} style={{ marginRight: 8 }} />
             <TextInput
@@ -577,6 +704,53 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: C.border,
   },
+  beautyPanel: {
+    backgroundColor: C.surface,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    gap: 10,
+  },
+  beautyHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  beautyTitle: { color: C.text, fontSize: 13, fontWeight: "700" },
+  beautyToggle: {
+    backgroundColor: C.surface2,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  beautyToggleActive: {
+    backgroundColor: C.accent + "22",
+    borderColor: C.accent,
+  },
+  beautyToggleText: { color: C.textSec, fontSize: 12, fontWeight: "700" },
+  beautyToggleTextActive: { color: C.accent },
+  beautyStrengthRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  strengthChip: {
+    flex: 1,
+    alignItems: "center",
+    borderRadius: 10,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface2,
+  },
+  strengthChipActive: {
+    borderColor: C.accent,
+    backgroundColor: C.accent + "22",
+  },
+  strengthChipText: { color: C.textSec, fontSize: 12, fontWeight: "700" },
+  strengthChipTextActive: { color: C.accent },
   titleRow: {
     flexDirection: "row",
     alignItems: "center",
