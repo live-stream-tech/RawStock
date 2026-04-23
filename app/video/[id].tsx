@@ -24,6 +24,7 @@ import { apiRequest } from "@/lib/query-client";
 import { navigateFromVideoCreatorRow, navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { usePlayingVideo } from "@/lib/playing-video-context";
 import { webScrollStyle } from "@/constants/layout";
+import { parseDurationLabelToSec } from "@/lib/parse-duration-label";
 import { TranslateButton } from "@/components/TranslateButton";
 
 type VideoComment = {
@@ -507,8 +508,12 @@ export default function VideoDetailScreen() {
           <Pressable
             style={styles.aiEditBtn}
             onPress={() => {
-              const url = encodeURIComponent((video as any).videoUrl ?? "");
-              router.push(`/ai-edit?videoUrl=${url}`);
+              const rawUrl = String((video as any).videoUrl ?? "");
+              const url = encodeURIComponent(rawUrl);
+              const parsed = parseDurationLabelToSec(String((video as any).duration ?? ""));
+              const dur =
+                parsed != null && parsed > 0 ? `&durationSec=${Math.round(parsed)}` : "";
+              router.push(`/ai-edit?videoUrl=${url}${dur}`);
             }}
           >
             <Ionicons name="sparkles" size={15} color="#000" />

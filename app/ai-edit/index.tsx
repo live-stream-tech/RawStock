@@ -16,14 +16,14 @@ import { usePreventRemove } from "@react-navigation/native";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, formatUserFacingApiError } from "@/lib/query-client";
 import { buildOrderVideoSpec, formatFromTone, styleFromTone } from "@/lib/ai-edit/buildOrderVideoSpec";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
 import { webScrollStyle } from "@/constants/layout";
-
 // ─── Plan definitions ────────────────────────────────────────────────────────
 
 const PLANS = [
@@ -70,15 +70,22 @@ function formatLabelForUi(tone: string): string {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+type VideoSource =
+  | { kind: "file"; file: File }
+  | { kind: "uri"; uri: string; mime: string }
+  | { kind: "remoteUrl"; url: string };
+
 type VideoFile = {
-  file: File;
   name: string;
   durationSec: number;
+  source: VideoSource;
 };
 
+type LogoSource = { kind: "file"; file: File } | { kind: "uri"; uri: string; mime: string };
+
 type LogoFile = {
-  file: File;
   name: string;
+  source: LogoSource;
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -126,6 +133,30 @@ async function getVideoDuration(file: File): Promise<number> {
   });
 }
 
+/** Web のみ。リモート URL のメタデータ（CORS 次第で失敗し得る）。 */
+async function getVideoDurationFromRemoteUrl(url: string): Promise<number> {
+  if (typeof document === "undefined") return 0;
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (dur: number) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(dur);
+    };
+    const timer = setTimeout(() => done(0), VIDEO_METADATA_TIMEOUT_MS);
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.crossOrigin = "anonymous";
+    video.onloadedmetadata = () => {
+      const dur = video.duration;
+      done(isFinite(dur) ? dur : 0);
+    };
+    video.onerror = () => done(0);
+    video.src = url;
+  });
+}
+
 function isLikelyBrowserNetworkBlock(err: unknown): boolean {
   if (err instanceof TypeError) return true;
   if (err instanceof Error) {
@@ -146,18 +177,19 @@ function resolveUploadContentType(file: File): string {
   return "application/octet-stream";
 }
 
-async function uploadToR2(file: File): Promise<string> {
-  const contentType = resolveUploadContentType(file);
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const res = await apiRequest("POST", "/api/upload-url", {
-    fileName: safeName,
-    contentType,
-  });
-  const json = (await res.json()) as { uploadUrl?: string; url?: string };
-  if (!json.uploadUrl || !json.url) {
-    throw new Error("Could not start upload (invalid response from server).");
-  }
-  const presign = json.uploadUrl;
+function resolveUploadContentTypeFromName(fileName: string, mimeHint?: string | null): string {
+  const t = mimeHint?.trim();
+  if (t) return t;
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".mp4")) return "video/mp4";
+  if (lower.endsWith(".webm")) return "video/webm";
+  if (lower.endsWith(".mov") || lower.endsWith(".qt")) return "video/quicktime";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  return "application/octet-stream";
+}
+
+function assertR2PresignBrowserCompatible(presign: string): void {
   if (
     /x-amz-sdk-checksum-algorithm=/i.test(presign) ||
     /x-amz-checksum-/i.test(presign) ||
@@ -170,20 +202,25 @@ async function uploadToR2(file: File): Promise<string> {
         "or unset AWS_REQUEST_CHECKSUM_CALCULATION on the server if it is set to WHEN_SUPPORTED.",
     );
   }
+}
+
+async function putBodyToR2SignedUrl(
+  uploadUrl: string,
+  body: BodyInit,
+  contentType: string,
+  networkErrorHint: string,
+): Promise<void> {
   let put: Response;
   try {
-    put = await fetch(json.uploadUrl, {
+    put = await fetch(uploadUrl, {
       method: "PUT",
-      body: file,
+      body,
       headers: { "Content-Type": contentType },
     });
   } catch (err: unknown) {
     console.error("[ai-edit] R2 PUT failed:", err);
     if (isLikelyBrowserNetworkBlock(err)) {
-      throw new Error(
-        "Browser could not upload the file to storage (often CORS or a blocked cross-origin request). " +
-          "In Cloudflare R2, allow PUT from https://rawstock.live with header Content-Type, or try another browser.",
-      );
+      throw new Error(networkErrorHint);
     }
     throw err instanceof Error ? err : new Error(String(err));
   }
@@ -195,7 +232,37 @@ async function uploadToR2(file: File): Promise<string> {
         : `Upload to storage failed (HTTP ${put.status})`,
     );
   }
+}
+
+async function presignAndUploadToR2(fileName: string, contentType: string, body: BodyInit): Promise<string> {
+  const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const res = await apiRequest("POST", "/api/upload-url", {
+    fileName: safeName,
+    contentType,
+  });
+  const json = (await res.json()) as { uploadUrl?: string; url?: string };
+  if (!json.uploadUrl || !json.url) {
+    throw new Error("Could not start upload (invalid response from server).");
+  }
+  assertR2PresignBrowserCompatible(json.uploadUrl);
+  const networkHint =
+    Platform.OS === "web"
+      ? "Browser could not upload the file to storage (often CORS or a blocked cross-origin request). " +
+          "In Cloudflare R2, allow PUT from https://rawstock.live with header Content-Type, or try another browser."
+      : "Could not upload the file to storage (network or storage error). Check your connection and try again.";
+  await putBodyToR2SignedUrl(json.uploadUrl, body, contentType, networkHint);
   return json.url;
+}
+
+async function uploadToR2(file: File): Promise<string> {
+  const contentType = resolveUploadContentType(file);
+  return presignAndUploadToR2(file.name, contentType, file);
+}
+
+async function uploadToR2FromNativeUri(uri: string, fileName: string, mimeHint?: string | null): Promise<string> {
+  const contentType = resolveUploadContentTypeFromName(fileName, mimeHint);
+  const blob = await (await fetch(uri)).blob();
+  return presignAndUploadToR2(fileName, contentType, blob);
 }
 
 function openFilePicker(options: {
@@ -220,6 +287,11 @@ export default function AIEditIndexScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
+
+  const { videoUrl: paramVideoUrl, durationSec: paramDurationSec } = useLocalSearchParams<{
+    videoUrl?: string;
+    durationSec?: string;
+  }>();
 
   const { user, requireAuth } = useAuth();
 
@@ -267,6 +339,58 @@ export default function AIEditIndexScreen() {
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [blockingInteraction]);
 
+  /** 動画詳細などから `?videoUrl=` で遷移したとき、既存 URL を素材として追加 */
+  useEffect(() => {
+    const raw = paramVideoUrl;
+    if (raw == null || typeof raw !== "string" || !raw.trim()) return;
+
+    let decoded = raw.trim();
+    try {
+      decoded = decodeURIComponent(decoded);
+    } catch {
+      /* そのまま使う */
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      let durationSec = 0;
+      const fromParam = paramDurationSec != null ? parseInt(String(paramDurationSec), 10) : NaN;
+      if (Number.isFinite(fromParam) && fromParam > 0) {
+        durationSec = fromParam;
+      }
+      if (durationSec <= 0 && Platform.OS === "web") {
+        durationSec = await getVideoDurationFromRemoteUrl(decoded);
+      }
+      if (cancelled) return;
+      if (durationSec <= 0) {
+        setFlowError(
+          "投稿動画の長さを取得できませんでした。下の「Tap to select video files」からライブラリで動画を追加してください。",
+        );
+        return;
+      }
+      setVideos((prev) => {
+        if (prev.some((v) => v.source.kind === "remoteUrl" && v.source.url === decoded)) return prev;
+        return [
+          ...prev,
+          {
+            name: "Posted video",
+            durationSec,
+            source: { kind: "remoteUrl", url: decoded },
+          },
+        ];
+      });
+    })().catch((e) => {
+      if (cancelled) return;
+      console.error("[ai-edit] prefilled videoUrl:", e);
+      setFlowError(formatUserFacingApiError(e));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [paramVideoUrl, paramDurationSec]);
+
   const plan = PLANS.find((p) => p.id === selectedPlan)!;
   const motionPreview = useMemo(() => {
     if (!tone) return null;
@@ -287,48 +411,126 @@ export default function AIEditIndexScreen() {
 
   // ── Pickers ───────────────────────────────────────────────────────────────
 
-  function pickVideos() {
-    openFilePicker({
-      accept: "video/*",
-      multiple: true,
-      onFiles: async (files) => {
-        setPreparingVideos(true);
-        setPrepareProgress("");
-        setFlowError(null);
-        try {
-          const added: VideoFile[] = [];
-          const n = files.length;
-          for (let i = 0; i < n; i++) {
-            const file = files[i];
-            setPrepareProgress(`Reading video ${i + 1} of ${n}…`);
-            const durationSec = await getVideoDuration(file);
-            added.push({ file, name: file.name, durationSec });
-          }
-          setVideos((prev) => [...prev, ...added]);
-        } catch (e: unknown) {
-          const msg = formatUserFacingApiError(e);
-          setFlowError(msg);
-          console.error("[ai-edit] prepare videos:", e);
-          Alert.alert("Could not prepare videos", msg);
-        } finally {
-          setPreparingVideos(false);
+  async function pickVideos() {
+    if (Platform.OS === "web") {
+      openFilePicker({
+        accept: "video/*",
+        multiple: true,
+        onFiles: async (files) => {
+          setPreparingVideos(true);
           setPrepareProgress("");
+          setFlowError(null);
+          try {
+            const added: VideoFile[] = [];
+            const n = files.length;
+            for (let i = 0; i < n; i++) {
+              const file = files[i];
+              setPrepareProgress(`Reading video ${i + 1} of ${n}…`);
+              const durationSec = await getVideoDuration(file);
+              added.push({ name: file.name, durationSec, source: { kind: "file", file } });
+            }
+            setVideos((prev) => [...prev, ...added]);
+          } catch (e: unknown) {
+            const msg = formatUserFacingApiError(e);
+            setFlowError(msg);
+            console.error("[ai-edit] prepare videos:", e);
+            Alert.alert("Could not prepare videos", msg);
+          } finally {
+            setPreparingVideos(false);
+            setPrepareProgress("");
+          }
+        },
+      });
+      return;
+    }
+
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission required", "Allow media library access to select videos.");
+      return;
+    }
+    setPreparingVideos(true);
+    setPrepareProgress("");
+    setFlowError(null);
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["videos"],
+        allowsEditing: false,
+        allowsMultipleSelection: true,
+      });
+      if (result.canceled || !result.assets?.length) return;
+
+      const added: VideoFile[] = [];
+      const n = result.assets.length;
+      for (let i = 0; i < n; i++) {
+        const asset = result.assets[i];
+        setPrepareProgress(`Reading video ${i + 1} of ${n}…`);
+        const durationMs = asset.duration;
+        const durationSec =
+          durationMs != null && durationMs > 0 ? Math.max(1, Math.ceil(durationMs / 1000)) : 0;
+        if (durationSec <= 0) {
+          Alert.alert(
+            "Could not read duration",
+            "This video has no length metadata. Try another file or use the web version.",
+          );
+          continue;
         }
-      },
-    });
+        const name = asset.fileName ?? `video_${Date.now()}.mp4`;
+        const mime = asset.mimeType ?? undefined;
+        added.push({
+          name,
+          durationSec,
+          source: { kind: "uri", uri: asset.uri, mime: mime ?? "video/mp4" },
+        });
+      }
+      if (added.length) setVideos((prev) => [...prev, ...added]);
+    } catch (e: unknown) {
+      const msg = formatUserFacingApiError(e);
+      setFlowError(msg);
+      console.error("[ai-edit] prepare videos (native):", e);
+      Alert.alert("Could not prepare videos", msg);
+    } finally {
+      setPreparingVideos(false);
+      setPrepareProgress("");
+    }
   }
 
-  function pickLogo() {
-    openFilePicker({
-      accept: "image/png",
-      onFiles: (files) => {
-        const file = files[0];
-        if (!file.type.includes("png")) {
-          Alert.alert("PNG only", "Logo must be a transparent PNG file.");
-          return;
-        }
-        setLogo({ file, name: file.name });
-      },
+  async function pickLogo() {
+    if (Platform.OS === "web") {
+      openFilePicker({
+        accept: "image/png",
+        onFiles: (files) => {
+          const file = files[0];
+          if (!file.type.includes("png")) {
+            Alert.alert("PNG only", "Logo must be a transparent PNG file.");
+            return;
+          }
+          setLogo({ name: file.name, source: { kind: "file", file } });
+        },
+      });
+      return;
+    }
+
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission required", "Allow media library access to select a logo image.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: false,
+    });
+    if (result.canceled || !result.assets[0]) return;
+    const asset = result.assets[0];
+    const mime = asset.mimeType ?? "";
+    const name = asset.fileName ?? "logo.png";
+    if (!mime.includes("png") && !name.toLowerCase().endsWith(".png")) {
+      Alert.alert("PNG only", "Logo must be a transparent PNG file.");
+      return;
+    }
+    setLogo({
+      name,
+      source: { kind: "uri", uri: asset.uri, mime: mime || "image/png" },
     });
   }
 
@@ -381,14 +583,24 @@ export default function AIEditIndexScreen() {
       const videoUrls: string[] = [];
       for (let i = 0; i < videos.length; i++) {
         setUploadProgress(`Uploading video ${i + 1} of ${videos.length}…`);
-        const url = await uploadToR2(videos[i].file);
-        videoUrls.push(url);
+        const v = videos[i];
+        if (v.source.kind === "remoteUrl") {
+          videoUrls.push(v.source.url);
+        } else if (v.source.kind === "file") {
+          videoUrls.push(await uploadToR2(v.source.file));
+        } else {
+          videoUrls.push(await uploadToR2FromNativeUri(v.source.uri, v.name, v.source.mime));
+        }
       }
 
       let logoUrl: string | undefined;
       if (logo) {
         setUploadProgress("Uploading logo…");
-        logoUrl = await uploadToR2(logo.file);
+        if (logo.source.kind === "file") {
+          logoUrl = await uploadToR2(logo.source.file);
+        } else {
+          logoUrl = await uploadToR2FromNativeUri(logo.source.uri, logo.name, logo.source.mime);
+        }
       }
 
       const spec = buildOrderVideoSpec({
