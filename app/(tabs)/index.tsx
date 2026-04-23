@@ -32,12 +32,12 @@ const PANEL_W = IS_LARGE_WEB
   ? Math.min(300, Math.round((SCREEN_W - 80) / 4))
   : Math.round(SCREEN_W * 0.72);
 const MENTOR_W = 200;
-const ANNOUNCE_W = Platform.OS === "web" ? Math.min(HERO_CARD_W - 32, 440) : Math.max(SCREEN_W - 32, 300);
 const PAID_HERO_H = Platform.OS === "web"
   ? Math.min(Math.round(SCREEN_W * 0.65), 420)
   : Math.min(Math.round(SCREEN_W * 0.65), 380);
 // Hero card width: on web the app container is capped at 500px; on native use full screen width
 const HERO_CARD_W = Platform.OS === "web" ? Math.min(SCREEN_W, 500) : SCREEN_W;
+const ANNOUNCE_W = Platform.OS === "web" ? Math.min(HERO_CARD_W - 32, 440) : Math.max(SCREEN_W - 32, 300);
 
 /** Prevent black thumbnails from empty/relative media URLs in production. */
 const FALLBACK_VIDEO_THUMB =
