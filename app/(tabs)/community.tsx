@@ -22,14 +22,6 @@ import { MetallicLine } from "@/components/MetallicLine";
 import { AppLogo } from "@/components/AppLogo";
 import { useQuery } from "@tanstack/react-query";
 
-const GENRES = [
-  { id: "pop", name: "Pop", icon: "musical-note-outline" as const, count: 1204, color: "#FF4081" },
-  { id: "rock", name: "Rock", icon: "flash-outline" as const, count: 876, color: "#FF6B35" },
-  { id: "hiphop", name: "Hip-Hop", icon: "mic-outline" as const, count: 942, color: C.accent },
-  { id: "edm", name: "EDM", icon: "radio-outline" as const, count: 642, color: "#7B2FFF" },
-  { id: "ai", name: "AI Music", icon: "hardware-chip-outline" as const, count: 389, color: "#00BFA5" },
-];
-
 type CommunityRow = {
   id: number;
   name: string;
@@ -38,6 +30,11 @@ type CommunityRow = {
   online?: boolean;
   category?: string;
   isOfficial?: boolean;
+};
+
+type OfficialWithChildren = {
+  official: CommunityRow;
+  children: CommunityRow[];
 };
 
 function formatNum(n: number): string {
@@ -144,15 +141,48 @@ export default function CommunityScreen() {
     };
   }, [apiCommunities]);
 
+  const { officialWithChildren, unassignedChildren } = useMemo(() => {
+    const normalize = (v: unknown) => String(v ?? "").trim().toLowerCase();
+    const hubs = sortedOfficial;
+    const children = sortedRest;
+    const used = new Set<number>();
+
+    const grouped: OfficialWithChildren[] = hubs.map((official) => {
+      const officialCategory = normalize(official.category);
+      const matched = children.filter((child) => {
+        const childCategory = normalize(child.category);
+        if (!officialCategory || !childCategory) return false;
+        const hit = childCategory.includes(officialCategory) || officialCategory.includes(childCategory);
+        if (hit) used.add(child.id);
+        return hit;
+      });
+      return { official, children: matched };
+    });
+
+    const unassigned = children.filter((c) => !used.has(c.id));
+    return { officialWithChildren: grouped, unassignedChildren: unassigned };
+  }, [sortedOfficial, sortedRest]);
+
   const { data: rankedApiVideos = [], isLoading: rankedLoading } = useQuery<any[]>({
     queryKey: ["/api/videos/ranked"],
   });
 
   const purchaseData = rankedApiVideos;
 
-  const filteredGenres = search
-    ? GENRES.filter((g) => g.name.includes(search))
-    : GENRES;
+  const query = search.trim().toLowerCase();
+  const filteredOfficialWithChildren = useMemo(() => {
+    if (!query) return officialWithChildren;
+    return officialWithChildren
+      .map((g) => ({
+        official: g.official,
+        children: g.children.filter((c) => c.name.toLowerCase().includes(query)),
+      }))
+      .filter((g) => g.official.name.toLowerCase().includes(query) || g.children.length > 0);
+  }, [officialWithChildren, query]);
+  const filteredUnassigned = useMemo(() => {
+    if (!query) return unassignedChildren;
+    return unassignedChildren.filter((c) => c.name.toLowerCase().includes(query));
+  }, [unassignedChildren, query]);
 
   return (
     <View style={[styles.container, { paddingBottom: bottomInset }]}>
@@ -186,29 +216,9 @@ export default function CommunityScreen() {
       </View>
 
       <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
-        <View style={styles.section}>
-          <View style={[styles.sectionHeader, styles.sectionHeaderFirst]}>
-            <View style={styles.sectionAccent} />
-            <Text style={styles.sectionTitle}>Browse by Genre</Text>
-          </View>
-          <View style={styles.genreGrid}>
-            {filteredGenres.map((genre) => (
-              <Pressable
-                key={genre.id}
-                style={[styles.genreChip, { borderColor: genre.color + "55" }]}
-                onPress={() => router.push(`/community/genre/${genre.id}`)}
-              >
-                <Ionicons name={genre.icon} size={18} color={genre.color} />
-                <Text style={[styles.genreChipText, { color: genre.color }]}>{genre.name}</Text>
-                <Text style={styles.genreChipCount}>{formatNum(genre.count)}</Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-
         {sortedOfficial.length > 0 ? (
           <View style={styles.section}>
-            <View style={styles.sectionHeader}>
+            <View style={[styles.sectionHeader, styles.sectionHeaderFirst]}>
               <View style={styles.sectionAccent} />
               <Text style={styles.sectionTitle}>Official hubs</Text>
             </View>
@@ -229,20 +239,37 @@ export default function CommunityScreen() {
           </View>
         ) : null}
 
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionAccent} />
-            <Text style={styles.sectionTitle}>
-              {sortedOfficial.length > 0 ? "More communities" : "Top communities"}
-            </Text>
+        {filteredOfficialWithChildren.map(({ official, children }) => (
+          <View style={styles.section} key={`official-children-${official.id}`}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionAccent} />
+              <Text style={styles.sectionTitle}>{official.name} communities</Text>
+            </View>
+            {children.length === 0 ? (
+              <Text style={styles.emptyInline}>No child communities yet</Text>
+            ) : (
+              <FlatList
+                data={children}
+                keyExtractor={(item) => String(item.id)}
+                horizontal
+                showsHorizontalScrollIndicator={scrollShowsHorizontal}
+                contentContainerStyle={styles.hList}
+                renderItem={({ item, index }) => (
+                  <CommunityRankCard item={item} index={index} />
+                )}
+              />
+            )}
           </View>
-          {communitiesLoading ? (
-            <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
-          ) : sortedAll.length === 0 ? (
-            <Text style={styles.emptyInline}>No communities yet</Text>
-          ) : (
+        ))}
+
+        {filteredUnassigned.length > 0 ? (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionAccent} />
+              <Text style={styles.sectionTitle}>Independent communities</Text>
+            </View>
             <FlatList
-              data={sortedOfficial.length > 0 ? sortedRest : sortedAll}
+              data={filteredUnassigned}
               keyExtractor={(item) => String(item.id)}
               horizontal
               showsHorizontalScrollIndicator={scrollShowsHorizontal}
@@ -251,8 +278,12 @@ export default function CommunityScreen() {
                 <CommunityRankCard item={item} index={index} />
               )}
             />
-          )}
-        </View>
+          </View>
+        ) : null}
+
+        {!communitiesLoading && sortedAll.length === 0 ? (
+          <Text style={styles.emptyInline}>No communities yet</Text>
+        ) : null}
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -360,30 +391,6 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { color: C.text, fontSize: 15, fontWeight: "700" },
   sectionHeaderFirst: { marginTop: 12 },
-  genreGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    paddingHorizontal: 16,
-    gap: 8,
-  },
-  genreChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: C.surface,
-    borderRadius: 3,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderWidth: 1,
-  },
-  genreChipText: {
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  genreChipCount: {
-    color: C.textMuted,
-    fontSize: 11,
-  },
   hList: {
     paddingHorizontal: 16,
     gap: 10,

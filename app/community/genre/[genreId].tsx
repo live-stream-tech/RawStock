@@ -122,6 +122,14 @@ export default function GenreScreen() {
     );
   }
 
+  // Genre pages are deprecated: communities are now organized under official hubs.
+  React.useEffect(() => {
+    const t = setTimeout(() => {
+      router.replace("/(tabs)/community" as any);
+    }, 1500);
+    return () => clearTimeout(t);
+  }, []);
+
   return (
     <View style={[styles.container, { paddingBottom: bottomInset }]}>
       <View style={[styles.header, { paddingTop: topInset + 12 }]}>
@@ -137,6 +145,12 @@ export default function GenreScreen() {
       </View>
 
       <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
+        <View style={styles.deprecatedBanner}>
+          <Ionicons name="information-circle-outline" size={18} color={C.accent} />
+          <Text style={styles.deprecatedBannerText}>
+            Genre pages are deprecated. Browse communities under Official hubs.
+          </Text>
+        </View>
         <Pressable style={[styles.bannerAd, { backgroundColor: ad.bg }]}>
           <View style={styles.adPrBadge}>
             <Text style={styles.adPrText}>PR</Text>
@@ -224,6 +238,20 @@ const styles = StyleSheet.create({
   headerTitle: { flexDirection: "row", alignItems: "center", gap: 8 },
   headerText: { color: C.text, fontSize: 18, fontWeight: "700" },
   scroll: { flex: 1 },
+  deprecatedBanner: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: C.accent + "44",
+    backgroundColor: C.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  deprecatedBannerText: { color: C.textSec, fontSize: 12, flex: 1 },
   bannerAd: {
     flexDirection: "row",
     alignItems: "center",
