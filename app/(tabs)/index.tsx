@@ -32,6 +32,7 @@ const PANEL_W = IS_LARGE_WEB
   ? Math.min(300, Math.round((SCREEN_W - 80) / 4))
   : Math.round(SCREEN_W * 0.72);
 const MENTOR_W = 200;
+const ANNOUNCE_W = Platform.OS === "web" ? Math.min(HERO_CARD_W - 32, 440) : Math.max(SCREEN_W - 32, 300);
 const PAID_HERO_H = Platform.OS === "web"
   ? Math.min(Math.round(SCREEN_W * 0.65), 420)
   : Math.min(Math.round(SCREEN_W * 0.65), 380);
@@ -245,14 +246,22 @@ function LiveCard({ item }: { item: any }) {
 
 function AnnouncementCard({ item }: { item: any }) {
   const flyer = parseThreadBody(item.body).flyerImageUrl;
+  const [flyerLoadError, setFlyerLoadError] = React.useState(false);
+  const showFlyer = !!flyer && !flyerLoadError;
   return (
     <Pressable
       style={styles.announceCard}
       onPress={() => router.push(`/community/${item.communityId}?tab=Board&openThread=${item.id}` as any)}
     >
       <View style={styles.announceThumbWrap}>
-        {flyer ? (
-          <Image source={{ uri: resolveVideoMediaUri(flyer) }} style={styles.announceThumb} contentFit="cover" cachePolicy="memory-disk" />
+        {showFlyer ? (
+          <Image
+            source={{ uri: resolveVideoMediaUri(flyer) }}
+            style={styles.announceThumb}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            onError={() => setFlyerLoadError(true)}
+          />
         ) : (
           <View style={styles.announceThumbPlaceholder}>
             <Text style={styles.announceThumbPlaceholderText}>No flyer image</Text>
@@ -900,7 +909,7 @@ const styles = StyleSheet.create({
   },
   viewerText: { color: "#fff", fontSize: 10, fontFamily: F.mono },
   liveInfo: { paddingHorizontal: 10, paddingVertical: 8, gap: 4, backgroundColor: C.surface },
-  announceCard: { width: 260, overflow: "hidden", backgroundColor: C.surface },
+  announceCard: { width: ANNOUNCE_W, overflow: "hidden", backgroundColor: C.surface },
   announceThumbWrap: { position: "relative", overflow: "hidden", aspectRatio: 3 / 4, backgroundColor: "#000" },
   announceThumb: { width: "100%", height: "100%", backgroundColor: "#000" },
   announceThumbPlaceholder: {
@@ -916,7 +925,7 @@ const styles = StyleSheet.create({
   announceTitle: { color: "#fff", fontSize: 12, fontWeight: "700", lineHeight: 16 },
   announceCommunityMini: { color: "rgba(255,255,255,0.82)", fontSize: 10, fontFamily: F.mono },
   announceEmptyCard: {
-    width: 260,
+    width: ANNOUNCE_W,
     height: 160,
     borderRadius: 2,
     borderWidth: 1,
