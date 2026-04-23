@@ -882,17 +882,55 @@ export default function CommunityDetailScreen() {
   });
 
   const timelineVideos = useMemo(() => {
+    const videos = apiVideos as any[];
+    if (isOfficialCommunity) {
+      const category = String(apiCommunity?.category ?? "").trim().toLowerCase();
+      if (!category) return [];
+      const childIds = new Set(
+        (allCommunities as any[])
+          .filter((c) => !c.isOfficial)
+          .filter((c) => {
+            const cc = String(c.category ?? "").trim().toLowerCase();
+            return cc.includes(category) || category.includes(cc);
+          })
+          .map((c) => Number(c.id))
+          .filter((n) => Number.isFinite(n) && n > 0),
+      );
+      return videos
+        .filter((v) => v.visibility === "community")
+        .filter((v) => childIds.has(Number(v.communityId)))
+        .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
+    }
     const name = apiCommunity?.name;
     if (!name) return [];
-    return (apiVideos as any[]).filter((v) => v.community === name);
-  }, [apiVideos, apiCommunity?.name]);
+    return videos.filter((v) => v.community === name);
+  }, [apiVideos, apiCommunity?.name, apiCommunity?.category, isOfficialCommunity, allCommunities]);
   const communityRankedVideos = useMemo(() => {
+    if (isOfficialCommunity) {
+      const category = String(apiCommunity?.category ?? "").trim().toLowerCase();
+      if (!category) return [];
+      const childIds = new Set(
+        (allCommunities as any[])
+          .filter((c) => !c.isOfficial)
+          .filter((c) => {
+            const cc = String(c.category ?? "").trim().toLowerCase();
+            return cc.includes(category) || category.includes(cc);
+          })
+          .map((c) => Number(c.id))
+          .filter((n) => Number.isFinite(n) && n > 0),
+      );
+      const rankedByChildren = (rankedVideos as any[])
+        .filter((v) => childIds.has(Number(v.communityId)))
+        .sort((a, b) => (b.views ?? 0) - (a.views ?? 0));
+      if (rankedByChildren.length > 0) return rankedByChildren;
+      return [...timelineVideos].sort((a, b) => (b.views ?? 0) - (a.views ?? 0));
+    }
     const name = apiCommunity?.name;
     if (!name) return [];
     const byCommunity = (rankedVideos as any[]).filter((v) => v.community === name);
     if (byCommunity.length > 0) return byCommunity;
     return [...timelineVideos].sort((a, b) => (b.views ?? 0) - (a.views ?? 0));
-  }, [rankedVideos, timelineVideos, apiCommunity?.name]);
+  }, [rankedVideos, timelineVideos, apiCommunity?.name, apiCommunity?.category, isOfficialCommunity, allCommunities]);
   const childCommunities = useMemo(() => {
     if (!isOfficialCommunity) return [] as any[];
     const category = String(apiCommunity?.category ?? "").trim().toLowerCase();
