@@ -23,7 +23,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
 import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/layout";
-import { apiRequest, getApiUrl } from "@/lib/query-client";
+import { apiRequest, getApiUrl, readAuthToken } from "@/lib/query-client";
 import { AppLogo } from "@/components/AppLogo";
 import { MetallicLine } from "@/components/MetallicLine";
 import { CreatorPromoBanner } from "@/components/CreatorPromoBanner";
@@ -344,10 +344,12 @@ export default function ProfileScreen() {
 
   async function uploadAvatarFileWeb(file: File): Promise<string> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (token) headers.Authorization = `Bearer ${token}`;
+    const authToken = token ?? (await readAuthToken());
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
     const res = await fetch(new URL("/api/upload-url", getApiUrl()).toString(), {
       method: "POST",
       headers,
+      credentials: "include",
       body: JSON.stringify({
         fileName: file.name,
         contentType: file.type || "application/octet-stream",
@@ -358,6 +360,7 @@ export default function ProfileScreen() {
     const putRes = await fetch(uploadUrl, {
       method: "PUT",
       headers: { "Content-Type": file.type || "application/octet-stream" },
+      credentials: "omit",
       body: file,
     });
     if (!putRes.ok) throw new Error("Failed to upload avatar");
@@ -389,18 +392,56 @@ export default function ProfileScreen() {
           const input = document.createElement("input");
           input.type = "file";
           input.accept = "image/*";
+          let settled = false;
+          const settle = () => {
+            if (settled) return;
+            settled = true;
+            window.removeEventListener("focus", onWindowFocus);
+            clearTimeout(safetyTimer);
+          };
+          const onWindowFocus = () => {
+            // Canceling the file dialog returns focus without firing change.
+            setTimeout(() => {
+              if (settled) return;
+              if (!input.files?.length) {
+                settle();
+                resolve();
+              }
+            }, 200);
+          };
+          const safetyTimer = setTimeout(() => {
+            if (settled) return;
+            settle();
+            resolve();
+          }, 120_000);
+          input.addEventListener(
+            "cancel",
+            () => {
+              settle();
+              resolve();
+            },
+            { once: true },
+          );
+          // Defer focus listener: opening the picker blurs the window; attaching immediately can false-cancel.
+          setTimeout(() => {
+            if (settled) return;
+            window.addEventListener("focus", onWindowFocus);
+          }, 400);
           input.onchange = async (e: Event) => {
             try {
               const target = e.target as HTMLInputElement;
               const file = target.files?.[0];
               if (!file) {
+                settle();
                 resolve();
                 return;
               }
+              settle();
               const uploadedUrl = await uploadAvatarFileWeb(file);
               setEditAvatar(uploadedUrl);
               resolve();
             } catch (err) {
+              settle();
               reject(err);
             }
           };

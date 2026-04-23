@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Alert, Platform } from "react-native";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, readAuthToken } from "@/lib/query-client";
 import { saveLoginReturn } from "@/lib/login-return";
 import { router } from "expo-router";
 import { debugIngestLocal } from "@/lib/debugIngest";
@@ -230,7 +230,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const updateProfile = useCallback(async (data: Partial<Pick<User, "name" | "bio" | "avatar" | "spotifyUrl" | "appleMusicUrl" | "bandcampUrl" | "instagramUrl" | "youtubeUrl" | "xUrl" | "phoneNumber">> & { pinnedCommunityIds?: number[] | null }) => {
-    const t = await AsyncStorage.getItem(TOKEN_KEY);
+    const t = await readAuthToken();
+    if (!t) throw new Error("Not authenticated");
     const payload: Record<string, string | null | number[]> = {};
     if (data.name !== undefined) payload.name = data.name;
     if (data.bio !== undefined) payload.bio = data.bio;
@@ -290,7 +291,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const acceptPolicies = useCallback(async () => {
-    const t = await AsyncStorage.getItem(TOKEN_KEY);
+    const t = await readAuthToken();
     if (!t) return;
     await apiFetch("/api/auth/accept-policies", {
       method: "POST",

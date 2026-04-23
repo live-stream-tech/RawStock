@@ -1418,7 +1418,13 @@ export async function registerRoutes(app: Express): Promise<void> {
     };
     const newName = name ?? displayName ?? user.displayName;
     const newBio = bio ?? user.bio;
-    const newAvatar = avatar ?? profileImageUrl ?? user.profileImageUrl;
+    // Respect explicit null (clear avatar). `avatar ?? …` would incorrectly fall through when clearing.
+    const newAvatar =
+      avatar !== undefined
+        ? avatar
+        : profileImageUrl !== undefined
+          ? profileImageUrl
+          : user.profileImageUrl;
     const newPhone = phoneNumber !== undefined ? (phoneNumber?.trim() || null) : undefined;
     const pinnedJson =
       pinnedCommunityIds !== undefined
@@ -2101,6 +2107,17 @@ export async function registerRoutes(app: Express): Promise<void> {
     edm: ["EDM", "Electronic", "House", "DJ"],
     ai: ["AI", "Generative", "Suno", "Instrumental"],
   };
+  const OFFICIAL_DISTRICT_MIN_MEMBERS = 10_000;
+  const normalizeCommunityRow = (row: InferSelectModel<typeof communities>) => {
+    const isOfficial = !!(row as any).isOfficial;
+    const members = Number((row as any).members ?? 0);
+    return {
+      ...row,
+      isOfficial,
+      members: isOfficial ? Math.max(OFFICIAL_DISTRICT_MIN_MEMBERS, members) : members,
+    };
+  };
+
   app.get("/api/communities", async (req: Request, res: Response) => {
     const genreId = queryStr(req, "genre");
     let rows: InferSelectModel<typeof communities>[] = [];
@@ -2127,7 +2144,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         terms.some((t) => (r.category ?? "").includes(t))
       );
     }
-    const normalized = rows.map((r) => ({ ...r, isOfficial: !!(r as any).isOfficial }));
+    const normalized = rows.map(normalizeCommunityRow);
     res.json(normalized);
   });
 
@@ -2166,7 +2183,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       }
     }
 
-    const normalized = rows.map((r) => ({ ...r, isOfficial: !!(r as any).isOfficial }));
+    const normalized = rows.map(normalizeCommunityRow);
     res.json(normalized);
   });
 
@@ -2174,7 +2191,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const id = paramNum(req, "id");
     const [row] = await db.select().from(communities).where(eq(communities.id, id));
     if (!row) return res.status(404).json({ message: "Not found" });
-    res.json(row);
+    res.json(normalizeCommunityRow(row));
   });
 
   // ── Video Editors ───────────────────────────────────────────────────

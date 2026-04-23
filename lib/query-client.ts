@@ -155,7 +155,7 @@ export function formatUserFacingApiError(err: unknown): string {
   return "Something went wrong. Please try again.";
 }
 
-async function readAuthToken(): Promise<string | null> {
+export async function readAuthToken(): Promise<string | null> {
   try {
     const token = await AsyncStorage.getItem("auth_token");
     if (token) return token;
