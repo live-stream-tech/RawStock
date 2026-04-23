@@ -24,19 +24,6 @@ import { webScrollStyle } from "@/constants/layout";
 import { AppLogo } from "@/components/AppLogo";
 import { getCommunityDefaultAssets } from "@/lib/community-default-assets";
 
-const SUGGESTED_CATEGORIES = [
-  "Pop",
-  "Rock",
-  "Hip-Hop",
-  "EDM",
-  "AI Music",
-  "J-Pop",
-  "R&B",
-  "Jazz",
-  "Indie",
-  "Metal",
-];
-
 export default function CreateCommunityScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
@@ -48,7 +35,6 @@ export default function CreateCommunityScreen() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
-  const [categoryInput, setCategoryInput] = useState("");
   const [creating, setCreating] = useState(false);
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [consentAgreed, setConsentAgreed] = useState(false);
@@ -88,29 +74,7 @@ export default function CreateCommunityScreen() {
     }
   }
 
-  function toggleCategory(cat: string) {
-    const trimmed = cat.trim();
-    if (!trimmed) return;
-    if (selectedCategories.includes(trimmed)) {
-      setSelectedCategories(selectedCategories.filter((c) => c !== trimmed));
-    } else {
-      setSelectedCategories([...selectedCategories, trimmed]);
-    }
-  }
-
-  function addCategoryFromInput() {
-    const trimmed = categoryInput.trim();
-    if (!trimmed) return;
-    if (!selectedCategories.includes(trimmed)) {
-      setSelectedCategories([...selectedCategories, trimmed]);
-    }
-    setCategoryInput("");
-  }
-
-  const canSubmit =
-    name.trim().length > 0 &&
-    description.trim().length >= 10 &&
-    selectedCategories.length > 0;
+  const canSubmit = name.trim().length > 0 && description.trim().length >= 10;
 
   function openConsentModal() {
     if (!canSubmit || creating) return;
@@ -124,7 +88,7 @@ export default function CreateCommunityScreen() {
     setCreating(true);
 
     try {
-      const primaryCategory = selectedCategories[0];
+      const primaryCategory = "General";
       const defaults = getCommunityDefaultAssets(primaryCategory);
       const bannerUrl = bannerUri ?? defaults.bannerUrl;
       const iconUrl = iconUri ?? defaults.iconUrl;
@@ -134,7 +98,7 @@ export default function CreateCommunityScreen() {
         description: description.trim(),
         bannerUrl,
         iconUrl,
-        categories: selectedCategories,
+        categories: [primaryCategory],
         primaryCategory,
       });
       const newCommunity = await res.json();
@@ -246,68 +210,6 @@ export default function CreateCommunityScreen() {
           </Text>
         </View>
 
-        {/* Category selection */}
-        <View style={styles.section}>
-          <Text style={styles.label}>
-            Category <Text style={styles.required}>*</Text>
-          </Text>
-          <Text style={styles.hint}>Select one or more, or add your own</Text>
-
-          <View style={styles.chipRow}>
-            {SUGGESTED_CATEGORIES.map((cat) => {
-              const active = selectedCategories.includes(cat);
-              return (
-                <Pressable
-                  key={cat}
-                  style={[styles.chip, active && styles.chipActive]}
-                  onPress={() => toggleCategory(cat)}
-                >
-                  <Text style={[styles.chipText, active && styles.chipTextActive]}>{cat}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          <View style={styles.addCategoryRow}>
-            <TextInput
-              style={[styles.input, styles.categoryInput]}
-              placeholder="Add a genre (e.g. Trap, Lofi...)"
-              placeholderTextColor={C.textMuted}
-              value={categoryInput}
-              onChangeText={setCategoryInput}
-              onSubmitEditing={addCategoryFromInput}
-            />
-            <Pressable
-              style={[
-                styles.addCategoryBtn,
-                !categoryInput.trim() && styles.addCategoryBtnDisabled,
-              ]}
-              onPress={addCategoryFromInput}
-              disabled={!categoryInput.trim()}
-            >
-              <Ionicons name="add" size={18} color="#fff" />
-            </Pressable>
-          </View>
-
-          {selectedCategories.length > 0 && (
-            <View style={styles.selectedWrap}>
-              <Text style={styles.selectedLabel}>Selected categories</Text>
-              <View style={styles.selectedChips}>
-                {selectedCategories.map((cat) => (
-                  <Pressable
-                    key={cat}
-                    style={styles.selectedChip}
-                    onPress={() => toggleCategory(cat)}
-                  >
-                    <Text style={styles.selectedChipText}>{cat}</Text>
-                    <Ionicons name="close" size={14} color={C.textSec} />
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-          )}
-        </View>
-
         {/* Consent confirmation modal */}
         <Modal visible={showConsentModal} transparent animationType="fade">
           <Pressable style={styles.consentModalOverlay} onPress={() => setShowConsentModal(false)}>
@@ -365,7 +267,7 @@ export default function CreateCommunityScreen() {
           </Pressable>
           {!canSubmit && (
             <Text style={styles.submitHint}>
-              Enter a name, at least one category, and a description (10+ characters)
+              コミュニティ名と説明（10文字以上）を入力してください
             </Text>
           )}
         </View>
@@ -483,78 +385,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     textAlign: "right",
     marginTop: 4,
-  },
-  chipRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 8,
-  },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 18,
-    backgroundColor: C.surface,
-    borderWidth: 1.5,
-    borderColor: C.border,
-  },
-  chipActive: {
-    backgroundColor: "rgba(41,182,207,0.12)",
-    borderColor: C.accent,
-  },
-  chipText: {
-    color: C.textSec,
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  chipTextActive: {
-    color: C.accent,
-  },
-  addCategoryRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 12,
-    gap: 8,
-  },
-  categoryInput: {
-    flex: 1,
-  },
-  addCategoryBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: C.accent,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  addCategoryBtnDisabled: {
-    backgroundColor: C.surface3,
-  },
-  selectedWrap: {
-    marginTop: 12,
-    gap: 6,
-  },
-  selectedLabel: {
-    color: C.textSec,
-    fontSize: 12,
-  },
-  selectedChips: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  selectedChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: C.surface2,
-  },
-  selectedChipText: {
-    color: C.text,
-    fontSize: 12,
   },
   submitSection: {
     marginHorizontal: 16,

@@ -32,11 +32,6 @@ type CommunityRow = {
   isOfficial?: boolean;
 };
 
-type OfficialWithChildren = {
-  official: CommunityRow;
-  children: CommunityRow[];
-};
-
 function formatNum(n: number): string {
   if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
   if (n >= 1000) return (n / 1000).toFixed(1) + "K";
@@ -141,28 +136,6 @@ export default function CommunityScreen() {
     };
   }, [apiCommunities]);
 
-  const { officialWithChildren, unassignedChildren } = useMemo(() => {
-    const normalize = (v: unknown) => String(v ?? "").trim().toLowerCase();
-    const hubs = sortedOfficial;
-    const children = sortedRest;
-    const used = new Set<number>();
-
-    const grouped: OfficialWithChildren[] = hubs.map((official) => {
-      const officialCategory = normalize(official.category);
-      const matched = children.filter((child) => {
-        const childCategory = normalize(child.category);
-        if (!officialCategory || !childCategory) return false;
-        const hit = childCategory.includes(officialCategory) || officialCategory.includes(childCategory);
-        if (hit) used.add(child.id);
-        return hit;
-      });
-      return { official, children: matched };
-    });
-
-    const unassigned = children.filter((c) => !used.has(c.id));
-    return { officialWithChildren: grouped, unassignedChildren: unassigned };
-  }, [sortedOfficial, sortedRest]);
-
   const { data: rankedApiVideos = [], isLoading: rankedLoading } = useQuery<any[]>({
     queryKey: ["/api/videos/ranked"],
   });
@@ -170,19 +143,14 @@ export default function CommunityScreen() {
   const purchaseData = rankedApiVideos;
 
   const query = search.trim().toLowerCase();
-  const filteredOfficialWithChildren = useMemo(() => {
-    if (!query) return officialWithChildren;
-    return officialWithChildren
-      .map((g) => ({
-        official: g.official,
-        children: g.children.filter((c) => c.name.toLowerCase().includes(query)),
-      }))
-      .filter((g) => g.official.name.toLowerCase().includes(query) || g.children.length > 0);
-  }, [officialWithChildren, query]);
-  const filteredUnassigned = useMemo(() => {
-    if (!query) return unassignedChildren;
-    return unassignedChildren.filter((c) => c.name.toLowerCase().includes(query));
-  }, [unassignedChildren, query]);
+  const filteredOfficial = useMemo(() => {
+    if (!query) return sortedOfficial;
+    return sortedOfficial.filter((c) => c.name.toLowerCase().includes(query));
+  }, [sortedOfficial, query]);
+  const filteredRest = useMemo(() => {
+    if (!query) return sortedRest;
+    return sortedRest.filter((c) => c.name.toLowerCase().includes(query));
+  }, [sortedRest, query]);
 
   return (
     <View style={[styles.container, { paddingBottom: bottomInset }]}>
@@ -190,20 +158,12 @@ export default function CommunityScreen() {
         <AppLogo height={36} />
       </View>
       <MetallicLine thickness={1} style={{ marginHorizontal: 16 }} />
-      <Pressable style={styles.globalAnnounceCta} onPress={() => router.push("/live-announcements")}>
-        <Ionicons name="earth-outline" size={22} color={C.accent} />
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={styles.globalAnnounceTitle}>Global live announcements</Text>
-          <Text style={styles.globalAnnounceSub}>Browse board posts across communities · tap to open</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={20} color={C.textMuted} />
-      </Pressable>
       <View style={styles.searchRow}>
         <View style={styles.searchWrap}>
           <Ionicons name="search-outline" size={16} color={C.textMuted} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search communities"
+            placeholder="公式・コミュニティを検索"
             placeholderTextColor={C.textMuted}
             value={search}
             onChangeText={setSearch}
@@ -216,74 +176,59 @@ export default function CommunityScreen() {
       </View>
 
       <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
-        {sortedOfficial.length > 0 ? (
-          <View style={styles.section}>
-            <View style={[styles.sectionHeader, styles.sectionHeaderFirst]}>
-              <View style={styles.sectionAccent} />
-              <Text style={styles.sectionTitle}>Community hubs</Text>
-            </View>
-            {communitiesLoading ? (
-              <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
-            ) : (
-              <FlatList
-                data={sortedOfficial}
-                keyExtractor={(item) => String(item.id)}
-                horizontal
-                showsHorizontalScrollIndicator={scrollShowsHorizontal}
-                contentContainerStyle={styles.hList}
-                renderItem={({ item, index }) => (
-                  <CommunityRankCard item={item} index={index} />
-                )}
-              />
-            )}
+        <View style={styles.section}>
+          <View style={[styles.sectionHeader, styles.sectionHeaderFirst]}>
+            <View style={styles.sectionAccent} />
+            <Text style={styles.sectionTitle}>公式一覧</Text>
           </View>
-        ) : null}
-
-        {filteredOfficialWithChildren.map(({ official, children }) => (
-          <View style={styles.section} key={`official-children-${official.id}`}>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionAccent} />
-              <Text style={styles.sectionTitle}>{official.name} communities</Text>
-            </View>
-            {children.length === 0 ? (
-              <Text style={styles.emptyInline}>No communities yet</Text>
-            ) : (
-              <FlatList
-                data={children}
-                keyExtractor={(item) => String(item.id)}
-                horizontal
-                showsHorizontalScrollIndicator={scrollShowsHorizontal}
-                contentContainerStyle={styles.hList}
-                renderItem={({ item, index }) => (
-                  <CommunityRankCard item={item} index={index} />
-                )}
-              />
-            )}
-          </View>
-        ))}
-
-        {filteredUnassigned.length > 0 ? (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionAccent} />
-              <Text style={styles.sectionTitle}>Other communities</Text>
-            </View>
+          {communitiesLoading ? (
+            <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
+          ) : filteredOfficial.length === 0 ? (
+            <Text style={styles.emptyInline}>
+              {query ? "検索に一致する公式コミュニティはありません" : "公式コミュニティはまだありません"}
+            </Text>
+          ) : (
             <FlatList
-              data={filteredUnassigned}
+              data={filteredOfficial}
               keyExtractor={(item) => String(item.id)}
               horizontal
               showsHorizontalScrollIndicator={scrollShowsHorizontal}
               contentContainerStyle={styles.hList}
-              renderItem={({ item, index }) => (
-                <CommunityRankCard item={item} index={index} />
-              )}
+              renderItem={({ item, index }) => <CommunityRankCard item={item} index={index} />}
             />
-          </View>
-        ) : null}
+          )}
+        </View>
 
-        {!communitiesLoading && sortedAll.length === 0 ? (
-          <Text style={styles.emptyInline}>No communities yet</Text>
-        ) : null}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionAccent} />
+            <Text style={styles.sectionTitle}>コミュニティ</Text>
+          </View>
+          {communitiesLoading ? (
+            <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
+          ) : filteredRest.length === 0 ? (
+            <Text style={styles.emptyInline}>
+              {query ? "検索に一致するコミュニティはありません" : "コミュニティはまだありません"}
+            </Text>
+          ) : (
+            <FlatList
+              data={filteredRest}
+              keyExtractor={(item) => String(item.id)}
+              horizontal
+              showsHorizontalScrollIndicator={scrollShowsHorizontal}
+              contentContainerStyle={styles.hList}
+              renderItem={({ item, index }) => <CommunityRankCard item={item} index={index} />}
+            />
+          )}
+        </View>
+
+        <View style={styles.section}>
+          <Pressable style={styles.liveAnnounceLink} onPress={() => router.push("/live-announcements" as any)}>
+            <Ionicons name="megaphone-outline" size={18} color={C.accent} />
+            <Text style={styles.liveAnnounceLinkText}>ライブ告知を横断で見る</Text>
+            <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
+          </Pressable>
+        </View>
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -314,21 +259,19 @@ export default function CommunityScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
-  globalAnnounceCta: {
+  liveAnnounceLink: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
     marginHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 4,
-    padding: 14,
-    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 8,
     backgroundColor: C.surface,
     borderWidth: 1,
-    borderColor: C.accent + "44",
+    borderColor: C.border,
   },
-  globalAnnounceTitle: { color: C.text, fontSize: 15, fontWeight: "800" },
-  globalAnnounceSub: { color: C.textMuted, fontSize: 12, marginTop: 4 },
+  liveAnnounceLinkText: { flex: 1, color: C.textSec, fontSize: 13, fontWeight: "600" },
   header: {
     flexDirection: "row",
     alignItems: "center",
