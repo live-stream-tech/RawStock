@@ -163,7 +163,7 @@ export default function CommunityScreen() {
           <Ionicons name="search-outline" size={16} color={C.textMuted} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
-            placeholder="公式・コミュニティを検索"
+            placeholder="Search official & communities"
             placeholderTextColor={C.textMuted}
             value={search}
             onChangeText={setSearch}
@@ -179,13 +179,13 @@ export default function CommunityScreen() {
         <View style={styles.section}>
           <View style={[styles.sectionHeader, styles.sectionHeaderFirst]}>
             <View style={styles.sectionAccent} />
-            <Text style={styles.sectionTitle}>公式一覧</Text>
+            <Text style={styles.sectionTitle}>Official list</Text>
           </View>
           {communitiesLoading ? (
             <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
           ) : filteredOfficial.length === 0 ? (
             <Text style={styles.emptyInline}>
-              {query ? "検索に一致する公式コミュニティはありません" : "公式コミュニティはまだありません"}
+              {query ? "No official communities match your search" : "No official communities yet"}
             </Text>
           ) : (
             <FlatList
@@ -208,7 +208,7 @@ export default function CommunityScreen() {
             <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
           ) : filteredRest.length === 0 ? (
             <Text style={styles.emptyInline}>
-              {query ? "検索に一致するコミュニティはありません" : "コミュニティはまだありません"}
+              {query ? "No communities match your search" : "No communities yet"}
             </Text>
           ) : (
             <FlatList
@@ -225,7 +225,7 @@ export default function CommunityScreen() {
         <View style={styles.section}>
           <Pressable style={styles.liveAnnounceLink} onPress={() => router.push("/live-announcements" as any)}>
             <Ionicons name="megaphone-outline" size={18} color={C.accent} />
-            <Text style={styles.liveAnnounceLinkText}>ライブ告知を横断で見る</Text>
+            <Text style={styles.liveAnnounceLinkText}>Browse live announcements</Text>
             <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
           </Pressable>
         </View>

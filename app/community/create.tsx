@@ -34,7 +34,6 @@ export default function CreateCommunityScreen() {
   const [iconUri, setIconUri] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [consentAgreed, setConsentAgreed] = useState(false);
@@ -267,7 +266,7 @@ export default function CreateCommunityScreen() {
           </Pressable>
           {!canSubmit && (
             <Text style={styles.submitHint}>
-              コミュニティ名と説明（10文字以上）を入力してください
+              Enter a community name and description (at least 10 characters)
             </Text>
           )}
         </View>

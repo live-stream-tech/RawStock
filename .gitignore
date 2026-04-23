@@ -44,13 +44,12 @@ yarn-error.*
 # Replit internal dirs (may contain secrets)
 .config/
 
-# Cursor IDE (local debug logs, MCP cache, etc.)
-.cursor/
+# Cursor IDE (local debug logs, MCP cache, etc.); project rules under .cursor/rules/ are tracked
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
 
 # Generated media (too large for git)
 attached_assets/generated_videos/
 attached_assets/generated_images/
 attached_assets/stock_images/
-
-# Cursor editor
-.cursor/

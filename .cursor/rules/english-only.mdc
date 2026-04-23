@@ -1,0 +1,10 @@
+---
+description: English-only product copy and repo-facing text in RawStock
+alwaysApply: true
+---
+
+# English-only language
+
+- All **user-visible** strings in the app (labels, placeholders, empty states, errors, `Alert` titles/bodies, section titles) MUST be **English**, unless the screen is explicitly built around i18n keys and localized bundles.
+- **Commit messages** and **PR titles/descriptions** for this repository MUST be **English**.
+- When adding or editing copy, do not mix Japanese (or other languages) into the same UI surface unless localization is the agreed approach.
