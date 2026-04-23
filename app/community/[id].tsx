@@ -30,6 +30,11 @@ import { useAuth } from "@/lib/auth";
 import { webScrollStyle } from "@/constants/layout";
 import { TranslateButton } from "@/components/TranslateButton";
 import { parseThreadBody, youtubeThumbnailFromVideoUrl } from "@/lib/parse-thread-body";
+import {
+  assertFlyerResolutionOk,
+  readImageDimensionsFromFileWeb,
+  readImageDimensionsFromUri,
+} from "@/lib/flyer-image-quality";
 import * as ImagePicker from "expo-image-picker";
 
 const MAX_ANNOUNCEMENT_FLYER_BYTES = 15 * 1024 * 1024;
@@ -987,6 +992,16 @@ export default function CommunityDetailScreen() {
           return;
         }
         try {
+          const { width, height } = await readImageDimensionsFromFileWeb(file);
+          assertFlyerResolutionOk(width, height);
+        } catch (err: unknown) {
+          Alert.alert(
+            "フライヤー画像",
+            err instanceof Error ? err.message : "画像を確認できませんでした。",
+          );
+          return;
+        }
+        try {
           setUploadingFlyer(true);
           const mime =
             file.type && /^image\/(jpeg|png|webp|gif)$/i.test(file.type) ? file.type : "image/jpeg";
@@ -1016,6 +1031,22 @@ export default function CommunityDetailScreen() {
     });
     if (result.canceled || !result.assets[0]) return;
     const asset = result.assets[0];
+    try {
+      let w = typeof asset.width === "number" ? asset.width : 0;
+      let h = typeof asset.height === "number" ? asset.height : 0;
+      if (!w || !h) {
+        const d = await readImageDimensionsFromUri(asset.uri);
+        w = d.width;
+        h = d.height;
+      }
+      assertFlyerResolutionOk(w, h);
+    } catch (err: unknown) {
+      Alert.alert(
+        "フライヤー画像",
+        err instanceof Error ? err.message : "画像を確認できませんでした。",
+      );
+      return;
+    }
     try {
       setUploadingFlyer(true);
       const mime = asset.mimeType ?? "image/jpeg";
@@ -1818,6 +1849,9 @@ export default function CommunityDetailScreen() {
             />
             {announceBoard ? (
               <View style={styles.flyerAttachBlock}>
+                <Text style={styles.flyerQualityHint}>
+                  フライヤーは公式配布の画像をダウンロードしてからアップロードしてください（短辺720px未満は不可）。スクリーンショットは劣化しやすいのでご遠慮ください。
+                </Text>
                 <Pressable
                   style={[styles.flyerAttachBtn, (uploadingFlyer || creatingThread) && styles.flyerAttachBtnDisabled]}
                   onPress={pickAnnouncementFlyer}
@@ -2862,6 +2896,12 @@ const styles = StyleSheet.create({
   createThreadSubmitBtnDisabled: { opacity: 0.5 },
   createThreadSubmitText: { color: "#fff", fontSize: 14, fontWeight: "700" },
   flyerAttachBlock: { marginTop: 10, gap: 10 },
+  flyerQualityHint: {
+    color: C.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    paddingHorizontal: 2,
+  },
   flyerAttachBtn: {
     flexDirection: "row",
     alignItems: "center",

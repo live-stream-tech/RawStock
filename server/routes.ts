@@ -109,6 +109,7 @@ import { translateText } from "./lib/translate";
 import { debugIngestServer } from "./debugIngest";
 import { LEGAL_PRIVACY_VERSION, LEGAL_TERMS_VERSION } from "../constants/legalVersions";
 import { parseThreadBody } from "../lib/parse-thread-body";
+import { diversifyAnnouncementRowsByCommunity } from "./lib/diversifyAnnouncementFeed";
 import { getCommunityDefaultAssets } from "../lib/community-default-assets";
 import { publishJukeboxEvent, redis, jukeboxChannel, subscribeJukeboxEvents } from "./redis";
 import jwt from "jsonwebtoken";
@@ -2459,7 +2460,15 @@ export async function registerRoutes(app: Express): Promise<void> {
         return !!flyer;
       });
     }
-    out = out.slice(0, limit);
+    const maxPerCommunity = Math.min(
+      50,
+      Math.max(1, parseInt(String(_req.query.maxPerCommunity ?? "2"), 10) || 2),
+    );
+    if (liveOnly) {
+      out = diversifyAnnouncementRowsByCommunity(out, limit, maxPerCommunity);
+    } else {
+      out = out.slice(0, limit);
+    }
 
     const forceLang = typeof _req.query.lang === "string" ? _req.query.lang.trim().toLowerCase() : "";
     const forceEnglish = forceLang === "en";

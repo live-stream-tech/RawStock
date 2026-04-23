@@ -10,6 +10,7 @@ import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { webScrollStyle } from "@/constants/layout";
 import { TranslateButton } from "@/components/TranslateButton";
 import { parseThreadBody } from "@/lib/parse-thread-body";
+import { resolvePublicMediaUri } from "@/lib/resolve-public-media-uri";
 
 export type GlobalAnnouncementItem = {
   id: number;
@@ -139,7 +140,11 @@ export function GlobalLiveAnnouncementsFeed({ searchQuery = "", onSearchQueryCha
               }}
             >
               <View style={styles.cardTop}>
-                <Image source={{ uri: item.communityThumbnail }} style={styles.commThumb} contentFit="cover" />
+                <Image
+                  source={{ uri: resolvePublicMediaUri(item.communityThumbnail) }}
+                  style={styles.commThumb}
+                  contentFit="cover"
+                />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={styles.commName} numberOfLines={1}>
                     {item.communityName}
@@ -162,7 +167,13 @@ export function GlobalLiveAnnouncementsFeed({ searchQuery = "", onSearchQueryCha
                 </Text>
               </View>
               {parsed.flyerImageUrl ? (
-                <Image source={{ uri: parsed.flyerImageUrl }} style={styles.cardFlyer} contentFit="cover" />
+                <Image
+                  recyclingKey={`global-flyer-${item.communityId}-${item.id}`}
+                  source={{ uri: resolvePublicMediaUri(parsed.flyerImageUrl) }}
+                  style={styles.cardFlyer}
+                  contentFit="contain"
+                  contentPosition="top"
+                />
               ) : null}
               {parsed.shortVideoUrl ? (
                 <Pressable

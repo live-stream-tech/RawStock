@@ -25,6 +25,7 @@ import { useJukeboxPulse } from "@/lib/useJukeboxPulse";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { CreatorPromoBanner } from "@/components/CreatorPromoBanner";
 import { parseThreadBody } from "@/lib/parse-thread-body";
+import { resolvePublicMediaUri as resolveVideoMediaUri } from "@/lib/resolve-public-media-uri";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 const IS_LARGE_WEB = Platform.OS === "web" && SCREEN_W > 768;
@@ -38,21 +39,6 @@ const PAID_HERO_H = Platform.OS === "web"
 // Hero card width: on web the app container is capped at 500px; on native use full screen width
 const HERO_CARD_W = Platform.OS === "web" ? Math.min(SCREEN_W, 500) : SCREEN_W;
 const ANNOUNCE_W = Platform.OS === "web" ? Math.min(HERO_CARD_W - 32, 440) : Math.max(SCREEN_W - 32, 300);
-
-/** Prevent black thumbnails from empty/relative media URLs in production. */
-const FALLBACK_VIDEO_THUMB =
-  "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=800&h=520&fit=crop";
-
-function resolveVideoMediaUri(raw: unknown): string {
-  const s = typeof raw === "string" ? raw.trim() : "";
-  if (!s) return FALLBACK_VIDEO_THUMB;
-  if (/^https?:\/\//i.test(s)) return s;
-  if (s.startsWith("//")) return `https:${s}`;
-  if (Platform.OS === "web" && typeof window !== "undefined" && s.startsWith("/")) {
-    return `${window.location.origin}${s}`;
-  }
-  return s || FALLBACK_VIDEO_THUMB;
-}
 
 function useUnreadCount() {
   const { data } = useQuery<{ count: number }>({
@@ -259,9 +245,10 @@ function AnnouncementCard({ item }: { item: any }) {
       <View style={styles.announceThumbWrap}>
         {imageUri ? (
           <Image
+            recyclingKey={`announce-flyer-${item.id}-${imageUri}`}
             source={{ uri: imageUri }}
             style={styles.announceThumb}
-            contentFit="cover"
+            contentFit="contain"
             contentPosition="top"
             cachePolicy="memory-disk"
             onError={() => {
@@ -920,8 +907,8 @@ const styles = StyleSheet.create({
   viewerText: { color: "#fff", fontSize: 10, fontFamily: F.mono },
   liveInfo: { paddingHorizontal: 10, paddingVertical: 8, gap: 4, backgroundColor: C.surface },
   announceCard: { width: ANNOUNCE_W, overflow: "hidden", backgroundColor: C.surface },
-  announceThumbWrap: { position: "relative", overflow: "hidden", aspectRatio: 16 / 9, backgroundColor: "#000" },
-  announceThumb: { width: "100%", height: "100%", backgroundColor: "#000" },
+  announceThumbWrap: { position: "relative", overflow: "hidden", aspectRatio: 16 / 9, backgroundColor: C.surface2 },
+  announceThumb: { width: "100%", height: "100%", backgroundColor: "transparent" },
   announceThumbPlaceholder: {
     width: "100%",
     height: "100%",
