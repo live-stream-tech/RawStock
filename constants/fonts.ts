@@ -2,7 +2,7 @@ import { Platform } from "react-native";
 
 /**
  * RawStock フォントシステム
- * LP (rawstock-lp.vercel.app) と統一したタイポグラフィ
+ * マーケティング LP（`public/lp-standalone.html`）と統一したタイポグラフィ
  *
  * - Display / Heading: Barlow Condensed (condensed sans-serif)
  * - Body / UI:         Courier Prime (monospace)

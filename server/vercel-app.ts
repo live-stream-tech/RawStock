@@ -37,15 +37,26 @@ import {
   RAWSTOCK_LP_STEP_IMG_SELL_PLACEHOLDER,
   RAWSTOCK_LP_STEP_IMG_SHOOT,
   RAWSTOCK_LP_STEP_IMG_SHOOT_PLACEHOLDER,
+  LP_APP_ORIGIN_PLACEHOLDER,
 } from "../lib/brand";
 import { rawstockLpRedirectUrl } from "../lib/rawstockLpSite";
 
-function injectLpMarketingHtml(html: string, canonicalUrl: string): string {
+function canonicalAppOriginFromReq(req: Request): string {
+  const forwardedProto = req.header("x-forwarded-proto");
+  const protocol = forwardedProto || req.protocol || "https";
+  const forwardedHost = req.header("x-forwarded-host");
+  const host = forwardedHost || req.get("host") || "rawstock.live";
+  return `${protocol}://${host}`;
+}
+
+function injectLpMarketingHtml(html: string, canonicalUrl: string, req: Request): string {
+  const appOrigin = canonicalAppOriginFromReq(req);
   let out = html
     .split(RAWSTOCK_LOGO_URL_PLACEHOLDER).join(RAWSTOCK_LOGO_URL)
     .split(RAWSTOCK_HERO_VIDEO_URL_PLACEHOLDER).join(RAWSTOCK_HERO_VIDEO_URL)
     .split(RAWSTOCK_HERO_POSTER_URL_PLACEHOLDER).join(RAWSTOCK_HERO_POSTER_URL)
     .split(LP_CANONICAL_URL_PLACEHOLDER).join(canonicalUrl)
+    .split(LP_APP_ORIGIN_PLACEHOLDER).join(appOrigin)
     .split(RAWSTOCK_LP_STEP_IMG_SHOOT_PLACEHOLDER).join(RAWSTOCK_LP_STEP_IMG_SHOOT)
     .split(RAWSTOCK_LP_STEP_IMG_EDIT_PLACEHOLDER).join(RAWSTOCK_LP_STEP_IMG_EDIT)
     .split(RAWSTOCK_LP_STEP_IMG_SELL_PLACEHOLDER).join(RAWSTOCK_LP_STEP_IMG_SELL)
@@ -102,13 +113,25 @@ export async function createApiApp(): Promise<express.Application> {
     res.redirect(302, target);
   });
 
+  const lpStandalonePath = path.resolve(process.cwd(), "public/lp-standalone.html");
+  app.get("/lp-static", (req: Request, res: Response) => {
+    if (!fs.existsSync(lpStandalonePath)) {
+      return res.status(404).send("lp-standalone.html not found");
+    }
+    const raw = fs.readFileSync(lpStandalonePath, "utf-8");
+    const html = injectLpMarketingHtml(raw, canonicalPageUrlFromReq(req, "/lp-static"), req);
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
+    res.status(200).send(html);
+  });
+
   const teamzPath = path.resolve(process.cwd(), "public/teamz.html");
   app.get("/teamz", (req: Request, res: Response) => {
     if (!fs.existsSync(teamzPath)) {
       return res.status(404).send("teamz.html not found");
     }
     const raw = fs.readFileSync(teamzPath, "utf-8");
-    const html = injectLpMarketingHtml(raw, canonicalPageUrlFromReq(req, "/teamz"));
+    const html = injectLpMarketingHtml(raw, canonicalPageUrlFromReq(req, "/teamz"), req);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
     res.status(200).send(html);

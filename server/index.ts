@@ -39,6 +39,7 @@ import {
   RAWSTOCK_LP_STEP_IMG_SELL_PLACEHOLDER,
   RAWSTOCK_LP_STEP_IMG_SHOOT,
   RAWSTOCK_LP_STEP_IMG_SHOOT_PLACEHOLDER,
+  LP_APP_ORIGIN_PLACEHOLDER,
 } from "../lib/brand";
 import { rawstockLpRedirectUrl } from "../lib/rawstockLpSite";
 
@@ -47,7 +48,16 @@ const log = console.log;
 
 const LP_HTML_CACHE_CONTROL = "private, no-store, max-age=0, must-revalidate";
 
-function injectLpMarketingHtml(html: string, canonicalUrl: string): string {
+function canonicalAppOriginFromReq(req: Request): string {
+  const forwardedProto = req.header("x-forwarded-proto");
+  const protocol = forwardedProto || req.protocol || "https";
+  const forwardedHost = req.header("x-forwarded-host");
+  const host = forwardedHost || req.get("host") || "localhost";
+  return `${protocol}://${host}`;
+}
+
+function injectLpMarketingHtml(html: string, canonicalUrl: string, req: Request): string {
+  const appOrigin = canonicalAppOriginFromReq(req);
   let out = html
     .split(RAWSTOCK_LOGO_URL_PLACEHOLDER)
     .join(RAWSTOCK_LOGO_URL)
@@ -57,6 +67,8 @@ function injectLpMarketingHtml(html: string, canonicalUrl: string): string {
     .join(RAWSTOCK_HERO_POSTER_URL)
     .split(LP_CANONICAL_URL_PLACEHOLDER)
     .join(canonicalUrl)
+    .split(LP_APP_ORIGIN_PLACEHOLDER)
+    .join(appOrigin)
     .split(RAWSTOCK_LP_STEP_IMG_SHOOT_PLACEHOLDER)
     .join(RAWSTOCK_LP_STEP_IMG_SHOOT)
     .split(RAWSTOCK_LP_STEP_IMG_EDIT_PLACEHOLDER)
@@ -168,7 +180,7 @@ function configureExpoAndLanding(app: express.Application) {
 
   log("Serving static Expo files with dynamic manifest routing");
 
-  /** Marketing LP: canonical Vite app (UK `/`, JA `/ja`). Override origin with PUBLIC_RAWSTOCK_LP_URL. */
+  /** マーケ LP: 既定は同一オリジンの `/lp-static`。`PUBLIC_RAWSTOCK_LP_URL` 等で外部 LP に切替可能。 */
   app.get("/lp", (req: Request, res: Response) => {
     const target = rawstockLpRedirectUrl(req.get("accept-language"));
     res.redirect(302, target);
@@ -177,6 +189,18 @@ function configureExpoAndLanding(app: express.Application) {
   app.get("/lp-standalone.html", (req: Request, res: Response) => {
     const target = rawstockLpRedirectUrl(req.get("accept-language"));
     res.redirect(302, target);
+  });
+
+  const lpStandalonePath = path.resolve(process.cwd(), "public/lp-standalone.html");
+  app.get("/lp-static", (req: Request, res: Response) => {
+    if (!fs.existsSync(lpStandalonePath)) {
+      return res.status(404).send("lp-standalone.html not found");
+    }
+    const raw = fs.readFileSync(lpStandalonePath, "utf-8");
+    const html = injectLpMarketingHtml(raw, canonicalPageUrlFromReq(req, "/lp-static"), req);
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
+    res.status(200).send(html);
   });
 
   const teamzPath = path.resolve(process.cwd(), "public/teamz.html");
@@ -188,6 +212,7 @@ function configureExpoAndLanding(app: express.Application) {
     const html = injectLpMarketingHtml(
       raw,
       canonicalPageUrlFromReq(req, "/teamz"),
+      req,
     );
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
@@ -209,6 +234,7 @@ function configureExpoAndLanding(app: express.Application) {
     if (
       req.path === "/lp" ||
       req.path === "/teamz" ||
+      req.path === "/lp-static" ||
       req.path === "/lp-standalone.html"
     ) {
       return next();

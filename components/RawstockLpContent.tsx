@@ -1,16 +1,16 @@
 import React from "react";
 import { Platform, Text, View } from "react-native";
 
-import { RAWSTOCK_LP_SITE_DEFAULT } from "@/lib/rawstockLpSite";
+import { RAWSTOCK_LP_PUBLIC_PATH, RAWSTOCK_LP_SITE_DEFAULT } from "@/lib/rawstockLpSite";
 
 /**
- * Canonical LP: https://github.com/live-stream-tech/rawstock-lp (`/` UK, `/ja` Japanese).
- * Override with EXPO_PUBLIC_RAWSTOCK_LP_URL or legacy EXPO_PUBLIC_LP_STANDALONE_URL (full URL).
- * Legacy `public/lp-standalone.html` is only used when USE_LEGACY_LP_HTML=1 (local/dev escape hatch).
+ * 既定: 同一オリジンの {@link RAWSTOCK_LP_PUBLIC_PATH}（本番は rawstock.live 上で表示）。
+ * 上書き: `EXPO_PUBLIC_RAWSTOCK_LP_URL` または `EXPO_PUBLIC_LP_STANDALONE_URL`（フル URL）。
+ * レガシー: `EXPO_PUBLIC_USE_LEGACY_LP_HTML=1` で従来の `/lp-standalone.html` へ（主にローカル）。
  */
 function lpStandaloneSrcForWeb(): string {
   if (typeof window === "undefined") {
-    return `${RAWSTOCK_LP_SITE_DEFAULT}/`;
+    return `${RAWSTOCK_LP_SITE_DEFAULT.replace(/\/+$/, "")}${RAWSTOCK_LP_PUBLIC_PATH}`;
   }
   const explicit =
     process.env.EXPO_PUBLIC_RAWSTOCK_LP_URL?.trim() ||
@@ -30,23 +30,18 @@ function lpStandaloneSrcForWeb(): string {
             ? `http://${env}`
             : `https://${env}`;
         const origin = new URL(withScheme).origin;
-        return `${origin}/lp-standalone.html`;
+        return `${origin}${RAWSTOCK_LP_PUBLIC_PATH}`;
       } catch {
         /* fall through */
       }
     }
     if (process.env.NODE_ENV !== "production") {
-      return "http://localhost:5001/lp-standalone.html";
+      return `http://localhost:5001${RAWSTOCK_LP_PUBLIC_PATH}`;
     }
-    return `${window.location.origin}/lp-standalone.html`;
+    return `${window.location.origin}${RAWSTOCK_LP_PUBLIC_PATH}`;
   }
 
-  const base = RAWSTOCK_LP_SITE_DEFAULT.replace(/\/+$/, "");
-  const lang = typeof navigator !== "undefined" ? navigator.language || "" : "";
-  if (/^ja\b/i.test(lang)) {
-    return `${base}/ja`;
-  }
-  return `${base}/`;
+  return `${window.location.origin}${RAWSTOCK_LP_PUBLIC_PATH}`;
 }
 
 export function RawstockLpContent() {
