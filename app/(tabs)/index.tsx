@@ -255,7 +255,7 @@ function AnnouncementCard({ item }: { item: any }) {
           <Image source={{ uri: resolveVideoMediaUri(flyer) }} style={styles.announceThumb} contentFit="contain" cachePolicy="memory-disk" />
         ) : (
           <View style={styles.announceThumbPlaceholder}>
-            <Text style={styles.announceThumbPlaceholderText}>フライヤー画像なし</Text>
+            <Text style={styles.announceThumbPlaceholderText}>No flyer image</Text>
           </View>
         )}
         <LinearGradient colors={["transparent", "rgba(0,0,0,0.72)"]} style={styles.announceThumbGradient} />
@@ -571,7 +571,7 @@ export default function HomeScreen() {
                   </View>
                 ) : jukePulse.mode === "request_open" ? (
                   <View style={styles.jukeOpenPill}>
-                    <Text style={styles.jukeOpenText}>リクエスト受付中</Text>
+                    <Text style={styles.jukeOpenText}>Requests open</Text>
                   </View>
                 ) : null}
               </View>
@@ -584,7 +584,7 @@ export default function HomeScreen() {
                 </Text>
               ) : jukePulse.mode === "fallback" ? (
                 <Text style={styles.jukeBannerSub} numberOfLines={1}>
-                  タップしてジュークボックスへ
+                  Tap to open a jukebox room
                 </Text>
               ) : null}
             </View>

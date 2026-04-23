@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
@@ -617,54 +618,64 @@ function ThreadDetailContent({
   }
 
   return (
-    <>
-      <View style={styles.threadDetailHeader}>
-        <View style={styles.threadDetailTitleRow}>
-          <Text style={styles.threadDetailTitle} numberOfLines={2}>{thread.title}</Text>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            {canModerate && (
-              <Pressable
-                onPress={() => Alert.alert("Delete Thread", "Delete this thread?", [
-                  { text: "Cancel", style: "cancel" },
-                  { text: "Delete", style: "destructive", onPress: onDeleteThread },
-                ])}
-              >
-                <Ionicons name="trash-outline" size={20} color={C.textMuted} />
+    <View style={styles.threadDetailRoot}>
+      <ScrollView
+        style={webScrollStyle(styles.threadDetailMainScroll)}
+        contentContainerStyle={styles.threadDetailMainScrollContent}
+        showsVerticalScrollIndicator={scrollShowsVertical}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.threadDetailHeader}>
+          <View style={styles.threadDetailTitleRow}>
+            <Text style={styles.threadDetailTitle} numberOfLines={2}>{thread.title}</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              {canModerate && (
+                <Pressable
+                  onPress={() => Alert.alert("Delete Thread", "Delete this thread?", [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Delete", style: "destructive", onPress: onDeleteThread },
+                  ])}
+                >
+                  <Ionicons name="trash-outline" size={20} color={C.textMuted} />
+                </Pressable>
+              )}
+              <Pressable onPress={onClose} hitSlop={8}>
+                <Ionicons name="close" size={24} color={C.textMuted} />
               </Pressable>
-            )}
-            <Pressable onPress={onClose} hitSlop={8}>
-              <Ionicons name="close" size={24} color={C.textMuted} />
-            </Pressable>
-          </View>
-        </View>
-        <View style={styles.threadDetailMeta}>
-          <Pressable onPress={() => navigateToUserOrLiverProfile({ userId: thread.authorUserId })} hitSlop={4}>
-            <Text style={styles.threadDetailAuthor}>{thread.author.displayName}</Text>
-          </Pressable>
-          <Text style={styles.threadDetailDate}> · {formatThreadDate(thread.createdAt)}</Text>
-        </View>
-        {parsedThreadBody.flyerImageUrl ? (
-          <Image source={{ uri: parsedThreadBody.flyerImageUrl }} style={styles.threadDetailFlyer} contentFit="cover" />
-        ) : null}
-        {parsedThreadBody.shortVideoUrl ? (
-          <Pressable
-            style={styles.threadDetailShortClip}
-            onPress={() => Linking.openURL(parsedThreadBody.shortVideoUrl!)}
-          >
-            {shortVideoThumb ? (
-              <Image source={{ uri: shortVideoThumb }} style={styles.threadDetailShortThumb} contentFit="cover" />
-            ) : (
-              <View style={[styles.threadDetailShortThumb, styles.threadDetailShortPlaceholder]} />
-            )}
-            <View style={styles.threadDetailShortOverlay} pointerEvents="none">
-              <Ionicons name="play-circle" size={48} color="#ffffffee" />
-              <Text style={styles.threadDetailShortLabel}>Watch short clip</Text>
             </View>
-          </Pressable>
-        ) : null}
-        {parsedThreadBody.text ? <Text style={styles.threadDetailBody}>{parsedThreadBody.text}</Text> : null}
-      </View>
-      <ScrollView style={webScrollStyle(styles.threadDetailPosts)} showsVerticalScrollIndicator={scrollShowsVertical}>
+          </View>
+          <View style={styles.threadDetailMeta}>
+            <Pressable onPress={() => navigateToUserOrLiverProfile({ userId: thread.authorUserId })} hitSlop={4}>
+              <Text style={styles.threadDetailAuthor}>{thread.author.displayName}</Text>
+            </Pressable>
+            <Text style={styles.threadDetailDate}> · {formatThreadDate(thread.createdAt)}</Text>
+          </View>
+          {parsedThreadBody.flyerImageUrl ? (
+            <Image
+              source={{ uri: parsedThreadBody.flyerImageUrl }}
+              style={styles.threadDetailFlyer}
+              contentFit="contain"
+              cachePolicy="memory-disk"
+            />
+          ) : null}
+          {parsedThreadBody.shortVideoUrl ? (
+            <Pressable
+              style={styles.threadDetailShortClip}
+              onPress={() => Linking.openURL(parsedThreadBody.shortVideoUrl!)}
+            >
+              {shortVideoThumb ? (
+                <Image source={{ uri: shortVideoThumb }} style={styles.threadDetailShortThumb} contentFit="cover" />
+              ) : (
+                <View style={[styles.threadDetailShortThumb, styles.threadDetailShortPlaceholder]} />
+              )}
+              <View style={styles.threadDetailShortOverlay} pointerEvents="none">
+                <Ionicons name="play-circle" size={48} color="#ffffffee" />
+                <Text style={styles.threadDetailShortLabel}>Watch short clip</Text>
+              </View>
+            </Pressable>
+          ) : null}
+          {parsedThreadBody.text ? <Text style={styles.threadDetailBody}>{parsedThreadBody.text}</Text> : null}
+        </View>
         {thread.posts.map((p) => (
           <View key={p.id} style={styles.threadPostRow}>
             <Pressable
@@ -716,7 +727,7 @@ function ThreadDetailContent({
           {posting ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="send" size={18} color="#fff" />}
         </Pressable>
       </View>
-    </>
+    </View>
   );
 }
 
