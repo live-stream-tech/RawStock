@@ -262,6 +262,7 @@ function AnnouncementCard({ item }: { item: any }) {
             source={{ uri: imageUri }}
             style={styles.announceThumb}
             contentFit="cover"
+            contentPosition="top"
             cachePolicy="memory-disk"
             onError={() => {
               if (fallbackThumb && imageUri !== fallbackThumb) {
@@ -919,7 +920,7 @@ const styles = StyleSheet.create({
   viewerText: { color: "#fff", fontSize: 10, fontFamily: F.mono },
   liveInfo: { paddingHorizontal: 10, paddingVertical: 8, gap: 4, backgroundColor: C.surface },
   announceCard: { width: ANNOUNCE_W, overflow: "hidden", backgroundColor: C.surface },
-  announceThumbWrap: { position: "relative", overflow: "hidden", aspectRatio: 3 / 4, backgroundColor: "#000" },
+  announceThumbWrap: { position: "relative", overflow: "hidden", aspectRatio: 16 / 9, backgroundColor: "#000" },
   announceThumb: { width: "100%", height: "100%", backgroundColor: "#000" },
   announceThumbPlaceholder: {
     width: "100%",
