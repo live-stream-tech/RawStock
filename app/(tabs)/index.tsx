@@ -252,17 +252,17 @@ function AnnouncementCard({ item }: { item: any }) {
     >
       <View style={styles.announceThumbWrap}>
         {flyer ? (
-          <Image source={{ uri: resolveVideoMediaUri(flyer) }} style={styles.announceThumb} contentFit="contain" cachePolicy="memory-disk" />
+          <Image source={{ uri: resolveVideoMediaUri(flyer) }} style={styles.announceThumb} contentFit="cover" cachePolicy="memory-disk" />
         ) : (
           <View style={styles.announceThumbPlaceholder}>
             <Text style={styles.announceThumbPlaceholderText}>No flyer image</Text>
           </View>
         )}
         <LinearGradient colors={["transparent", "rgba(0,0,0,0.72)"]} style={styles.announceThumbGradient} />
-      </View>
-      <View style={styles.announceInfo}>
-        <Text style={styles.announceTitle} numberOfLines={2}>{item.title}</Text>
-        <Text style={styles.announceCommunityMini} numberOfLines={1}>{item.communityName}</Text>
+        <View style={styles.announceTextOverlay}>
+          <Text style={styles.announceTitle} numberOfLines={2}>{item.title}</Text>
+          <Text style={styles.announceCommunityMini} numberOfLines={1}>{item.communityName}</Text>
+        </View>
       </View>
     </Pressable>
   );
@@ -902,19 +902,19 @@ const styles = StyleSheet.create({
   liveInfo: { paddingHorizontal: 10, paddingVertical: 8, gap: 4, backgroundColor: C.surface },
   announceCard: { width: 260, overflow: "hidden", backgroundColor: C.surface },
   announceThumbWrap: { position: "relative", overflow: "hidden", aspectRatio: 3 / 4, backgroundColor: "#000" },
-  announceThumb: { width: 260, aspectRatio: 3 / 4, backgroundColor: "#000" },
+  announceThumb: { width: "100%", height: "100%", backgroundColor: "#000" },
   announceThumbPlaceholder: {
-    width: 260,
-    aspectRatio: 3 / 4,
+    width: "100%",
+    height: "100%",
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: C.surface2,
   },
   announceThumbPlaceholderText: { color: C.textMuted, fontSize: 11, fontFamily: F.mono },
-  announceThumbGradient: { position: "absolute", left: 0, right: 0, bottom: 0, height: "35%" },
-  announceInfo: { paddingHorizontal: 10, paddingVertical: 8, gap: 2, backgroundColor: C.surface },
-  announceTitle: { color: C.text, fontSize: 12, fontWeight: "700", lineHeight: 16 },
-  announceCommunityMini: { color: C.textMuted, fontSize: 10, fontFamily: F.mono },
+  announceThumbGradient: { position: "absolute", left: 0, right: 0, bottom: 0, height: "45%" },
+  announceTextOverlay: { position: "absolute", left: 10, right: 10, bottom: 10, gap: 2 },
+  announceTitle: { color: "#fff", fontSize: 12, fontWeight: "700", lineHeight: 16 },
+  announceCommunityMini: { color: "rgba(255,255,255,0.82)", fontSize: 10, fontFamily: F.mono },
   announceEmptyCard: {
     width: 260,
     height: 160,
