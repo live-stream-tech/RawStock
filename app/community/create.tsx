@@ -22,6 +22,7 @@ import { apiRequest } from "@/lib/query-client";
 import { C } from "@/constants/colors";
 import { webScrollStyle } from "@/constants/layout";
 import { AppLogo } from "@/components/AppLogo";
+import { getCommunityDefaultAssets } from "@/lib/community-default-assets";
 
 const SUGGESTED_CATEGORIES = [
   "Pop",
@@ -124,12 +125,9 @@ export default function CreateCommunityScreen() {
 
     try {
       const primaryCategory = selectedCategories[0];
-      const bannerUrl =
-        bannerUri ??
-        "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=800&h=450&fit=crop";
-      const iconUrl =
-        iconUri ??
-        "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=160&h=160&fit=crop";
+      const defaults = getCommunityDefaultAssets(primaryCategory);
+      const bannerUrl = bannerUri ?? defaults.bannerUrl;
+      const iconUrl = iconUri ?? defaults.iconUrl;
 
       const res = await apiRequest("POST", "/api/communities", {
         name: name.trim(),

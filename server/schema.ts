@@ -19,6 +19,8 @@ export const communities = pgTable("communities", {
   name: text("name").notNull(),
   members: integer("members").notNull().default(0),
   thumbnail: text("thumbnail").notNull(),
+  /** 一覧・プロフィール用の正方形アイコン（未設定時は thumbnail を表示側で使う） */
+  iconUrl: text("icon_url"),
   online: boolean("online").notNull().default(false),
   category: text("category").notNull(),
   /** 管理人（users.id）。広告収益10%の受け取り対象 */

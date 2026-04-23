@@ -68,6 +68,7 @@ __export(schema_exports, {
   liveStreams: () => liveStreams,
   liverAvailability: () => liverAvailability,
   liverReviews: () => liverReviews,
+  lpLeads: () => lpLeads,
   mentorBookings: () => mentorBookings,
   mentorSessions: () => mentorSessions,
   notifications: () => notifications,
@@ -108,6 +109,8 @@ var communities = pgTable("communities", {
   name: text("name").notNull(),
   members: integer("members").notNull().default(0),
   thumbnail: text("thumbnail").notNull(),
+  /** 一覧・プロフィール用の正方形アイコン（未設定時は thumbnail を表示側で使う） */
+  iconUrl: text("icon_url"),
   online: boolean("online").notNull().default(false),
   category: text("category").notNull(),
   /** 管理人（users.id）。広告収益10%の受け取り対象 */
@@ -589,6 +592,22 @@ var users = pgTable("users", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow()
 });
+var lpLeads = pgTable(
+  "lp_leads",
+  {
+    id: serial("id").primaryKey(),
+    email: text("email").notNull(),
+    /** email_form | line_cta */
+    source: text("source").notNull().default("email_form"),
+    /** en | ja など */
+    locale: text("locale"),
+    /** UTM campaign など */
+    campaign: text("campaign"),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow()
+  },
+  (t) => [unique("lp_leads_email_unique").on(t.email)]
+);
 var translations = pgTable(
   "translations",
   {
@@ -1146,10 +1165,10 @@ async function getMonthlyRevenueRank(yearMonth) {
   ).groupBy(wallets.userId);
   const withUser = await Promise.all(
     rows.filter((r) => r.userId != null).map(async (r) => {
-      const [u] = await db.select({ displayName: users.displayName }).from(users).where(eq(users.id, r.userId));
+      const [u2] = await db.select({ displayName: users.displayName }).from(users).where(eq(users.id, r.userId));
       return {
         userId: r.userId,
-        displayName: u?.displayName ?? "\u4E0D\u660E",
+        displayName: u2?.displayName ?? "\u4E0D\u660E",
         totalRevenue: Number(r.totalRevenue)
       };
     })
@@ -2257,6 +2276,13 @@ var r2Client = endpoint && accessKeyId && secretAccessKey ? new S3Client({
     accessKeyId,
     secretAccessKey
   },
+  /**
+   * ランタイムの既定は WHEN_SUPPORTED のため、環境や ~/.aws/config 次第で
+   * PutObject の presign に CRC 系クエリが載り、ブラウザの単純 PUT と両立しない。
+   * ここで明示すると Vercel 上の AWS_* 設定より優先され、presign が安定する。
+   */
+  requestChecksumCalculation: "WHEN_REQUIRED",
+  responseChecksumValidation: "WHEN_REQUIRED",
   // R2 / S3 互換では path-style が安定（署名 URL とブラウザ PUT の不一致を防ぐ）
   forcePathStyle: true
 }) : null;
@@ -2638,6 +2664,109 @@ function debugIngestServer(body, sessionId = "88cb7d") {
 var LEGAL_TERMS_VERSION = "2026-04-04";
 var LEGAL_PRIVACY_VERSION = "2026-04-04";
 
+// lib/parse-thread-body.ts
+var directImageRe = /(https?:\/\/\S+\.(?:png|jpe?g|webp|gif)(?:\?\S*)?)/i;
+function extractUrlFromLine(trimmed) {
+  const m = trimmed.match(/https?:\/\/\S+/i);
+  return m ? m[0] : null;
+}
+function parseThreadBody(raw) {
+  const body = String(raw ?? "");
+  if (!body.trim()) return { flyerImageUrl: null, shortVideoUrl: null, text: "" };
+  const lines = body.split("\n");
+  let flyerImageUrl = null;
+  let shortVideoUrl = null;
+  const kept = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!flyerImageUrl && (/^FLYER_IMAGE\s*:/i.test(trimmed) || /^フライヤー画像\s*:/i.test(trimmed))) {
+      flyerImageUrl = extractUrlFromLine(trimmed);
+      continue;
+    }
+    if (!shortVideoUrl && /^SHORT_VIDEO\s*:/i.test(trimmed)) {
+      shortVideoUrl = extractUrlFromLine(trimmed);
+      continue;
+    }
+    if (!flyerImageUrl) {
+      const m = trimmed.match(directImageRe);
+      if (m?.[1]) flyerImageUrl = m[1];
+    }
+    kept.push(line);
+  }
+  return { flyerImageUrl, shortVideoUrl, text: kept.join("\n").trim() };
+}
+
+// lib/community-default-assets.ts
+function u(photoSlug, w, h) {
+  return `https://images.unsplash.com/photo-${photoSlug}?w=${w}&h=${h}&fit=crop&q=80`;
+}
+var BANNER = {
+  pop: u("1492684223066-81342ee5ff30", 1200, 675),
+  rock: u("1470229722913-7c0e2dbbafd3", 1200, 675),
+  hiphop: u("1547355253-ff0740f6e8c1", 1200, 675),
+  edm: u("1507878866276-a947ef722fee", 1200, 675),
+  aimusic: u("1677442136019-21780ecad995", 1200, 675),
+  jpop: u("1514525253161-7a46d19cd819", 1200, 675),
+  rnb: u("1516280440614-37939bbacd81", 1200, 675),
+  jazz: u("1516280440614-37939bbacd81", 1200, 675),
+  indie: u("1498038432885-c6f3f1b912ee", 1200, 675),
+  metal: u("1506157786151-b8491531f063", 1200, 675),
+  classical: u("1465847899084-d164df4dedc6", 1200, 675),
+  reggae: u("1511379938547-c1f69419868d", 1200, 675),
+  punk: u("1501386761578-eac5c94b800a", 1200, 675),
+  default: u("1516450360452-9312f5e86fc7", 1200, 675)
+};
+var ICON = {
+  pop: u("1516280440614-37939bbacd81", 512, 512),
+  rock: u("1506157786151-b8491531f063", 512, 512),
+  hiphop: u("1547355253-ff0740f6e8c1", 512, 512),
+  edm: u("1558618666-fcd25c85cd64", 512, 512),
+  aimusic: u("1677442136019-21780ecad995", 512, 512),
+  jpop: u("1492684223066-81342ee5ff30", 512, 512),
+  rnb: u("1511379938547-c1f69419868d", 512, 512),
+  jazz: u("1507838153414-b4b713384a76", 512, 512),
+  indie: u("1517457373958-b7bdd4587205", 512, 512),
+  metal: u("1501386761578-eac5c94b800a", 512, 512),
+  classical: u("1507838153414-b4b713384a76", 512, 512),
+  reggae: u("1511379938547-c1f69419868d", 512, 512),
+  punk: u("1470229722913-7c0e2dbbafd3", 512, 512),
+  default: u("1514525253161-7a46d19cd819", 512, 512)
+};
+function inferCommunityGenreKey(primaryCategory) {
+  const s = primaryCategory.toLowerCase().replace(/[＆]/g, "&").replace(/\s+/g, " ").trim();
+  if (!s) return "default";
+  if (/ai\s*music|ai\s*音楽|aimusic|生成/.test(s)) return "aimusic";
+  if (/j[\s-]?pop|jpop|ジェイポップ|アイドル/.test(s)) return "jpop";
+  if (/hip[\s-]?hop|hiphop|ラップ|rap|トラップ|trap/.test(s)) return "hiphop";
+  if (/r\s*&\s*b|rnb|neo|ソウル|soul/.test(s)) return "rnb";
+  if (/edm|エレクトロ|electro|house|テクノ|techno|dubstep|ガラージ|garage|トランス|trance/.test(s)) return "edm";
+  if (/ドラム|d\s*&\s*b|drum\s*&\s*bass|uk\s*bass|ジャングル|jungle|^bass$/.test(s)) return "edm";
+  if (/メタル|metal|ヘヴィ|heavy|ブラック|デス|スラッシュ/.test(s)) return "metal";
+  if (/パンク|punk|ハードコア|hardcore/.test(s)) return "punk";
+  if (/レゲエ|reggae|ダブ|dub|スカ|ska/.test(s)) return "reggae";
+  if (/クラシック|classical|オーケストラ|管弦|ピアノ独奏/.test(s)) return "classical";
+  if (/ジャズ|jazz/.test(s)) return "jazz";
+  if (/インディ|indie|シューゲ|shoegaze|オルタナ|alternative/.test(s)) return "indie";
+  if (/ロック|rock/.test(s)) return "rock";
+  if (/ポップ|pop/.test(s)) return "pop";
+  if (s.includes("hiphop") || s.includes("hip-hop")) return "hiphop";
+  if (s.includes("metal")) return "metal";
+  if (s.includes("indie")) return "indie";
+  if (s.includes("jazz")) return "jazz";
+  if (s.includes("edm")) return "edm";
+  if (s.includes("rock")) return "rock";
+  if (s.includes("pop")) return "pop";
+  return "default";
+}
+function getCommunityDefaultAssets(primaryCategory) {
+  const genreKey = inferCommunityGenreKey(primaryCategory);
+  return {
+    bannerUrl: BANNER[genreKey],
+    iconUrl: ICON[genreKey],
+    genreKey
+  };
+}
+
 // server/redis.ts
 import { Redis } from "@upstash/redis";
 import { EventEmitter } from "node:events";
@@ -2878,16 +3007,16 @@ async function syncUserLastContentLang(userId, rawText) {
     console.warn("syncUserLastContentLang skipped:", e);
   }
 }
-function policyFieldsForApi(u) {
-  const tv = u.termsAcceptedVersion ?? null;
-  const pv = u.privacyAcceptedVersion ?? null;
+function policyFieldsForApi(u2) {
+  const tv = u2.termsAcceptedVersion ?? null;
+  const pv = u2.privacyAcceptedVersion ?? null;
   return {
     currentTermsVersion: LEGAL_TERMS_VERSION,
     currentPrivacyVersion: LEGAL_PRIVACY_VERSION,
     termsAcceptedVersion: tv,
-    termsAcceptedAt: u.termsAcceptedAt ? new Date(u.termsAcceptedAt).toISOString() : null,
+    termsAcceptedAt: u2.termsAcceptedAt ? new Date(u2.termsAcceptedAt).toISOString() : null,
     privacyAcceptedVersion: pv,
-    privacyAcceptedAt: u.privacyAcceptedAt ? new Date(u.privacyAcceptedAt).toISOString() : null,
+    privacyAcceptedAt: u2.privacyAcceptedAt ? new Date(u2.privacyAcceptedAt).toISOString() : null,
     needsTermsReacceptance: tv !== LEGAL_TERMS_VERSION,
     needsPrivacyReacceptance: pv !== LEGAL_PRIVACY_VERSION
   };
@@ -3143,9 +3272,9 @@ async function recordRevenue(walletId, userId, creatorId, amount, source, refere
   }
 }
 async function creatorRowForUserId(executor, userId) {
-  const [u] = await executor.select({ displayName: users.displayName }).from(users).where(eq5(users.id, userId)).limit(1);
-  if (!u) return void 0;
-  const [row] = await executor.select().from(creators).where(eq5(creators.name, u.displayName)).limit(1);
+  const [u2] = await executor.select({ displayName: users.displayName }).from(users).where(eq5(users.id, userId)).limit(1);
+  if (!u2) return void 0;
+  const [row] = await executor.select().from(creators).where(eq5(creators.name, u2.displayName)).limit(1);
   return row;
 }
 async function resolveVideoSellerUserId(executor, videoId) {
@@ -3157,6 +3286,36 @@ async function resolveVideoSellerUserId(executor, videoId) {
 }
 async function registerRoutes(app2) {
   await promoteAdminByEmail();
+  app2.post("/api/lp/leads", async (req, res) => {
+    const rawEmail = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+    const source = typeof req.body?.source === "string" ? req.body.source.trim().toLowerCase() : "email_form";
+    const locale = typeof req.body?.locale === "string" ? req.body.locale.trim().slice(0, 16) : null;
+    const campaign = typeof req.body?.campaign === "string" ? req.body.campaign.trim().slice(0, 120) : null;
+    if (!rawEmail) {
+      return res.status(400).json({ error: "Email is required" });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail)) {
+      return res.status(400).json({ error: "Invalid email format" });
+    }
+    if (source !== "email_form" && source !== "line_cta") {
+      return res.status(400).json({ error: "Invalid source" });
+    }
+    try {
+      const [row] = await db.insert(lpLeads).values({
+        email: rawEmail,
+        source,
+        locale,
+        campaign
+      }).onConflictDoUpdate({
+        target: lpLeads.email,
+        set: { source, locale, campaign, updatedAt: /* @__PURE__ */ new Date() }
+      }).returning({ id: lpLeads.id });
+      return res.json({ ok: true, id: row?.id ?? null });
+    } catch (error) {
+      console.error("[lp-leads] upsert failed", error);
+      return res.status(500).json({ error: "Failed to save lead" });
+    }
+  });
   app2.post("/api/auth/register", async (req, res) => {
     const { password, name } = req.body ?? {};
     const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
@@ -3252,14 +3411,14 @@ async function registerRoutes(app2) {
     res.setHeader("Cache-Control", "private, no-store");
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const [u] = await db.select({
+    const [u2] = await db.select({
       pinnedCommunityIds: users.pinnedCommunityIds
     }).from(users).where(eq5(users.id, user.id));
     let pinnedCommunityIds = [];
-    if (u) {
-      if (u.pinnedCommunityIds) {
+    if (u2) {
+      if (u2.pinnedCommunityIds) {
         try {
-          const p = JSON.parse(u.pinnedCommunityIds);
+          const p = JSON.parse(u2.pinnedCommunityIds);
           if (Array.isArray(p)) pinnedCommunityIds = p;
         } catch {
         }
@@ -3783,15 +3942,15 @@ async function registerRoutes(app2) {
   app2.get("/api/profile/by-name/:name", async (req, res) => {
     const name = decodeURIComponent(req.params.name || "");
     if (!name.trim()) return res.status(400).json({ error: "Please provide a name" });
-    const [u] = await db.select({ id: users.id }).from(users).where(eq5(users.displayName, name));
-    if (u) return res.json({ type: "user", id: u.id });
+    const [u2] = await db.select({ id: users.id }).from(users).where(eq5(users.displayName, name));
+    if (u2) return res.json({ type: "user", id: u2.id });
     const [c] = await db.select({ id: creators.id }).from(creators).where(eq5(creators.name, name));
     if (c) return res.json({ type: "liver", id: c.id });
     return res.status(404).json({ error: "Not found" });
   });
   app2.get("/api/users/:id", async (req, res) => {
     const id = paramNum(req, "id");
-    const [u] = await db.select({
+    const [u2] = await db.select({
       id: users.id,
       displayName: users.displayName,
       profileImageUrl: users.profileImageUrl,
@@ -3805,9 +3964,9 @@ async function registerRoutes(app2) {
       bandcampUrl: users.bandcampUrl,
       pinnedCommunityIds: users.pinnedCommunityIds
     }).from(users).where(eq5(users.id, id));
-    if (!u) return res.status(404).json({ error: "Not found" });
+    if (!u2) return res.status(404).json({ error: "Not found" });
     let pinnedCommunities = [];
-    const pinnedRaw = u.pinnedCommunityIds;
+    const pinnedRaw = u2.pinnedCommunityIds;
     if (pinnedRaw && typeof pinnedRaw === "string") {
       try {
         const ids = JSON.parse(pinnedRaw);
@@ -3826,19 +3985,19 @@ async function registerRoutes(app2) {
     const [{ c: followersCountRaw }] = await db.select({ c: count() }).from(userFollows).where(eq5(userFollows.followingId, id));
     const [{ c: followingCountRaw }] = await db.select({ c: count() }).from(userFollows).where(eq5(userFollows.followerId, id));
     res.json({
-      id: u.id,
-      name: u.displayName,
-      displayName: u.displayName,
-      avatar: u.profileImageUrl,
-      profileImageUrl: u.profileImageUrl,
-      bio: u.bio ?? "",
-      role: u.role ?? "USER",
-      instagramUrl: u.instagramUrl ?? null,
-      youtubeUrl: u.youtubeUrl ?? null,
-      xUrl: u.xUrl ?? null,
-      spotifyUrl: u.spotifyUrl ?? null,
-      appleMusicUrl: u.appleMusicUrl ?? null,
-      bandcampUrl: u.bandcampUrl ?? null,
+      id: u2.id,
+      name: u2.displayName,
+      displayName: u2.displayName,
+      avatar: u2.profileImageUrl,
+      profileImageUrl: u2.profileImageUrl,
+      bio: u2.bio ?? "",
+      role: u2.role ?? "USER",
+      instagramUrl: u2.instagramUrl ?? null,
+      youtubeUrl: u2.youtubeUrl ?? null,
+      xUrl: u2.xUrl ?? null,
+      spotifyUrl: u2.spotifyUrl ?? null,
+      appleMusicUrl: u2.appleMusicUrl ?? null,
+      bandcampUrl: u2.bandcampUrl ?? null,
       pinnedCommunities,
       followersCount: Number(followersCountRaw ?? 0),
       followingCount: Number(followingCountRaw ?? 0)
@@ -4105,9 +4264,9 @@ async function registerRoutes(app2) {
     }
   });
   async function getGoogleAccessToken(userId) {
-    const [u] = await db.select().from(users).where(eq5(users.id, userId));
-    if (!u || !u.googleRefreshToken) return null;
-    const row = u;
+    const [u2] = await db.select().from(users).where(eq5(users.id, userId));
+    if (!u2 || !u2.googleRefreshToken) return null;
+    const row = u2;
     const expiresAt = row.googleTokenExpiresAt ? new Date(row.googleTokenExpiresAt).getTime() : 0;
     const now = Date.now();
     if (row.googleAccessToken && expiresAt > now + 6e4) {
@@ -4307,7 +4466,7 @@ async function registerRoutes(app2) {
       ownerId: community.ownerId,
       admin: admin ? { id: admin.id, displayName: admin.displayName, profileImageUrl: admin.profileImageUrl } : null,
       moderatorIds: modRows.map((r) => r.userId),
-      moderators: moderatorUsers.map((u) => ({ id: u.id, displayName: u.displayName, profileImageUrl: u.profileImageUrl }))
+      moderators: moderatorUsers.map((u2) => ({ id: u2.id, displayName: u2.displayName, profileImageUrl: u2.profileImageUrl }))
     });
   });
   app2.patch("/api/communities/:id/staff", async (req, res) => {
@@ -4416,7 +4575,7 @@ async function registerRoutes(app2) {
     const limit = Math.min(100, Math.max(1, parseInt(String(_req.query.limit ?? "80"), 10) || 80));
     const qRaw = typeof _req.query.q === "string" ? _req.query.q.trim() : "";
     const liveOnly = String(_req.query.liveOnly ?? "") === "1" || String(_req.query.liveOnly ?? "").toLowerCase() === "true";
-    const fetchLimit = liveOnly ? Math.min(300, limit * 4) : limit;
+    const fetchLimit = liveOnly ? Math.min(800, Math.max(200, limit * 40)) : limit;
     const rows = await db.select({
       id: communityThreads.id,
       communityId: communityThreads.communityId,
@@ -4454,28 +4613,62 @@ async function registerRoutes(app2) {
     if (liveOnly) {
       out = out.filter((r) => {
         const blob = `${r.title} ${r.body}`.toLowerCase();
-        return liveHints.some((h) => blob.includes(h));
+        if (!liveHints.some((h) => blob.includes(h))) return false;
+        const flyer = parseThreadBody(r.body).flyerImageUrl;
+        return !!flyer;
       });
     }
     out = out.slice(0, limit);
+    const forceLang = typeof _req.query.lang === "string" ? _req.query.lang.trim().toLowerCase() : "";
+    const forceEnglish = forceLang === "en";
     const authorIds = [...new Set(out.map((r) => r.authorUserId))];
     const authorRows = authorIds.length > 0 ? await db.select({ id: users.id, displayName: users.displayName, profileImageUrl: users.profileImageUrl }).from(users).where(inArray(users.id, authorIds)) : [];
     const authorMap = new Map(authorRows.map((a) => [a.id, a]));
-    res.json(
-      out.map((r) => ({
-        id: r.id,
-        communityId: r.communityId,
-        communityName: r.communityName,
-        communityCategory: r.communityCategory,
-        communityThumbnail: r.communityThumbnail,
-        title: r.title,
-        body: r.body,
-        pinned: r.pinned,
-        createdAt: r.createdAt,
-        authorUserId: r.authorUserId,
-        author: authorMap.get(r.authorUserId) ?? { displayName: "Unknown", profileImageUrl: null }
-      }))
+    const mapped = out.map((r) => ({
+      id: r.id,
+      communityId: r.communityId,
+      communityName: r.communityName,
+      communityCategory: r.communityCategory,
+      communityThumbnail: r.communityThumbnail,
+      title: r.title,
+      body: r.body,
+      pinned: r.pinned,
+      createdAt: r.createdAt,
+      authorUserId: r.authorUserId,
+      author: authorMap.get(r.authorUserId) ?? { displayName: "Unknown", profileImageUrl: null }
+    }));
+    if (!forceEnglish) {
+      return res.json(mapped);
+    }
+    const translated = await Promise.all(
+      mapped.map(async (row) => {
+        const next = { ...row };
+        const titleLang = await detectContentLang(next.title).catch(() => null);
+        if (titleLang && titleLang !== "en") {
+          const tr = await translateText({
+            text: next.title,
+            srcLang: titleLang,
+            dstLang: "en"
+          });
+          if (!tr.error && !tr.skipped && tr.text.trim()) {
+            next.title = tr.text.trim();
+          }
+        }
+        const bodyLang = await detectContentLang(next.body).catch(() => null);
+        if (next.body && bodyLang && bodyLang !== "en") {
+          const tr = await translateText({
+            text: next.body,
+            srcLang: bodyLang,
+            dstLang: "en"
+          });
+          if (!tr.error && !tr.skipped && tr.text.trim()) {
+            next.body = tr.text.trim();
+          }
+        }
+        return next;
+      })
     );
+    return res.json(translated);
   });
   app2.post("/api/communities/:id/threads", async (req, res) => {
     const user = await getAuthUser(req);
@@ -4991,13 +5184,13 @@ async function registerRoutes(app2) {
     const styleTags = normalizeEditorStyleTagSlugs(
       Array.isArray(body.styleTags) ? body.styleTags.map((x) => String(x)) : []
     );
-    const [u] = await db.select().from(users).where(eq5(users.id, user.id));
-    if (!u) return res.status(404).json({ error: "User not found" });
+    const [u2] = await db.select().from(users).where(eq5(users.id, user.id));
+    if (!u2) return res.status(404).json({ error: "User not found" });
     const deliveryDays = typeof body.deliveryDays === "number" && body.deliveryDays > 0 ? Math.min(90, Math.floor(body.deliveryDays)) : 3;
     const [created] = await db.insert(videoEditors).values({
       userId: user.id,
-      name: u.displayName,
-      avatar: u.profileImageUrl ?? null,
+      name: u2.displayName,
+      avatar: u2.profileImageUrl ?? null,
       bio: (body.bio ?? "").trim(),
       communityId,
       genres: (body.genres ?? "").trim(),
@@ -5053,8 +5246,6 @@ async function registerRoutes(app2) {
     const { name, description, bannerUrl, iconUrl, categories } = req.body;
     const trimmedName = (name ?? "").trim();
     const trimmedDescription = (description ?? "").trim();
-    const banner = (bannerUrl ?? "").trim() || "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=800&h=450&fit=crop";
-    const icon = (iconUrl ?? "").trim() || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=160&h=160&fit=crop";
     const categoryList = Array.isArray(categories) ? categories.map((c) => String(c).trim()).filter(Boolean) : typeof categories === "string" ? categories.split(/[,\s]+/).map((c) => c.trim()).filter(Boolean) : [];
     if (!trimmedName || !trimmedDescription || categoryList.length === 0) {
       return res.status(400).json({ error: "Please enter name, description, and category" });
@@ -5063,11 +5254,15 @@ async function registerRoutes(app2) {
       return res.status(400).json({ error: "Description must be at least 10 characters" });
     }
     try {
-      const primaryCategory = categoryList[0];
+      const primaryCategory = categoryList[0] ?? "";
+      const defaults = getCommunityDefaultAssets(primaryCategory);
+      const banner = (bannerUrl ?? "").trim() || defaults.bannerUrl;
+      const icon = (iconUrl ?? "").trim() || defaults.iconUrl;
       const [row] = await db.insert(communities).values({
         name: trimmedName,
         members: 1,
         thumbnail: banner,
+        iconUrl: icon,
         online: false,
         category: primaryCategory,
         adminId: user.id,
@@ -5839,7 +6034,7 @@ async function registerRoutes(app2) {
     const creatorMap = /* @__PURE__ */ new Map();
     if (names.length > 0) {
       const userRows = await db.select({ id: users.id, displayName: users.displayName }).from(users).where(inArray(users.displayName, names));
-      userRows.forEach((u) => userMap.set(u.displayName, u.id));
+      userRows.forEach((u2) => userMap.set(u2.displayName, u2.id));
       const notFoundUsers = names.filter((n) => !userMap.has(n));
       if (notFoundUsers.length > 0) {
         const creatorRows = await db.select({ id: creators.id, name: creators.name }).from(creators).where(inArray(creators.name, notFoundUsers));
@@ -6640,10 +6835,10 @@ data: ${data}
       let creator = "Host";
       let avatar = "";
       if (srow.hostUserId != null) {
-        const [u] = await db.select().from(users).where(eq5(users.id, srow.hostUserId));
-        if (u) {
-          creator = u.displayName ?? creator;
-          avatar = u.profileImageUrl ?? "";
+        const [u2] = await db.select().from(users).where(eq5(users.id, srow.hostUserId));
+        if (u2) {
+          creator = u2.displayName ?? creator;
+          avatar = u2.profileImageUrl ?? "";
         }
       }
       const viewer = await getAuthUser(req);
@@ -8567,8 +8762,8 @@ data: ${data}
     });
   });
   function templatedPublicBaseUrl() {
-    const u = process.env.TEMPLATED_WEBHOOK_BASE_URL?.trim() || process.env.FRONTEND_URL?.trim() || "https://rawstock.live";
-    return u.replace(/\/$/, "");
+    const u2 = process.env.TEMPLATED_WEBHOOK_BASE_URL?.trim() || process.env.FRONTEND_URL?.trim() || "https://rawstock.live";
+    return u2.replace(/\/$/, "");
   }
   app2.post("/api/ai-edit/jobs/:id/render", async (req, res) => {
     const user = await getAuthUser(req);
@@ -8924,7 +9119,7 @@ import { createProxyMiddleware } from "http-proxy-middleware";
 // lib/brand.ts
 var DEFAULT_RAWSTOCK_LOGO_URL = "https://d2xsxph8kpxj0f.cloudfront.net/310519663449879480/M2pBP9b9EdXaS65j3mPhNW/RawStock_logo_3fd8a263.webp";
 var DEFAULT_HERO_VIDEO_URL = "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
-var DEFAULT_HERO_POSTER_URL = "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=1920&q=80";
+var DEFAULT_HERO_POSTER_URL = "https://d2xsxph8kpxj0f.cloudfront.net/310519663449879480/Y3Yn5f8wK9BzVPCXiSHai5/hero-bg-2AFwCiErEpzEQtgr4Vk2Df.webp";
 var RAWSTOCK_LOGO_URL = typeof process !== "undefined" && process.env.PUBLIC_LOGO_URL?.trim() || DEFAULT_RAWSTOCK_LOGO_URL;
 var RAWSTOCK_HERO_VIDEO_URL = typeof process !== "undefined" && process.env.PUBLIC_HERO_VIDEO_URL?.trim() || DEFAULT_HERO_VIDEO_URL;
 var RAWSTOCK_HERO_POSTER_URL = typeof process !== "undefined" && process.env.PUBLIC_HERO_POSTER_URL?.trim() || DEFAULT_HERO_POSTER_URL;
@@ -8951,9 +9146,28 @@ var RAWSTOCK_LP_FEATURE_IMG_DISTRICT_PLACEHOLDER = "RAWSTOCK_LP_FEATURE_IMG_DIST
 var RAWSTOCK_LP_FEATURE_IMG_LIVE_PLACEHOLDER = "RAWSTOCK_LP_FEATURE_IMG_LIVE_PLACEHOLDER";
 var RAWSTOCK_LP_FEATURE_IMG_GLOBAL_PLACEHOLDER = "RAWSTOCK_LP_FEATURE_IMG_GLOBAL_PLACEHOLDER";
 
+// lib/rawstockLpSite.ts
+var RAWSTOCK_LP_SITE_DEFAULT = "https://rawstock-lp.vercel.app";
+function trimTrailingSlash(s) {
+  return s.replace(/\/+$/, "");
+}
+function rawstockLpSiteOrigin() {
+  const fromEnv = typeof process !== "undefined" && process.env.PUBLIC_RAWSTOCK_LP_URL?.trim() || typeof process !== "undefined" && process.env.EXPO_PUBLIC_RAWSTOCK_LP_URL?.trim();
+  if (fromEnv) return trimTrailingSlash(fromEnv);
+  return trimTrailingSlash(RAWSTOCK_LP_SITE_DEFAULT);
+}
+function rawstockLpRedirectUrl(acceptLanguage) {
+  const origin = rawstockLpSiteOrigin();
+  if (!acceptLanguage) return `${origin}/`;
+  const first = acceptLanguage.split(",")[0]?.trim().split(";")[0]?.toLowerCase() || "";
+  if (first.startsWith("ja")) return `${origin}/ja`;
+  return `${origin}/`;
+}
+
 // server/index.ts
 var app = express2();
 var log2 = console.log;
+var LP_HTML_CACHE_CONTROL = "private, no-store, max-age=0, must-revalidate";
 function injectLpMarketingHtml(html, canonicalUrl) {
   let out = html.split(RAWSTOCK_LOGO_URL_PLACEHOLDER).join(RAWSTOCK_LOGO_URL).split(RAWSTOCK_HERO_VIDEO_URL_PLACEHOLDER).join(RAWSTOCK_HERO_VIDEO_URL).split(RAWSTOCK_HERO_POSTER_URL_PLACEHOLDER).join(RAWSTOCK_HERO_POSTER_URL).split(LP_CANONICAL_URL_PLACEHOLDER).join(canonicalUrl).split(RAWSTOCK_LP_STEP_IMG_SHOOT_PLACEHOLDER).join(RAWSTOCK_LP_STEP_IMG_SHOOT).split(RAWSTOCK_LP_STEP_IMG_EDIT_PLACEHOLDER).join(RAWSTOCK_LP_STEP_IMG_EDIT).split(RAWSTOCK_LP_STEP_IMG_SELL_PLACEHOLDER).join(RAWSTOCK_LP_STEP_IMG_SELL).split(RAWSTOCK_LP_STEP_IMG_PROMO_PLACEHOLDER).join(RAWSTOCK_LP_STEP_IMG_PROMO).split(RAWSTOCK_LP_FEATURE_IMG_JUKE_PLACEHOLDER).join(RAWSTOCK_LP_FEATURE_IMG_JUKE).split(RAWSTOCK_LP_FEATURE_IMG_AI_PLACEHOLDER).join(RAWSTOCK_LP_FEATURE_IMG_AI).split(RAWSTOCK_LP_FEATURE_IMG_DISTRICT_PLACEHOLDER).join(RAWSTOCK_LP_FEATURE_IMG_DISTRICT).split(RAWSTOCK_LP_FEATURE_IMG_LIVE_PLACEHOLDER).join(RAWSTOCK_LP_FEATURE_IMG_LIVE).split(RAWSTOCK_LP_FEATURE_IMG_GLOBAL_PLACEHOLDER).join(RAWSTOCK_LP_FEATURE_IMG_GLOBAL);
   const weglotKey = process.env.WEGLOT_API_KEY?.trim();
@@ -8997,32 +9211,12 @@ function configureExpoAndLanding(app2) {
   const isDev = process.env.NODE_ENV === "development";
   log2("Serving static Expo files with dynamic manifest routing");
   app2.get("/lp", (req, res) => {
-    const raw = fs.readFileSync(
-      path.resolve(process.cwd(), "server/templates/landing-page.html"),
-      "utf-8"
-    );
-    const html = injectLpMarketingHtml(
-      raw,
-      canonicalPageUrlFromReq(req, "/lp")
-    );
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.status(200).send(html);
+    const target = rawstockLpRedirectUrl(req.get("accept-language"));
+    res.redirect(302, target);
   });
-  const lpStandalonePath = path.resolve(
-    process.cwd(),
-    "public/lp-standalone.html"
-  );
   app2.get("/lp-standalone.html", (req, res) => {
-    if (!fs.existsSync(lpStandalonePath)) {
-      return res.status(404).send("lp-standalone.html not found");
-    }
-    const raw = fs.readFileSync(lpStandalonePath, "utf-8");
-    const html = injectLpMarketingHtml(
-      raw,
-      canonicalPageUrlFromReq(req, "/lp-standalone.html")
-    );
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.status(200).send(html);
+    const target = rawstockLpRedirectUrl(req.get("accept-language"));
+    res.redirect(302, target);
   });
   const teamzPath = path.resolve(process.cwd(), "public/teamz.html");
   app2.get("/teamz", (req, res) => {
@@ -9035,6 +9229,7 @@ function configureExpoAndLanding(app2) {
       canonicalPageUrlFromReq(req, "/teamz")
     );
     res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
     res.status(200).send(html);
   });
   app2.get("/assets/logo-200x70-v2.png", (_req, res) => {

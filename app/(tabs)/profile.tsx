@@ -52,6 +52,7 @@ type MyCommunity = {
   name: string;
   members: number;
   thumbnail: string;
+  iconUrl?: string | null;
   online: boolean;
   category: string;
 };
@@ -1155,7 +1156,11 @@ export default function ProfileScreen() {
                   <View style={styles.previewCommunityGrid}>
                     {myCommunities.slice(0, 6).map((c) => (
                       <Pressable key={c.id} style={styles.previewCommunityChip} onPress={() => router.push(`/community/${c.id}`)}>
-                        <Image source={{ uri: c.thumbnail }} style={styles.previewCommunityThumb} contentFit="cover" />
+                        <Image
+                          source={{ uri: c.iconUrl?.trim() || c.thumbnail }}
+                          style={styles.previewCommunityThumb}
+                          contentFit="cover"
+                        />
                         <Text style={styles.previewCommunityName} numberOfLines={1}>{c.name}</Text>
                       </Pressable>
                     ))}

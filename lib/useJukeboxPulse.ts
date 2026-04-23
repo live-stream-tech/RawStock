@@ -23,6 +23,8 @@ export type JukeboxPulse = {
   trackLine: string;
   /** バナー表示に対応する遷移先（フォールバック時は null） */
   targetCommunityId: number | null;
+  /** UI 用。フォールバック時は null */
+  communityName: string | null;
 };
 
 function pickIndex(len: number): number {
@@ -39,6 +41,7 @@ function buildPulse(data: JukeboxActiveSessionsResponse | undefined): JukeboxPul
       labelLine: `ON AIR @ ${row.communityName}`,
       trackLine: row.trackTitle,
       targetCommunityId: row.communityId,
+      communityName: row.communityName,
     };
   }
   const recruiting = data?.recruiting ?? [];
@@ -49,6 +52,7 @@ function buildPulse(data: JukeboxActiveSessionsResponse | undefined): JukeboxPul
       labelLine: "REQUEST OPEN",
       trackLine: "Waiting for your pick",
       targetCommunityId: row.communityId,
+      communityName: row.communityName,
     };
   }
   return {
@@ -56,6 +60,7 @@ function buildPulse(data: JukeboxActiveSessionsResponse | undefined): JukeboxPul
     labelLine: "JUKEBOX",
     trackLine: "Underground Session Mix Vol.7",
     targetCommunityId: null,
+    communityName: null,
   };
 }
 

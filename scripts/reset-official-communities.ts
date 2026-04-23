@@ -4,6 +4,7 @@
  */
 import "dotenv/config";
 import { Pool } from "pg";
+import { getCommunityDefaultAssets } from "../lib/community-default-assets";
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -341,15 +342,17 @@ async function main() {
     for (let i = 0; i < OFFICIAL_COMMUNITIES.length; i++) {
       const community = OFFICIAL_COMMUNITIES[i];
       const adminUserId = adminUserIds[i % adminUserIds.length];
+      const { iconUrl } = getCommunityDefaultAssets(community.category);
       const commRes = await client.query(
         `INSERT INTO communities
-          (name, members, thumbnail, online, category, admin_id, owner_id, is_official)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, true)
+          (name, members, thumbnail, icon_url, online, category, admin_id, owner_id, is_official)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true)
          RETURNING id`,
         [
           community.name,
           community.members,
           community.thumbnail,
+          iconUrl,
           community.online,
           community.category,
           adminUserId,

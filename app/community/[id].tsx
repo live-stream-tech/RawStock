@@ -478,9 +478,9 @@ function PollsTab({
               if (!requireAuth("Create Poll")) return;
               setShowCreate(true);
             }}
+            accessibilityLabel="New poll"
           >
-            <Ionicons name="add" size={16} color="#fff" />
-            <Text style={styles.createThreadBtnText}>New</Text>
+            <Ionicons name="add" size={22} color="#000" />
           </Pressable>
         )}
       </View>
@@ -887,6 +887,8 @@ export default function CommunityDetailScreen() {
 
   function closeCreateThreadModal() {
     setShowCreateThread(false);
+    setNewThreadTitle("");
+    setNewThreadBody("");
     setAnnouncementFlyerUrl(null);
   }
 
@@ -1114,7 +1116,11 @@ export default function CommunityDetailScreen() {
         <View style={[styles.profileSection, styles.profileSectionTight]}>
           <View style={styles.profileRow}>
             <View style={styles.communityAvatarContainer}>
-              <Image source={{ uri: community.thumbnail }} style={styles.communityAvatar} contentFit="cover" />
+              <Image
+                source={{ uri: community.iconUrl?.trim() || community.thumbnail }}
+                style={styles.communityAvatar}
+                contentFit="cover"
+              />
               {community.online && <View style={styles.onlineDot} />}
             </View>
             <View style={styles.profileInfo}>
@@ -1176,10 +1182,11 @@ export default function CommunityDetailScreen() {
           <Pressable
             style={styles.membersLink}
             onPress={() => router.push(`/community/members/${communityId}`)}
+            hitSlop={6}
           >
-            <Ionicons name="people-outline" size={16} color={C.accent} />
+            <Ionicons name="people-outline" size={13} color={C.accent} />
             <Text style={styles.membersLinkText}>View all members</Text>
-            <Ionicons name="chevron-forward" size={16} color={C.accent} />
+            <Ionicons name="chevron-forward" size={13} color={C.textMuted} />
           </Pressable>
 
         </View>
@@ -1371,97 +1378,15 @@ export default function CommunityDetailScreen() {
                     if (!requireAuth(announceBoard ? "Post announcement" : "Create Thread")) return;
                     setShowCreateThread(true);
                   }}
+                  accessibilityLabel={announceBoard ? "New announcement" : "New thread"}
                 >
-                  <Ionicons name="add" size={16} color="#fff" />
-                  <Text style={styles.createThreadBtnText}>{announceBoard ? "New Announcement" : "New Thread"}</Text>
+                  <Ionicons name="add" size={22} color="#000" />
                 </Pressable>
               )}
             </View>
             {canPostToBoard && !following ? (
-              <Text style={styles.boardStaffHint}>
-                {announceBoard
-                  ? "Admins, moderators, and platform admins can post announcements from here even without joining."
-                  : "Admins, moderators, and platform admins can post threads without joining."}
-              </Text>
+              <Text style={styles.boardStaffHint}>Staff: tap ＋ to compose (join not required).</Text>
             ) : null}
-            {canPostToBoard && (
-              <View style={styles.createThreadForm}>
-                <TextInput
-                  style={styles.createThreadInput}
-                  placeholder={announceBoard ? "Title (e.g. Apr 20 live stream / event name)" : "Title"}
-                  placeholderTextColor={C.textMuted}
-                  value={newThreadTitle}
-                  onChangeText={setNewThreadTitle}
-                />
-                <TextInput
-                  style={[styles.createThreadInput, styles.createThreadInputBody]}
-                  placeholder={
-                    announceBoard
-                      ? "Body (date, venue, links, how to join). Optional if you attach a flyer below."
-                      : "Body (optional)"
-                  }
-                  placeholderTextColor={C.textMuted}
-                  value={newThreadBody}
-                  onChangeText={setNewThreadBody}
-                  multiline
-                  textAlignVertical="top"
-                />
-                {announceBoard ? (
-                  <View style={styles.flyerAttachBlock}>
-                    <Pressable
-                      style={[styles.flyerAttachBtn, (uploadingFlyer || creatingThread) && styles.flyerAttachBtnDisabled]}
-                      onPress={pickAnnouncementFlyer}
-                      disabled={uploadingFlyer || creatingThread}
-                    >
-                      {uploadingFlyer ? (
-                        <ActivityIndicator color="#fff" size="small" />
-                      ) : (
-                        <>
-                          <Ionicons name="image-outline" size={18} color="#fff" />
-                          <Text style={styles.flyerAttachBtnText}>Attach flyer image</Text>
-                        </>
-                      )}
-                    </Pressable>
-                    {announcementFlyerUrl ? (
-                      <View style={styles.flyerPreviewWrap}>
-                        <Image source={{ uri: announcementFlyerUrl }} style={styles.flyerPreviewImg} contentFit="cover" />
-                        <Pressable
-                          style={styles.flyerRemoveBtn}
-                          onPress={() => setAnnouncementFlyerUrl(null)}
-                          hitSlop={8}
-                        >
-                          <Ionicons name="trash-outline" size={18} color="#ff6b6b" />
-                          <Text style={styles.flyerRemoveText}>Remove</Text>
-                        </Pressable>
-                      </View>
-                    ) : null}
-                  </View>
-                ) : null}
-                <Pressable
-                  style={[
-                    styles.createThreadSubmitBtn,
-                    (!newThreadTitle.trim() ||
-                      creatingThread ||
-                      uploadingFlyer ||
-                      (announceBoard && !newThreadBody.trim() && !announcementFlyerUrl?.trim())) &&
-                      styles.createThreadSubmitBtnDisabled,
-                  ]}
-                  onPress={handleCreateThread}
-                  disabled={
-                    !newThreadTitle.trim() ||
-                    creatingThread ||
-                    uploadingFlyer ||
-                    (announceBoard && !newThreadBody.trim() && !announcementFlyerUrl?.trim())
-                  }
-                >
-                  {creatingThread ? (
-                    <ActivityIndicator color="#fff" size="small" />
-                  ) : (
-                    <Text style={styles.createThreadSubmitText}>{announceBoard ? "Post Announcement" : "Post Thread"}</Text>
-                  )}
-                </Pressable>
-              </View>
-            )}
             {displayThreads.length === 0 ? (
               <Text style={styles.boardEmpty}>{announceBoard ? "No announcements yet" : "No threads yet"}</Text>
             ) : announceBoard ? (
@@ -1766,21 +1691,19 @@ export default function CommunityDetailScreen() {
                 <Ionicons name="close" size={24} color={C.textMuted} />
               </Pressable>
             </View>
-            <Text style={styles.requestLabel}>Title</Text>
             <TextInput
-              style={styles.requestInput}
-              placeholder={announceBoard ? "Event or live title" : "Thread title"}
+              style={[styles.requestInput, { marginBottom: 8 }]}
+              placeholder={announceBoard ? "Title — e.g. Apr 20 live @ venue" : "Thread title"}
               placeholderTextColor={C.textMuted}
               value={newThreadTitle}
               onChangeText={setNewThreadTitle}
             />
-            <Text style={styles.requestLabel}>{announceBoard ? "Details (optional if flyer attached)" : "Body (optional)"}</Text>
             <TextInput
               style={[styles.requestInput, styles.requestInputMultiline]}
               placeholder={
                 announceBoard
-                  ? "Date, venue, ticket link, access notes…"
-                  : "Opening post content"
+                  ? "Details: date, venue, links… (optional if flyer below)"
+                  : "Body (optional)"
               }
               placeholderTextColor={C.textMuted}
               value={newThreadBody}
@@ -2463,16 +2386,13 @@ const styles = StyleSheet.create({
   membersLink: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginTop: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: C.surface,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: C.border,
+    gap: 4,
+    marginTop: 4,
+    paddingVertical: 2,
+    paddingHorizontal: 0,
+    alignSelf: "flex-start",
   },
-  membersLinkText: { color: C.accent, fontSize: 14, fontWeight: "600" },
+  membersLinkText: { color: C.accent, fontSize: 12, fontWeight: "600" },
   followBtnChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -2758,13 +2678,12 @@ const styles = StyleSheet.create({
   },
   boardSectionTitle: { color: C.text, fontSize: 15, fontWeight: "800" },
   createThreadBtn: {
-    flexDirection: "row",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
-    gap: 6,
+    justifyContent: "center",
     backgroundColor: C.accent,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
   },
   createThreadBtnText: { color: "#fff", fontSize: 12, fontWeight: "700" },
   createThreadForm: {
@@ -2853,10 +2772,10 @@ const styles = StyleSheet.create({
   boardAnnounceIntroTitle: { color: C.text, fontSize: 15, fontWeight: "800" },
   boardAnnounceIntroSub: { color: C.textSec, fontSize: 12, lineHeight: 18 },
   boardStaffHint: {
-    color: C.textSec,
-    fontSize: 12,
-    lineHeight: 18,
-    marginBottom: 8,
+    color: C.textMuted,
+    fontSize: 11,
+    lineHeight: 15,
+    marginBottom: 4,
     paddingHorizontal: 2,
   },
   boardCardAnnounce: {

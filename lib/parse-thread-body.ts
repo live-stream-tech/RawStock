@@ -1,6 +1,6 @@
 /**
  * Parses enhanced thread body directives.
- * - FLYER_IMAGE: https://...
+ * - FLYER_IMAGE: https://...  /  フライヤー画像: https://...
  * - SHORT_VIDEO: https://...
  * Directive lines are removed from display text.
  */
@@ -50,7 +50,10 @@ export function parseThreadBody(raw: string | null | undefined): ParsedThreadBod
   const kept: string[] = [];
   for (const line of lines) {
     const trimmed = line.trim();
-    if (!flyerImageUrl && /^FLYER_IMAGE\s*:/i.test(trimmed)) {
+    if (
+      !flyerImageUrl &&
+      (/^FLYER_IMAGE\s*:/i.test(trimmed) || /^フライヤー画像\s*:/i.test(trimmed))
+    ) {
       flyerImageUrl = extractUrlFromLine(trimmed);
       continue;
     }

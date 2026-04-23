@@ -108,6 +108,8 @@ import { detectContentLang } from "./langFromText";
 import { translateText } from "./lib/translate";
 import { debugIngestServer } from "./debugIngest";
 import { LEGAL_PRIVACY_VERSION, LEGAL_TERMS_VERSION } from "../constants/legalVersions";
+import { parseThreadBody } from "../lib/parse-thread-body";
+import { getCommunityDefaultAssets } from "../lib/community-default-assets";
 import { publishJukeboxEvent, redis, jukeboxChannel, subscribeJukeboxEvents } from "./redis";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
@@ -2359,7 +2361,8 @@ export async function registerRoutes(app: Express): Promise<void> {
       String(_req.query.liveOnly ?? "") === "1" ||
       String(_req.query.liveOnly ?? "").toLowerCase() === "true";
 
-    const fetchLimit = liveOnly ? Math.min(300, limit * 4) : limit;
+    // liveOnly はキーワード＋フライヤー画像ありで絞るため、十分な件数を先に取る
+    const fetchLimit = liveOnly ? Math.min(800, Math.max(200, limit * 40)) : limit;
     const rows = await db
       .select({
         id: communityThreads.id,
@@ -2404,7 +2407,9 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (liveOnly) {
       out = out.filter((r) => {
         const blob = `${r.title} ${r.body}`.toLowerCase();
-        return liveHints.some((h) => blob.includes(h));
+        if (!liveHints.some((h) => blob.includes(h))) return false;
+        const flyer = parseThreadBody(r.body).flyerImageUrl;
+        return !!flyer;
       });
     }
     out = out.slice(0, limit);
@@ -3237,8 +3242,6 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     const trimmedName = (name ?? "").trim();
     const trimmedDescription = (description ?? "").trim();
-    const banner = (bannerUrl ?? "").trim() || "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=800&h=450&fit=crop";
-    const icon = (iconUrl ?? "").trim() || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=160&h=160&fit=crop";
 
     const categoryList =
       Array.isArray(categories)
@@ -3259,13 +3262,17 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
 
     try {
-      const primaryCategory = categoryList[0];
+      const primaryCategory = categoryList[0] ?? "";
+      const defaults = getCommunityDefaultAssets(primaryCategory);
+      const banner = (bannerUrl ?? "").trim() || defaults.bannerUrl;
+      const icon = (iconUrl ?? "").trim() || defaults.iconUrl;
       const [row] = await db
         .insert(communities)
         .values({
           name: trimmedName,
           members: 1,
           thumbnail: banner,
+          iconUrl: icon,
           online: false,
           category: primaryCategory,
           adminId: user.id,

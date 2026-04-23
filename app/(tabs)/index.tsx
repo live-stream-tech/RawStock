@@ -24,6 +24,7 @@ import { usePlayingVideo } from "@/lib/playing-video-context";
 import { useJukeboxPulse } from "@/lib/useJukeboxPulse";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { CreatorPromoBanner } from "@/components/CreatorPromoBanner";
+import { parseThreadBody } from "@/lib/parse-thread-body";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 const IS_LARGE_WEB = Platform.OS === "web" && SCREEN_W > 768;
@@ -64,21 +65,6 @@ function formatNumber(n: number): string {
   if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
   if (n >= 1000) return (n / 1000).toFixed(1) + "K";
   return n.toLocaleString();
-}
-
-function parseFlyerFromBody(raw: unknown): string | null {
-  const body = typeof raw === "string" ? raw : "";
-  if (!body) return null;
-  const lines = body.split("\n");
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (/^FLYER_IMAGE\s*:/i.test(trimmed) || /^フライヤー画像\s*:/i.test(trimmed)) {
-      const m = trimmed.match(/https?:\/\/\S+/i);
-      if (m?.[0]) return m[0];
-    }
-  }
-  const direct = body.match(/https?:\/\/\S+\.(?:png|jpe?g|webp|gif)(?:\?\S*)?/i);
-  return direct?.[0] ?? null;
 }
 
 /** Matches /live thumbnail LIVE badge (solid dot, no pulse) */
@@ -258,7 +244,7 @@ function LiveCard({ item }: { item: any }) {
 }
 
 function AnnouncementCard({ item }: { item: any }) {
-  const flyer = parseFlyerFromBody(item.body);
+  const flyer = parseThreadBody(item.body).flyerImageUrl;
   return (
     <Pressable
       style={styles.announceCard}
@@ -269,7 +255,7 @@ function AnnouncementCard({ item }: { item: any }) {
           <Image source={{ uri: resolveVideoMediaUri(flyer) }} style={styles.announceThumb} contentFit="contain" cachePolicy="memory-disk" />
         ) : (
           <View style={styles.announceThumbPlaceholder}>
-            <Text style={styles.announceThumbPlaceholderText}>No flyer image</Text>
+            <Text style={styles.announceThumbPlaceholderText}>フライヤー画像なし</Text>
           </View>
         )}
         <LinearGradient colors={["transparent", "rgba(0,0,0,0.72)"]} style={styles.announceThumbGradient} />
@@ -539,7 +525,7 @@ export default function HomeScreen() {
 
         {/* ── Jukebox Banner ── */}
         <Pressable
-          style={styles.jukeBanner}
+          style={[styles.jukeBannerOuter, Platform.OS === "web" ? styles.jukeBannerOuterWeb : styles.jukeBannerOuterNative]}
           onPress={() => {
             if (jukePulse.targetCommunityId != null) {
               router.push(`/jukebox/${jukePulse.targetCommunityId}` as any);
@@ -552,18 +538,60 @@ export default function HomeScreen() {
             }
           }}
         >
-          <View style={styles.jukeBannerLeft}>
-            <Ionicons name="musical-notes" size={16} color={C.accent} />
-            <View style={styles.jukeBannerTextCol}>
-              <Text style={styles.jukeBannerLabel} numberOfLines={1}>
-                {jukePulse.labelLine}
-              </Text>
-              <Text style={styles.jukeBannerTrack} numberOfLines={1}>
+          <LinearGradient
+            colors={["#062822", "#0a1514", "#0c0c0c"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+          <View style={styles.jukeBannerShine} pointerEvents="none" />
+          <View style={styles.jukeBannerRow}>
+            <View style={styles.jukeArtCard}>
+              <LinearGradient
+                colors={["rgba(0,255,204,0.22)", "rgba(0,255,204,0.04)", "rgba(0,0,0,0.65)"]}
+                start={{ x: 0.2, y: 0 }}
+                end={{ x: 0.9, y: 1 }}
+                style={StyleSheet.absoluteFillObject}
+              />
+              <Ionicons
+                name={jukePulse.mode === "on_air" ? "radio-outline" : "musical-notes"}
+                size={28}
+                color={C.accent}
+              />
+            </View>
+            <View style={styles.jukeBannerMain}>
+              <View style={styles.jukeBannerBadgeRow}>
+                <View style={styles.jukePill}>
+                  <Text style={styles.jukePillText}>JUKEBOX</Text>
+                </View>
+                {jukePulse.mode === "on_air" ? (
+                  <View style={styles.jukeOnAirPill}>
+                    <View style={styles.jukeOnAirDot} />
+                    <Text style={styles.jukeOnAirText}>ON AIR</Text>
+                  </View>
+                ) : jukePulse.mode === "request_open" ? (
+                  <View style={styles.jukeOpenPill}>
+                    <Text style={styles.jukeOpenText}>リクエスト受付中</Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text style={styles.jukeBannerTrack} numberOfLines={2}>
                 {jukePulse.trackLine}
               </Text>
+              {jukePulse.communityName ? (
+                <Text style={styles.jukeBannerSub} numberOfLines={1}>
+                  @{jukePulse.communityName.replace(/^@+/, "")}
+                </Text>
+              ) : jukePulse.mode === "fallback" ? (
+                <Text style={styles.jukeBannerSub} numberOfLines={1}>
+                  タップしてジュークボックスへ
+                </Text>
+              ) : null}
+            </View>
+            <View style={styles.jukeBannerChevron}>
+              <Ionicons name="chevron-forward" size={20} color={C.accent} />
             </View>
           </View>
-          <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
         </Pressable>
 
         {/* ── Paid Hero ── */}
@@ -684,30 +712,128 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
 
   // Jukebox Banner
-  jukeBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+  jukeBannerOuter: {
     marginHorizontal: 16,
     marginTop: 12,
     marginBottom: 4,
-    backgroundColor: C.surface,
-    borderRadius: 2,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    borderRadius: 6,
+    overflow: "hidden",
     borderWidth: 1,
-    borderColor: C.accent,
+    borderColor: "rgba(0,255,204,0.38)",
   },
-  jukeBannerLeft: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1, minWidth: 0 },
-  jukeBannerTextCol: { flex: 1, minWidth: 0 },
-  jukeBannerLabel: {
+  jukeBannerOuterWeb: {
+    boxShadow: "0 0 28px rgba(0,255,204,0.14), 0 10px 36px rgba(0,0,0,0.55)",
+  } as any,
+  jukeBannerOuterNative: {
+    shadowColor: "#00ffcc",
+    shadowOpacity: 0.2,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 10,
+  },
+  jukeBannerShine: {
+    ...StyleSheet.absoluteFillObject,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(0,255,204,0.12)",
+  },
+  jukeBannerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    gap: 12,
+  },
+  jukeArtCard: {
+    width: 58,
+    height: 58,
+    borderRadius: 4,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(0,255,204,0.28)",
+    backgroundColor: "rgba(0,0,0,0.35)",
+  },
+  jukeBannerMain: { flex: 1, minWidth: 0, gap: 4 },
+  jukeBannerBadgeRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  jukePill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 2,
+    backgroundColor: "rgba(0,255,204,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(0,255,204,0.35)",
+  },
+  jukePillText: {
     color: C.accent,
+    fontSize: 8,
+    fontFamily: F.mono,
+    fontWeight: "800",
+    letterSpacing: 1.6,
+  },
+  jukeOnAirPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,77,0,0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(255,77,0,0.45)",
+  },
+  jukeOnAirDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: C.live,
+  },
+  jukeOnAirText: {
+    color: C.live,
+    fontSize: 8,
+    fontFamily: F.mono,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+  },
+  jukeOpenPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 2,
+    backgroundColor: "rgba(245,200,66,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(245,200,66,0.4)",
+  },
+  jukeOpenText: {
+    color: C.amber,
     fontSize: 9,
     fontFamily: F.mono,
-    letterSpacing: 1.5,
-    marginBottom: 2,
+    fontWeight: "800",
+    letterSpacing: 0.5,
   },
-  jukeBannerTrack: { color: C.text, fontSize: 13, fontFamily: F.display, fontWeight: "700" },
+  jukeBannerTrack: {
+    color: C.text,
+    fontSize: 15,
+    fontFamily: F.display,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+    lineHeight: 19,
+  },
+  jukeBannerSub: {
+    color: C.textSec,
+    fontSize: 11,
+    fontFamily: F.mono,
+    marginTop: 1,
+  },
+  jukeBannerChevron: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,255,204,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(0,255,204,0.22)",
+  },
 
   // Section
   sectionGap: { height: 20 },
