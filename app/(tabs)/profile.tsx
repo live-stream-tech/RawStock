@@ -237,6 +237,8 @@ export default function ProfileScreen() {
   const [editAvatar, setEditAvatar] = useState("");
   const [profileSaving, setProfileSaving] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  /** Main header avatar: pick image and save without opening the edit modal */
+  const [headerAvatarUploading, setHeaderAvatarUploading] = useState(false);
 
   // Role / creator registration state
   const { data: roleStatus, refetch: refetchRoles } = useQuery<{ isEditor: boolean; isMentor: boolean } | null>({
@@ -384,94 +386,113 @@ export default function ProfileScreen() {
     return url;
   }
 
+  /** Returns public URL after upload, or null if user cancelled / no file */
+  async function pickAndUploadAvatarUrl(): Promise<string | null> {
+    if (Platform.OS === "web") {
+      return await new Promise<string | null>((resolve, reject) => {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "image/*";
+        let settled = false;
+        const settle = () => {
+          if (settled) return;
+          settled = true;
+          window.removeEventListener("focus", onWindowFocus);
+          clearTimeout(safetyTimer);
+        };
+        const onWindowFocus = () => {
+          setTimeout(() => {
+            if (settled) return;
+            if (!input.files?.length) {
+              settle();
+              resolve(null);
+            }
+          }, 200);
+        };
+        const safetyTimer = setTimeout(() => {
+          if (settled) return;
+          settle();
+          resolve(null);
+        }, 120_000);
+        input.addEventListener(
+          "cancel",
+          () => {
+            settle();
+            resolve(null);
+          },
+          { once: true },
+        );
+        setTimeout(() => {
+          if (settled) return;
+          window.addEventListener("focus", onWindowFocus);
+        }, 400);
+        input.onchange = async (e: Event) => {
+          try {
+            const target = e.target as HTMLInputElement;
+            const file = target.files?.[0];
+            if (!file) {
+              settle();
+              resolve(null);
+              return;
+            }
+            settle();
+            const uploadedUrl = await uploadAvatarFileWeb(file);
+            resolve(uploadedUrl);
+          } catch (err) {
+            settle();
+            reject(err);
+          }
+        };
+        input.click();
+      });
+    }
+
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("権限が必要です", "写真を選ぶにはフォトライブラリへのアクセスを許可してください。");
+      return null;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 0.8,
+      allowsEditing: true,
+      aspect: [1, 1],
+    });
+    if (result.canceled || result.assets.length === 0) return null;
+    const asset = result.assets[0];
+    const mime = asset.mimeType || "image/jpeg";
+    const ext = mime.includes("png") ? "png" : mime.includes("webp") ? "webp" : "jpg";
+    return await uploadAvatarNative(
+      asset.uri,
+      `avatar_${Date.now()}.${ext}`,
+      mime,
+    );
+  }
+
+  async function pickAvatarFromHeader() {
+    if (!user || avatarUploading || headerAvatarUploading) return;
+    try {
+      setHeaderAvatarUploading(true);
+      const url = await pickAndUploadAvatarUrl();
+      if (!url) return;
+      await updateProfile({
+        name: user.name ?? user.displayName ?? "",
+        bio: user.bio ?? "",
+        avatar: url,
+      });
+    } catch (e: any) {
+      Alert.alert("更新に失敗しました", e?.message ?? "写真を保存できませんでした。");
+    } finally {
+      setHeaderAvatarUploading(false);
+    }
+  }
+
   async function pickAvatarImage() {
     if (avatarUploading) return;
     try {
       setAvatarUploading(true);
-      if (Platform.OS === "web") {
-        await new Promise<void>((resolve, reject) => {
-          const input = document.createElement("input");
-          input.type = "file";
-          input.accept = "image/*";
-          let settled = false;
-          const settle = () => {
-            if (settled) return;
-            settled = true;
-            window.removeEventListener("focus", onWindowFocus);
-            clearTimeout(safetyTimer);
-          };
-          const onWindowFocus = () => {
-            // Canceling the file dialog returns focus without firing change.
-            setTimeout(() => {
-              if (settled) return;
-              if (!input.files?.length) {
-                settle();
-                resolve();
-              }
-            }, 200);
-          };
-          const safetyTimer = setTimeout(() => {
-            if (settled) return;
-            settle();
-            resolve();
-          }, 120_000);
-          input.addEventListener(
-            "cancel",
-            () => {
-              settle();
-              resolve();
-            },
-            { once: true },
-          );
-          // Defer focus listener: opening the picker blurs the window; attaching immediately can false-cancel.
-          setTimeout(() => {
-            if (settled) return;
-            window.addEventListener("focus", onWindowFocus);
-          }, 400);
-          input.onchange = async (e: Event) => {
-            try {
-              const target = e.target as HTMLInputElement;
-              const file = target.files?.[0];
-              if (!file) {
-                settle();
-                resolve();
-                return;
-              }
-              settle();
-              const uploadedUrl = await uploadAvatarFileWeb(file);
-              setEditAvatar(uploadedUrl);
-              resolve();
-            } catch (err) {
-              settle();
-              reject(err);
-            }
-          };
-          input.click();
-        });
-        return;
-      }
-
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert("権限が必要です", "写真を選ぶにはフォトライブラリへのアクセスを許可してください。");
-        return;
-      }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ["images"],
-        quality: 0.8,
-        allowsEditing: true,
-        aspect: [1, 1],
-      });
-      if (result.canceled || result.assets.length === 0) return;
-      const asset = result.assets[0];
-      const mime = asset.mimeType || "image/jpeg";
-      const ext = mime.includes("png") ? "png" : mime.includes("webp") ? "webp" : "jpg";
-      const uploadedUrl = await uploadAvatarNative(
-        asset.uri,
-        `avatar_${Date.now()}.${ext}`,
-        mime,
-      );
-      setEditAvatar(uploadedUrl);
+      const url = await pickAndUploadAvatarUrl();
+      if (url) setEditAvatar(url);
     } catch (e: any) {
       Alert.alert("アップロードに失敗しました", e?.message ?? "画像をアップロードできませんでした。");
     } finally {
@@ -677,7 +698,15 @@ export default function ProfileScreen() {
       <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
         <View style={styles.profileHeader}>
           <View style={styles.profileLeft}>
-            <Pressable style={styles.avatarContainer} onPress={openProfileEdit}>
+            <Pressable
+              style={[styles.avatarContainer, (headerAvatarUploading || avatarUploading) && { opacity: 0.75 }]}
+              onPress={pickAvatarFromHeader}
+              onLongPress={openProfileEdit}
+              delayLongPress={380}
+              accessibilityRole="button"
+              accessibilityLabel="プロフィール写真を変更"
+              accessibilityHint="長押しで名前や自己紹介を編集"
+            >
               {(user?.avatar ?? user?.profileImageUrl) ? (
                 <Image
                   source={{ uri: (user.avatar ?? user.profileImageUrl) ?? "" }}
@@ -689,9 +718,15 @@ export default function ProfileScreen() {
                   <View style={styles.avatarWhiteCircle} />
                 </View>
               )}
-              <View style={styles.avatarEditBadge}>
-                <Ionicons name="camera-outline" size={10} color="#fff" />
-              </View>
+              {headerAvatarUploading ? (
+                <View style={styles.avatarHeaderLoading}>
+                  <ActivityIndicator color={C.accent} size="small" />
+                </View>
+              ) : (
+                <View style={styles.avatarEditBadge}>
+                  <Ionicons name="camera-outline" size={10} color="#fff" />
+                </View>
+              )}
             </Pressable>
             <View style={styles.profileInfo}>
               <Text style={styles.profileName}>{user?.name ?? user?.displayName ?? ""}</Text>
@@ -1407,6 +1442,7 @@ const styles = StyleSheet.create({
   },
   profileLeft: { flexDirection: "row", alignItems: "center", gap: 14 },
   avatarContainer: {
+    position: "relative",
     borderWidth: 2,
     borderColor: "#fff",
     borderRadius: 35,
@@ -2128,6 +2164,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1.5,
     borderColor: C.bg,
+  },
+  avatarHeaderLoading: {
+    position: "absolute",
+    top: 2,
+    left: 2,
+    right: 2,
+    bottom: 2,
+    borderRadius: 33,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   // Profile edit modal fields
