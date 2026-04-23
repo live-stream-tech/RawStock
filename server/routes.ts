@@ -2103,17 +2103,32 @@ export async function registerRoutes(app: Express): Promise<void> {
   };
   app.get("/api/communities", async (req: Request, res: Response) => {
     const genreId = queryStr(req, "genre");
-    let rows = await db
-      .select()
-      .from(communities)
-      .orderBy(desc(communities.isOfficial), desc(communities.members));
+    let rows: InferSelectModel<typeof communities>[] = [];
+    try {
+      rows = await db
+        .select()
+        .from(communities)
+        .orderBy(desc(communities.isOfficial), desc(communities.members));
+    } catch (e: unknown) {
+      // Backward-compatible fallback when production DB has not applied is_official migration yet.
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/is_official|communities\.isofficial|column .* does not exist/i.test(msg)) {
+        rows = await db
+          .select()
+          .from(communities)
+          .orderBy(desc(communities.members));
+      } else {
+        throw e;
+      }
+    }
     if (genreId && GENRE_TO_CATEGORY[genreId]) {
       const terms = GENRE_TO_CATEGORY[genreId];
       rows = rows.filter((r) =>
         terms.some((t) => (r.category ?? "").includes(t))
       );
     }
-    res.json(rows);
+    const normalized = rows.map((r) => ({ ...r, isOfficial: !!(r as any).isOfficial }));
+    res.json(normalized);
   });
 
   /** 現在ログイン中ユーザーが参加しているコミュニティ一覧 */
@@ -2131,13 +2146,28 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
 
     const ids = memberships.map((m) => m.communityId);
-    const rows = await db
-      .select()
-      .from(communities)
-      .where(inArray(communities.id, ids))
-      .orderBy(desc(communities.isOfficial), desc(communities.members));
+    let rows: InferSelectModel<typeof communities>[] = [];
+    try {
+      rows = await db
+        .select()
+        .from(communities)
+        .where(inArray(communities.id, ids))
+        .orderBy(desc(communities.isOfficial), desc(communities.members));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/is_official|communities\.isofficial|column .* does not exist/i.test(msg)) {
+        rows = await db
+          .select()
+          .from(communities)
+          .where(inArray(communities.id, ids))
+          .orderBy(desc(communities.members));
+      } else {
+        throw e;
+      }
+    }
 
-    res.json(rows);
+    const normalized = rows.map((r) => ({ ...r, isOfficial: !!(r as any).isOfficial }));
+    res.json(normalized);
   });
 
   app.get("/api/communities/:id", async (req: Request, res: Response) => {

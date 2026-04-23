@@ -246,25 +246,34 @@ function LiveCard({ item }: { item: any }) {
 
 function AnnouncementCard({ item }: { item: any }) {
   const flyer = parseThreadBody(item.body).flyerImageUrl;
-  const [flyerLoadError, setFlyerLoadError] = React.useState(false);
-  const showFlyer = !!flyer && !flyerLoadError;
+  const fallbackThumb = item.communityThumbnail ? resolveVideoMediaUri(item.communityThumbnail) : null;
+  const [imageUri, setImageUri] = React.useState<string | null>(flyer ? resolveVideoMediaUri(flyer) : fallbackThumb);
+  React.useEffect(() => {
+    setImageUri(flyer ? resolveVideoMediaUri(flyer) : fallbackThumb);
+  }, [flyer, fallbackThumb, item.id]);
   return (
     <Pressable
       style={styles.announceCard}
       onPress={() => router.push(`/community/${item.communityId}?tab=Board&openThread=${item.id}` as any)}
     >
       <View style={styles.announceThumbWrap}>
-        {showFlyer ? (
+        {imageUri ? (
           <Image
-            source={{ uri: resolveVideoMediaUri(flyer) }}
+            source={{ uri: imageUri }}
             style={styles.announceThumb}
             contentFit="cover"
             cachePolicy="memory-disk"
-            onError={() => setFlyerLoadError(true)}
+            onError={() => {
+              if (fallbackThumb && imageUri !== fallbackThumb) {
+                setImageUri(fallbackThumb);
+              } else {
+                setImageUri(null);
+              }
+            }}
           />
         ) : (
           <View style={styles.announceThumbPlaceholder}>
-            <Text style={styles.announceThumbPlaceholderText}>No flyer image</Text>
+            <Text style={styles.announceThumbPlaceholderText}>フライヤー画像なし</Text>
           </View>
         )}
         <LinearGradient colors={["transparent", "rgba(0,0,0,0.72)"]} style={styles.announceThumbGradient} />

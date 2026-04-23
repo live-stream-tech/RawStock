@@ -14,8 +14,11 @@ export type ParsedThreadBody = {
 const directImageRe = /(https?:\/\/\S+\.(?:png|jpe?g|webp|gif)(?:\?\S*)?)/i;
 
 function extractUrlFromLine(trimmed: string): string | null {
+  // Supports markdown-style links first: [text](https://...)
+  const md = trimmed.match(/\((https?:\/\/[^)\s]+)\)/i);
+  if (md?.[1]) return md[1].replace(/[)\],。．、]+$/g, "");
   const m = trimmed.match(/https?:\/\/\S+/i);
-  return m ? m[0] : null;
+  return m ? m[0].replace(/[)\],。．、]+$/g, "") : null;
 }
 
 /** Returns a YouTube thumbnail URL if the video ID can be extracted. */
@@ -52,12 +55,15 @@ export function parseThreadBody(raw: string | null | undefined): ParsedThreadBod
     const trimmed = line.trim();
     if (
       !flyerImageUrl &&
-      (/^FLYER_IMAGE\s*:/i.test(trimmed) || /^フライヤー画像\s*:/i.test(trimmed))
+      (
+        /^FLYER_IMAGE\s*[:：]/i.test(trimmed) ||
+        /^フライヤー画像(?:URL)?\s*[:：]/i.test(trimmed)
+      )
     ) {
       flyerImageUrl = extractUrlFromLine(trimmed);
       continue;
     }
-    if (!shortVideoUrl && /^SHORT_VIDEO\s*:/i.test(trimmed)) {
+    if (!shortVideoUrl && /^SHORT_VIDEO\s*[:：]/i.test(trimmed)) {
       shortVideoUrl = extractUrlFromLine(trimmed);
       continue;
     }
