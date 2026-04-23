@@ -11,6 +11,7 @@ import {
   Alert,
   ActivityIndicator,
   Linking,
+  KeyboardAvoidingView,
 } from "react-native";
 import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
@@ -327,7 +328,7 @@ export default function ProfileScreen() {
 
   async function saveProfile() {
     if (!editName.trim()) {
-      Alert.alert("Error", "Please enter a username");
+      Alert.alert("入力エラー", "表示名を入力してください。");
       return;
     }
     setProfileSaving(true);
@@ -336,7 +337,7 @@ export default function ProfileScreen() {
       setShowProfileModal(false);
       router.replace("/(tabs)/profile");
     } catch (e: any) {
-      Alert.alert("Save Failed", e.message ?? "Something went wrong");
+      Alert.alert("保存に失敗しました", e.message ?? "しばらくしてから再度お試しください。");
     } finally {
       setProfileSaving(false);
     }
@@ -452,7 +453,7 @@ export default function ProfileScreen() {
 
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert("Permission Required", "Allow media library access to choose an avatar.");
+        Alert.alert("権限が必要です", "写真を選ぶにはフォトライブラリへのアクセスを許可してください。");
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -472,7 +473,7 @@ export default function ProfileScreen() {
       );
       setEditAvatar(uploadedUrl);
     } catch (e: any) {
-      Alert.alert("Upload Failed", e?.message ?? "Could not upload avatar image.");
+      Alert.alert("アップロードに失敗しました", e?.message ?? "画像をアップロードできませんでした。");
     } finally {
       setAvatarUploading(false);
     }
@@ -1222,80 +1223,125 @@ export default function ProfileScreen() {
       <Modal visible={showProfileModal} transparent animationType="slide">
         <View style={styles.modalBg}>
           <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setShowProfileModal(false)} />
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={styles.modalKbWrap}
+            keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
+          >
           <View style={[styles.modalSheet, { paddingBottom: getTabBottomInset(insets) + 16 }]}>
             <View style={styles.modalHandle} />
-            <View style={styles.modalTitleRow}>
-              <Ionicons name="person-circle-outline" size={20} color={C.accent} />
-              <Text style={styles.modalTitle}>Edit Profile</Text>
-            </View>
-            <Text style={styles.profileEditHint}>Update your display name, bio, and avatar. For Instagram, YouTube, X, and music links, go to Settings → Edit Profile.</Text>
-
-            <Text style={styles.profileFieldLabel}>Username</Text>
-            <View style={styles.profileInputWrap}>
-              <Ionicons name="person-outline" size={16} color={C.textMuted} />
-              <TextInput
-                style={styles.profileInput}
-                value={editName}
-                onChangeText={setEditName}
-                placeholder="Display name"
-                placeholderTextColor={C.textMuted}
-                maxLength={30}
-              />
-            </View>
-
-            <Text style={styles.profileFieldLabel}>Bio</Text>
-            <View style={[styles.profileInputWrap, { alignItems: "flex-start", paddingTop: 12, paddingBottom: 12 }]}>
-              <Ionicons name="text-outline" size={16} color={C.textMuted} style={{ marginTop: 2 }} />
-              <TextInput
-                style={[styles.profileInput, { height: 72, textAlignVertical: "top" }]}
-                value={editBio}
-                onChangeText={setEditBio}
-                placeholder="Write something about yourself"
-                placeholderTextColor={C.textMuted}
-                multiline
-                maxLength={200}
-              />
-            </View>
-
-            <Text style={styles.profileFieldLabel}>Avatar Image</Text>
-            <Pressable
-              style={[styles.avatarPickerBtn, avatarUploading && { opacity: 0.6 }]}
-              onPress={pickAvatarImage}
-              disabled={avatarUploading}
-            >
-              {avatarUploading ? (
-                <ActivityIndicator color={C.accent} size="small" />
-              ) : (
-                <Ionicons name="images-outline" size={16} color={C.accent} />
-              )}
-              <Text style={styles.avatarPickerBtnText}>
-                {avatarUploading ? "Uploading..." : "Choose and upload image"}
-              </Text>
-            </Pressable>
-            {editAvatar ? (
-              <Image source={{ uri: editAvatar }} style={styles.avatarPreview} contentFit="cover" />
-            ) : null}
-
-            <View style={styles.modalActions}>
-              <Pressable style={styles.cancelBtn} onPress={() => setShowProfileModal(false)}>
-                <Text style={styles.cancelBtnText}>Cancel</Text>
-              </Pressable>
+            <View style={styles.profileEditHeaderRow}>
+              <View style={styles.modalTitleRow}>
+                <Ionicons name="person-circle-outline" size={20} color={C.accent} />
+                <Text style={styles.modalTitle}>Edit Profile</Text>
+              </View>
               <Pressable
-                style={[styles.saveBtn, profileSaving && { opacity: 0.6 }]}
-                onPress={saveProfile}
-                disabled={profileSaving}
+                onPress={() => setShowProfileModal(false)}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
               >
-                {profileSaving ? (
-                  <ActivityIndicator color="#fff" size="small" />
+                <Ionicons name="close" size={26} color={C.textMuted} />
+              </Pressable>
+            </View>
+            <Text style={styles.profileEditHint}>
+              写真はタップで変更できます。SNS・楽曲リンクは Settings → Edit Profile から。
+            </Text>
+
+            <ScrollView
+              style={styles.profileEditScroll}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={scrollShowsVertical}
+            >
+              <Pressable
+                style={[styles.editAvatarHero, avatarUploading && styles.editAvatarHeroDisabled]}
+                onPress={pickAvatarImage}
+                disabled={avatarUploading}
+                accessibilityRole="button"
+                accessibilityLabel="プロフィール写真を変更"
+              >
+                {editAvatar ? (
+                  <Image source={{ uri: editAvatar }} style={styles.editAvatarHeroImage} contentFit="cover" />
                 ) : (
-                  <>
-                    <Ionicons name="checkmark" size={16} color="#fff" />
-                    <Text style={styles.saveBtnText}>Save</Text>
-                  </>
+                  <View style={[styles.editAvatarHeroImage, styles.editAvatarPlaceholder]}>
+                    <Ionicons name="person-outline" size={44} color={C.textMuted} />
+                  </View>
+                )}
+                {avatarUploading ? (
+                  <View style={styles.editAvatarLoadingMask}>
+                    <ActivityIndicator color="#fff" size="large" />
+                  </View>
+                ) : (
+                  <View style={styles.editAvatarCamBadge} pointerEvents="none">
+                    <Ionicons name="camera" size={18} color="#fff" />
+                  </View>
                 )}
               </Pressable>
-            </View>
+              <Text style={styles.editAvatarTapHint}>写真をタップして変更</Text>
+              {editAvatar ? (
+                <Pressable
+                  style={styles.removePhotoBtn}
+                  onPress={() => {
+                    Alert.alert("写真を削除", "保存するまで反映されません。", [
+                      { text: "キャンセル", style: "cancel" },
+                      { text: "削除", style: "destructive", onPress: () => setEditAvatar("") },
+                    ]);
+                  }}
+                  disabled={avatarUploading}
+                >
+                  <Text style={styles.removePhotoText}>写真を削除</Text>
+                </Pressable>
+              ) : null}
+
+              <Text style={[styles.profileFieldLabel, styles.profileFieldLabelFirst]}>表示名</Text>
+              <View style={styles.profileInputWrap}>
+                <Ionicons name="person-outline" size={16} color={C.textMuted} />
+                <TextInput
+                  style={styles.profileInput}
+                  value={editName}
+                  onChangeText={setEditName}
+                  placeholder="表示名"
+                  placeholderTextColor={C.textMuted}
+                  maxLength={30}
+                />
+              </View>
+
+              <Text style={styles.profileFieldLabel}>自己紹介</Text>
+              <View style={[styles.profileInputWrap, { alignItems: "flex-start", paddingTop: 12, paddingBottom: 12 }]}>
+                <Ionicons name="text-outline" size={16} color={C.textMuted} style={{ marginTop: 2 }} />
+                <TextInput
+                  style={[styles.profileInput, { height: 88, textAlignVertical: "top" }]}
+                  value={editBio}
+                  onChangeText={setEditBio}
+                  placeholder="自己紹介を書く"
+                  placeholderTextColor={C.textMuted}
+                  multiline
+                  maxLength={200}
+                />
+              </View>
+
+              <View style={styles.modalActions}>
+                <Pressable style={styles.cancelBtn} onPress={() => setShowProfileModal(false)}>
+                  <Text style={styles.cancelBtnText}>閉じる</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.saveBtn, profileSaving && { opacity: 0.6 }]}
+                  onPress={saveProfile}
+                  disabled={profileSaving}
+                >
+                  {profileSaving ? (
+                    <ActivityIndicator color="#050505" size="small" />
+                  ) : (
+                    <>
+                      <Ionicons name="checkmark" size={16} color="#fff" />
+                      <Text style={styles.saveBtnText}>保存</Text>
+                    </>
+                  )}
+                </Pressable>
+              </View>
+            </ScrollView>
           </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
 
@@ -1729,6 +1775,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.6)",
     justifyContent: "flex-end",
+    width: "100%",
+  },
+  modalKbWrap: {
+    flex: 1,
+    justifyContent: "flex-end",
+    width: "100%",
+    maxWidth: "100%",
   },
   modalSheet: {
     backgroundColor: C.surface,
@@ -1826,9 +1879,60 @@ const styles = StyleSheet.create({
   modalTitleRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
   modalTitle: { color: C.text, fontSize: 18, fontWeight: "800" },
   modalSub: { color: C.textMuted, fontSize: 12, marginBottom: 20 },
-  profileEditHint: { color: C.textMuted, fontSize: 11, lineHeight: 16, marginBottom: 16 },
+  profileEditHint: { color: C.textMuted, fontSize: 11, lineHeight: 16, marginBottom: 12 },
+  profileEditHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 4,
+    gap: 12,
+  },
+  profileEditScroll: { maxHeight: 420, marginTop: 4 },
+  editAvatarHero: {
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    alignSelf: "center",
+    marginTop: 8,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: C.accent,
+    backgroundColor: C.surface2,
+  },
+  editAvatarHeroDisabled: { opacity: 0.85 },
+  editAvatarHeroImage: { width: "100%", height: "100%" },
+  editAvatarPlaceholder: { alignItems: "center", justifyContent: "center" },
+  editAvatarLoadingMask: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  editAvatarCamBadge: {
+    position: "absolute",
+    right: 8,
+    bottom: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: C.accent,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: C.bg,
+  },
+  editAvatarTapHint: {
+    alignSelf: "center",
+    marginTop: 10,
+    fontSize: 12,
+    fontWeight: "600",
+    color: C.textSec,
+  },
+  removePhotoBtn: { alignSelf: "center", marginTop: 6, paddingVertical: 8, paddingHorizontal: 12 },
+  removePhotoText: { color: C.textMuted, fontSize: 12, fontWeight: "600", textDecorationLine: "underline" },
+  profileFieldLabelFirst: { marginTop: 18 },
   modalScroll: { maxHeight: 380 },
-  modalActions: { flexDirection: "row", gap: 12, marginTop: 20 },
+  modalActions: { flexDirection: "row", gap: 12, marginTop: 22, marginBottom: 8 },
   cancelBtn: {
     flex: 1,
     paddingVertical: 14,
@@ -2027,7 +2131,7 @@ const styles = StyleSheet.create({
   },
 
   // Profile edit modal fields
-  profileFieldLabel: { color: C.textSec, fontSize: 12, fontWeight: "600", marginBottom: 8, marginTop: 14 },
+  profileFieldLabel: { color: C.textSec, fontSize: 12, fontWeight: "600", marginBottom: 8, marginTop: 16 },
   profileInputWrap: {
     flexDirection: "row",
     alignItems: "center",
@@ -2039,30 +2143,4 @@ const styles = StyleSheet.create({
     borderColor: C.border,
   },
   profileInput: { flex: 1, color: C.text, fontSize: 14, paddingVertical: 12 },
-  avatarPreview: {
-    width: 56,
-    height: 56,
-    borderRadius: 3,
-    marginTop: 10,
-    borderWidth: 2,
-    borderColor: C.accent,
-    alignSelf: "center",
-  },
-  avatarPickerBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: C.surface2,
-    borderRadius: 3,
-    borderWidth: 1,
-    borderColor: C.border,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-  },
-  avatarPickerBtnText: {
-    color: C.accent,
-    fontSize: 13,
-    fontWeight: "700",
-  },
 });
