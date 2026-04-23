@@ -3,8 +3,8 @@
  */
 export const RAWSTOCK_LP_SITE_DEFAULT = "https://rawstock.live";
 
-/** メインアプリが配信するスタンドアロン LP のパス（`server/index.ts` / `server/vercel-app.ts` で 200 返却） */
-export const RAWSTOCK_LP_PUBLIC_PATH = "/lp-static";
+/** メインアプリが配信するスタンドアロン LP の正面パス（`/lp` を固定） */
+export const RAWSTOCK_LP_PUBLIC_PATH = "/lp";
 
 function trimTrailingSlash(s: string): string {
   return s.replace(/\/+$/, "");
@@ -19,10 +19,7 @@ export function rawstockLpSiteOrigin(): string {
   return trimTrailingSlash(RAWSTOCK_LP_SITE_DEFAULT);
 }
 
-/**
- * `/lp` 等のリダイレクト先。環境変数で外部 LP を指定しているときはそのオリジン（`/ja` は Accept-Language 由来）。
- * 未設定時は同一オリジンの {@link RAWSTOCK_LP_PUBLIC_PATH}。
- */
+/** LP の既定URL。アプリ内 iframe 等で使用。 */
 export function rawstockLpRedirectUrl(acceptLanguage?: string | undefined): string {
   const fromEnv =
     (typeof process !== "undefined" && process.env.PUBLIC_RAWSTOCK_LP_URL?.trim()) ||

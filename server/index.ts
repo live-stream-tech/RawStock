@@ -41,7 +41,6 @@ import {
   RAWSTOCK_LP_STEP_IMG_SHOOT_PLACEHOLDER,
   LP_APP_ORIGIN_PLACEHOLDER,
 } from "../lib/brand";
-import { rawstockLpRedirectUrl } from "../lib/rawstockLpSite";
 
 const app = express();
 const log = console.log;
@@ -180,27 +179,29 @@ function configureExpoAndLanding(app: express.Application) {
 
   log("Serving static Expo files with dynamic manifest routing");
 
-  /** マーケ LP: 既定は同一オリジンの `/lp-static`。`PUBLIC_RAWSTOCK_LP_URL` 等で外部 LP に切替可能。 */
-  app.get("/lp", (req: Request, res: Response) => {
-    const target = rawstockLpRedirectUrl(req.get("accept-language"));
-    res.redirect(302, target);
-  });
-
-  app.get("/lp-standalone.html", (req: Request, res: Response) => {
-    const target = rawstockLpRedirectUrl(req.get("accept-language"));
-    res.redirect(302, target);
-  });
-
   const lpStandalonePath = path.resolve(process.cwd(), "public/lp-standalone.html");
-  app.get("/lp-static", (req: Request, res: Response) => {
+  function serveLpStandalone(req: Request, res: Response, canonicalPath: string) {
     if (!fs.existsSync(lpStandalonePath)) {
       return res.status(404).send("lp-standalone.html not found");
     }
     const raw = fs.readFileSync(lpStandalonePath, "utf-8");
-    const html = injectLpMarketingHtml(raw, canonicalPageUrlFromReq(req, "/lp-static"), req);
+    const html = injectLpMarketingHtml(raw, canonicalPageUrlFromReq(req, canonicalPath), req);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
-    res.status(200).send(html);
+    return res.status(200).send(html);
+  }
+
+  /** `/lp` は常にこのHTMLを直接返す（別URLへリダイレクトしない） */
+  app.get("/lp", (req: Request, res: Response) => {
+    return serveLpStandalone(req, res, "/lp");
+  });
+
+  // 互換パス（内容は同一）
+  app.get("/lp-standalone.html", (req: Request, res: Response) => {
+    return serveLpStandalone(req, res, "/lp");
+  });
+  app.get("/lp-static", (req: Request, res: Response) => {
+    return serveLpStandalone(req, res, "/lp");
   });
 
   const teamzPath = path.resolve(process.cwd(), "public/teamz.html");
