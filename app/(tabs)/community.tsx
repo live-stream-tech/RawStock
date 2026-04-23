@@ -65,7 +65,7 @@ function CommunityRankCard({ item, index }: { item: CommunityRow; index: number 
       <RankBadge rank={index + 1} />
       {item.isOfficial ? (
         <View style={styles.officialChip}>
-          <Text style={styles.officialChipText}>OFFICIAL</Text>
+          <Text style={styles.officialChipText}>HUB</Text>
         </View>
       ) : null}
       {item.online && (
@@ -220,7 +220,7 @@ export default function CommunityScreen() {
           <View style={styles.section}>
             <View style={[styles.sectionHeader, styles.sectionHeaderFirst]}>
               <View style={styles.sectionAccent} />
-              <Text style={styles.sectionTitle}>Official hubs</Text>
+              <Text style={styles.sectionTitle}>Community hubs</Text>
             </View>
             {communitiesLoading ? (
               <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
@@ -246,7 +246,7 @@ export default function CommunityScreen() {
               <Text style={styles.sectionTitle}>{official.name} communities</Text>
             </View>
             {children.length === 0 ? (
-              <Text style={styles.emptyInline}>No child communities yet</Text>
+              <Text style={styles.emptyInline}>No communities yet</Text>
             ) : (
               <FlatList
                 data={children}
@@ -266,7 +266,7 @@ export default function CommunityScreen() {
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionAccent} />
-              <Text style={styles.sectionTitle}>Independent communities</Text>
+              <Text style={styles.sectionTitle}>Other communities</Text>
             </View>
             <FlatList
               data={filteredUnassigned}

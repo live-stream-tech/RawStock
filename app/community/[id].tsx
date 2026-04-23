@@ -29,7 +29,6 @@ import { navigateToUserOrLiverProfile, navigateFromVideoCreatorRow } from "@/lib
 import { useAuth } from "@/lib/auth";
 import { webScrollStyle } from "@/constants/layout";
 import { TranslateButton } from "@/components/TranslateButton";
-import { isMusicGenreCommunityCategory } from "@/lib/communityGenreBoard";
 import { parseThreadBody, youtubeThumbnailFromVideoUrl } from "@/lib/parse-thread-body";
 import * as ImagePicker from "expo-image-picker";
 
@@ -731,8 +730,9 @@ function ThreadDetailContent({
   );
 }
 
-const TABS = ["Board", "Latest", "Creators"] as const;
-type Tab = typeof TABS[number];
+const BASE_TABS = ["Board", "Latest", "Creators"] as const;
+type Tab = "Board" | "Latest" | "Creators" | "Ranking";
+const BOARD_TAB_LABEL = "Community Chat";
 
 type CommunityCreatorsResponse = {
   editors: (VideoEditor & { kind: "editor" })[];
@@ -758,9 +758,9 @@ export default function CommunityDetailScreen() {
 
   const communityId = numericId;
   const bottomInset = Platform.OS === "web" ? 34 : 0;
-  const categoryForBoard =
-    typeof apiCommunity?.category === "string" ? apiCommunity.category : undefined;
-  const announceBoard = isMusicGenreCommunityCategory(categoryForBoard);
+  const isOfficialCommunity = !!apiCommunity?.isOfficial;
+  const announceBoard = isOfficialCommunity;
+  const tabs = isOfficialCommunity ? (["Board", "Ranking"] as const) : BASE_TABS;
 
   type StaffData = {
     adminId: number | null;
@@ -783,7 +783,13 @@ export default function CommunityDetailScreen() {
     if (t === "board") setActiveTab("Board");
     else if (t === "latest") setActiveTab("Latest");
     else if (t === "creators") setActiveTab("Creators");
+    else if (t === "ranking") setActiveTab("Ranking");
   }, [tabParam]);
+
+  useEffect(() => {
+    if (isOfficialCommunity && activeTab === "Latest") setActiveTab("Ranking");
+    if (isOfficialCommunity && activeTab === "Creators") setActiveTab("Ranking");
+  }, [isOfficialCommunity, activeTab]);
 
   const consumedOpenThreadKey = useRef<string | null>(null);
   useEffect(() => {
@@ -828,8 +834,8 @@ export default function CommunityDetailScreen() {
   const isCommunityAdmin = !!staffData?.adminId && user?.id === staffData.adminId;
   const isModerator = staffData?.moderatorIds?.includes(user?.id ?? 0) ?? false;
   const isPlatformAdmin = (user?.role ?? "").toUpperCase() === "ADMIN";
-  /** Admins/moderators/platform admins can post announcements without joining */
-  const canPostToBoard = following || isCommunityAdmin || isModerator || isPlatformAdmin;
+  /** Official hubs have open posting UX (auth required at submit), others keep member/staff gating. */
+  const canPostToBoard = isOfficialCommunity || following || isCommunityAdmin || isModerator || isPlatformAdmin;
 
   const { data: editors = [], isLoading: editorsLoading } = useQuery<VideoEditor[]>({
     queryKey: [`/api/communities/${communityId}/editors`],
@@ -847,6 +853,14 @@ export default function CommunityDetailScreen() {
 
   const { data: apiVideos = [] } = useQuery<any[]>({
     queryKey: ["/api/videos"],
+  });
+  const { data: allCommunities = [] } = useQuery<any[]>({
+    queryKey: ["/api/communities"],
+    enabled: isOfficialCommunity,
+  });
+  const { data: rankedVideos = [] } = useQuery<any[]>({
+    queryKey: ["/api/videos/ranked", communityId],
+    enabled: communityId > 0,
   });
 
   const { data: threads = [], refetch: refetchThreads } = useQuery<ThreadItem[]>({
@@ -872,14 +886,32 @@ export default function CommunityDetailScreen() {
     if (!name) return [];
     return (apiVideos as any[]).filter((v) => v.community === name);
   }, [apiVideos, apiCommunity?.name]);
+  const communityRankedVideos = useMemo(() => {
+    const name = apiCommunity?.name;
+    if (!name) return [];
+    const byCommunity = (rankedVideos as any[]).filter((v) => v.community === name);
+    if (byCommunity.length > 0) return byCommunity;
+    return [...timelineVideos].sort((a, b) => (b.views ?? 0) - (a.views ?? 0));
+  }, [rankedVideos, timelineVideos, apiCommunity?.name]);
+  const childCommunities = useMemo(() => {
+    if (!isOfficialCommunity) return [] as any[];
+    const category = String(apiCommunity?.category ?? "").trim().toLowerCase();
+    if (!category) return [] as any[];
+    return (allCommunities as any[])
+      .filter((c) => !c.isOfficial)
+      .filter((c) => {
+        const cc = String(c.category ?? "").trim().toLowerCase();
+        return cc.includes(category) || category.includes(cc);
+      })
+      .sort((a, b) => (b.members ?? 0) - (a.members ?? 0));
+  }, [isOfficialCommunity, apiCommunity?.category, allCommunities]);
 
   const createThreadMutation = useMutation({
     mutationFn: async () => {
       const title = newThreadTitle.trim();
       const text = newThreadBody.trim();
       const flyer = announcementFlyerUrl?.trim() ?? "";
-      const body =
-        announceBoard && flyer ? (text ? `FLYER_IMAGE: ${flyer}\n\n${text}` : `FLYER_IMAGE: ${flyer}`) : text;
+      const body = flyer ? (text ? `FLYER_IMAGE: ${flyer}\n\n${text}` : `FLYER_IMAGE: ${flyer}`) : text;
       const res = await apiRequest("POST", `/api/communities/${communityId}/threads`, {
         title,
         body,
@@ -904,7 +936,7 @@ export default function CommunityDetailScreen() {
   }
 
   async function pickAnnouncementFlyer() {
-    if (!requireAuth(announceBoard ? "Post announcement" : "Create Thread")) return;
+    if (!requireAuth("Create Thread")) return;
     if (Platform.OS === "web") {
       const input = document.createElement("input");
       input.type = "file";
@@ -969,11 +1001,11 @@ export default function CommunityDetailScreen() {
       Alert.alert("", "Please enter a title");
       return;
     }
-    if (announceBoard && !newThreadBody.trim() && !announcementFlyerUrl?.trim()) {
-      Alert.alert("", "Add flyer image and/or body text for your announcement.");
+    if (!newThreadBody.trim() && !announcementFlyerUrl?.trim()) {
+      Alert.alert("", "Write a message and/or attach an image to start the thread.");
       return;
     }
-    if (!requireAuth(announceBoard ? "Post announcement" : "Create thread")) return;
+    if (!requireAuth("Create thread")) return;
     setCreatingThread(true);
     try {
       await createThreadMutation.mutateAsync();
@@ -1143,86 +1175,107 @@ export default function CommunityDetailScreen() {
               </View>
               <Text style={styles.categoryText}>{community.category}</Text>
             </View>
-            <Pressable
-              style={[styles.followBtnChip, following && styles.followBtnChipActive]}
-              onPress={async () => {
-                if (following) {
-                  setFollowing(false);
-                  return;
-                }
-                if (!requireAuth("Follow")) return;
-                try {
-                  await apiRequest("POST", `/api/communities/${communityId}/join`);
-                  setFollowing(true);
-                  qc.invalidateQueries({ queryKey: [`/api/communities/${communityId}/members`] });
-                } catch {
-                  setFollowing(true);
-                }
-              }}
-              hitSlop={6}
-            >
-              <Ionicons
-                name={following ? "checkmark" : "add"}
-                size={14}
-                color={following ? C.textSec : "#fff"}
-              />
-              <Text style={[styles.followBtnChipText, following && styles.followBtnChipTextActive]}>
-                {following ? "Following" : "Follow"}
-              </Text>
-            </Pressable>
+            {!isOfficialCommunity ? (
+              <Pressable
+                style={[styles.followBtnChip, following && styles.followBtnChipActive]}
+                onPress={async () => {
+                  if (following) {
+                    setFollowing(false);
+                    return;
+                  }
+                  if (!requireAuth("Follow")) return;
+                  try {
+                    await apiRequest("POST", `/api/communities/${communityId}/join`);
+                    setFollowing(true);
+                    qc.invalidateQueries({ queryKey: [`/api/communities/${communityId}/members`] });
+                  } catch {
+                    setFollowing(true);
+                  }
+                }}
+                hitSlop={6}
+              >
+                <Ionicons
+                  name={following ? "checkmark" : "add"}
+                  size={14}
+                  color={following ? C.textSec : "#fff"}
+                />
+                <Text style={[styles.followBtnChipText, following && styles.followBtnChipTextActive]}>
+                  {following ? "Following" : "Follow"}
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
 
           <Text style={styles.description}>Support community for {community.name} — connect through live streams and photo sessions</Text>
 
           <View style={styles.statsRow}>
-            <Pressable
-              style={styles.statPressable}
-              onPress={() => router.push(`/community/members/${communityId}`)}
-            >
-              <Text style={styles.statText}>
-                <Text style={styles.statNumber}>{((community.members ?? 0) / 1000).toFixed(0)}K</Text>
-                {" "}followers
+            <Text style={styles.statText}>
+              <Text style={styles.statNumber}>
+                {isOfficialCommunity ? childCommunities.length : ((community.members ?? 0) / 1000).toFixed(0)}
               </Text>
-            </Pressable>
+              {" "}{isOfficialCommunity ? "communities" : "followers"}
+            </Text>
             <Text style={styles.statDivider}>·</Text>
             <Text style={styles.statText}>
               <Text style={styles.statNumber}>2</Text>
               {" "}creators
             </Text>
           </View>
-          <Pressable
-            style={styles.membersLink}
-            onPress={() => router.push(`/community/members/${communityId}`)}
-            hitSlop={6}
-          >
-            <Ionicons name="people-outline" size={13} color={C.accent} />
-            <Text style={styles.membersLinkText}>View all members</Text>
-            <Ionicons name="chevron-forward" size={13} color={C.textMuted} />
-          </Pressable>
+          {isOfficialCommunity ? (
+            <View style={styles.childCommunitiesBox}>
+              <View style={styles.childCommunitiesHead}>
+                <Ionicons name="layers-outline" size={13} color={C.accent} />
+                <Text style={styles.membersLinkText}>Communities</Text>
+              </View>
+              {childCommunities.length === 0 ? (
+                <Text style={styles.childCommunitiesEmpty}>No linked communities yet</Text>
+              ) : (
+                childCommunities.slice(0, 8).map((c) => (
+                  <Pressable
+                    key={`child-community-${c.id}`}
+                    style={styles.childCommunityRow}
+                    onPress={() => router.push(`/community/${c.id}`)}
+                  >
+                    <Text style={styles.childCommunityName} numberOfLines={1}>{c.name}</Text>
+                    <Ionicons name="chevron-forward" size={12} color={C.textMuted} />
+                  </Pressable>
+                ))
+              )}
+            </View>
+          ) : (
+            <Pressable
+              style={styles.membersLink}
+              onPress={() => router.push(`/community/members/${communityId}`)}
+              hitSlop={6}
+            >
+              <Ionicons name="people-outline" size={13} color={C.accent} />
+              <Text style={styles.membersLinkText}>View all members</Text>
+              <Ionicons name="chevron-forward" size={13} color={C.textMuted} />
+            </Pressable>
+          )}
 
         </View>
 
         <EmbeddedJukebox communityId={communityId} />
 
         <View style={styles.tabRow}>
-          {TABS.map((tab) => (
+          {tabs.map((tab) => (
             <Pressable
               key={tab}
               style={[styles.tabItem, activeTab === tab && styles.tabItemActive]}
               onPress={() => setActiveTab(tab)}
             >
               <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-                {tab === "Board" && announceBoard ? "Announcements" : tab}
+                {tab === "Board" ? (isOfficialCommunity ? "Flyer Board" : BOARD_TAB_LABEL) : tab === "Ranking" ? "Video Ranking" : tab}
               </Text>
             </Pressable>
           ))}
         </View>
 
-        {activeTab === "Latest" && (
+        {(activeTab === "Latest" || activeTab === "Ranking") && (
           <View>
             <CreatorPromoBanner />
-
-            {timelineVideos.map((video: any) => (
+            {(activeTab === "Ranking" ? communityRankedVideos : timelineVideos).map((video: any, idx: number) => (
               <Pressable
                 key={video.id}
                 style={styles.postCard}
@@ -1256,12 +1309,17 @@ export default function CommunityDetailScreen() {
                 </View>
                 <Image source={{ uri: video.thumbnail }} style={styles.postImage} contentFit="cover" />
                 <Text style={styles.postTitle} numberOfLines={1}>{video.title}</Text>
+                {activeTab === "Ranking" ? (
+                  <View style={styles.rankMiniBadge}>
+                    <Text style={styles.rankMiniBadgeText}>#{idx + 1}</Text>
+                  </View>
+                ) : null}
               </Pressable>
             ))}
           </View>
         )}
 
-        {activeTab === "Creators" && (
+        {activeTab === "Creators" && !isOfficialCommunity && (
           <View style={styles.editorTab}>
             {creatorsLoading && creatorsEditors.length === 0 && creatorsLivers.length === 0 ? (
               <Text style={styles.editorEmptyText}>Loading...</Text>
@@ -1367,39 +1425,37 @@ export default function CommunityDetailScreen() {
 
         {activeTab === "Board" && (
           <View style={styles.boardList}>
-            {announceBoard ? (
-              <View style={styles.boardAnnounceIntro}>
-                <View style={styles.boardAnnounceIntroIcon}>
-                  <Ionicons name="megaphone-outline" size={22} color={C.accent} />
-                </View>
-                <View style={{ flex: 1, gap: 4 }}>
-                  <Text style={styles.boardAnnounceIntroTitle}>Announcements & Schedule</Text>
-                  <Text style={styles.boardAnnounceIntroSub}>
-                    Use concise posts for live shows, events, or open calls. Pinned posts stay at the top.
-                  </Text>
-                </View>
+            <View style={styles.boardAnnounceIntro}>
+              <View style={styles.boardAnnounceIntroIcon}>
+                <Ionicons name="chatbubbles-outline" size={22} color={C.accent} />
               </View>
-            ) : null}
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text style={styles.boardAnnounceIntroTitle}>Community conversations</Text>
+                <Text style={styles.boardAnnounceIntroSub}>
+                  Start threads, reply like chat, and keep discussions active in one place.
+                </Text>
+              </View>
+            </View>
             <View style={styles.boardHeader}>
-              <Text style={styles.boardSectionTitle}>{announceBoard ? "Announcements" : "Threads"}</Text>
+              <Text style={styles.boardSectionTitle}>Threads</Text>
               {canPostToBoard && (
                 <Pressable
                   style={styles.createThreadBtn}
                   onPress={() => {
-                    if (!requireAuth(announceBoard ? "Post announcement" : "Create Thread")) return;
+                    if (!requireAuth("Create Thread")) return;
                     setShowCreateThread(true);
                   }}
-                  accessibilityLabel={announceBoard ? "New announcement" : "New thread"}
+                  accessibilityLabel="New thread"
                 >
                   <Ionicons name="add" size={22} color="#000" />
                 </Pressable>
               )}
             </View>
-            {canPostToBoard && !following ? (
+            {canPostToBoard && !following && !isOfficialCommunity ? (
               <Text style={styles.boardStaffHint}>Staff: tap ＋ to compose (join not required).</Text>
             ) : null}
             {displayThreads.length === 0 ? (
-              <Text style={styles.boardEmpty}>{announceBoard ? "No announcements yet" : "No threads yet"}</Text>
+              <Text style={styles.boardEmpty}>No threads yet. Start the conversation.</Text>
             ) : announceBoard ? (
               displayThreads.map((t) => {
                 const parsed = parseThreadBody(t.body);
@@ -2404,6 +2460,35 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   membersLinkText: { color: C.accent, fontSize: 12, fontWeight: "600" },
+  childCommunitiesBox: {
+    marginTop: 8,
+    width: "100%",
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 8,
+    backgroundColor: C.surface,
+    overflow: "hidden",
+  },
+  childCommunitiesHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+  },
+  childCommunitiesEmpty: { color: C.textMuted, fontSize: 12, paddingHorizontal: 10, paddingVertical: 10 },
+  childCommunityRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    borderTopWidth: 1,
+    borderTopColor: C.border,
+  },
+  childCommunityName: { color: C.textSec, fontSize: 12, flex: 1, marginRight: 8 },
   followBtnChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -2478,6 +2563,17 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   postTitle: { color: C.textSec, fontSize: 13, lineHeight: 18 },
+  rankMiniBadge: {
+    alignSelf: "flex-start",
+    marginTop: -2,
+    backgroundColor: C.accent + "22",
+    borderWidth: 1,
+    borderColor: C.accent + "55",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  rankMiniBadgeText: { color: C.accent, fontSize: 11, fontWeight: "700" },
   creatorList: { padding: 16, gap: 12 },
   creatorItem: {
     flexDirection: "row",
