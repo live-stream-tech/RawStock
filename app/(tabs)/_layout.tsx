@@ -7,6 +7,8 @@ import { WEB_TAB_BAR_CONTENT_HEIGHT } from "@/constants/layout";
 import { C } from "@/constants/colors";
 import { MetallicLine } from "@/components/MetallicLine";
 
+type TabBarIconProps = { color: string; size: number; focused: boolean };
+
 export default function TabLayout() {
   const isWeb = Platform.OS === "web";
   const insets = useSafeAreaInsets();
@@ -54,7 +56,7 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "Top",
-          tabBarIcon: ({ color, size, focused }) => (
+          tabBarIcon: ({ color, size, focused }: TabBarIconProps) => (
             <Ionicons name={focused ? "flame" : "flame-outline"} size={size} color={color} />
           ),
         }}
@@ -63,7 +65,7 @@ export default function TabLayout() {
         name="community"
         options={{
           title: "Districts",
-          tabBarIcon: ({ color, size, focused }) => (
+          tabBarIcon: ({ color, size, focused }: TabBarIconProps) => (
             <Ionicons name={focused ? "map" : "map-outline"} size={size} color={color} />
           ),
         }}
@@ -72,7 +74,7 @@ export default function TabLayout() {
         name="live"
         options={{
           title: "Live Cast",
-          tabBarIcon: ({ color, size, focused }) => (
+          tabBarIcon: ({ color, size, focused }: TabBarIconProps) => (
             <Ionicons name={focused ? "headset" : "headset-outline"} size={size} color={color} />
           ),
         }}
@@ -87,7 +89,9 @@ export default function TabLayout() {
         name="profile"
         options={{
           title: "Mypage",
-          tabBarIcon: ({ color, size }) => <Ionicons name="finger-print" size={size} color={color} />,
+          tabBarIcon: ({ color, size }: TabBarIconProps) => (
+            <Ionicons name="finger-print" size={size} color={color} />
+          ),
         }}
       />
     </Tabs>
