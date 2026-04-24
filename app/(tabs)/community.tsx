@@ -7,7 +7,6 @@ import {
   Pressable,
   TextInput,
   FlatList,
-  Platform,
   ActivityIndicator,
 } from "react-native";
 import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
@@ -123,14 +122,13 @@ export default function CommunityScreen() {
     queryKey: ["/api/communities"],
   });
 
-  const { sortedOfficial, sortedRest, sortedAll } = useMemo(() => {
+  const { sortedOfficial, sortedRest } = useMemo(() => {
     const sorted = [...apiCommunities].sort((a, b) => {
       const o = Number(!!b.isOfficial) - Number(!!a.isOfficial);
       if (o !== 0) return o;
       return (b.members ?? 0) - (a.members ?? 0);
     });
     return {
-      sortedAll: sorted,
       sortedOfficial: sorted.filter((c) => c.isOfficial),
       sortedRest: sorted.filter((c) => !c.isOfficial),
     };

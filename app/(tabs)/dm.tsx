@@ -5,7 +5,6 @@ import {
   ScrollView,
   StyleSheet,
   Pressable,
-  Platform,
 } from "react-native";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
@@ -29,81 +28,6 @@ type DMItem = {
   /** DM 相手の users.id（オペレーション用ダミーは 0） */
   otherUserId?: number;
 };
-
-const PLACEHOLDER = [
-  {
-    id: "1",
-    name: "Alice Ohka",
-    avatar: "https://images.unsplash.com/photo-1521119989659-a83eee488004?w=100&h=100&fit=crop",
-    lastMessage: "Thanks! Looking forward to your next stream too",
-    time: "Just now",
-    unread: 2,
-    online: true,
-  },
-  {
-    id: "2",
-    name: "Emily Sensei",
-    avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop",
-    lastMessage: "Our next lesson is 3/2 at 7 PM. Can't wait!",
-    time: "5m ago",
-    unread: 1,
-    online: true,
-  },
-  {
-    id: "3",
-    name: "Rin Hoshizora",
-    avatar: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=100&h=100&fit=crop",
-    lastMessage: "I'll send you the reading results via DM",
-    time: "12m ago",
-    unread: 0,
-    online: false,
-  },
-  {
-    id: "4",
-    name: "Miku (Counselor)",
-    avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop",
-    lastMessage: "Thank you for sharing how you feel",
-    time: "1h ago",
-    unread: 0,
-    online: true,
-  },
-  {
-    id: "5",
-    name: "Haruka (Chef)",
-    avatar: "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=100&h=100&fit=crop",
-    lastMessage: "Sent you the recipe! Give it a try 🍳",
-    time: "3h ago",
-    unread: 0,
-    online: false,
-  },
-  {
-    id: "6",
-    name: "Kenji (Life Coach)",
-    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop",
-    lastMessage: "Checked your goal sheet — great progress!",
-    time: "Yesterday",
-    unread: 0,
-    online: false,
-  },
-  {
-    id: "7",
-    name: "Nana (Yoga)",
-    avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&h=100&fit=crop",
-    lastMessage: "See you in tomorrow's class!",
-    time: "Yesterday",
-    unread: 0,
-    online: false,
-  },
-  {
-    id: "8",
-    name: "Underground Idol Scene",
-    avatar: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=100&h=100&fit=crop",
-    lastMessage: "[Notice] Live stream starts tonight at 9 PM",
-    time: "2d ago",
-    unread: 0,
-    online: false,
-  },
-];
 
 export default function DMScreen() {
   const insets = useSafeAreaInsets();

@@ -136,7 +136,6 @@ export default function LiverDetailScreen() {
   const [myStreamCount, setMyStreamCount] = useState(5);
   const [myAttendance, setMyAttendance] = useState(5);
   const [myComment, setMyComment] = useState("");
-  const [submitting, setSubmitting] = useState(false);
 
   const { data: liver, isLoading: liverLoading } = useQuery<Liver>({
     queryKey: [`/api/livers/${liverId}`],

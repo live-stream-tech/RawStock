@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -39,30 +39,34 @@ export default function TicketsScreen() {
 
   const ticketBalance = balanceData?.balance ?? 0;
 
-  React.useEffect(() => {
-    if (session_id) {
-      handleVerifyPurchase(session_id);
-    }
-  }, [session_id]);
-
-  async function handleVerifyPurchase(sessionId: string) {
-    try {
-      const res = await apiRequest("POST", "/api/tickets/verify-purchase", { sessionId });
-      const data = (await res.json()) as { success?: boolean };
-      if (data.success) {
-        await refetchBalance();
-        const granted = parseInt(ticketsParam ?? "0") || 0;
-        Alert.alert(
-          "Tickets Added! 🎟",
-          granted > 0
-            ? `${granted.toLocaleString()} tickets have been added to your balance.`
-            : "Your tickets have been credited.",
-          [{ text: "Great!" }]
-        );
+  const handleVerifyPurchase = useCallback(
+    async (sessionId: string) => {
+      try {
+        const res = await apiRequest("POST", "/api/tickets/verify-purchase", { sessionId });
+        const data = (await res.json()) as { success?: boolean };
+        if (data.success) {
+          await refetchBalance();
+          const granted = parseInt(ticketsParam ?? "0") || 0;
+          Alert.alert(
+            "Tickets Added! 🎟",
+            granted > 0
+              ? `${granted.toLocaleString()} tickets have been added to your balance.`
+              : "Your tickets have been credited.",
+            [{ text: "Great!" }]
+          );
+        }
+      } catch {
+        /* ignore */
       }
-    } catch {
+    },
+    [refetchBalance, ticketsParam],
+  );
+
+  useEffect(() => {
+    if (session_id) {
+      void handleVerifyPurchase(session_id);
     }
-  }
+  }, [session_id, handleVerifyPurchase]);
 
   const parsedTickets = parseInt(ticketInput, 10) || 0;
   const isValidPurchase = parsedTickets >= MIN_PURCHASE_TICKETS;

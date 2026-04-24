@@ -6,7 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { C } from "@/constants/colors";
-import { useAuth, AuthGuard } from "@/lib/auth";
+import { AuthGuard } from "@/lib/auth";
 import { apiRequest } from "@/lib/query-client";
 import { concertStaffApplyExternalUrl } from "@/lib/concert-external";
 
@@ -20,7 +20,6 @@ type Concert = {
 export default function ConcertStaffRequestScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
-  const { user } = useAuth();
   const [query, setQuery] = useState("");
   const externalApplyUrl = concertStaffApplyExternalUrl();
 

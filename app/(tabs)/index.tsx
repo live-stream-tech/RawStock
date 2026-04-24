@@ -19,7 +19,6 @@ import { C } from "@/constants/colors";
 import { F } from "@/constants/fonts";
 import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/layout";
 import { AppLogo } from "@/components/AppLogo";
-import { useAuth } from "@/lib/auth";
 import { usePlayingVideo } from "@/lib/playing-video-context";
 import { useJukeboxPulse } from "@/lib/useJukeboxPulse";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
@@ -28,14 +27,7 @@ import { parseThreadBody } from "@/lib/parse-thread-body";
 import { resolvePublicMediaUri as resolveVideoMediaUri } from "@/lib/resolve-public-media-uri";
 
 const { width: SCREEN_W } = Dimensions.get("window");
-const IS_LARGE_WEB = Platform.OS === "web" && SCREEN_W > 768;
-const PANEL_W = IS_LARGE_WEB
-  ? Math.min(300, Math.round((SCREEN_W - 80) / 4))
-  : Math.round(SCREEN_W * 0.72);
 const MENTOR_W = 200;
-const PAID_HERO_H = Platform.OS === "web"
-  ? Math.min(Math.round(SCREEN_W * 0.65), 420)
-  : Math.min(Math.round(SCREEN_W * 0.65), 380);
 // Hero card width: on web the app container is capped at 500px; on native use full screen width
 const HERO_CARD_W = Platform.OS === "web" ? Math.min(SCREEN_W, 500) : SCREEN_W;
 const ANNOUNCE_W = Platform.OS === "web" ? Math.min(HERO_CARD_W - 32, 440) : Math.max(SCREEN_W - 32, 300);
@@ -414,7 +406,6 @@ const DUMMY_SESSIONS = [
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
   const unreadCount = useUnreadCount();
   const { jukeboxIsActive, jukeboxCommunityId } = usePlayingVideo();
   const { pulse: jukePulse } = useJukeboxPulse();

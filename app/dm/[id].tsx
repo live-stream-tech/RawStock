@@ -15,7 +15,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
-import * as ImagePicker from "expo-image-picker";
 import { C } from "@/constants/colors";
 import { DM_USAGE_GUIDE_BODY, DM_USAGE_GUIDE_TITLE } from "@/constants/dmUsageGuide";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
@@ -64,7 +63,7 @@ export default function DMChatScreen() {
   const flatListRef = useRef<FlatList>(null);
   const [input, setInput] = useState("");
   const [uploadingImage, setUploadingImage] = useState(false);
-  const { user, token } = useAuth();
+  const { token } = useAuth();
 
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
@@ -118,7 +117,7 @@ export default function DMChatScreen() {
     if (!msg) return;
     setInput("");
     sendMutation.mutate(msg);
-  }, [input]);
+  }, [input, sendMutation]);
 
   useEffect(() => {
     if (messages.length > 0) {

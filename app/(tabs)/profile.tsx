@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -30,7 +30,6 @@ import { MetallicLine } from "@/components/MetallicLine";
 import { CreatorPromoBanner } from "@/components/CreatorPromoBanner";
 import { saveLoginReturn } from "@/lib/login-return";
 
-type Notif = { id: number; isRead: boolean };
 function useUnreadCount() {
   const { data } = useQuery<{ count: number }>({
     queryKey: ["/api/notifications/unread-count"],

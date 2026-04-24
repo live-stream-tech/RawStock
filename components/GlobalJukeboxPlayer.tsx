@@ -147,7 +147,7 @@ export function GlobalJukeboxPlayer() {
       es?.close();
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [communityId, isOnJukeboxPage]);
+  }, [communityId, isOnJukeboxPage, qc]);
 
   const { data } = useQuery<JukeboxData>({
     queryKey: communityId ? [`/api/jukebox/${communityId}`] : ["jukebox:none"],
@@ -187,13 +187,7 @@ export function GlobalJukeboxPlayer() {
       const iv = setInterval(() => setElapsedDisplay(calcElapsed()), 1000);
       return () => clearInterval(iv);
     }
-  }, [
-    state?.isPlaying,
-    state?.startedAt,
-    state?.currentVideoDurationSecs,
-    state?.currentVideoYoutubeId,
-    state?.elapsedSecs,
-  ]);
+  }, [state]);
 
   const handleNext = useCallback(() => {
     nextMutation.mutate();

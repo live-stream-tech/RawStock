@@ -142,11 +142,15 @@ function RevenueScreenContent() {
   const { data: earningsList = [] } = useQuery<Earning[]>({ queryKey: ["/api/revenue/earnings"] });
   const { data: withdrawalsList = [] } = useQuery<Withdrawal[]>({ queryKey: ["/api/revenue/withdrawals"] });
 
-  const feePolicy: WithdrawalFeePolicy = summary?.withdrawalFeePolicy ?? {
-    bps: 0,
-    fixedUsdCents: 0,
-    minNetTransferUsdCents: 50,
-  };
+  const feePolicy = useMemo((): WithdrawalFeePolicy => {
+    return (
+      summary?.withdrawalFeePolicy ?? {
+        bps: 0,
+        fixedUsdCents: 0,
+        minNetTransferUsdCents: 50,
+      }
+    );
+  }, [summary?.withdrawalFeePolicy]);
 
   const withdrawPreview = useMemo(() => {
     const gross = parseInt(amountText, 10);
@@ -154,7 +158,7 @@ function RevenueScreenContent() {
       return { feeUsdCents: 0, netTransferUsdCents: 0 };
     }
     return computeWithdrawalFeeBreakdown(gross, feePolicy);
-  }, [amountText, feePolicy.bps, feePolicy.fixedUsdCents, feePolicy.minNetTransferUsdCents]);
+  }, [amountText, feePolicy]);
 
   const withdrawMutation = useMutation({
     mutationFn: async () => {

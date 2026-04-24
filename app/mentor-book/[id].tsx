@@ -92,7 +92,7 @@ export default function MentorBookScreen() {
         setLoading(false);
       }
     })();
-  }, [id]);
+  }, [id, baseUrl]);
 
   const handleBook = async () => {
     if (!user) {

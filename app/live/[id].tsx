@@ -94,7 +94,7 @@ function PulseDot() {
         Animated.timing(anim, { toValue: 1, duration: 600, useNativeDriver: true }),
       ])
     ).start();
-  }, []);
+  }, [anim]);
   return (
     <Animated.View style={[styles.liveDot, { transform: [{ scale: anim }] }]} />
   );
@@ -131,7 +131,6 @@ export default function LiveStreamScreen() {
   // WHEP WebRTC viewer
   const videoRef = useRef<any>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
-  const [whepConnected, setWhepConnected] = useState(false);
   const [whepError, setWhepError] = useState(false);
 
   const topInset = Platform.OS === "web" ? 67 : insets.top;
@@ -240,7 +239,7 @@ export default function LiveStreamScreen() {
       setShowMentorNotif(true);
       Animated.spring(notifAnim, { toValue: 1, useNativeDriver: true, tension: 80, friction: 8 }).start();
     }
-  }, [myBookingTyped?.status]);
+  }, [myBookingTyped?.status, notifAnim, showMentorNotif]);
 
   // WHEP connection (viewer-side WebRTC)
   const connectWHEP = useCallback(async (whepUrl: string) => {
@@ -257,7 +256,6 @@ export default function LiveStreamScreen() {
         if (videoRef.current && e.streams[0]) {
           videoRef.current.srcObject = e.streams[0];
           videoRef.current.play().catch(() => {});
-          setWhepConnected(true);
         }
       };
 
@@ -289,13 +287,15 @@ export default function LiveStreamScreen() {
       console.error("WHEP error:", err);
       setWhepError(true);
     }
-  }, [streamId]);
+  }, []);
+
+  const sLive = stream as LiveStream | undefined;
+  const whepUrl = sLive?.whepUrl;
+  const streamLive = !!(sLive?.isActive ?? sLive?.isLive);
 
   useEffect(() => {
-    const s = stream as LiveStream;
-    const active = s?.isActive ?? s?.isLive;
-    if (s?.whepUrl && active && Platform.OS === "web") {
-      connectWHEP(s.whepUrl);
+    if (whepUrl && streamLive && Platform.OS === "web") {
+      void connectWHEP(whepUrl);
     }
     return () => {
       if (pcRef.current) {
@@ -303,7 +303,7 @@ export default function LiveStreamScreen() {
         pcRef.current = null;
       }
     };
-  }, [(stream as LiveStream)?.whepUrl, (stream as LiveStream)?.isActive, (stream as LiveStream)?.isLive]);
+  }, [whepUrl, streamLive, connectWHEP]);
 
   const chatMutation = useMutation({
     mutationFn: ({ message, isGift, giftAmount }: { message: string; isGift?: boolean; giftAmount?: number }) =>
@@ -340,7 +340,7 @@ export default function LiveStreamScreen() {
     if (!requireAuth("comment")) return;
     setChatInput("");
     chatMutation.mutate({ message: msg });
-  }, [chatInput, requireAuth]);
+  }, [chatInput, requireAuth, chatMutation]);
 
   const sendGift = useCallback((amount: number, emoji: string) => {
     if (!requireAuth("send gifts")) return;

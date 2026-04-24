@@ -41,7 +41,6 @@ export default function PayoutSettingsScreen() {
     chargesEnabled: boolean;
     detailsSubmitted: boolean;
   } | null>(null);
-  const [connectLoading, setConnectLoading] = useState(false);
   const [connectLinking, setConnectLinking] = useState(false);
   const [payoutTermsAgreed, setPayoutTermsAgreed] = useState(false);
   const [ackCreatorPayoutTerms, setAckCreatorPayoutTerms] = useState(false);

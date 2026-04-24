@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -13,7 +13,6 @@ import {
   Animated,
   Dimensions,
   useWindowDimensions,
-  Linking,
 } from "react-native";
 import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
@@ -106,12 +105,6 @@ function fmtSecs(s: number): string {
   const m = Math.floor(s / 60);
   const sec = Math.floor(s % 60);
   return `${m}:${sec.toString().padStart(2, "0")}`;
-}
-
-function calcProgress(startedAt: string, durationSecs: number): number {
-  const elapsed = (Date.now() - new Date(startedAt).getTime()) / 1000;
-  if (durationSecs <= 0) return 0;
-  return Math.min(elapsed / durationSecs, 1);
 }
 
 /** On iPhone/iPad Safari (including PWA), avoid keyboard-driven layout shifts. */
@@ -227,13 +220,7 @@ function NowPlaying({
       const iv = setInterval(() => setElapsedDisplay(calcElapsed()), 1000);
       return () => clearInterval(iv);
     }
-  }, [
-    state?.isPlaying,
-    state?.startedAt,
-    state?.currentVideoDurationSecs,
-    state?.currentVideoYoutubeId,
-    state?.elapsedSecs,
-  ]);
+  }, [state]);
 
   // Pulse animation for LIVE label.
   useEffect(() => {
@@ -348,6 +335,7 @@ function NowPlaying({
     }).catch(() => {});
 
     return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- loadVideoById handles in-player sync; avoid remounting on elapsed/startedAt ticks
   }, [state?.currentVideoYoutubeId]);
 
   // Destroy player on unmount.
@@ -736,9 +724,9 @@ export default function JukeboxScreen() {
       tension: 65,
       friction: 11,
     }).start();
-  }, [chatPanelOpen]);
+  }, [chatPanelOpen, chatPanelAnim]);
 
-  const jukeboxKey = [`/api/jukebox/${communityId}`] as const;
+  const jukeboxKey = useMemo(() => [`/api/jukebox/${communityId}`] as const, [communityId]);
 
   const { data: communityRow } = useQuery<{ id: number; name: string }>({
     queryKey: [`/api/communities/${communityId}`],
@@ -821,7 +809,7 @@ export default function JukeboxScreen() {
       es?.close();
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [communityId]);
+  }, [communityId, qc, jukeboxKey]);
 
   const { data: myVideos = [] } = useQuery<Video[]>({
     queryKey: ["/api/videos/my"],
@@ -843,7 +831,6 @@ export default function JukeboxScreen() {
     enabled: !!user && !!communityId,
   });
 
-  const ticketBalance = ticketData?.balance ?? 0;
   const freeRemaining = reqCountData?.freeRemaining ?? 20;
   const ticketsPerRequest = reqCountData?.ticketsPerRequest ?? 10;
 
@@ -1081,7 +1068,7 @@ export default function JukeboxScreen() {
       // Already playing or queue empty -> mark auto-start as done.
       autoStartedRef.current = true;
     }
-  }, [data, user]);
+  }, [data, user, nextMutation]);
 
   useEffect(() => {
     if (chat.length > 0) {
@@ -1123,7 +1110,7 @@ export default function JukeboxScreen() {
     return () => {
       cancelled = true;
     };
-  }, [showAddModal, user?.id]);
+  }, [showAddModal, user]);
 
   // Fetch videos inside selected playlist.
   useEffect(() => {
@@ -1143,7 +1130,7 @@ export default function JukeboxScreen() {
     return () => {
       cancelled = true;
     };
-  }, [selectedPlaylistId, user?.id]);
+  }, [selectedPlaylistId, user]);
 
   // Landscape: chat panel translateY (0=closed, 1=open).
   const panelH = winH * 0.55;

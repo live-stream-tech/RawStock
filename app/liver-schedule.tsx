@@ -62,7 +62,6 @@ export default function LiverScheduleScreen() {
   const queryClient = useQueryClient();
 
   const [showModal, setShowModal] = useState(false);
-  const [newDate, setNewDate] = useState(new Date().toISOString().slice(0, 10));
   const [newStart, setNewStart] = useState("19:00");
   const [newEnd, setNewEnd] = useState("21:00");
   const [newMaxSlots, setNewMaxSlots] = useState("3");

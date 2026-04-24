@@ -110,7 +110,7 @@ function useWheelScroll(ref: React.RefObject<ScrollView | null>) {
     };
     node.addEventListener("wheel", onWheel, { passive: false });
     return () => node.removeEventListener("wheel", onWheel);
-  }, []);
+  }, [ref]);
 }
 
 const styles = StyleSheet.create({

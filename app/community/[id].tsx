@@ -15,7 +15,6 @@ import {
 } from "react-native";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
@@ -271,7 +270,7 @@ function EmbeddedJukebox({ communityId }: { communityId: number }) {
     );
     pulse.start();
     return () => pulse.stop();
-  }, []);
+  }, [pulseAnim]);
 
   const chatMutation = useMutation({
     mutationFn: (msg: string) =>
@@ -288,7 +287,7 @@ function EmbeddedJukebox({ communityId }: { communityId: number }) {
     if (!msg) return;
     setComment("");
     chatMutation.mutate(msg);
-  }, [comment]);
+  }, [comment, chatMutation]);
 
   const elapsedSecsEmbedded =
     state && state.currentVideoDurationSecs > 0
@@ -411,6 +410,8 @@ type PollItem = {
   myVoteOptionId?: number | null;
 };
 
+/** Polls UI — not wired into community tabs yet. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function PollsTab({
   communityId,
   following,
@@ -425,7 +426,6 @@ function PollsTab({
   const [newOptions, setNewOptions] = useState(["", ""]);
   const [creating, setCreating] = useState(false);
   const [votingPollId, setVotingPollId] = useState<number | null>(null);
-  const qc = useQueryClient();
 
   const { data: polls = [], refetch } = useQuery<PollItem[]>({
     queryKey: [`/api/communities/${communityId}/polls`],
@@ -754,7 +754,7 @@ export default function CommunityDetailScreen() {
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<Tab>("Board");
   const [following, setFollowing] = useState(false);
-  const { user, token, requireAuth } = useAuth();
+  const { user, requireAuth } = useAuth();
   const { isDemoMode } = useDemoMode();
   const numericId = Number(id);
 
@@ -844,17 +844,11 @@ export default function CommunityDetailScreen() {
   /** Official hubs have open posting UX (auth required at submit), others keep member/staff gating. */
   const canPostToBoard = isOfficialCommunity || following || isCommunityAdmin || isModerator || isPlatformAdmin;
 
-  const { data: editors = [], isLoading: editorsLoading } = useQuery<VideoEditor[]>({
-    queryKey: [`/api/communities/${communityId}/editors`],
-    enabled: communityId > 0,
-  });
-
   const { data: creatorsData, isLoading: creatorsLoading } = useQuery<CommunityCreatorsResponse>({
     queryKey: [`/api/communities/${communityId}/creators`],
     enabled: communityId > 0,
   });
 
-  const topEditors = [...editors].sort((a, b) => b.rating - a.rating).slice(0, 3);
   const creatorsEditors = creatorsData?.editors ?? [];
   const creatorsLivers = creatorsData?.livers ?? [];
 
