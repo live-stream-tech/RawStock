@@ -110,6 +110,11 @@ import { debugIngestServer } from "./debugIngest";
 import { LEGAL_PRIVACY_VERSION, LEGAL_TERMS_VERSION } from "../constants/legalVersions";
 import { parseThreadBody } from "../lib/parse-thread-body";
 import { diversifyAnnouncementRowsByCommunity } from "./lib/diversifyAnnouncementFeed";
+import {
+  fetchCommunitiesForIds,
+  fetchCommunitiesListOrdered,
+  fetchCommunityById,
+} from "./lib/communitiesCompat";
 import { getCommunityDefaultAssets } from "../lib/community-default-assets";
 import { publishJukeboxEvent, redis, jukeboxChannel, subscribeJukeboxEvents } from "./redis";
 import jwt from "jsonwebtoken";
@@ -244,7 +249,8 @@ function checkTranslateRateLimit(userId: number): { ok: boolean; retryAfterSec?:
   return { ok: true };
 }
 
-async function getAuthUser(req: Request): Promise<{
+/** JWT 後に routes が参照するユーザー形（DB の users 行と一致） */
+type SessionUser = {
   id: number;
   displayName: string;
   profileImageUrl: string | null;
@@ -254,11 +260,31 @@ async function getAuthUser(req: Request): Promise<{
   stripeConnectId: string | null;
   lastContentLang: string | null;
   preferredLanguage: string | null;
-  termsAcceptedVersion?: string | null;
-  termsAcceptedAt?: Date | null;
-  privacyAcceptedVersion?: string | null;
-  privacyAcceptedAt?: Date | null;
-} | null> {
+  termsAcceptedVersion: string | null;
+  termsAcceptedAt: Date | null;
+  privacyAcceptedVersion: string | null;
+  privacyAcceptedAt: Date | null;
+};
+
+function sessionUserFromRow(user: InferSelectModel<typeof users>): SessionUser {
+  return {
+    id: user.id,
+    displayName: user.displayName,
+    profileImageUrl: user.profileImageUrl,
+    avatar: user.profileImageUrl,
+    role: user.role,
+    bio: user.bio,
+    stripeConnectId: user.stripeConnectId,
+    lastContentLang: user.lastContentLang ?? null,
+    preferredLanguage: user.preferredLanguage ?? null,
+    termsAcceptedVersion: user.termsAcceptedVersion ?? null,
+    termsAcceptedAt: user.termsAcceptedAt ?? null,
+    privacyAcceptedVersion: user.privacyAcceptedVersion ?? null,
+    privacyAcceptedAt: user.privacyAcceptedAt ?? null,
+  };
+}
+
+async function getAuthUser(req: Request): Promise<SessionUser | null> {
   const auth = (req as any).headers?.authorization ?? "";
   if (!auth.startsWith("Bearer ")) {
     debugIngestServer({
@@ -287,12 +313,7 @@ async function getAuthUser(req: Request): Promise<{
       data: { userId: user.id },
       timestamp: Date.now(),
     });
-    return {
-      ...user,
-      avatar: user.profileImageUrl,
-      lastContentLang: user.lastContentLang ?? null,
-      preferredLanguage: (user as { preferredLanguage?: string | null }).preferredLanguage ?? null,
-    };
+    return sessionUserFromRow(user);
   } catch {
     return null;
   }
@@ -2121,24 +2142,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.get("/api/communities", async (req: Request, res: Response) => {
     const genreId = queryStr(req, "genre");
-    let rows: InferSelectModel<typeof communities>[] = [];
-    try {
-      rows = await db
-        .select()
-        .from(communities)
-        .orderBy(desc(communities.isOfficial), desc(communities.members));
-    } catch (e: unknown) {
-      // Backward-compatible fallback when production DB has not applied is_official migration yet.
-      const msg = e instanceof Error ? e.message : String(e);
-      if (/is_official|communities\.isofficial|column .* does not exist/i.test(msg)) {
-        rows = await db
-          .select()
-          .from(communities)
-          .orderBy(desc(communities.members));
-      } else {
-        throw e;
-      }
-    }
+    let rows = await fetchCommunitiesListOrdered();
     if (genreId && GENRE_TO_CATEGORY[genreId]) {
       const terms = GENRE_TO_CATEGORY[genreId];
       rows = rows.filter((r) =>
@@ -2164,25 +2168,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
 
     const ids = memberships.map((m) => m.communityId);
-    let rows: InferSelectModel<typeof communities>[] = [];
-    try {
-      rows = await db
-        .select()
-        .from(communities)
-        .where(inArray(communities.id, ids))
-        .orderBy(desc(communities.isOfficial), desc(communities.members));
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (/is_official|communities\.isofficial|column .* does not exist/i.test(msg)) {
-        rows = await db
-          .select()
-          .from(communities)
-          .where(inArray(communities.id, ids))
-          .orderBy(desc(communities.members));
-      } else {
-        throw e;
-      }
-    }
+    const rows = await fetchCommunitiesForIds(ids);
 
     const normalized = rows.map(normalizeCommunityRow);
     res.json(normalized);
@@ -2190,7 +2176,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.get("/api/communities/:id", async (req: Request, res: Response) => {
     const id = paramNum(req, "id");
-    const [row] = await db.select().from(communities).where(eq(communities.id, id));
+    const row = await fetchCommunityById(id);
     if (!row) return res.status(404).json({ message: "Not found" });
     res.json(normalizeCommunityRow(row));
   });
