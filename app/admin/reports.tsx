@@ -37,7 +37,18 @@ export default function AdminReportsScreen() {
   const { user } = useAuth();
   const qc = useQueryClient();
 
-  if (!user || (user.role !== "ADMIN" && user.role !== "admin")) {
+  const isAdmin = !!(
+    user &&
+    (String(user.role).toUpperCase() === "ADMIN")
+  );
+
+  const { data: reports = [], isLoading } = useQuery<Report[]>({
+    queryKey: ["/api/admin/reports"],
+    queryFn: () => apiRequest("GET", "/api/admin/reports").then((r) => r.json() as Promise<Report[]>),
+    enabled: isAdmin,
+  });
+
+  if (!user || !isAdmin) {
     return (
       <AuthGuard>
         <View style={[styles.container, { paddingTop: insets.top + 40 }]}>
@@ -55,11 +66,6 @@ export default function AdminReportsScreen() {
       </AuthGuard>
     );
   }
-
-  const { data: reports = [], isLoading } = useQuery<Report[]>({
-    queryKey: ["/api/admin/reports"],
-    queryFn: () => apiRequest("GET", "/api/admin/reports").then((r) => r.json() as Promise<Report[]>),
-  });
 
   const handleHide = async (id: number) => {
     try {

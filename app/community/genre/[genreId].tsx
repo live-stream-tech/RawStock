@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import {
   View,
   Text,
@@ -100,6 +100,14 @@ export default function GenreScreen() {
 
   const genre = GENRE_DATA[genreId ?? ""] ?? null;
 
+  useEffect(() => {
+    if (!genreId || !GENRE_DATA[genreId]) return;
+    const t = setTimeout(() => {
+      router.replace("/(tabs)/community" as any);
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [genreId]);
+
   const { data: apiCommunities = [], isLoading: communitiesLoading } = useQuery<any[]>({
     queryKey: [`/api/communities${genreId ? `?genre=${genreId}` : ""}`],
     enabled: !!genreId,
@@ -121,14 +129,6 @@ export default function GenreScreen() {
       </View>
     );
   }
-
-  // Genre pages are deprecated: communities are now organized under official hubs.
-  React.useEffect(() => {
-    const t = setTimeout(() => {
-      router.replace("/(tabs)/community" as any);
-    }, 1500);
-    return () => clearTimeout(t);
-  }, []);
 
   return (
     <View style={[styles.container, { paddingBottom: bottomInset }]}>
