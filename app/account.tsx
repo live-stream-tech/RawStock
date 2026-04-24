@@ -280,7 +280,7 @@ export default function AccountEditScreen() {
           <Text style={styles.label}>Featured Communities (up to 4)</Text>
           <Text style={styles.sectionHint}>Select up to 4 communities to feature on your profile</Text>
           {myCommunities.length === 0 ? (
-            <Text style={styles.hintText}>You haven't joined any communities yet</Text>
+            <Text style={styles.hintText}>{"You haven't joined any communities yet"}</Text>
           ) : (
             <View style={styles.pinnedList}>
               {myCommunities.map((c) => {

@@ -324,7 +324,7 @@ export default function MentorBookingScreen() {
               <View style={styles.warningBox}>
                 <Ionicons name="alert-circle" size={15} color={C.live} />
                 <Text style={[styles.warningText, { color: C.live }]}>
-                  You need {MENTOR_TICKET_PRICE} 🎟 but only have {ticketBalance}. Tap "Get Tickets" to top up.
+                  {`You need ${MENTOR_TICKET_PRICE} 🎟 but only have ${ticketBalance}. Tap "Get Tickets" to top up.`}
                 </Text>
               </View>
             )}

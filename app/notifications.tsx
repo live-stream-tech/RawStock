@@ -157,7 +157,7 @@ export default function NotificationsScreen() {
           <View style={styles.summaryLeft}>
             <Ionicons name="wallet-outline" size={20} color={C.green} />
             <View>
-              <Text style={styles.summaryLabel}>Today's Revenue</Text>
+              <Text style={styles.summaryLabel}>{"Today's Revenue"}</Text>
               <Text style={styles.summaryAmount}>🎟{totalRevenue.toLocaleString()}</Text>
             </View>
           </View>

@@ -168,7 +168,7 @@ export default function PayoutSettingsScreen() {
         <View style={[styles.infoBanner, { borderLeftColor: C.orange }]}>
           <Ionicons name="alert-circle-outline" size={18} color={C.orange} />
           <Text style={[styles.infoText, { color: C.orange }]}>
-            Completing "Stripe Bank Link" is required to monetize. Without it, you cannot accept or sell paid sessions.
+            {`Completing "Stripe Bank Link" is required to monetize. Without it, you cannot accept or sell paid sessions.`}
           </Text>
         </View>
 

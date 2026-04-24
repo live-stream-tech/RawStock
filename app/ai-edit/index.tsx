@@ -723,8 +723,9 @@ export default function AIEditIndexScreen() {
           </View>
           <Text style={styles.heroTitle}>Plan, then render</Text>
           <Text style={styles.heroSub}>
-            (1) Your plan tier sets ticket cost, upload limits, and the target length for Claude's Edit Decision List (text — URLs only, no full video watch).{"\n\n"}
-            (2) After you approve, optional MP4 render uses Templated: Tone picks one of three motion templates plus frame shape (9:16 or 16:9). Four plan tiers are not four templates.
+            {
+              "(1) Your plan tier sets ticket cost, upload limits, and the target length for Claude's Edit Decision List (text — URLs only, no full video watch).\n\n(2) After you approve, optional MP4 render uses Templated: Tone picks one of three motion templates plus frame shape (9:16 or 16:9). Four plan tiers are not four templates."
+            }
           </Text>
         </View>
 

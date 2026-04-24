@@ -66,7 +66,9 @@ export default function MentorSuccessScreen() {
       <View style={styles.card}>
         <Text style={styles.cardLabel}>Queue Number</Text>
         <Text style={styles.queueNum}>#{queuePos}</Text>
-        <Text style={styles.cardSub}>You'll receive a notification on the live screen when it's your turn.</Text>
+        <Text style={styles.cardSub}>
+          {"You'll receive a notification on the live screen when it's your turn."}
+        </Text>
       </View>
 
       <View style={styles.noteBox}>

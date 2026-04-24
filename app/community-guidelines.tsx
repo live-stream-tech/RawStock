@@ -19,11 +19,11 @@ const PAGE_FULL_TEXT = [
   "7. Contact — Questions: info@rawstock.live",
 ].join("\n\n");
 
-function Section({ title, children }: { title: string; children: string }) {
+function Section({ title, body }: { title: string; body: string }) {
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{title}</Text>
-      <Text style={styles.body}>{children}</Text>
+      <Text style={styles.body}>{body}</Text>
     </View>
   );
 }
@@ -65,47 +65,35 @@ export default function CommunityGuidelinesScreen() {
 
         <Section
           title="1. Be respectful"
-          children={
-            "Treat other users with respect. Do not harass, threaten, doxx, or target individuals or groups. Bullying, hate speech, and incitement to violence are not allowed."
-          }
+          body="Treat other users with respect. Do not harass, threaten, doxx, or target individuals or groups. Bullying, hate speech, and incitement to violence are not allowed."
         />
 
         <Section
           title="2. Legal and safe content"
-          children={
-            "Do not post, stream, or share content that is illegal where you or viewers are located. This includes non-consensual intimate imagery, sexual content involving minors, trafficking, sale of illegal goods, or instructions for serious harm."
-          }
+          body="Do not post, stream, or share content that is illegal where you or viewers are located. This includes non-consensual intimate imagery, sexual content involving minors, trafficking, sale of illegal goods, or instructions for serious harm."
         />
 
         <Section
           title="3. Live streaming"
-          children={
-            "Live content is harder to moderate in real time. You must comply with these guidelines during broadcasts. We may end streams, remove archives, or restrict accounts for violations. Use in-app reporting if you see dangerous or illegal live content."
-          }
+          body="Live content is harder to moderate in real time. You must comply with these guidelines during broadcasts. We may end streams, remove archives, or restrict accounts for violations. Use in-app reporting if you see dangerous or illegal live content."
         />
 
         <Section
           title="4. Intellectual property"
-          children={
-            "Only upload or stream content you have the right to use. Respect copyrights, trademarks, and privacy. For U.S. copyright notices, see our DMCA Policy."
-          }
+          body="Only upload or stream content you have the right to use. Respect copyrights, trademarks, and privacy. For U.S. copyright notices, see our DMCA Policy."
         />
 
         <Section
           title="5. Spam and manipulation"
-          children={
-            "No spam, scams, impersonation of RawStock staff or other users, artificial engagement, or attempts to manipulate rankings, payments, or security."
-          }
+          body="No spam, scams, impersonation of RawStock staff or other users, artificial engagement, or attempts to manipulate rankings, payments, or security."
         />
 
         <Section
           title="6. Reporting and enforcement"
-          children={
-            "Use report tools in the app where available. We review reports as promptly as practical; timing depends on severity and volume. We may warn, remove content, suspend, or permanently ban accounts. Decisions may consider severity and repeat violations."
-          }
+          body="Use report tools in the app where available. We review reports as promptly as practical; timing depends on severity and volume. We may warn, remove content, suspend, or permanently ban accounts. Decisions may consider severity and repeat violations."
         />
 
-        <Section title="7. Contact" children={"Questions: info@rawstock.live"} />
+        <Section title="7. Contact" body="Questions: info@rawstock.live" />
 
         <View style={{ height: 80 }} />
       </ScrollView>

@@ -592,7 +592,7 @@ export default function ProfileScreen() {
                 ) : pwaBanner.isIosSafari ? (
                   <>
                     <Text style={styles.pwaPopupBody}>
-                      Tap the Share button (□↑) at the bottom of Safari, then select "Add to Home Screen".
+                      {`Tap the Share button (□↑) at the bottom of Safari, then select "Add to Home Screen".`}
                     </Text>
                     <Pressable style={styles.pwaPopupBtn} onPress={pwaBanner.onAddPress}>
                       <Text style={styles.pwaPopupBtnText}>OK</Text>
@@ -1099,7 +1099,7 @@ export default function ProfileScreen() {
           {myVideos.filter((v: any) => (v as any).postType === "daily" || !(v as any).postType).length === 0 && (
             <View style={styles.timelineEmpty}>
               <Text style={styles.timelineEmptyText}>No daily posts yet</Text>
-              <Text style={styles.timelineEmptySub}>Tap "Post" to share something quick</Text>
+              <Text style={styles.timelineEmptySub}>{`Tap "Post" to share something quick`}</Text>
             </View>
           )}
         </View>
@@ -1152,7 +1152,9 @@ export default function ProfileScreen() {
           {myVideos.filter((v: any) => (v as any).postType === "work").length === 0 && (
             <View style={styles.timelineEmpty}>
               <Text style={styles.timelineEmptyText}>No works posted yet</Text>
-              <Text style={styles.timelineEmptySub}>Tap "Post Work" to share articles, photos & videos</Text>
+              <Text style={styles.timelineEmptySub}>
+                {`Tap "Post Work" to share articles, photos & videos`}
+              </Text>
             </View>
           )}
         </View>
