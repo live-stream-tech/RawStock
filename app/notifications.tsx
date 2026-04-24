@@ -11,9 +11,8 @@ import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-ind
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router , useLocalSearchParams } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useLocalSearchParams } from "expo-router";
 import { apiRequest } from "@/lib/query-client";
 import { C } from "@/constants/colors";
 import { webScrollStyle } from "@/constants/layout";

@@ -13,6 +13,7 @@ import {
   Animated,
   Dimensions,
   useWindowDimensions,
+  Linking,
 } from "react-native";
 import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
@@ -22,11 +23,9 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { C } from "@/constants/colors";
-import { apiRequest, ApiError } from "@/lib/query-client";
+import { apiRequest, ApiError , getApiUrl } from "@/lib/query-client";
 import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { useAuth } from "@/lib/auth";
-import { Linking } from "react-native";
-import { getApiUrl } from "@/lib/query-client";
 import { JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY } from "@/lib/useJukeboxPulse";
 import { saveLoginReturn } from "@/lib/login-return";
 import { HorizontalScroll } from "@/components/HorizontalScroll";

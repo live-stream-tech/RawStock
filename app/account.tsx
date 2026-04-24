@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
   ScrollView,
 } from "react-native";
-import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
+import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { webScrollStyle } from "@/constants/layout";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";

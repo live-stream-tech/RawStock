@@ -7,7 +7,7 @@ import { C } from "@/constants/colors";
 import { AppLogo } from "@/components/AppLogo";
 import { getApiUrl } from "@/lib/query-client";
 import { saveLoginReturn } from "@/lib/login-return";
-import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
+import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { webScrollStyle } from "@/constants/layout";
 
 const ERROR_LABELS: Record<string, string> = {

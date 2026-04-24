@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import {
   Modal,
   ActivityIndicator,
 } from "react-native";
-import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
+import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -95,7 +95,7 @@ export default function VideoDetailScreen() {
     enabled: !!id && !isDemo,
   });
 
-  const { data: savedData, refetch: refetchSaved } = useQuery<{ saved: boolean }>({
+  const { data: savedData } = useQuery<{ saved: boolean }>({
     queryKey: [`/api/videos/${id}/saved`],
     enabled: !!id && !isDemo && !!user,
   });

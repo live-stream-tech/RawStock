@@ -63,11 +63,6 @@ export function GlobalLiveAnnouncementsFeed({ searchQuery = "", onSearchQueryCha
 
   const paddingBottom = 24 + bottomInset;
 
-  const setQ = (t: string) => {
-    if (controlled) onSearchQueryChange!(t);
-    else setLocalQ(t);
-  };
-
   const intro = useMemo(
     () =>
       "Cross-community board posts that look like streams, lives, or events. Use this feed to scan announcements from everywhere on RawStock.",

@@ -13,7 +13,7 @@ import {
   ActivityIndicator,
   Linking,
 } from "react-native";
-import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
+import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -130,14 +130,14 @@ type ThreadItem = {
 };
 
 type ThreadDetail = ThreadItem & {
-  posts: Array<{
+  posts: {
     id: number;
     threadId: number;
     authorUserId: number;
     body: string;
     createdAt: string;
     author: { displayName: string; profileImageUrl: string | null };
-  }>;
+  }[];
 };
 
 type JukeboxState = {
@@ -407,7 +407,7 @@ type PollItem = {
   id: number;
   question: string;
   createdAt: string;
-  options: Array<{ optionId: number; text: string; count: number }>;
+  options: { optionId: number; text: string; count: number }[];
   myVoteOptionId?: number | null;
 };
 
