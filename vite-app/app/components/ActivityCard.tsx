@@ -171,7 +171,7 @@ export default function ActivityCard({ activity }: ActivityCardProps) {
             </div>
             
             <button
-              onClick={() => handlePurchase(activity)}
+              onClick={() => handlePurchaseClick()}
               className="w-full bg-black text-white py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-gray-800 transition-colors shadow-lg"
             >
               <Play size={20} fill="white" />

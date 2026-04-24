@@ -98,7 +98,7 @@ function getScrollableNode(scrollView: ScrollView | null): HTMLElement | null {
   return sv.getScrollableNode?.() ?? null;
 }
 
-function useWheelScroll(ref: React.RefObject<ScrollView>) {
+function useWheelScroll(ref: React.RefObject<ScrollView | null>) {
   useEffect(() => {
     if (Platform.OS !== "web") return;
     const node = getScrollableNode(ref.current);

@@ -12,7 +12,7 @@ import {
   Modal,
   BackHandler,
 } from "react-native";
-import { usePreventRemove } from "@react-navigation/native";
+import { useNavigation } from "@react-navigation/native";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -308,20 +308,26 @@ export default function AIEditIndexScreen() {
   const [prepareProgress, setPrepareProgress] = useState("");
   const [flowError, setFlowError] = useState<string | null>(null);
 
+  const navigation = useNavigation();
   const blockingInteraction = uploading || preparingVideos;
   const blockerTitle = preparingVideos ? "Preparing videos" : "Upload in progress";
   const blockerMessage = preparingVideos
     ? prepareProgress || "Reading file metadata…"
     : uploadProgress || "Processing…";
 
-  usePreventRemove(blockingInteraction, () => {
-    Alert.alert(
-      preparingVideos ? "Please wait" : "Upload in progress",
-      preparingVideos
-        ? "Still reading your video files. Please wait."
-        : "Upload is still running. Please wait until it finishes.",
-    );
-  });
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("beforeRemove", (e: any) => {
+      if (!blockingInteraction) return;
+      e.preventDefault();
+      Alert.alert(
+        preparingVideos ? "Please wait" : "Upload in progress",
+        preparingVideos
+          ? "Still reading your video files. Please wait."
+          : "Upload is still running. Please wait until it finishes.",
+      );
+    });
+    return unsubscribe;
+  }, [navigation, blockingInteraction, preparingVideos]);
 
   useEffect(() => {
     if (!blockingInteraction) return;

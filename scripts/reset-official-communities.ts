@@ -3,7 +3,7 @@
  * Run: npx tsx scripts/reset-official-communities.ts
  */
 import "dotenv/config";
-import { Pool } from "pg";
+import { Pool, PoolClient } from "pg";
 import { getCommunityDefaultAssets } from "../lib/community-default-assets";
 
 const pool = new Pool({
@@ -283,7 +283,7 @@ const DELETE_STATEMENTS: Array<{ table: string; sql: string }> = [
 ];
 
 async function deleteIfTableExists(
-  client: Awaited<ReturnType<Pool["connect"]>>,
+  client: PoolClient,
   table: string,
   sql: string
 ) {

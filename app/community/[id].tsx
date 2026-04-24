@@ -36,6 +36,7 @@ import {
   readImageDimensionsFromUri,
 } from "@/lib/flyer-image-quality";
 import * as ImagePicker from "expo-image-picker";
+import { useDemoMode } from "@/lib/demo-mode";
 
 const MAX_ANNOUNCEMENT_FLYER_BYTES = 15 * 1024 * 1024;
 
@@ -754,6 +755,7 @@ export default function CommunityDetailScreen() {
   const [activeTab, setActiveTab] = useState<Tab>("Board");
   const [following, setFollowing] = useState(false);
   const { user, token, requireAuth } = useAuth();
+  const { isDemoMode } = useDemoMode();
   const numericId = Number(id);
 
   const { data: apiCommunity, isLoading: communityLoading } = useQuery<any>({
@@ -1350,7 +1352,7 @@ export default function CommunityDetailScreen() {
                 style={styles.postCard}
                 onPress={() =>
                   router.push(
-                    usingDemoVideos
+                    isDemoMode
                       ? (`/video/${video.id}?demo=1` as any)
                       : (`/video/${video.id}` as any),
                   )
@@ -3119,6 +3121,9 @@ const styles = StyleSheet.create({
   },
   threadDetailShortLabel: { color: "#fff", fontSize: 13, fontWeight: "800" },
   threadDetailBody: { color: C.textSec, fontSize: 13, lineHeight: 20 },
+  threadDetailRoot: { flex: 1 },
+  threadDetailMainScroll: { flex: 1 },
+  threadDetailMainScrollContent: { paddingBottom: 16 },
   threadDetailPosts: { maxHeight: 280, padding: 16 },
   threadPostRow: { flexDirection: "row", gap: 10, marginBottom: 14 },
   threadPostAvatar: { width: 32, height: 32, borderRadius: 16 },
