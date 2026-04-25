@@ -336,7 +336,7 @@ export default function ProfileScreen() {
     try {
       await updateProfile({ name: editName.trim(), bio: editBio.trim(), avatar: editAvatar.trim() || null });
       setShowProfileModal(false);
-      router.replace("/(tabs)/profile");
+      router.replace("/profile");
     } catch (e: any) {
       Alert.alert("保存に失敗しました", e.message ?? "しばらくしてから再度お試しください。");
     } finally {
@@ -626,7 +626,7 @@ export default function ProfileScreen() {
         const url = new URL("/api/auth/google", apiBase).toString();
         window.location.href = url;
       } else {
-        router.replace("/(tabs)");
+        router.replace("/");
       }
     }
 

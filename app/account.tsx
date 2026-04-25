@@ -89,7 +89,7 @@ export default function AccountEditScreen() {
         phoneNumber: phoneNumber.trim() || null,
         pinnedCommunityIds,
       });
-      router.replace("/(tabs)/profile");
+      router.replace("/profile");
     } catch (e: any) {
       Alert.alert("Save failed", e?.message ?? "Please try again later");
     } finally {

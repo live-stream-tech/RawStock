@@ -108,7 +108,7 @@ export default function CreateCommunityScreen() {
       if (newCommunity?.id != null) {
         router.replace(`/community/${newCommunity.id}`);
       } else {
-        router.replace("/(tabs)/community");
+        router.replace("/community");
       }
       Alert.alert("Community Created", "Your community is live. You can access it from the home and post screens.");
     } catch (e: any) {

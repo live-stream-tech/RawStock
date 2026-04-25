@@ -121,7 +121,7 @@ export default function CommunityAdminScreen() {
               await apiRequest("DELETE", `/api/communities/${communityId}`);
               qc.invalidateQueries({ queryKey: ["/api/communities"] });
               qc.invalidateQueries({ queryKey: ["/api/communities/me"] });
-              router.replace("/(tabs)/community");
+              router.replace("/community");
             } catch (e: any) {
               let errMsg = "Failed to delete";
               if (e?.body) {

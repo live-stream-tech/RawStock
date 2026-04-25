@@ -31,12 +31,20 @@ export function getLoginReturn(): string | null {
   return null;
 }
 
-const DEFAULT_AFTER_LOGIN = "/(tabs)/profile";
+/** Public path (not `/(tabs)/…`) so static export and deep links stay valid. */
+const DEFAULT_AFTER_LOGIN = "/profile";
+
+/** Map legacy `/(tabs)/…` paths saved in localStorage to public URLs. */
+function normalizeLegacyTabPath(path: string): string {
+  if (path === "/(tabs)") return "/";
+  if (path.startsWith("/(tabs)/")) return `/${path.slice("/(tabs)/".length)}`;
+  return path;
+}
 
 /** OAuth 完了後の `router.replace` 用。`getLoginReturn` と同じ除外ルールを `auth/callback` と共有する */
 export function consumeLoginRedirectPath(): string {
   const saved = getLoginReturn();
-  let returnTo = saved ?? DEFAULT_AFTER_LOGIN;
+  let returnTo = normalizeLegacyTabPath(saved ?? DEFAULT_AFTER_LOGIN);
   const isInvalidReturn =
     returnTo.startsWith("/auth/") ||
     returnTo.startsWith("/jukebox") ||

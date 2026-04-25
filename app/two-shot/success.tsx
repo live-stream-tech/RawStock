@@ -45,7 +45,7 @@ export default function TwoShotSuccessScreen() {
   return (
     <View style={[styles.container, { paddingTop: topInset }]}>
       <View style={styles.header}>
-        <Pressable style={styles.backBtn} onPress={() => router.replace("/(tabs)")}>
+        <Pressable style={styles.backBtn} onPress={() => router.replace("/")}>
           <Ionicons name="home-outline" size={22} color={C.text} />
         </Pressable>
         <Text style={styles.headerTitle}>2-shot</Text>

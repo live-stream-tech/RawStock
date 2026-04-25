@@ -278,7 +278,7 @@ export default function WorkUploadScreen() {
         community: selectedCommunity.name,
       });
       setShowPublishFromModal(false);
-      router.replace("/(tabs)/profile");
+      router.replace("/profile");
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       queryClient.invalidateQueries({ queryKey: ["/api/videos/my"] });
     } catch (err: any) {
@@ -371,7 +371,7 @@ export default function WorkUploadScreen() {
         postType: "work",
         complianceAcknowledged: true,
       });
-      router.replace("/(tabs)/profile");
+      router.replace("/profile");
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       queryClient.invalidateQueries({ queryKey: ["/api/videos/my"] });
       queryClient.invalidateQueries({ queryKey: ["/api/videos/ranked"] });

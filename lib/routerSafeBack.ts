@@ -9,5 +9,5 @@ export function routerBackOrTabHome(): void {
     router.back();
     return;
   }
-  router.replace("/(tabs)" as any);
+  router.replace("/" as any);
 }

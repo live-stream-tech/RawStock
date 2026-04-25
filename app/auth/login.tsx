@@ -50,7 +50,7 @@ export default function LoginScreen() {
       const url = new URL(path, apiBase).toString();
       window.location.href = url;
     } else {
-      router.replace("/(tabs)");
+      router.replace("/");
     }
   }
 

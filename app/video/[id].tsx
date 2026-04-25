@@ -186,7 +186,7 @@ export default function VideoDetailScreen() {
       await apiRequest("DELETE", `/api/videos/${id}`);
       await qc.invalidateQueries({ queryKey: ["/api/videos"] });
       await qc.invalidateQueries({ queryKey: ["/api/videos/my"] });
-      router.replace("/(tabs)/profile");
+      router.replace("/profile");
     } catch {
       Alert.alert("Error", "Failed to delete post");
     }

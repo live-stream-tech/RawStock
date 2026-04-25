@@ -540,7 +540,7 @@ export default function HomeScreen() {
             } else if (firstCommunityId) {
               router.push(`/jukebox/${firstCommunityId}` as any);
             } else {
-              router.push("/(tabs)/community" as any);
+              router.push("/community" as any);
             }
           }}
         >

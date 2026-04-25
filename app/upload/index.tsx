@@ -293,7 +293,7 @@ export default function DailyUploadScreen() {
         community: selectedCommunity.name,
       });
       setShowPublishFromModal(false);
-      router.replace("/(tabs)/profile");
+      router.replace("/profile");
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       queryClient.invalidateQueries({ queryKey: ["/api/videos/my"] });
     } catch (err: any) {
@@ -380,7 +380,7 @@ export default function DailyUploadScreen() {
         postType: "daily",
         complianceAcknowledged: true,
       });
-      router.replace("/(tabs)/profile");
+      router.replace("/profile");
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       queryClient.invalidateQueries({ queryKey: ["/api/videos/my"] });
     } catch (err: any) {

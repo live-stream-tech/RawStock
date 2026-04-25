@@ -102,7 +102,7 @@ export default function GenreScreen() {
   useEffect(() => {
     if (!genreId || !GENRE_DATA[genreId]) return;
     const t = setTimeout(() => {
-      router.replace("/(tabs)/community" as any);
+      router.replace("/community" as any);
     }, 1500);
     return () => clearTimeout(t);
   }, [genreId]);
