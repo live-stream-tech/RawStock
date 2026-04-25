@@ -12,13 +12,20 @@ import { Pool } from "pg";
 const BODY_MARKER = "OFFICIAL_LIVE_HUB_ROUTE_B_V1";
 
 const VENUE_OR_FESTIVAL =
-  /\b(festival|fests?\b|open[\s-]*air|outdoor|line-?up|headliner|main\s+stage|campground|live\s*house|music\s+venue|arena|stadium|club\s+tour|concert|gig|tour\b|tour\s+dates|on\s+tour|support\s+act|opening\s+act|tickets?\s+(?:on\s+)?sale|presale|festival\s+pass|weekend\s+pass|day\s+pass|lineup|field\s+day|warehouse)\b/i;
+  /\b(festival|fests?\b|open[\s-]*air|outdoor|line-?up|headliner|main\s+stage|campground|live\s*house|music\s+venue|arena|stadium|club\s+tour|concert|gig|tour\b|tour\s+dates|on\s+tour|support\s+act|opening\s+act|tickets?\s+(?:on\s+)?sale|presale|festival\s+pass|weekend\s+pass|day\s+pass|lineup|field\s+day|warehouse|reggae|dub|dancehall|sound\s*system|riddim|roots)\b/i;
 
 const EXCLUDE_BLOB = /\b(podcast\s+series|netflix|video\s+game|movie\s+trailer|iphone|ceo|earnings|streaming\s+only)\b/i;
 
 /** Music / live news from publishers not used in the V3 aggregator script. */
 const SOURCES = [
   { key: "brooklyn_vegan", label: "Brooklyn Vegan", url: "https://www.brooklynvegan.com/feed/" },
+  { key: "brooklyn_vegan_reggae", label: "Brooklyn Vegan (Reggae)", url: "https://www.brooklynvegan.com/tag/reggae/feed/" },
+  { key: "brooklyn_vegan_dub", label: "Brooklyn Vegan (Dub)", url: "https://www.brooklynvegan.com/tag/dub/feed/" },
+  { key: "louder_reggae", label: "Louder (Reggae)", url: "https://www.loudersound.com/feeds/tag/reggae" },
+  { key: "louder_dub", label: "Louder (Dub)", url: "https://www.loudersound.com/feeds/tag/dub" },
+  { key: "guardian_reggae", label: "The Guardian (Reggae)", url: "https://www.theguardian.com/music/reggae/rss" },
+  { key: "largeup", label: "LargeUp", url: "https://largeup.com/feed/" },
+  { key: "dancehall_mag", label: "DancehallMag", url: "https://www.dancehallmag.com/feed/" },
   { key: "consequence", label: "Consequence", url: "https://consequence.net/feed" },
   { key: "paste", label: "Paste Magazine", url: "https://www.pastemagazine.com/feed" },
   { key: "diy", label: "DIY", url: "https://diymag.com/feed" },
@@ -136,6 +143,7 @@ function isVenueOrFestivalItem(item: ParsedItem): boolean {
   return VENUE_OR_FESTIVAL.test(blob);
 }
 
+/** Up to 12 threads per source (raised for genre-heavy RSS feeds). */
 function pickUpToTenWithFlyer(items: ParsedItem[]): ParsedItem[] {
   const seen = new Set<string>();
   const pool = items.filter((i) => isVenueOrFestivalItem(i) && usableFlyerUrl(i.imageUrl));
@@ -145,7 +153,7 @@ function pickUpToTenWithFlyer(items: ParsedItem[]): ParsedItem[] {
     if (seen.has(i.link)) continue;
     seen.add(i.link);
     out.push({ ...i, imageUrl: flyer });
-    if (out.length >= 10) break;
+    if (out.length >= 12) break;
   }
   return out;
 }
@@ -220,7 +228,7 @@ async function main() {
     }
 
     const picked = pickUpToTenWithFlyer(items);
-    console.log(`[${src.key}] ${picked.length} threads (cap 10).`);
+    console.log(`[${src.key}] ${picked.length} threads (cap 12).`);
 
     for (const item of picked) {
       const prefix = `[${src.label}] `;

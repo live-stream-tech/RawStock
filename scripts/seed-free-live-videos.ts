@@ -9,7 +9,7 @@ import { Pool } from "pg";
 
 const BODY_MARKER = "OFFICIAL_FREE_LIVE_VIDEO_V1";
 const LIVE_KEYWORD =
-  /\b(live|livestream|live stream|streaming|premiere|dj set|set live|festival stream|broadcast|full set|dj mix|mix|festival|concert|performance|on stage|main stage|showcase|recording session|tiny desk|acoustic|glastonbury|coachella|edc|lollapalooza|acl|boiler room|cercle|tomorrowland|ultra|umf|bonnaroo|primavera|roskilde|sziget|movement|awakenings|sxsw|vevo|warp|defected|resident|mixmag|audiotree|jam in the van|montreux|barbican|royal albert|southbank|bbc introducing|noisey|vice|88rising|colors|pitchfork|goldenvoice|live nation|outside lands)\b/i;
+  /\b(live|livestream|live stream|streaming|premiere|dj set|set live|festival stream|broadcast|full set|dj mix|mix|festival|concert|performance|on stage|main stage|showcase|recording session|tiny desk|acoustic|glastonbury|coachella|edc|lollapalooza|acl|boiler room|cercle|tomorrowland|ultra|umf|bonnaroo|primavera|roskilde|sziget|movement|awakenings|sxsw|vevo|warp|defected|resident|mixmag|audiotree|jam in the van|montreux|barbican|royal albert|southbank|bbc introducing|noisey|vice|88rising|colors|pitchfork|goldenvoice|live nation|outside lands|reggae|dub|dancehall|roots|sound system|soundclash)\b/i;
 /** Max candidates scanned per feed (RSS is ~15 entries; we scan what we get). */
 const MAX_CANDIDATES_PER_SOURCE = 20;
 /** Hard cap per source per run so one label cannot dominate the catalog. */
@@ -74,6 +74,14 @@ const SOURCES: SourceDef[] = [
   { key: "adult_swim", label: "Adult Swim", url: "https://www.youtube.com/feeds/videos.xml?user=AdultSwim" },
   { key: "awakenings", label: "Awakenings", url: "https://www.youtube.com/feeds/videos.xml?user=Awakenings" },
   { key: "movement_detroit", label: "Movement Detroit", url: "https://www.youtube.com/feeds/videos.xml?user=MovementDetroit" },
+  { key: "reggaeville", label: "Reggaeville", url: "https://www.youtube.com/feeds/videos.xml?user=Reggaeville" },
+  { key: "united_reggae", label: "UNITED REGGAE", url: "https://www.youtube.com/feeds/videos.xml?user=UNITEDREGGAE" },
+  { key: "jamaicans_music", label: "Jamaicans.com", url: "https://www.youtube.com/feeds/videos.xml?user=Jamaicansmusic" },
+  { key: "jahtari", label: "Jahtari", url: "https://www.youtube.com/feeds/videos.xml?user=Jahtari" },
+  { key: "vp_records", label: "VP Records", url: "https://www.youtube.com/feeds/videos.xml?user=VPRecords" },
+  { key: "stone_love", label: "Stone Love", url: "https://www.youtube.com/feeds/videos.xml?user=StoneLoveMusic" },
+  { key: "mungo_hi_fi", label: "Mungo's Hi Fi", url: "https://www.youtube.com/feeds/videos.xml?user=MungosHiFi" },
+  { key: "dub_stash", label: "Dub Stash", url: "https://www.youtube.com/feeds/videos.xml?user=DubStash" },
 ];
 
 type AtomItem = {

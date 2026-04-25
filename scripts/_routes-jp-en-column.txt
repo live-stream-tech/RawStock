@@ -1,0 +1,136 @@
+      "\u914d\u4fe1",
+      "\u30e9\u30a4\u30d6",
+      "\u516c\u6f14",
+      "\u30c1\u30b1\u30c3\u30c8",
+    // Content moderation on title + body combined
+  /** Delete thread (admin/moderator). */
+  /** Delete thread reply (admin/moderator). */
+    // Content moderation
+  /** Community admin: jukebox queue list/delete. */
+  /** Community admin: approved ads (scheduling). */
+  /** Community admin: reports for this community. */
+  /** Community admin: hide report. */
+  /** Community admin: dismiss report as no action. */
+  // --- Community polls ---
+      // Auto-add creator as member
+  /** Delete community (creator only). */
+  // --- Community ads (apply + review) ---
+  // Ad pricing / minimum duration API
+  // Ad slot availability API
+    // Find approved ads overlapping the window
+    // Lock price to member count at booking time
+    // Overlap check
+  // Revenue share settings GET
+    // Return moderators and share ratios
+    // Default: equal split across moderators
+      // Split: event reserve 10% / admins+mods 70% / platform 20%
+  // Revenue share settings PATCH
+    // Validate totals sum to 100%
+  // Monthly batch: auto-assign genre owners (manual trigger allowed)
+    // For each genre, assign owner from largest community by member count
+    // Group by genre
+  // --- Reports (Claude moderation) ---
+  // --- Concerts ---
+    // Check if application already exists
+  // Legacy: same list at /staff-req
+  // --- Genre page ads ---
+  /** Genre owner: pending reviews for assigned genres. */
+  /** Monthly batch: sync largest-community owner per genre into genre_owners. */
+  /** Monthly cron: recompute creator_monthly_scores ranks; sync creators.rank / heatScore. */
+  /** Admin: hide reported content (video or comment). */
+  /** Admin: dismiss report (status reviewed). */
+    /** Some browsers return empty video/*; normalize to octet-stream to match signed PUT. */
+__EMPTY__
+    // List visibility=community posts (legacy rows without visibility still shown)
+  /** Saved videos list (define before :id routes). */
+    /** Ticket payouts/wallets: always use users.id (never mix creators.id). */
+  /** Video comments (excludes hidden). */
+  /** Post comment (auth required). */
+  /** Edit own post (title / visibility). */
+  /** Delete own post (and comments). */
+  /** My list: save video */
+      // Ignore duplicate saves (UNIQUE constraint)
+  /** My list: unsave video */
+  /** Whether video is in my list */
+  /** Public posts for profile (my_page_only and up). */
+  // --- DM threads (user-to-user) ---
+    // Gift messages skip moderation (amount only); normal messages moderated
+  // --- DM thread by id (= dm_threads.id; legacy dm_messages id fallback below) ---
+  /** Top banner: communities live/waiting (define before :communityId). */
+    // Radio room: if current track past duration, advance queue server-side
+        // Mark current track isPlayed then find next
+          // Do not mark next as isPlayed yet (keep visible in queue UI)
+          // Stop if queue empty
+    // Return playback position in seconds (radio-style)
+    // Return UI state even without youtubeId (thumb/title display)
+  // --- Jukebox SSE stream ---
+  // --- Cloudflare Stream token probe ---
+  // --- Cloudflare Stream live input create ---
+  /** Broadcast session state + viewer count (polling / watch page). */
+  /** Go live: is_live + started_at; reset viewer count (host only). */
+  /** End broadcast (host only). */
+  /** Viewer joined */
+  /** Buy paid live access with tickets */
+  /** Viewer left */
+    // New session with no played tracks: auto-start playback
+    // If already playing, enqueue at end only (no interrupt)
+    // Publish queue_update to Redis
+    // On auto-start playback, also publish state_update
+    // Find current playing item and mark isPlayed (avoid duplicate next pick)
+      // Do not mark next as isPlayed until done; keep queue UI stable
+      // Reset playback when queue drained
+    // Publish state_update + queue_update to Redis
+  // Update currentVideoDurationSecs from client getDuration()
+  // Only when videoDurationSecs is 0/unset (avoid duplicate client updates)
+    // Load state; update only if videoDurationSecs still 0
+      // Skip update when duration already valid
+    // Publish chat event to Redis
+  // --- Jukebox: delete own request ---
+    // Cannot remove currently playing track
+    // Author-only check
+  /** Legacy: mentor-book/[id].tsx session fetch */
+  /** Legacy: mentor-book/[id].tsx availability */
+  /** Legacy: mentor-book/[id].tsx book (consume ticket immediately) */
+      // New model (sessionId + slot): reserve slot at payment confirm (race safety)
+      // Shared scorekeeping: record REVENUE to transactions (liver wallet)
+  // --- Mentor Sessions (product CRUD) ---
+  /** Creator: list own session products */
+  /** Public: active mentor sessions with creator info */
+  /** Create session product */
+  /** Update session product */
+  /** Hide session product (soft delete) */
+  /** Creator: bookings for my sessions */
+    // Join session rows
+  /** Creator: start session (issue Cloudflare WHIP) */
+    // Reuse WHIP if already issued
+    // Create Cloudflare Stream live input
+  /** User: join session (WHEP URL) */
+  /** End session */
+    // Delete Cloudflare Stream live input (optional)
+      ).catch(() => {}); // continue even if delete fails
+  // --- Revenue recording (tips / paid live / mentor -> REVENUE for monthly ranks) ---
+  // --- Revenue (auth required) ---
+  /** Monthly rank query stub (?month=YYYY-MM returns REVENUE totals ranking) */
+    // Announcements active between startAt and endAt (endAt null = open-ended)
+  /** GET /api/coins/balance — signed-in user coin balance */
+  /** GET /api/coins/request-count?communityId=X — today count and free quota left */
+  /** POST /api/coins/spend-jukebox — spend one coin for jukebox request */
+    // Check balance
+    // Decrement balance by one
+    // Record transaction
+    // Increment request count
+  /** POST /api/coins/record-free-request — record a free jukebox request */
+  /** POST /api/coins/use-revenue — spend revenue balance as coins ($0.30 per coin) */
+    // Check revenue balance (wallets)
+    // Decrement revenue balance
+    // Record coin transaction (revenue to coins)
+  /** POST /api/coins/create-checkout — Stripe Checkout to buy coins */
+    // Coin packages ($0.30 per coin)
+  /** POST /api/coins/verify-purchase — grant coins after Stripe Checkout */
+      // Idempotency: skip if this session already granted
+      // Grant coins
+      // Record transaction
+  /** Public origin Templated webhooks call (no trailing slash) */
+  // POST /api/ai-edit/jobs/:id/render — start Templated MP4 render (owner)
+  // POST /api/webhooks/templated — Templated async render complete
+  /** Vercel Cron: batch pending AI Edit jobs (Bearer matches CRON_SECRET or AI_EDIT_CRON_SECRET) */

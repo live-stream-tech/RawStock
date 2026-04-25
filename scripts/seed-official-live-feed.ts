@@ -14,16 +14,21 @@ const BODY_MARKER = "OFFICIAL_LIVE_AGGREGATOR_V3";
 
 /** Headline / blurb must look like a venue, festival, tour, or ticketed live show — not streaming product news. */
 const VENUE_OR_FESTIVAL =
-  /\b(festival|fests?\b|open[\s-]*air|outdoor|line-?up|headliner|main\s+stage|campground|live\s*house|music\s+venue|arena|stadium|club\s+tour|concert|gig|tour\b|tour\s+dates|on\s+tour|support\s+act|opening\s+act|tickets?\s+(?:on\s+)?sale|presale|festival\s+pass|weekend\s+pass|day\s+pass|lineup|field\s+day|warehouse)\b/i;
+  /\b(festival|fests?\b|open[\s-]*air|outdoor|line-?up|headliner|main\s+stage|campground|live\s*house|music\s+venue|arena|stadium|club\s+tour|concert|gig|tour\b|tour\s+dates|on\s+tour|support\s+act|opening\s+act|tickets?\s+(?:on\s+)?sale|presale|festival\s+pass|weekend\s+pass|day\s+pass|lineup|field\s+day|warehouse|reggae|dub|dancehall|sound\s*system|riddim|roots)\b/i;
 
 const EXCLUDE_BLOB = /\b(podcast\s+series|netflix|video\s+game|movie\s+trailer|iphone|ceo|earnings|streaming\s+only)\b/i;
 
 const SOURCES = [
   { key: "louder_fest", label: "Louder (Festivals)", url: "https://www.loudersound.com/feeds/tag/festival" },
+  { key: "louder_reggae", label: "Louder (Reggae)", url: "https://www.loudersound.com/feeds/tag/reggae" },
+  { key: "louder_dub", label: "Louder (Dub)", url: "https://www.loudersound.com/feeds/tag/dub" },
   { key: "stereogum", label: "Stereogum", url: "https://stereogum.com/feed/" },
   { key: "dancing_astronaut", label: "Dancing Astronaut", url: "https://dancingastronaut.com/feed/" },
   { key: "gigwise", label: "Gigwise", url: "https://www.gigwise.com/feed" },
   { key: "nme", label: "NME", url: "https://www.nme.com/feed/" },
+  { key: "guardian_reggae", label: "The Guardian (Reggae)", url: "https://www.theguardian.com/music/reggae/rss" },
+  { key: "largeup", label: "LargeUp", url: "https://largeup.com/feed/" },
+  { key: "dancehall_mag", label: "DancehallMag", url: "https://www.dancehallmag.com/feed/" },
 ] as const;
 
 type ParsedItem = { title: string; link: string; blurb: string; imageUrl: string | null };
