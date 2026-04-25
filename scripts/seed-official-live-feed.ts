@@ -100,6 +100,21 @@ function safeSlug(s: string): string {
     .slice(0, 80) || "flyer";
 }
 
+function normalizeSingleHttpUrl(raw: string | null | undefined): string | null {
+  if (!raw || typeof raw !== "string") return null;
+  const s = raw.trim();
+  if (!s) return null;
+  const firstHttp = s.search(/https?:\/\//i);
+  if (firstHttp < 0) return null;
+  let candidate = s.slice(firstHttp);
+  // Some sources accidentally concatenate multiple URLs into one attribute.
+  const nextHttp = candidate.slice(8).search(/https?:\/\//i);
+  if (nextHttp >= 0) {
+    candidate = candidate.slice(0, nextHttp + 8);
+  }
+  return candidate.replace(/[)\],。．、"'<>]+$/g, "").trim();
+}
+
 function stripTags(html: string): string {
   return decodeXml(html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
 }
@@ -129,8 +144,9 @@ function extractImgSrcsFromHtml(html: string): string[] {
  * Real image URL suitable as FLYER_IMAGE (reject favicons, trackers, tiny assets).
  */
 function usableFlyerUrl(raw: string | null | undefined): string | null {
-  if (!raw || typeof raw !== "string") return null;
-  let u = raw.trim();
+  const normalized = normalizeSingleHttpUrl(raw);
+  if (!normalized) return null;
+  let u = normalized;
   if (!/^https?:\/\//i.test(u)) return null;
   u = toHttps(u);
   const low = u.toLowerCase();
@@ -150,8 +166,9 @@ function usableFlyerUrl(raw: string | null | undefined): string | null {
 }
 
 function usableOfficialImageUrl(raw: string | null | undefined): string | null {
-  if (!raw || typeof raw !== "string") return null;
-  let u = raw.trim();
+  const normalized = normalizeSingleHttpUrl(raw);
+  if (!normalized) return null;
+  let u = normalized;
   if (!/^https?:\/\//i.test(u)) return null;
   u = toHttps(u);
   const low = u.toLowerCase();

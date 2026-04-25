@@ -5310,15 +5310,25 @@ export async function registerRoutes(app: Express): Promise<void> {
           .where(eq(dmThreadMessages.threadId, rawId))
           .orderBy(asc(dmThreadMessages.createdAt));
         return res.json(
-          rows.map((m) => ({
-            id: m.id,
-            sender: m.senderUserId === me.id ? "me" : "them",
-            senderId: m.senderUserId,
-            text: m.text,
-            isRead: true,
-            createdAt: (m.createdAt ?? new Date()).toISOString(),
-            imageUrl: null as string | null,
-          })),
+          rows.map((m) => {
+            const raw = String(m.text ?? "");
+            const attachmentLine = raw.split("\n").find((line) => /^ATTACHMENT\s*[:：]\s*https?:\/\//i.test(line.trim())) ?? null;
+            const imageUrl = attachmentLine ? attachmentLine.replace(/^ATTACHMENT\s*[:：]\s*/i, "").trim() : null;
+            const cleanedText = raw
+              .split("\n")
+              .filter((line) => !/^ATTACHMENT\s*[:：]\s*https?:\/\//i.test(line.trim()))
+              .join("\n")
+              .trim();
+            return {
+              id: m.id,
+              sender: m.senderUserId === me.id ? "me" : "them",
+              senderId: m.senderUserId,
+              text: cleanedText || null,
+              isRead: true,
+              createdAt: (m.createdAt ?? new Date()).toISOString(),
+              imageUrl,
+            };
+          }),
         );
       }
     }
@@ -5327,7 +5337,23 @@ export async function registerRoutes(app: Express): Promise<void> {
       .from(dmConversationMessages)
       .where(eq(dmConversationMessages.dmId, legacyDmId))
       .orderBy(asc(dmConversationMessages.createdAt));
-    res.json(msgs);
+    res.json(
+      msgs.map((m) => {
+        const raw = String((m as { text?: string | null }).text ?? "");
+        const attachmentLine = raw.split("\n").find((line) => /^ATTACHMENT\s*[:：]\s*https?:\/\//i.test(line.trim())) ?? null;
+        const imageUrl = attachmentLine ? attachmentLine.replace(/^ATTACHMENT\s*[:：]\s*/i, "").trim() : null;
+        const cleanedText = raw
+          .split("\n")
+          .filter((line) => !/^ATTACHMENT\s*[:：]\s*https?:\/\//i.test(line.trim()))
+          .join("\n")
+          .trim();
+        return {
+          ...m,
+          text: cleanedText || null,
+          imageUrl,
+        };
+      }),
+    );
   });
 
   app.post("/api/dm-messages/:id/conversation", async (req: Request, res: Response) => {
@@ -5335,8 +5361,15 @@ export async function registerRoutes(app: Express): Promise<void> {
     const legacyDmId = rawId < 0 ? -rawId : rawId;
     const me = await getAuthUser(req);
     if (!me) return res.status(401).json({ error: "Not authenticated" });
-    const text = typeof (req.body as { text?: unknown })?.text === "string" ? (req.body as { text: string }).text : "";
-    if (!text.trim()) return res.status(400).json({ error: "Please enter a message" });
+    const body = req.body as { text?: unknown; attachmentUrl?: unknown };
+    const text = typeof body?.text === "string" ? body.text.trim() : "";
+    const attachmentUrl = typeof body?.attachmentUrl === "string" ? body.attachmentUrl.trim() : "";
+    const attachmentOk = /^https?:\/\//i.test(attachmentUrl);
+    if (!text && !attachmentOk) return res.status(400).json({ error: "Please enter a message or add an attachment" });
+    const combinedText = attachmentOk
+      ? `ATTACHMENT: ${attachmentUrl}${text ? `\n${text}` : ""}`
+      : text;
+    const preview = text || (attachmentOk ? "Attachment" : "");
     if (rawId > 0) {
       const [th] = await db
         .select()
@@ -5350,25 +5383,25 @@ export async function registerRoutes(app: Express): Promise<void> {
           .values({
             threadId: rawId,
             senderUserId: me.id,
-            text: text.trim(),
+            text: combinedText,
           } as typeof dmThreadMessages.$inferInsert)
           .returning();
         await db
           .update(dmThreads)
           .set({
-            lastMessagePreview: text.trim().slice(0, 200),
+            lastMessagePreview: preview.slice(0, 200),
             updatedAt: new Date(),
           } as Partial<InferSelectModel<typeof dmThreads>>)
           .where(eq(dmThreads.id, rawId));
-        await syncUserLastContentLang(me.id, text.trim());
+        if (text) await syncUserLastContentLang(me.id, text);
         return res.json({
           id: msg.id,
           sender: "me",
           senderId: me.id,
-          text: msg.text,
+          text: text || null,
           isRead: true,
           createdAt: (msg.createdAt ?? new Date()).toISOString(),
-          imageUrl: null,
+          imageUrl: attachmentOk ? attachmentUrl : null,
         });
       }
     }
@@ -5377,19 +5410,20 @@ export async function registerRoutes(app: Express): Promise<void> {
       .values({
         dmId: legacyDmId,
         sender: "me",
-        text: text.trim(),
+        text: combinedText,
         isRead: true,
       } as typeof dmConversationMessages.$inferInsert)
       .returning();
     await db
       .update(dmMessages)
-      .set({ lastMessage: text.trim(), unread: 0 } as Partial<InferSelectModel<typeof dmMessages>>)
+      .set({ lastMessage: preview, unread: 0 } as Partial<InferSelectModel<typeof dmMessages>>)
       .where(eq(dmMessages.id, legacyDmId));
-    await syncUserLastContentLang(me.id, text.trim());
+    if (text) await syncUserLastContentLang(me.id, text);
     res.json({
       ...msg,
+      text: text || null,
       createdAt: (msg.createdAt ?? new Date()).toISOString(),
-      imageUrl: null as string | null,
+      imageUrl: attachmentOk ? attachmentUrl : null,
     });
   });
 

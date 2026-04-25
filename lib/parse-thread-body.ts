@@ -18,7 +18,13 @@ function extractUrlFromLine(trimmed: string): string | null {
   const md = trimmed.match(/\((https?:\/\/[^)\s]+)\)/i);
   if (md?.[1]) return md[1].replace(/[)\],。．、]+$/g, "");
   const m = trimmed.match(/https?:\/\/\S+/i);
-  return m ? m[0].replace(/[)\],。．、]+$/g, "") : null;
+  if (!m?.[0]) return null;
+  let u = m[0];
+  const nextHttp = u.slice(8).search(/https?:\/\//i);
+  if (nextHttp >= 0) {
+    u = u.slice(0, nextHttp + 8);
+  }
+  return u.replace(/[)\],。．、"'<>\u3000]+$/g, "");
 }
 
 /** Returns a YouTube thumbnail URL if the video ID can be extracted. */

@@ -7,6 +7,7 @@ import {
   Pressable,
   TextInput,
   Platform,
+  Alert,
 } from "react-native";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
@@ -21,6 +22,7 @@ import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { useAuth } from "@/lib/auth";
 import { TranslateButton } from "@/components/TranslateButton";
+import * as ImagePicker from "expo-image-picker";
 
 type DMItem = {
   id: number;
@@ -63,6 +65,7 @@ export default function DMChatScreen() {
   const flatListRef = useRef<FlatList>(null);
   const [input, setInput] = useState("");
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [attachmentUrl, setAttachmentUrl] = useState<string | null>(null);
   const { token } = useAuth();
 
   const topInset = Platform.OS === "web" ? 67 : insets.top;
@@ -100,24 +103,93 @@ export default function DMChatScreen() {
   });
 
   const sendMutation = useMutation({
-    mutationFn: (text: string) =>
-      apiRequest("POST", `/api/dm-messages/${dmId}/conversation`, { text }),
+    mutationFn: (payload: { text?: string; attachmentUrl?: string }) =>
+      apiRequest("POST", `/api/dm-messages/${dmId}/conversation`, payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [`/api/dm-messages/${dmId}/conversation`] });
       qc.invalidateQueries({ queryKey: ["/api/dm-messages"] });
+      setAttachmentUrl(null);
+    },
+    onError: (e: unknown) => {
+      Alert.alert("Send failed", e instanceof Error ? e.message : "Could not send DM");
     },
   });
 
-  const pickImage = useCallback(async () => {
-    setUploadingImage(false);
+  const uploadImageBlobToR2 = useCallback(async (blob: Blob, fileName: string, mime: string): Promise<string> => {
+    const resp = await apiRequest("POST", "/api/upload-url", {
+      fileName,
+      contentType: mime,
+    });
+    const { uploadUrl, url } = (await resp.json()) as { uploadUrl: string; url: string };
+    const putRes = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": mime },
+      body: blob,
+    });
+    if (!putRes.ok) {
+      throw new Error(`Storage upload failed (${putRes.status})`);
+    }
+    return url;
   }, []);
+
+  const pickImage = useCallback(async () => {
+    try {
+      setUploadingImage(true);
+      if (Platform.OS === "web") {
+        const inputEl = document.createElement("input");
+        inputEl.type = "file";
+        inputEl.accept = "image/jpeg,image/png,image/webp,image/gif";
+        await new Promise<void>((resolve) => {
+          inputEl.onchange = async () => {
+            try {
+              const file = inputEl.files?.[0];
+              if (!file) return resolve();
+              const mime = file.type || "image/jpeg";
+              const safeName = (file.name || `dm-${Date.now()}.jpg`).replace(/[^\w.-]/g, "_");
+              const url = await uploadImageBlobToR2(file, safeName, mime);
+              setAttachmentUrl(url);
+            } catch (e) {
+              Alert.alert("Attachment failed", e instanceof Error ? e.message : "Upload failed");
+            } finally {
+              resolve();
+            }
+          };
+          inputEl.click();
+        });
+        return;
+      }
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (perm.status !== "granted") {
+        Alert.alert("Permission required", "Allow photo library access to attach an image.");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: false,
+        quality: 0.9,
+      });
+      if (result.canceled || !result.assets[0]) return;
+      const asset = result.assets[0];
+      const mime = asset.mimeType ?? "image/jpeg";
+      const ext = mime.split("/")[1] || "jpg";
+      const name = `dm-${Date.now()}.${ext}`.replace(/[^\w.-]/g, "_");
+      const imgRes = await fetch(asset.uri);
+      const blob = await imgRes.blob();
+      const url = await uploadImageBlobToR2(blob, name, mime);
+      setAttachmentUrl(url);
+    } catch (e) {
+      Alert.alert("Attachment failed", e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploadingImage(false);
+    }
+  }, [uploadImageBlobToR2]);
 
   const sendMessage = useCallback(() => {
     const msg = input.trim();
-    if (!msg) return;
+    if (!msg && !attachmentUrl) return;
     setInput("");
-    sendMutation.mutate(msg);
-  }, [input, sendMutation]);
+    sendMutation.mutate({ text: msg || undefined, attachmentUrl: attachmentUrl ?? undefined });
+  }, [input, attachmentUrl, sendMutation]);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -229,9 +301,19 @@ export default function DMChatScreen() {
                     styles.bubble,
                     item.sender === "me" ? styles.bubbleMe : styles.bubbleThem,
                   ]}>
-                    <Text style={[styles.bubbleText, item.sender === "me" && styles.bubbleTextMe]}>
-                      {item.text}
-                    </Text>
+                    {item.imageUrl ? (
+                      <Image
+                        source={{ uri: item.imageUrl }}
+                        style={styles.bubbleImage}
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
+                      />
+                    ) : null}
+                    {item.text ? (
+                      <Text style={[styles.bubbleText, item.sender === "me" && styles.bubbleTextMe, item.imageUrl && { marginTop: 8 }]}>
+                        {item.text}
+                      </Text>
+                    ) : null}
                   </View>
                   {item.sender === "them" && item.text ? (
                     <TranslateButton text={item.text} compact />
@@ -260,8 +342,15 @@ export default function DMChatScreen() {
             returnKeyType="send"
             multiline
           />
+          {attachmentUrl ? (
+            <Pressable style={styles.attachmentChip} onPress={() => setAttachmentUrl(null)}>
+              <Ionicons name="attach" size={12} color={C.accent} />
+              <Text style={styles.attachmentChipText}>Attached</Text>
+              <Ionicons name="close" size={12} color={C.textMuted} />
+            </Pressable>
+          ) : null}
           <Pressable
-            style={[styles.sendBtn, !input.trim() && styles.sendBtnOff]}
+            style={[styles.sendBtn, !input.trim() && !attachmentUrl && styles.sendBtnOff]}
             onPress={sendMessage}
           >
             <Ionicons name="send" size={15} color="#fff" />
@@ -412,4 +501,19 @@ const styles = StyleSheet.create({
   },
   sendBtnOff: { backgroundColor: C.surface2 },
   bubbleImage: { width: 200, height: 150, borderRadius: 10 },
+  attachmentChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: C.surface,
+    borderRadius: 14,
+    paddingHorizontal: 8,
+    height: 28,
+    marginBottom: 4,
+  },
+  attachmentChipText: {
+    color: C.textSec,
+    fontSize: 11,
+    fontWeight: "600",
+  },
 });

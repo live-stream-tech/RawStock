@@ -142,9 +142,9 @@ export default function CommunityScreen() {
   const insets = useSafeAreaInsets();
   const topInset = getTabTopInset(insets);
   const bottomInset = getTabBottomInset();
-  const [officialSort, setOfficialSort] = useState<"members" | "active" | "newest">("members");
   const [showStationCommunities, setShowStationCommunities] = useState(false);
-  const [contentTab, setContentTab] = useState<"paid" | "community">("paid");
+  const [contentTab, setContentTab] = useState<"announcements" | "ranking">("announcements");
+  const [videoSort, setVideoSort] = useState<"sales" | "newest" | "views">("sales");
 
   const { data: apiCommunities = [], isLoading: communitiesLoading } = useQuery<any[]>({
     queryKey: ["/api/communities"],
@@ -156,16 +156,22 @@ export default function CommunityScreen() {
   }>({
     queryKey: ["/api/district/official-station/stats"],
   });
+  const { data: stationAnnouncements = [] } = useQuery<any[]>({
+    queryKey: ["/api/community-announcements/feed", "station"],
+    queryFn: async () => {
+      const qs = new URLSearchParams({ limit: "20", liveOnly: "1" });
+      const res = await fetch(`/api/community-announcements/feed?${qs.toString()}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return (await res.json()) as any[];
+    },
+  });
 
-  const { officialBase, userBase } = useMemo(() => {
-    // District definition:
-    // - Official Station = top 10 communities (legacy official bucket uplift)
-    // - Community = user-created communities (the rest)
-    const sorted = [...apiCommunities].sort((a, b) => (b.members ?? 0) - (a.members ?? 0));
-    return {
-      officialBase: sorted.slice(0, 10),
-      userBase: sorted.slice(10),
-    };
+  const linkedStationCommunities = useMemo(() => {
+    // Station and community are intentionally separated.
+    // Show only explicit official communities, never "top N communities".
+    return [...apiCommunities]
+      .filter((c) => Boolean(c?.isOfficial))
+      .sort((a, b) => (b.members ?? 0) - (a.members ?? 0));
   }, [apiCommunities]);
 
   const { data: rankedApiVideos = [], isLoading: rankedLoading } = useQuery<any[]>({
@@ -174,27 +180,16 @@ export default function CommunityScreen() {
 
   const purchaseData = rankedApiVideos;
 
-  const filteredOfficial = useMemo(() => {
-    const base = officialBase;
-    if (officialSort === "active") {
-      return [...base].sort((a, b) => {
-        const onlineDiff = Number(Boolean(b.online)) - Number(Boolean(a.online));
-        if (onlineDiff !== 0) return onlineDiff;
-        return (b.members ?? 0) - (a.members ?? 0);
-      });
-    }
-    if (officialSort === "newest") {
-      return [...base].sort((a, b) => (b.id ?? 0) - (a.id ?? 0));
-    }
-    return [...base].sort((a, b) => (b.members ?? 0) - (a.members ?? 0));
-  }, [officialBase, officialSort]);
-  const filteredUser = useMemo(() => {
-    return userBase;
-  }, [userBase]);
-  const officialLeadId = filteredOfficial[0]?.id ?? officialBase[0]?.id ?? null;
-  const stationLead = filteredOfficial[0] ?? officialBase[0] ?? null;
-  const stationCommunityCount = officialStationStats?.officialCommunityCount ?? filteredOfficial.length;
+  const officialLeadId = linkedStationCommunities[0]?.id ?? null;
+  const stationLead = linkedStationCommunities[0] ?? null;
+  const stationCommunityCount = officialStationStats?.officialCommunityCount ?? 0;
   const stationMembers = officialStationStats?.uniqueMemberCount ?? 0;
+  const sortedRankingVideos = useMemo(() => {
+    const arr = [...purchaseData];
+    if (videoSort === "views") return arr.sort((a, b) => (b.views ?? 0) - (a.views ?? 0));
+    if (videoSort === "newest") return arr.sort((a, b) => (b.id ?? 0) - (a.id ?? 0));
+    return arr.sort((a, b) => (b.price ?? 0) - (a.price ?? 0));
+  }, [purchaseData, videoSort]);
 
   return (
     <View style={[styles.container, { paddingBottom: bottomInset }]}>
@@ -207,7 +202,7 @@ export default function CommunityScreen() {
         <View style={styles.section}>
           <View style={[styles.sectionHeader, styles.sectionHeaderFirst]}>
             <View style={styles.sectionAccent} />
-            <Text style={styles.sectionTitle}>Official Station</Text>
+            <Text style={styles.sectionTitle}>STATION</Text>
           </View>
 
           <View style={styles.adBannerSlot}>
@@ -244,11 +239,15 @@ export default function CommunityScreen() {
           </View>
 
           {showStationCommunities && (
-            <HorizontalScroll contentContainerStyle={styles.hList}>
-              {filteredOfficial.map((item, index) => (
-                <CommunityRankCard key={item.id} item={item} index={index} showCreateButton />
-              ))}
-            </HorizontalScroll>
+            linkedStationCommunities.length > 0 ? (
+              <HorizontalScroll contentContainerStyle={styles.hList}>
+                {linkedStationCommunities.map((item, index) => (
+                  <CommunityRankCard key={item.id} item={item} index={index} showCreateButton />
+                ))}
+              </HorizontalScroll>
+            ) : (
+              <Text style={styles.emptyInline}>No linked communities yet</Text>
+            )
           )}
 
           <View style={styles.stationLinksRow}>
@@ -265,61 +264,51 @@ export default function CommunityScreen() {
 
           <View style={styles.tabSwitchRow}>
             <Pressable
-              style={[styles.tabSwitchBtn, contentTab === "paid" && styles.tabSwitchBtnActive]}
-              onPress={() => setContentTab("paid")}
+              style={[styles.tabSwitchBtn, contentTab === "announcements" && styles.tabSwitchBtnActive]}
+              onPress={() => setContentTab("announcements")}
             >
-              <Text style={[styles.tabSwitchText, contentTab === "paid" && styles.tabSwitchTextActive]}>
-                Paid Videos
+              <Text style={[styles.tabSwitchText, contentTab === "announcements" && styles.tabSwitchTextActive]}>
+                Live Announcements
               </Text>
             </Pressable>
             <Pressable
-              style={[styles.tabSwitchBtn, contentTab === "community" && styles.tabSwitchBtnActive]}
-              onPress={() => setContentTab("community")}
+              style={[styles.tabSwitchBtn, contentTab === "ranking" && styles.tabSwitchBtnActive]}
+              onPress={() => setContentTab("ranking")}
             >
-              <Text style={[styles.tabSwitchText, contentTab === "community" && styles.tabSwitchTextActive]}>
-                Community
+              <Text style={[styles.tabSwitchText, contentTab === "ranking" && styles.tabSwitchTextActive]}>
+                Live Video Ranking
               </Text>
             </Pressable>
           </View>
 
-          <View style={styles.sortRow}>
-            {([
-              ["members", "By Members"],
-              ["active", "By Active"],
-              ["newest", "By Newest"],
-            ] as const).map(([key, label]) => (
-              <Pressable
-                key={key}
-                style={[styles.sortPill, officialSort === key && styles.sortPillActive]}
-                onPress={() => setOfficialSort(key)}
-              >
-                <Text style={[styles.sortPillText, officialSort === key && styles.sortPillTextActive]}>{label}</Text>
-              </Pressable>
-            ))}
-          </View>
           {communitiesLoading ? (
             <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
-          ) : filteredOfficial.length === 0 ? (
-            <Text style={styles.emptyInline}>No official stations yet</Text>
+          ) : linkedStationCommunities.length === 0 ? (
+            <Text style={styles.emptyInline}>No station communities linked yet</Text>
           ) : (
             <View />
           )}
         </View>
 
-        {contentTab === "paid" ? (
+        {contentTab === "announcements" ? (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionAccent} />
-              <Text style={styles.sectionTitle}>Paid Video Ranking</Text>
+              <Text style={styles.sectionTitle}>Live Announcements</Text>
             </View>
-            {rankedLoading ? (
-              <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
-            ) : purchaseData.length === 0 ? (
-              <Text style={styles.emptyInline}>No ranked paid videos yet</Text>
+            {stationAnnouncements.length === 0 ? (
+              <Text style={styles.emptyInline}>No live announcements yet</Text>
             ) : (
               <HorizontalScroll contentContainerStyle={styles.hList}>
-                {purchaseData.map((item) => (
-                  <PurchaseRankCard key={item.id} item={item} />
+                {stationAnnouncements.slice(0, 20).map((item: any) => (
+                  <Pressable
+                    key={`${item.communityId}-${item.id}`}
+                    style={styles.announcementMiniCard}
+                    onPress={() => router.push(`/community/${item.communityId}?tab=Board&openThread=${item.id}` as any)}
+                  >
+                    <Text style={styles.announcementMiniTitle} numberOfLines={2}>{item.title}</Text>
+                    <Text style={styles.announcementMiniMeta} numberOfLines={1}>{item.communityName}</Text>
+                  </Pressable>
                 ))}
               </HorizontalScroll>
             )}
@@ -328,16 +317,31 @@ export default function CommunityScreen() {
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionAccent} />
-              <Text style={styles.sectionTitle}>Community</Text>
+              <Text style={styles.sectionTitle}>Live Video Ranking</Text>
             </View>
-            {communitiesLoading ? (
+            <View style={styles.sortRow}>
+              {([
+                ["sales", "Sales"],
+                ["newest", "Newest"],
+                ["views", "Views"],
+              ] as const).map(([key, label]) => (
+                <Pressable
+                  key={key}
+                  style={[styles.sortPill, videoSort === key && styles.sortPillActive]}
+                  onPress={() => setVideoSort(key)}
+                >
+                  <Text style={[styles.sortPillText, videoSort === key && styles.sortPillTextActive]}>{label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            {rankedLoading ? (
               <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
-            ) : filteredUser.length === 0 ? (
-              <Text style={styles.emptyInline}>No communities yet</Text>
+            ) : sortedRankingVideos.length === 0 ? (
+              <Text style={styles.emptyInline}>No ranked paid videos yet</Text>
             ) : (
               <HorizontalScroll contentContainerStyle={styles.hList}>
-                {filteredUser.map((item, index) => (
-                  <CommunityRankCard key={item.id} item={item} index={index} />
+                {sortedRankingVideos.map((item) => (
+                  <PurchaseRankCard key={item.id} item={item} />
                 ))}
               </HorizontalScroll>
             )}
@@ -356,10 +360,8 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginBottom: 10,
     height: 72,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: C.border,
-    backgroundColor: C.surface2,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.04)",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -373,10 +375,8 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginBottom: 10,
     padding: 10,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: C.border,
-    backgroundColor: C.surface,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.05)",
   },
   stationTopRow: {
     flexDirection: "row",
@@ -423,10 +423,8 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 10,
     paddingHorizontal: 10,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: C.border,
-    backgroundColor: C.surface,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.06)",
   },
   stationLinkText: { color: C.textSec, fontSize: 12, fontWeight: "600" },
   tabSwitchRow: {
@@ -438,10 +436,8 @@ const styles = StyleSheet.create({
   tabSwitchBtn: {
     flex: 1,
     height: 36,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: C.border,
-    backgroundColor: C.surface2,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.05)",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -462,9 +458,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 999,
-    backgroundColor: C.surface2,
-    borderWidth: 1,
-    borderColor: C.border,
+    backgroundColor: "rgba(255,255,255,0.06)",
   },
   sortPillActive: {
     backgroundColor: C.accent,
@@ -703,5 +697,24 @@ const styles = StyleSheet.create({
     fontSize: 13,
     paddingHorizontal: 16,
     paddingVertical: 8,
+  },
+  announcementMiniCard: {
+    width: 220,
+    minHeight: 88,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    gap: 6,
+  },
+  announcementMiniTitle: {
+    color: C.text,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 16,
+  },
+  announcementMiniMeta: {
+    color: C.textMuted,
+    fontSize: 11,
   },
 });
