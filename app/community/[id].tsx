@@ -1535,31 +1535,16 @@ export default function CommunityDetailScreen() {
                 {isOfficialCommunity ? "Announcements & Feedback" : "Threads"}
               </Text>
               {canPostToBoard && (
-                <View style={styles.boardHeaderActions}>
-                  {isOfficialCommunity && (
-                    <Pressable
-                      style={styles.feedbackBoxBtn}
-                      onPress={() => {
-                        if (!requireAuth("Create feedback")) return;
-                        openFeedbackComposer();
-                      }}
-                      accessibilityLabel="Open feedback box"
-                    >
-                      <Ionicons name="chatbox-ellipses-outline" size={14} color={C.text} />
-                      <Text style={styles.feedbackBoxBtnText}>Feedback Box</Text>
-                    </Pressable>
-                  )}
-                  <Pressable
-                    style={styles.createThreadBtn}
-                    onPress={() => {
-                      if (!requireAuth("Create Thread")) return;
-                      openDefaultThreadComposer();
-                    }}
-                    accessibilityLabel="New thread"
-                  >
-                    <Ionicons name="add" size={22} color="#000" />
-                  </Pressable>
-                </View>
+                <Pressable
+                  style={styles.createThreadBtn}
+                  onPress={() => {
+                    if (!requireAuth("Create Thread")) return;
+                    openDefaultThreadComposer();
+                  }}
+                  accessibilityLabel="New thread"
+                >
+                  <Ionicons name="add" size={22} color="#000" />
+                </Pressable>
               )}
             </View>
             {canPostToBoard && !following && !isOfficialCommunity ? (
@@ -1692,7 +1677,7 @@ export default function CommunityDetailScreen() {
             )}
 
             {/* No-Confidence Motion — members only */}
-            {following && (
+            {following && !isOfficialCommunity && (
               <View style={{ marginTop: 24, borderWidth: 1, borderColor: "#ff444433", borderRadius: 4, padding: 16, gap: 10, backgroundColor: "#ff444408" }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                   <Ionicons name="alert-circle-outline" size={18} color="#ff4444" />
@@ -1743,6 +1728,19 @@ export default function CommunityDetailScreen() {
                 )}
               </View>
             )}
+            {isOfficialCommunity && canPostToBoard ? (
+              <Pressable
+                style={styles.feedbackBottomLink}
+                onPress={() => {
+                  if (!requireAuth("Create feedback")) return;
+                  openFeedbackComposer();
+                }}
+                accessibilityLabel="Open feedback box"
+              >
+                <Ionicons name="chatbox-ellipses-outline" size={13} color={C.textMuted} />
+                <Text style={styles.feedbackBottomLinkText}>Send feedback</Text>
+              </Pressable>
+            ) : null}
           </View>
         )}
 
@@ -2922,11 +2920,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 8,
   },
-  boardHeaderActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
   boardSectionTitle: { color: C.text, fontSize: 15, fontWeight: "800" },
   createThreadBtn: {
     width: 40,
@@ -2937,21 +2930,20 @@ const styles = StyleSheet.create({
     backgroundColor: C.accent,
   },
   createThreadBtnText: { color: "#fff", fontSize: 12, fontWeight: "700" },
-  feedbackBoxBtn: {
-    height: 36,
-    borderRadius: 18,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: C.border,
-    backgroundColor: C.surface,
+  feedbackBottomLink: {
+    marginTop: 8,
+    alignSelf: "center",
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    opacity: 0.9,
   },
-  feedbackBoxBtnText: {
-    color: C.text,
+  feedbackBottomLinkText: {
+    color: C.textMuted,
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "500",
   },
   createThreadForm: {
     backgroundColor: C.surface,
