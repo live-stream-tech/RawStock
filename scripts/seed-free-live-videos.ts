@@ -9,35 +9,76 @@ import { Pool } from "pg";
 
 const BODY_MARKER = "OFFICIAL_FREE_LIVE_VIDEO_V1";
 const LIVE_KEYWORD =
-  /\b(live|livestream|live stream|streaming|premiere|dj set|set live|festival stream|broadcast|full set|dj mix|mix)\b/i;
-const MAX_PER_SOURCE = 10;
+  /\b(live|livestream|live stream|streaming|premiere|dj set|set live|festival stream|broadcast|full set|dj mix|mix|festival|concert|performance|on stage|main stage|showcase|recording session|tiny desk|acoustic|glastonbury|coachella|edc|lollapalooza|acl|boiler room|cercle)\b/i;
+const MAX_PER_SOURCE = 15;
 const MAX_AGE_DAYS = 365;
 
+/** Prefer channel_id feeds — legacy ?user= is often wrong or stale. */
 const SOURCES = [
   {
     key: "boiler_room",
     label: "Boiler Room",
-    url: "https://www.youtube.com/feeds/videos.xml?user=boilerroomtv",
+    url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCGBpxWJr9FNOcFYA5GkKrMg",
   },
   {
     key: "cercle",
     label: "Cercle",
-    url: "https://www.youtube.com/feeds/videos.xml?user=Cercle",
+    url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCPKT_csvP72boVX0XrMtagQ",
   },
   {
     key: "tomorrowland",
     label: "Tomorrowland",
-    url: "https://www.youtube.com/feeds/videos.xml?user=TomorrowlandChannel",
+    url: "https://www.youtube.com/feeds/videos.xml?user=tomorrowland",
   },
   {
     key: "ultra",
     label: "Ultra Music Festival",
-    url: "https://www.youtube.com/feeds/videos.xml?user=UMFTV",
+    url: "https://www.youtube.com/feeds/videos.xml?channel_id=UC2xskkQVFEpLcGFnNSLQY0A",
   },
   {
     key: "coachella",
     label: "Coachella",
     url: "https://www.youtube.com/feeds/videos.xml?user=coachella",
+  },
+  {
+    key: "bbcradio1",
+    label: "BBC Radio 1",
+    url: "https://www.youtube.com/feeds/videos.xml?user=bbcradio1",
+  },
+  {
+    key: "glastonbury",
+    label: "Glastonbury",
+    url: "https://www.youtube.com/feeds/videos.xml?user=GlastonburyFestivals",
+  },
+  {
+    key: "redbull_music",
+    label: "Red Bull Music",
+    url: "https://www.youtube.com/feeds/videos.xml?user=RedBullMusic",
+  },
+  {
+    key: "lollapalooza",
+    label: "Lollapalooza",
+    url: "https://www.youtube.com/feeds/videos.xml?user=Lollapalooza",
+  },
+  {
+    key: "npr_music",
+    label: "NPR Music",
+    url: "https://www.youtube.com/feeds/videos.xml?user=nprmusic",
+  },
+  {
+    key: "sofar_sounds",
+    label: "Sofar Sounds",
+    url: "https://www.youtube.com/feeds/videos.xml?user=SofarSounds",
+  },
+  {
+    key: "acl",
+    label: "ACL Festival",
+    url: "https://www.youtube.com/feeds/videos.xml?user=ACLfestival",
+  },
+  {
+    key: "edc",
+    label: "EDC",
+    url: "https://www.youtube.com/feeds/videos.xml?user=EDCOfficial",
   },
 ] as const;
 
@@ -80,7 +121,11 @@ function parseAtom(xml: string): AtomItem[] {
   while ((m = re.exec(xml))) {
     const block = m[1];
     const title = first(/<title>([\s\S]*?)<\/title>/i, block);
+    const videoId = first(/<yt:videoId>([^<]+)<\/yt:videoId>/i, block);
     const link =
+      (videoId ? `https://www.youtube.com/watch?v=${videoId}` : null) ??
+      first(/<link[^>]+rel="alternate"[^>]+href="([^"]+)"/i, block) ??
+      first(/<link[^>]+href="([^"]+)"[^>]*rel="alternate"/i, block) ??
       first(/<link[^>]*href="([^"]+)"/i, block) ??
       first(/<link[^>]*href='([^']+)'/i, block);
     if (!title || !link) continue;
@@ -88,7 +133,11 @@ function parseAtom(xml: string): AtomItem[] {
       first(/<published>([\s\S]*?)<\/published>/i, block) ??
       first(/<updated>([\s\S]*?)<\/updated>/i, block);
     const publishedMs = published ? Date.parse(published) : Date.now();
-    const imageUrl = youtubeThumbFromLink(link);
+    const thumbFromMedia =
+      first(/<media:thumbnail[^>]+url="([^"]+)"/i, block) ??
+      first(/<media:thumbnail[^>]+url='([^']+)'/i, block);
+    const imageUrl =
+      (thumbFromMedia ? thumbFromMedia.replace(/^http:/, "https:") : null) ?? youtubeThumbFromLink(link);
     out.push({
       title: title.replace(/\s+/g, " ").trim(),
       link,
@@ -183,6 +232,11 @@ async function main() {
   const delVideos = await pool.query(`DELETE FROM videos WHERE description LIKE '%${BODY_MARKER}%'`);
   console.log(`Removed ${delThreads.rowCount ?? 0} old thread rows and ${delVideos.rowCount ?? 0} old video rows.`);
 
+  const { rows: existingYoutube } = await pool.query<{ youtube_id: string }>(
+    "SELECT youtube_id FROM videos WHERE youtube_id IS NOT NULL",
+  );
+  const globalYoutubeIds = new Set(existingYoutube.map((r) => r.youtube_id).filter(Boolean));
+
   let inserted = 0;
   let ci = 0;
   for (const src of SOURCES) {
@@ -192,12 +246,14 @@ async function main() {
       const picked = pickItems(items);
       console.log(`[${src.key}] picked ${picked.length}`);
       for (const item of picked) {
+        const youtubeId = youtubeIdFromLink(item.link);
+        if (!youtubeId || globalYoutubeIds.has(youtubeId)) continue;
+        globalYoutubeIds.add(youtubeId);
         const communityId = communityIds[ci % communityIds.length];
         const communityName = communityNameById.get(communityId) ?? "Community";
         ci++;
         const title = `[${src.label}] ${item.title}`.slice(0, 220);
         const body = buildBody(src.label, item);
-        const youtubeId = youtubeIdFromLink(item.link);
         await pool.query(
           `INSERT INTO videos
             (title, creator, community, views, time_ago, duration, price, thumbnail, avatar, description, user_id, visibility, community_id, video_url, youtube_id, post_type, hidden)
