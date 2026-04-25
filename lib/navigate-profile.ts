@@ -1,7 +1,7 @@
 import { router } from "expo-router";
 import { apiRequest } from "@/lib/query-client";
 
-/** ユーザー／ライバープロフィールへ遷移（ID が無い場合は表示名で API 解決）。 */
+/** Navigate to user/liver profile; resolve by display name via API when IDs are missing. */
 export function navigateToUserOrLiverProfile(opts: {
   userId?: number | null;
   liverId?: number | null;
@@ -28,7 +28,7 @@ export function navigateToUserOrLiverProfile(opts: {
     .catch(() => {});
 }
 
-/** 動画・タイムライン行の creatorType / creatorId / creator 名。 */
+/** Video/timeline row: creatorType / creatorId / creator display name. */
 export function navigateFromVideoCreatorRow(video: {
   creator?: string | null;
   creatorType?: string | null;

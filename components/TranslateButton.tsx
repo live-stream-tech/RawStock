@@ -7,13 +7,13 @@ import { apiRequest } from "@/lib/query-client";
 
 interface TranslateButtonProps {
   text: string;
-  /** 翻訳元言語（既知の場合のみ）。未指定ならサーバ側で franc 検知 */
+  /** Source language when known; otherwise the server detects via franc */
   srcLang?: string;
-  /** 翻訳先言語の override。未指定なら user.preferredLanguage が使われる */
+  /** Destination language override; otherwise uses user.preferredLanguage */
   dstLang?: string;
-  /** 翻訳結果カードのテキスト色を上書きしたい場合 */
+  /** Override translated card text color */
   textColor?: string;
-  /** ボタン部分を控えめ表示にしたい場合 */
+  /** Render a smaller / quieter button chrome */
   compact?: boolean;
 }
 
@@ -33,8 +33,8 @@ interface TranslateApiResponse {
 }
 
 /**
- * チャット行・DM・コメント・投稿等の末尾に置く Translate ボタン（React Native）。
- * 短語スキップ・glossary・キャッシュは全部サーバ側で処理する。
+ * Inline “Translate” affordance for chat, DMs, comments, posts, etc.
+ * Short-text skips, glossary, and caching are handled entirely on the server.
  */
 export function TranslateButton({
   text,

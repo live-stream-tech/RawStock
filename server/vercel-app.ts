@@ -114,12 +114,12 @@ export async function createApiApp(): Promise<express.Application> {
     return res.status(200).send(html);
   }
 
-  /** `/lp` は常にこのHTMLを直接返す（別URLへリダイレクトしない） */
+  /** `/lp` always serves this HTML directly (no redirect to another URL). */
   app.get("/lp", (req: Request, res: Response) => {
     return serveLpStandalone(req, res, "/lp");
   });
 
-  // 互換パス（内容は同一）
+  // Legacy paths (same HTML)
   app.get("/lp-standalone.html", (req: Request, res: Response) => {
     return serveLpStandalone(req, res, "/lp");
   });

@@ -6,7 +6,7 @@ import { generateEditPlan, type EditJobInput } from "../aiEditAssistant";
 import { buildAIEditStoredResult, parseAIEditStoredResult } from "./aiEditArtifacts";
 import { parseStoredVideoSpec } from "./parseVideoSpec";
 
-/** Vercel 本番では既定でメモリキュー OFF（DB pending + cron）。ローカルは既定 ON。 */
+/** Vercel production defaults to no in-memory queue (DB pending + cron); local defaults to queue on. */
 export function useAIEditMemoryQueue(): boolean {
   if (process.env.AI_EDIT_USE_MEMORY_QUEUE === "1") return true;
   if (process.env.AI_EDIT_USE_MEMORY_QUEUE === "0") return false;
@@ -73,8 +73,8 @@ export type AIEditPlanWorkerParams = {
 };
 
 /**
- * メモリキューなし（Vercel 本番など）で、pending ジョブを即座に処理する。
- * `processing` に遷移してから `runAIEditPlanWorker` を実行する。
+ * Process a pending job immediately when no memory queue (e.g. Vercel prod).
+ * Caller moves the row to `processing` before invoking `runAIEditPlanWorker`.
  */
 export async function processAIEditJobInline(params: AIEditPlanWorkerParams): Promise<void> {
   await db
@@ -84,7 +84,7 @@ export async function processAIEditJobInline(params: AIEditPlanWorkerParams): Pr
   await runAIEditPlanWorker(params);
 }
 
-/** Claude プラン生成を 1 ジョブ分実行（失敗時は failed + 返金）。呼び出し元で `processing` に遷移済みであること。 */
+/** Run Claude plan generation for one job (marks failed + refunds on error). Expects `processing` state already. */
 export async function runAIEditPlanWorker(params: AIEditPlanWorkerParams): Promise<void> {
   const { jobId, revisionPrompt, refundAmount = 0, refundType, refundDescription } = params;
 
@@ -147,7 +147,7 @@ export async function runAIEditPlanWorker(params: AIEditPlanWorkerParams): Promi
   }
 }
 
-/** Cron: pending を 1 件取り上げて処理（同時実行は DB の競合で片方がスキップ）。 */
+/** Cron: claim one pending job (concurrent workers may skip on DB conflict). */
 export async function claimAndProcessNextPendingAIEditJob(): Promise<{ processed: boolean; jobId?: number }> {
   const row = await db.transaction(async (tx) => {
     const pending = await tx

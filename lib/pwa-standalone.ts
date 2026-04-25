@@ -1,6 +1,6 @@
 /**
- * PWA スタンドアロン（ホーム画面から起動）かどうか。
- * Web のみ参照すること（SSR / ネイティブでは window なし）。
+ * Whether the app runs as an installed PWA (home-screen launch).
+ * Web-only guard — there is no `window` on SSR/native.
  */
 export function isPwaStandalone(): boolean {
   if (typeof window === "undefined") return false;
@@ -13,7 +13,7 @@ export function isPwaStandalone(): boolean {
   return false;
 }
 
-/** iPhone / iPad の Safari（タブまたは PWA） */
+/** Likely Safari on iPhone/iPad (tab or standalone PWA) */
 export function isLikelyIosWeb(): boolean {
   if (typeof navigator === "undefined") return false;
   const ua = navigator.userAgent;
@@ -23,8 +23,8 @@ export function isLikelyIosWeb(): boolean {
 }
 
 /**
- * ライブ送信の getUserMedia を自動起動せず、タップで取るべき環境。
- * iOS / PWA はユーザージェスチャーと紐づけないとカメラが取れないことが多い。
+ * Environments where live `getUserMedia` should not auto-start and must be tied to a user gesture.
+ * iOS/PWA frequently blocks camera access without a gesture.
  */
 export function webBroadcastNeedsUserGestureForCamera(): boolean {
   return isPwaStandalone() || isLikelyIosWeb();

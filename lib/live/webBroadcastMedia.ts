@@ -1,5 +1,5 @@
 /**
- * ブラウザ / PWA 用: ライブ配信プレビュー・WHIP 用の MediaStream。
+ * Browser/PWA helper: acquire a MediaStream for live preview / WHIP ingestion.
  */
 export async function acquireBroadcastMediaStream(): Promise<MediaStream> {
   const nav = globalThis.navigator as Navigator & { mediaDevices?: MediaDevices };

@@ -1,7 +1,7 @@
 import { Platform } from "react-native";
 import { getApiUrl } from "@/lib/query-client";
 
-/** getApiUrl 内のローカル判定と同じ（チケット戻り先のスキーム用） */
+/** Same localhost heuristics as inside `getApiUrl` (Stripe return URL scheme) */
 function isLikelyLocalHostname(host: string): boolean {
   const h = host.toLowerCase();
   return (
@@ -13,8 +13,8 @@ function isLikelyLocalHostname(host: string): boolean {
 }
 
 /**
- * ブラウザ上で見えているアプリのオリジン（Stripe success_url 等）。
- * API ベース（getApiUrl）とは別。EXPO_PUBLIC_DOMAIN が http://localhost:8081 のときは https に昇格しない。
+ * Public web origin visible in the browser (Stripe success_url, etc.).
+ * Not the API base from `getApiUrl`. Does not force https when EXPO_PUBLIC_DOMAIN is http://localhost:8081.
  */
 export function getPublicWebOrigin(): string {
   const raw = process.env.EXPO_PUBLIC_DOMAIN?.trim();

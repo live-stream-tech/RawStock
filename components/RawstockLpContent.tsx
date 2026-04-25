@@ -4,9 +4,9 @@ import { Platform, Text, View } from "react-native";
 import { RAWSTOCK_LP_PUBLIC_PATH, RAWSTOCK_LP_SITE_DEFAULT } from "@/lib/rawstockLpSite";
 
 /**
- * 既定: 同一オリジンの {@link RAWSTOCK_LP_PUBLIC_PATH}（本番は rawstock.live 上で表示）。
- * 上書き: `EXPO_PUBLIC_RAWSTOCK_LP_URL` または `EXPO_PUBLIC_LP_STANDALONE_URL`（フル URL）。
- * レガシー: `EXPO_PUBLIC_USE_LEGACY_LP_HTML=1` で従来の `/lp-standalone.html` へ（主にローカル）。
+ * Default: same-origin {@link RAWSTOCK_LP_PUBLIC_PATH} (production serves rawstock.live).
+ * Override with `EXPO_PUBLIC_RAWSTOCK_LP_URL` or `EXPO_PUBLIC_LP_STANDALONE_URL` (full URL).
+ * Legacy: `EXPO_PUBLIC_USE_LEGACY_LP_HTML=1` serves `/lp-standalone.html` (mostly for local dev).
  */
 function lpStandaloneSrcForWeb(): string {
   if (typeof window === "undefined") {

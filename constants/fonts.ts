@@ -1,22 +1,21 @@
 import { Platform } from "react-native";
 
 /**
- * RawStock フォントシステム
- * マーケティング LP（`public/lp-standalone.html`）と統一したタイポグラフィ
+ * RawStock font stack — aligned with the marketing LP (`public/lp-standalone.html`).
  *
  * - Display / Heading: Barlow Condensed (condensed sans-serif)
  * - Body / UI:         Courier Prime (monospace)
  */
 
 export const F = {
-  /** 見出し・ラベル・バッジ等: Barlow Condensed */
+  /** Headings, labels, badges: Barlow Condensed */
   display: Platform.select({
     ios: "Barlow Condensed",
     android: "Barlow Condensed",
     web: "'Barlow Condensed', sans-serif",
   }) as string,
 
-  /** 本文・UI テキスト: Courier Prime */
+  /** Body and UI copy: Courier Prime */
   mono: Platform.select({
     ios: "Courier Prime",
     android: "Courier Prime",

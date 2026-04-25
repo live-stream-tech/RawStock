@@ -5,10 +5,10 @@ import { motion, AnimatePresence } from "motion/react";
 
 type AuthStep = "login" | "signup" | "kyc" | "complete";
 
-/** /api/translate/preferred-language の supported と一致させる */
+/** Keep in sync with `/api/translate/preferred-language` supported codes */
 const SUPPORTED_LANGUAGES: { code: string; label: string }[] = [
   { code: "en", label: "English" },
-  { code: "ja", label: "日本語" },
+  { code: "ja", label: "Japanese" },
   { code: "ko", label: "한국어" },
   { code: "zh", label: "中文" },
   { code: "es", label: "Español" },

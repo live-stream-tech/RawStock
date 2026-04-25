@@ -1,4 +1,4 @@
-/** コミュニティ一覧のジャンルフィルタと、告知掲示板 UI の判定で共通利用 */
+/** Shared genre filter for community lists and announcement-board UI rules. */
 export const GENRE_TO_CATEGORY: Record<string, readonly string[]> = {
   pop: ["Pop", "J-Pop", "K-Pop", "Music"],
   rock: ["Rock", "Band", "Music"],

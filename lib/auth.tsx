@@ -14,7 +14,7 @@ export type User = {
   avatar: string | null;
   profileImageUrl?: string | null;
   role?: string;
-  /** ISO 8601 — クリエイター払い出し条項に同意した日時 */
+  /** ISO 8601 — when the creator payout terms were accepted */
   payoutTermsAgreedAt?: string | null;
   spotifyUrl?: string | null;
   appleMusicUrl?: string | null;
@@ -24,9 +24,9 @@ export type User = {
   xUrl?: string | null;
   phoneNumber?: string | null;
   pinnedCommunityIds?: number[];
-  /** 直近コンテンツから推定した言語（ISO 639-1）。未検知は null */
+  /** Language inferred from recent content (ISO 639-1); null if unknown */
   lastContentLang?: string | null;
-  /** サーバが要求する現行条項・プライバシー版（constants/legalVersions） */
+  /** Current Terms / Privacy versions required by the server (constants/legalVersions) */
   currentTermsVersion?: string;
   currentPrivacyVersion?: string;
   termsAcceptedVersion?: string | null;
@@ -46,9 +46,9 @@ type AuthCtx = {
   loginWithToken: (token: string) => Promise<void>;
   logout: () => void;
   updateProfile: (data: Partial<Pick<User, "name" | "bio" | "avatar" | "spotifyUrl" | "appleMusicUrl" | "bandcampUrl" | "instagramUrl" | "youtubeUrl" | "xUrl" | "phoneNumber">> & { pinnedCommunityIds?: number[] | null }) => Promise<void>;
-  /** 未ログイン時にGoogleログインへ誘導する。戻り値はログイン済みなら true */
+  /** When logged out, navigate to Google sign-in; returns true if already logged in */
   requireAuth: (actionLabel?: string) => boolean;
-  /** 現行版の Terms / Privacy に同意を記録しユーザー状態を更新 */
+  /** Record acceptance of the current Terms / Privacy and refresh user state */
   acceptPolicies: () => Promise<void>;
 };
 
@@ -91,8 +91,7 @@ async function apiFetch(path: string, options?: RequestInit) {
     headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
   });
 
-  // 一部のケースでレスポンスが JSON にならないことがあるため、まずテキストとして受ける
-  // （HTMLエラーページ等で `res.json()` が落ちるのを防ぐ）
+  // Some responses are not JSON; read as text first so HTML error pages do not break `res.json()`.
   const rawText = await res.text();
   let data: any = {};
   try {
@@ -171,8 +170,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setToken(tokenFromStorage);
           setUser(normalizeMe(me));
         } catch (e: unknown) {
-          // 401/403 など認証エラーのみトークンを削除。
-          // ネットワークエラー・タイムアウトの場合はトークンを残してログイン状態を維持する。
+          // Clear token only on auth errors (401/403). Keep token on network errors/timeouts.
           const status = (e as Error & { status?: number }).status;
           const isAuthError = status === 401 || status === 403;
           if (isAuthError) {
@@ -181,8 +179,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               try { window.localStorage?.removeItem(TOKEN_KEY); } catch {}
             }
           } else {
-            // ネットワークエラー時: トークンだけ保持してローディングを終わらせる。
-            // GlobalAuthGate は token があれば保護ページへのリダイレクトをしない。
+            // On network failure: keep token and stop loading; GlobalAuthGate avoids redirect while token exists.
             setToken(tokenFromStorage);
           }
         }
@@ -225,7 +222,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     setToken(null);
     setUser(null);
-    // ログアウト後は常にログイン画面へ戻す
+    // After logout, always return to the login screen
     router.replace("/auth/login");
   }, []);
 
@@ -317,19 +314,19 @@ export function useAuth() {
   return useContext(AuthContext);
 }
 
-/** URL に token があるか（OAuthコールバック処理中はログインへ飛ばさない） */
+/** Whether the URL carries a token (skip login redirect during OAuth callback handling) */
 function hasTokenInUrl(): boolean {
   if (typeof window === "undefined") return false;
   return !!new URLSearchParams(window.location.search).get("token");
 }
 
-/** ログイン必須画面で未ログインならGoogleログインへリダイレクトするガード */
+/** Guard: redirect anonymous users on protected routes to Google sign-in */
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
 
   useEffect(() => {
     if (loading) return;
-    if (hasTokenInUrl()) return; // コールバック処理中はリダイレクトしない
+    if (hasTokenInUrl()) return; // do not redirect while handling callback token in URL
     if (!user) {
       if (typeof window !== "undefined") {
         const returnTo = window.location.pathname + window.location.search;

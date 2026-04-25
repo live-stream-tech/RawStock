@@ -1,5 +1,5 @@
 /**
- * UI 向けの長さ表記（例: "3:22", "1:05:30", "90" 秒のみ）を合計秒に変換する。
+ * Parse UI duration labels (e.g. "3:22", "1:05:30", or seconds-only "90") into total seconds.
  */
 export function parseDurationLabelToSec(label: string | null | undefined): number | null {
   if (label == null || typeof label !== "string") return null;

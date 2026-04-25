@@ -59,7 +59,7 @@ export const RAWSTOCK_HERO_VIDEO_URL_PLACEHOLDER =
 export const RAWSTOCK_HERO_POSTER_URL_PLACEHOLDER =
   "RAWSTOCK_HERO_POSTER_URL_PLACEHOLDER";
 export const LP_CANONICAL_URL_PLACEHOLDER = "LP_CANONICAL_URL_PLACEHOLDER";
-/** `public/lp-standalone.html` 内の本番アプリへの絶対リンク用（iframe 内の相対パス誤解決を防ぐ） */
+/** Absolute app origin for `public/lp-standalone.html` (avoids iframe-relative URL mistakes). */
 export const LP_APP_ORIGIN_PLACEHOLDER = "LP_APP_ORIGIN_PLACEHOLDER";
 export const RAWSTOCK_LP_STEP_IMG_SHOOT_PLACEHOLDER =
   "RAWSTOCK_LP_STEP_IMG_SHOOT_PLACEHOLDER";

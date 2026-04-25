@@ -3,7 +3,7 @@ import { getApiUrl } from "@/lib/query-client";
 
 const AUTH_TOKEN_KEY = "auth_token";
 
-/** Express の getAuthUser は Bearer JWT のみ見る。credentials だけでは未認証になる。 */
+/** Express `getAuthUser` only reads Bearer JWT — cookies alone stay anonymous */
 export async function liveAuthHeaders(
   base?: Record<string, string>,
 ): Promise<Record<string, string>> {
@@ -18,9 +18,9 @@ export async function liveAuthHeaders(
 }
 
 /**
- * 配信 API のベース URL。`getApiUrl()` と揃える。
- * 相対パス `/api` だけだと、Expo のオリジン（例: :8080）で開いたときに API に届かない。
- * EXPO_PUBLIC_DOMAIN で API を別ホストにしている場合もずれないようにする。
+ * Live API base — mirrors `getApiUrl()`.
+ * A bare `/api` relative path misses the server when opened from the Expo dev origin (e.g. :8080).
+ * Keeps parity when the API lives on another host via EXPO_PUBLIC_DOMAIN / EXPO_PUBLIC_API_URL.
  */
 export function liveApiBase(): string {
   return getApiUrl().replace(/\/+$/, "");

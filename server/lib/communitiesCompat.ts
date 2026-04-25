@@ -5,7 +5,7 @@ import type { InferSelectModel } from "drizzle-orm";
 
 export type CommunityRow = InferSelectModel<typeof communities>;
 
-/** 初期マイグレーションから必ず存在する列のみ（icon_url / is_official 等が未適用の DB 用） */
+/** Columns guaranteed on the oldest migrations (DBs missing icon_url / is_official, etc.). */
 function mapLegacyCommunityRow(r: Record<string, unknown>): CommunityRow {
   return {
     id: Number(r.id),
@@ -28,7 +28,7 @@ function isMissingColumnError(e: unknown): boolean {
 }
 
 /**
- * コミュニティ一覧（公式優先ソート）。本番で新列未マイグレ時はレガシー SELECT に落ちる。
+ * Ordered community list (official hubs first). Falls back to a legacy SELECT if newer columns are missing.
  */
 export async function fetchCommunitiesListOrdered(): Promise<CommunityRow[]> {
   try {
@@ -48,7 +48,7 @@ export async function fetchCommunitiesListOrdered(): Promise<CommunityRow[]> {
 }
 
 /**
- * 参加中コミュニティ一覧。公式優先ソート。列欠落時は members のみソート。
+ * Communities the user joined (official first). Falls back to members-only ordering if columns are missing.
  */
 export async function fetchCommunitiesForIds(ids: number[]): Promise<CommunityRow[]> {
   if (ids.length === 0) return [];

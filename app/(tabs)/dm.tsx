@@ -25,7 +25,7 @@ type DMItem = {
   time: string;
   unread: number;
   online: boolean;
-  /** DM 相手の users.id（オペレーション用ダミーは 0） */
+  /** Counterpart users.id (0 = operations dummy peer) */
   otherUserId?: number;
 };
 

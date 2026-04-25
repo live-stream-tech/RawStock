@@ -1,13 +1,13 @@
-/** 日常投稿の1件あたりの制限 */
+/** Per-post limits for daily (quick) posts. */
 export const DAILY_POST_LIMITS = {
-  /** メディア最大数（写真+動画合計） */
+  /** Max media items (photos + videos combined). */
   maxMediaCount: 3,
-  /** 動画は1本まで */
+  /** At most one video. */
   maxVideoCount: 1,
-  /** 1ファイル最大サイズ（MB） */
+  /** Max size per file (MB). */
   maxFileSizeMB: 50,
-  /** 動画最大長（秒） */
+  /** Max video length (seconds). */
   maxVideoDurationSec: 60,
-  /** テキスト最大文字数 */
+  /** Max text length (characters). */
   maxTextLength: 500,
 } as const;

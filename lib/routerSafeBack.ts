@@ -1,8 +1,8 @@
 import { router } from "expo-router";
 
 /**
- * PWA スタンドアロンやディープリンクでポリシーだけ開いたとき、`router.back()` が無操作になり得る。
- * 履歴があれば戻り、なければタブのホームへ置き換える。
+ * In standalone PWA or deep links that open policy screens alone, `router.back()` may be a no-op.
+ * If history exists, go back; otherwise replace with the tab home route.
  */
 export function routerBackOrTabHome(): void {
   if (router.canGoBack()) {

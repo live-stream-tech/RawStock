@@ -362,7 +362,7 @@ function NowPlaying({
   useEffect(() => {
     if (Platform.OS !== "web" || typeof window === "undefined") return;
     const onResizeGroup = () => throttledScheduleTryResume();
-    /** 端末回転で WebKit が一時停止しやすい — 遅延で複数回 resume */
+    /** WebKit pauses easily on rotation — resume after a short delay (may need multiple tries) */
     const onOrientation = () => {
       throttledScheduleTryResume();
       setTimeout(() => scheduleTryResume(), 350);
@@ -876,7 +876,7 @@ export default function JukeboxScreen() {
   const nextMutation = useMutation({
     mutationFn: () => apiRequest("POST", `/api/jukebox/${communityId}/next`),
     onSuccess: () => {
-      // Web でも refetch する（Vercel 等で POST と SSE が別インスタンスだと EventEmitter に届かない）
+      // Refetch on web too — POST and SSE may hit different instances on Vercel, so EventEmitter misses updates
       qc.invalidateQueries({ queryKey: jukeboxKey });
       qc.invalidateQueries({ queryKey: JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY });
     },

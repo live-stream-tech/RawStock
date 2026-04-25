@@ -133,7 +133,7 @@ async function getVideoDuration(file: File): Promise<number> {
   });
 }
 
-/** Web のみ。リモート URL のメタデータ（CORS 次第で失敗し得る）。 */
+/** Web only — remote URL metadata (may fail depending on CORS). */
 async function getVideoDurationFromRemoteUrl(url: string): Promise<number> {
   if (typeof document === "undefined") return 0;
   return new Promise((resolve) => {
@@ -166,7 +166,7 @@ function isLikelyBrowserNetworkBlock(err: unknown): boolean {
   return false;
 }
 
-/** 署名 URL の Content-Type と PUT ヘッダを一致させる（空 type は iPhone 動画などで起きる） */
+/** Align presigned PUT Content-Type with headers (some iPhone exports ship empty `type`). */
 function resolveUploadContentType(file: File): string {
   const t = file.type?.trim();
   if (t) return t;
@@ -345,7 +345,7 @@ export default function AIEditIndexScreen() {
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [blockingInteraction]);
 
-  /** 動画詳細などから `?videoUrl=` で遷移したとき、既存 URL を素材として追加 */
+  /** When opened with `?videoUrl=` from video detail, seed that remote URL as a source clip */
   useEffect(() => {
     const raw = paramVideoUrl;
     if (raw == null || typeof raw !== "string" || !raw.trim()) return;
@@ -354,7 +354,7 @@ export default function AIEditIndexScreen() {
     try {
       decoded = decodeURIComponent(decoded);
     } catch {
-      /* そのまま使う */
+      /* keep raw string if decodeURIComponent fails */
     }
 
     let cancelled = false;

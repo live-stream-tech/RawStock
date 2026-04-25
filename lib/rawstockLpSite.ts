@@ -1,9 +1,9 @@
 /**
- * 本番の既定は同一ドメイン（{@link RAWSTOCK_LP_SITE_DEFAULT}）。LP は {@link RAWSTOCK_LP_PUBLIC_PATH} で配信し、別ホストの LP にしたいときだけ環境変数で上書き。
+ * Production defaults to same origin ({@link RAWSTOCK_LP_SITE_DEFAULT}). LP is served at {@link RAWSTOCK_LP_PUBLIC_PATH}; override via env for another host.
  */
 export const RAWSTOCK_LP_SITE_DEFAULT = "https://rawstock.live";
 
-/** メインアプリが配信するスタンドアロン LP の正面パス（`/lp` を固定） */
+/** Canonical path for the standalone LP served by the main app (`/lp`). */
 export const RAWSTOCK_LP_PUBLIC_PATH = "/lp";
 
 function trimTrailingSlash(s: string): string {
@@ -19,7 +19,7 @@ export function rawstockLpSiteOrigin(): string {
   return trimTrailingSlash(RAWSTOCK_LP_SITE_DEFAULT);
 }
 
-/** LP の既定URL。アプリ内 iframe 等で使用。 */
+/** Default LP URL for in-app iframe redirects, etc. */
 export function rawstockLpRedirectUrl(acceptLanguage?: string | undefined): string {
   const fromEnv =
     (typeof process !== "undefined" && process.env.PUBLIC_RAWSTOCK_LP_URL?.trim()) ||

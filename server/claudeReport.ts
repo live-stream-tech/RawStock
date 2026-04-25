@@ -1,7 +1,7 @@
 /**
- * 通報コンテンツのClaude APIによる自動判定。
- * モデル: claude-haiku-4-5-20251001
- * レスポンス: verdict (clear_violation | gray_zone | no_violation), reason
+ * Automated report triage via Claude API.
+ * Model: claude-haiku-4-5-20251001
+ * Response: verdict (clear_violation | gray_zone | no_violation), reason
  */
 
 const MODEL = "claude-haiku-4-5-20251001";
@@ -14,22 +14,22 @@ export type ClaudeReportResult = {
   reason: string;
 };
 
-const SYSTEM_PROMPT = `あなたはコンテンツモデレーションの判定者です。
-ユーザーが選択した通報理由に基づき、投稿またはコメントのテキストが以下のいずれかに該当するか判定してください。
+const SYSTEM_PROMPT = `You are a content moderation judge.
+Based on the reporter's selected reason, decide whether the post or comment text matches any of the following.
 
-判定基準:
-- スパム: 広告・宣伝・フィッシング・無関係な繰り返し
-- ハラスメント: 誹謗中傷・いじめ・差別的表現・個人攻撃
-- 性的コンテンツ: 露骨な性的表現・児童に関連する不適切な内容
-- 暴力的コンテンツ: 脅迫・暴力の助長・グロテスクな描写
+Criteria:
+- Spam: ads, promos, phishing, unrelated repetition
+- Harassment: insults, bullying, discriminatory language, personal attacks
+- Sexual content: explicit sexual material, inappropriate content involving minors
+- Violent content: threats, glorification of violence, graphic gore
 
-判定結果は必ず以下の3種類のいずれか1つだけを返してください。JSONのみを返し、説明文は不要です。
-- clear_violation: 明らかに規約違反（上記のいずれかに明確に該当）
-- gray_zone: グレーゾーン（判断が難しい、文脈次第）
-- no_violation: 違反なし（該当しない、誤通報の可能性)
+Return exactly one of the three verdicts below. Reply with JSON only, no prose.
+- clear_violation: clearly violates policy (clearly matches one of the above)
+- gray_zone: ambiguous or context-dependent
+- no_violation: does not match (possible mistaken report)
 
-返却形式（このJSON形式のみ）:
-{"verdict":"clear_violation"|"gray_zone"|"no_violation","reason":"短い理由（1文）"}`;
+Return shape (JSON only):
+{"verdict":"clear_violation"|"gray_zone"|"no_violation","reason":"short reason (one sentence)"}`;
 
 export async function judgeReportContent(
   contentText: string,
@@ -37,10 +37,10 @@ export async function judgeReportContent(
 ): Promise<ClaudeReportResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    return { verdict: "gray_zone", reason: "APIキー未設定のため管理者確認に回しました。" };
+    return { verdict: "gray_zone", reason: "API key not set; queued for manual review." };
   }
 
-  const userPrompt = `通報理由: ${userReason}\n\n対象テキスト:\n${contentText}`;
+  const userPrompt = `Report reason: ${userReason}\n\nTarget text:\n${contentText}`;
 
   const res = await fetch(ANTHROPIC_API_URL, {
     method: "POST",
@@ -60,11 +60,11 @@ export async function judgeReportContent(
   if (!res.ok) {
     const errText = await res.text();
     console.error("Claude API error:", res.status, errText);
-    return { verdict: "gray_zone", reason: `APIエラー(${res.status})のため管理者確認に回しました。` };
+    return { verdict: "gray_zone", reason: `API error (${res.status}); queued for manual review.` };
   }
 
   const data = (await res.json()) as {
-    content?: Array<{ type: string; text?: string }>;
+    content?: { type: string; text?: string }[];
   };
   const text = data.content?.[0]?.text?.trim() ?? "";
   try {
@@ -83,5 +83,5 @@ export async function judgeReportContent(
   } catch {
     // JSON parse failed
   }
-  return { verdict: "gray_zone", reason: "判定結果の取得に失敗したため管理者確認に回しました。" };
+  return { verdict: "gray_zone", reason: "Could not parse verdict; queued for manual review." };
 }

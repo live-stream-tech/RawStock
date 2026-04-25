@@ -1,5 +1,5 @@
 /**
- * AI Edit オーダーフォーム入力 → {@link RawStockVideoSpec}（UI はそのまま、裏で DSL 化）。
+ * Map AI Edit order form input → {@link RawStockVideoSpec} (UI unchanged; builds the DSL server-side).
  */
 import {
   rawStockClipEnergy,
@@ -18,7 +18,7 @@ export type OrderVideoFileMeta = {
 
 const DEFAULT_LOGO_POSITION: RawStockLogoPosition = "bottom-right";
 
-/** トーン（既存チップ）→ cut_speed / caption_density / color_grade */
+/** Map tone chips → cut_speed / caption_density / color_grade */
 export function styleFromTone(tone: string): RawStockStyle {
   let cut_speed: RawStockStyle["cut_speed"] = "medium";
   if (tone === "Energetic" || tone === "Casual") cut_speed = "fast";
@@ -35,7 +35,7 @@ export function styleFromTone(tone: string): RawStockStyle {
   return { cut_speed, caption_density, color_grade };
 }
 
-/** トーン → 出力アスペクト（ライブ横長寄せ、勢い系は縦も許容） */
+/** Map tone → output aspect (live defaults to 16:9; energetic tones may use vertical). */
 export function formatFromTone(tone: string): RawStockVideoFormat {
   if (tone === "Energetic" || tone === "Casual") return "vertical_9_16";
   if (tone === "Cinematic" || tone === "Professional") return "horizontal_16_9";
@@ -51,8 +51,8 @@ function clipTypeForIndex(i: number, total: number): RawStockClipType {
 }
 
 /**
- * 複数ファイルを **1 本の仮想タイムライン** に直列化（start 昇順・区間連続）。
- * 編集指示は先頭クリップの `intent` に載せる。
+ * Concatenate multiple uploads into one virtual timeline (sorted by start, contiguous segments).
+ * Editing instructions live on the first clip's `intent`.
  */
 export function buildOrderVideoSpec(params: {
   videos: OrderVideoFileMeta[];

@@ -1,6 +1,6 @@
 /**
- * コミュニティ作成時のデフォルトバナー／アイコン（プライマリジャンルに沿った Unsplash）。
- * クライアント・サーバ双方から import する。
+ * Default banner/icon URLs for new communities (Unsplash by primary genre).
+ * Imported from both client and server.
  */
 
 export type CommunityGenreKey =
@@ -23,7 +23,7 @@ function u(photoSlug: string, w: number, h: number): string {
   return `https://images.unsplash.com/photo-${photoSlug}?w=${w}&h=${h}&fit=crop&q=80`;
 }
 
-/** 一覧・ヘッダー用（横長） — いずれも images.unsplash.com で 200 を確認済みの slug */
+/** Wide banners for list/header — slugs verified to return HTTP 200 on images.unsplash.com */
 const BANNER: Record<CommunityGenreKey, string> = {
   pop: u("1492684223066-81342ee5ff30", 1200, 675),
   rock: u("1470229722913-7c0e2dbbafd3", 1200, 675),
@@ -41,7 +41,7 @@ const BANNER: Record<CommunityGenreKey, string> = {
   default: u("1516450360452-9312f5e86fc7", 1200, 675),
 };
 
-/** アイコン（正方形） — バナーと別カットで判別しやすく */
+/** Square icons — distinct crops from banners for easier recognition */
 const ICON: Record<CommunityGenreKey, string> = {
   pop: u("1516280440614-37939bbacd81", 512, 512),
   rock: u("1506157786151-b8491531f063", 512, 512),
@@ -59,7 +59,7 @@ const ICON: Record<CommunityGenreKey, string> = {
   default: u("1514525253161-7a46d19cd819", 512, 512),
 };
 
-/** 作成画面の候補ラベルや自由入力からジャンルキーを推定 */
+/** Infer genre key from create-flow labels or free-text input */
 export function inferCommunityGenreKey(primaryCategory: string): CommunityGenreKey {
   const s = primaryCategory.toLowerCase().replace(/[＆]/g, "&").replace(/\s+/g, " ").trim();
   if (!s) return "default";

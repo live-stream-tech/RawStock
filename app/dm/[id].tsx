@@ -125,7 +125,7 @@ export default function DMChatScreen() {
     }
   }, [messages.length]);
 
-  /** 運営DM（負のレガシーID）を開いたら初回未読バッジを消す */
+  /** Clear ops-DM unread badge the first time a legacy negative thread id is opened */
   useEffect(() => {
     if (!token || !Number.isFinite(dmId) || dmId === 0 || dmId > 0) return;
     void (async () => {
@@ -184,7 +184,7 @@ export default function DMChatScreen() {
           </Pressable>
         </View>
 
-        {/* 運営案内: DB には保存せず、全 DM で 1 ブロックのみ常時表示 */}
+        {/* Ops notice: not persisted; single canned block for every DM thread */}
         <View style={styles.usageBanner} accessibilityLabel={`${DM_USAGE_GUIDE_TITLE}。${DM_USAGE_GUIDE_BODY}`}>
           <View style={styles.usageBannerIconWrap}>
             <Ionicons name="book-outline" size={16} color={C.accent} />

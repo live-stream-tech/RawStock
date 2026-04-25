@@ -1,5 +1,5 @@
 /**
- * 開発用ローカル ingest。リリースビルド（__DEV__ === false）では送信しない。
+ * Dev-only local ingest hook; skipped when `__DEV__` is false.
  */
 export function debugIngestLocal(body: Record<string, unknown>): void {
   if (typeof __DEV__ !== "undefined" && !__DEV__) return;
@@ -10,7 +10,7 @@ export function debugIngestLocal(body: Record<string, unknown>): void {
   }).catch(() => {});
 }
 
-/** ErrorBoundary 用（別ポートのセッション） */
+/** ErrorBoundary hook (separate debug ingest port) */
 export function debugIngestErrorBoundary(body: Record<string, unknown>): void {
   if (typeof __DEV__ !== "undefined" && !__DEV__) return;
   fetch("http://127.0.0.1:7349/ingest/7dff581f-bd1a-45e7-a59d-07959fb1fc8e", {

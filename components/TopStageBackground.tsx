@@ -5,15 +5,15 @@ import { C } from "@/constants/colors";
 
 type Props = {
   /**
-   * 下のコンテンツとの間の余白をどれくらい作るか。
-   * スクリーン側で paddingTop を合わせる想定。
+   * Vertical space between this gradient and the content below.
+   * Screens should match this with their own paddingTop.
    */
   height?: number;
 };
 
 /**
- * 各画面の上部に入れるネオンステージ背景。
- * 画面幅いっぱいに表示し、下端を暗くグラデーションさせてコンテンツに馴染ませる。
+ * Neon “stage” header background for tab screens.
+ * Full width with a dark fade at the bottom so content blends in.
  */
 export function TopStageBackground({ height = 28 }: Props) {
   const headerHeight = height;

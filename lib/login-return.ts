@@ -1,6 +1,6 @@
 const RETURN_KEY = "line_login_return";
 
-/** ログイン完了後に戻ってきたいURLを保存する（既に値があれば上書きしない） */
+/** Persist post-login return URL (does not overwrite if a value already exists). */
 export function saveLoginReturn(path: string | null | undefined) {
   if (typeof window === "undefined") return;
   if (!path) return;
@@ -16,7 +16,7 @@ export function saveLoginReturn(path: string | null | undefined) {
   }
 }
 
-/** 保存されている戻り先URLを取得してクリアする */
+/** Read and clear the saved return URL. */
 export function getLoginReturn(): string | null {
   if (typeof window === "undefined") return null;
   try {
@@ -41,7 +41,7 @@ function normalizeLegacyTabPath(path: string): string {
   return path;
 }
 
-/** OAuth 完了後の `router.replace` 用。`getLoginReturn` と同じ除外ルールを `auth/callback` と共有する */
+/** For `router.replace` after OAuth; shares the same exclusion rules as `getLoginReturn` with `auth/callback`. */
 export function consumeLoginRedirectPath(): string {
   const saved = getLoginReturn();
   let returnTo = normalizeLegacyTabPath(saved ?? DEFAULT_AFTER_LOGIN);

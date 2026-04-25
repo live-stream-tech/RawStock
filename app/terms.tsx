@@ -9,9 +9,8 @@ import { webScrollStyle } from "@/constants/layout";
 import { PolicyTranslateBanner } from "@/components/PolicyTranslateBanner";
 
 /**
- * 翻訳ボタン用のページ全文プレーンテキスト。
- * Article 本文に手を入れずに、まとめて 1 度の API 呼び出し＋キャッシュで賄うため、
- * 本文の主要な読み物テキストをここに集約している（リンク文言は文章の一部として残す）。
+ * Plain-text corpus for the translate-page feature.
+ * Keeps legal JSX untouched while batching readable lines into one API call + cache (link labels stay inline).
  */
 const PAGE_FULL_TEXT = [
   "RawStock Terms of Service",

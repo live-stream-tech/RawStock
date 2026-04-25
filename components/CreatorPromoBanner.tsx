@@ -13,7 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { C } from "@/constants/colors";
 
 type Props = {
-  /** 画面ごとの余白調整（例: Profile は marginTop/MarginBottom が異なる） */
+  /** Optional outer spacing (profile vs home use different margins) */
   style?: StyleProp<ViewStyle>;
 };
 

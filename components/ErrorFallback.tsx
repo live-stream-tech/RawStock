@@ -37,7 +37,7 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
 
   const handleRestart = async () => {
     try {
-      // Web では新しいタブを開かず、同じタブを単純リロードする
+      // On web, hard-reload the current tab instead of spawning a new window
       if (Platform.OS === "web" && typeof window !== "undefined") {
         window.location.reload();
         return;

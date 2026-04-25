@@ -6,11 +6,11 @@ import { F } from "@/constants/fonts";
 import { apiRequest } from "@/lib/query-client";
 
 interface PolicyTranslateBannerProps {
-  /** ページ全文のプレーンテキスト（長文 1 つにまとめる→キャッシュ命中率と無料枠効率が最大化される） */
+  /** Full-page plain text (batched as one string for cache + quota efficiency) */
   text: string;
-  /** 翻訳元言語（既知の場合のみ） */
+  /** Source language when known */
   srcLang?: string;
-  /** 翻訳先言語の override。未指定なら user.preferredLanguage が使われる */
+  /** Destination language override; otherwise user.preferredLanguage */
   dstLang?: string;
 }
 
@@ -30,9 +30,9 @@ interface TranslateApiResponse {
 }
 
 /**
- * 法務ページの先頭に置く「Translate page」バナー。
- * - 翻訳結果は本文の上に参考表示するだけで、原文 JSX には手を入れない。
- * - 法務翻訳は参考表示である旨の Disclaimer を常時併記。
+ * “Translate page” banner for legal screens.
+ * - Renders a reference translation above the JSX source without mutating legal copy.
+ * - Always pairs with a disclaimer that machine translation is informational only.
  */
 export function PolicyTranslateBanner({ text, srcLang, dstLang }: PolicyTranslateBannerProps) {
   const [state, setState] = useState<State>({ kind: "idle" });

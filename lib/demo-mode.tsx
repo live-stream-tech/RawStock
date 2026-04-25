@@ -8,7 +8,7 @@ type DemoModeContextValue = {
 
 const DemoModeContext = createContext<DemoModeContextValue>({ isDemoMode: false });
 
-/** API が空 or 接続不可のとき true。ダミーデータ表示中であることを示す */
+/** True when the videos API is empty or unreachable (UI may show demo placeholders) */
 export function DemoModeProvider({ children }: { children: React.ReactNode }) {
   const { data: videos = [] } = useQuery<any[]>({
     queryKey: ["/api/videos"],

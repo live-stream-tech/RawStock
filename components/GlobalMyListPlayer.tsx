@@ -24,10 +24,10 @@ export function GlobalMyListPlayer() {
   const match = pathname?.match(/\/video\/(\d+)/);
   const currentVideoId = match ? parseInt(match[1], 10) : null;
   const isCurrentVideo = isOnVideoPage && playing && currentVideoId === playing.videoId;
-  /** ジュークボックスは下部チャット入力があり、ミニプレイヤー（zIndex 高）が重なるとキーボード／フォーカスが奪われる */
+  /** Jukebox has bottom chat; a high z-index mini-player can steal keyboard/focus when overlapping */
   const isOnJukebox = pathname != null && pathname.includes("/jukebox");
 
-  // ビデオページから離脱したらミニプレイヤーを自動表示（Spotify 風）
+  // Leaving the video page → show mini player (Spotify-style)
   const prevIsOnVideoPageRef = useRef(isOnVideoPage);
   useEffect(() => {
     const wasOnVideo = prevIsOnVideoPageRef.current;
@@ -37,7 +37,7 @@ export function GlobalMyListPlayer() {
     }
   }, [isOnVideoPage, playing]);
 
-  // playing が null になったら dismissed をリセット
+  // Reset dismissed flag when playback stops
   useEffect(() => {
     if (!playing) setDismissed(true);
   }, [playing]);
@@ -138,11 +138,11 @@ export function GlobalMyListPlayer() {
 
   const hasYoutube = !!playing.youtubeId;
 
-  // 全画面の親 View は置かない（Web で box-none でも背面タブが死ぬことがある）。
-  // プレイヤー／オーバーレイ／ミニバーはそれぞれ必要な矩形だけを占める。
+  // Avoid a full-screen wrapper (even box-none can swallow tab touches on web).
+  // Player, overlay, and mini-bar each occupy only the rects they need.
   return (
     <>
-      {/* 単一プレイヤー要素（常にマウント、位置のみ変更で音切れ防止） */}
+      {/* Single player instance (always mounted; move only to avoid audio glitches) */}
       <View
         style={[
           styles.playerShell,
@@ -166,7 +166,7 @@ export function GlobalMyListPlayer() {
         ) : null}
       </View>
 
-      {/* 動画ページ上: フルスクリーン閉じるボタン */}
+      {/* On video route: fullscreen dismiss control */}
       {isCurrentVideo && (
         <View style={[styles.fullOverlay, StyleSheet.absoluteFill]} pointerEvents="box-none">
           <Pressable style={styles.fullCloseBtn} onPress={() => stopPlaying()}>
@@ -175,15 +175,15 @@ export function GlobalMyListPlayer() {
         </View>
       )}
 
-      {/* 動画ページ外: Spotify 風ミニプレイヤーバー */}
+      {/* Off video route: Spotify-style mini bar */}
       {!isCurrentVideo && !dismissed && !isOnJukebox && (
         <View style={[styles.barWrap, jukeboxIsActive && styles.barWrapWithJukebox]}>
           <View style={styles.bar}>
-            {/* プログレスバー（バー上部） */}
+            {/* Progress strip */}
             <View style={styles.barProgress} />
 
             <View style={styles.barRow}>
-              {/* サムネイル */}
+              {/* Thumbnail */}
               <Pressable
                 style={styles.barThumbWrap}
                 onPress={() => router.push(`/video/${playing.videoId}`)}
@@ -201,7 +201,7 @@ export function GlobalMyListPlayer() {
                 )}
               </Pressable>
 
-              {/* タイトル */}
+              {/* Title */}
               <Pressable
                 style={styles.barInfo}
                 onPress={() => router.push(`/video/${playing.videoId}`)}
@@ -214,7 +214,7 @@ export function GlobalMyListPlayer() {
                 </Text>
               </Pressable>
 
-              {/* 動画ページへ */}
+              {/* Jump to video */}
               <Pressable
                 style={styles.barIconBtn}
                 onPress={() => router.push(`/video/${playing.videoId}`)}
@@ -222,7 +222,7 @@ export function GlobalMyListPlayer() {
                 <Ionicons name="play-circle" size={22} color={C.accent} />
               </Pressable>
 
-              {/* 停止 */}
+              {/* Stop */}
               <Pressable
                 style={styles.barIconBtn}
                 onPress={() => {
@@ -285,13 +285,13 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 8,
     right: 8,
-    bottom: 68, // タブバーの上（60px + マージン8px）
+    bottom: 68, // above tab bar (60px + 8px margin)
     zIndex: 1000,
   },
   barWrapWithJukebox: {
-    bottom: 136, // 68 + 64 (Jukeboxバーの高さ) + 4
+    bottom: 136, // 68 + 64 (jukebox bar) + 4
   },
-  // Spotify 風バースタイル
+  // Spotify-like bar chrome
   bar: {
     backgroundColor: "rgba(18,18,18,0.97)",
     borderRadius: 12,

@@ -1,6 +1,6 @@
 /**
  * Parses enhanced thread body directives.
- * - FLYER_IMAGE: https://...  /  フライヤー画像: https://...
+ * - FLYER_IMAGE: https://...  /  legacy Japanese line `フライヤー画像:` (still parsed for old threads)
  * - SHORT_VIDEO: https://...
  * Directive lines are removed from display text.
  */

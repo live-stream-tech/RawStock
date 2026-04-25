@@ -1,6 +1,6 @@
 import { Alert, Platform } from "react-native";
 
-/** Web/PWA では RN の Alert が出ない環境があるため、ブラウザのダイアログにフォールバックする */
+/** Fallback to `window.alert` on web/PWA where RN `Alert` may not render */
 export function alertMessage(title: string, message?: string): void {
   const body = message ? `${title}\n\n${message}` : title;
   if (Platform.OS === "web") {

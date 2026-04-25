@@ -21,9 +21,9 @@ export type JukeboxPulse = {
   mode: "on_air" | "request_open" | "fallback";
   labelLine: string;
   trackLine: string;
-  /** バナー表示に対応する遷移先（フォールバック時は null） */
+  /** Navigation target for the banner (null in fallback mode) */
   targetCommunityId: number | null;
-  /** UI 用。フォールバック時は null */
+  /** Display name for UI (null in fallback mode) */
   communityName: string | null;
 };
 
@@ -64,7 +64,7 @@ function buildPulse(data: JukeboxActiveSessionsResponse | undefined): JukeboxPul
   };
 }
 
-/** ホームバナー等で共有。jukebox 操作後に invalidate するために export */
+/** Shared query key for the home jukebox banner; exported so mutations can invalidate it */
 export const JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY = ["/api/jukebox/active-sessions"] as const;
 
 export function useJukeboxPulse() {

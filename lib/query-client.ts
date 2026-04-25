@@ -15,7 +15,7 @@ function isLikelyLocalHostname(host: string): boolean {
   );
 }
 
-/** Expo / Metro の Web 開発サーバーでは API が別ポートのため window.origin を API にしない */
+/** Metro web dev server runs API on another port — do not treat window.origin as the API */
 function isMetroBundlerOrigin(url: URL): boolean {
   const h = url.hostname.toLowerCase();
   if (h !== "localhost" && h !== "127.0.0.1") return false;
@@ -26,7 +26,7 @@ function isMetroBundlerOrigin(url: URL): boolean {
   return false;
 }
 
-/** EXPO_PUBLIC_API_URL 用: 明示された API ベースを origin/ に正規化 */
+/** For EXPO_PUBLIC_API_URL: normalize an explicit API base to `origin/` */
 function normalizeExplicitApiBase(input: string): string {
   const t = input.trim().replace(/\/+$/, "");
   if (!t) return "";
@@ -38,7 +38,7 @@ function normalizeExplicitApiBase(input: string): string {
   return new URL(`${proto}://${hostPart}`).origin + "/";
 }
 
-/** EXPO_PUBLIC_DOMAIN を API 用オリジンに。Metro URL なら開発 API に差し替え */
+/** Resolve EXPO_PUBLIC_DOMAIN to API origin; swap Metro URLs to the dev API base */
 function resolveFromExpoPublicDomain(): { url: string; source: string } | null {
   const raw = process.env.EXPO_PUBLIC_DOMAIN?.trim();
   if (!raw) return null;
@@ -74,12 +74,11 @@ function resolveFromWindow(): { url: string; source: string } | null {
 }
 
 /**
- * Express API のベース URL（末尾スラッシュ付き）
+ * Express API base URL (trailing slash).
  *
- * デプロイ済み Web（Metro 以外）では `window.location` を優先する。
- * ビルド時に焼き込んだ EXPO_PUBLIC_DOMAIN が本番とズレたままだと、
- * プレビューやカスタム URL で API が別ホストに飛び、502 等になる。
- * API を別ドメインに分ける場合は EXPO_PUBLIC_API_URL を必ず設定する。
+ * Prefer `window.location` on deployed web (non-Metro).
+ * If baked EXPO_PUBLIC_DOMAIN drifts from production, previews/custom URLs may hit the wrong host (502s).
+ * When the API is on another domain, always set EXPO_PUBLIC_API_URL.
  */
 export function getApiUrl(): string {
   const explicit = process.env.EXPO_PUBLIC_API_URL?.trim();
@@ -133,7 +132,7 @@ function parseJsonApiMessage(text: string): string | null {
 }
 
 /**
- * Alert や画面表示用。`ApiError` は JSON の `error` / `message` を優先し、それ以外は本文を短く整形する。
+ * Human-readable errors for alerts/UI. `ApiError` prefers JSON `error` / `message`; otherwise trims body text.
  */
 export function formatUserFacingApiError(err: unknown): string {
   if (err instanceof ApiError) {

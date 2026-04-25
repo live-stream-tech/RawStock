@@ -15,7 +15,7 @@ export const C = {
   orangeLight: "#ff7033",
   green: "#00ffcc",
   yellow: "#e8e4dc",
-  /** 3色目: ハイコントラスト・アンバーゴールド。黒背景のボタン文字・バッジに使用 */
+  /** Third accent: high-contrast amber-gold for button text and badges on dark backgrounds. */
   amber: "#f5c842",
   tabBg: "#050505",
   premium: "#0d0d0d",

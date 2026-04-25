@@ -1,8 +1,8 @@
 import { Platform } from "react-native";
 
 /**
- * react-native-web の ScrollView は、showsVertical / showsHorizontal のいずれかが false だと
- * scrollbar-width: none を付与する。モバイルでは従来どおり非表示、Web では OS スクロールバーを出す。
+ * react-native-web applies `scrollbar-width: none` when either scroll axis flag is false.
+ * Keep native hidden; on web, show native scrollbars by forcing both flags true.
  */
 export const scrollShowsVertical = Platform.OS === "web";
 export const scrollShowsHorizontal = Platform.OS === "web";

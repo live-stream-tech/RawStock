@@ -4356,7 +4356,9 @@ export async function registerRoutes(app: Express): Promise<void> {
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : String(e);
       const notConfigured =
-        errMsg.includes("R2 is not configured") || errMsg.includes("正しく設定");
+        errMsg.includes("R2 is not configured") ||
+        errMsg.includes("正しく設定") ||
+        /not\s+configured|correctly\s+configured/i.test(errMsg);
       console.error("[upload-url] presign_failed", {
         hasAccessKey,
         hasSecret,

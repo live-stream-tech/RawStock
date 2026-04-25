@@ -15,8 +15,8 @@ import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY } from "@/lib/useJukeboxPulse";
 import { usePlayingVideo } from "@/lib/playing-video-context";
-// NOTE: 音声再生は jukebox/[id].tsx の NowPlaying 内の IFrame API プレイヤーが担当。
-// GJP はミニプレイヤー UI のみを担当する。
+// NOTE: Audio playback is handled by the iframe API player inside NowPlaying on jukebox/[id].tsx.
+// GJP only renders the mini-player chrome.
 
 type JukeboxState = {
   communityId: number;
@@ -66,8 +66,7 @@ function parseCommunityId(pathname: string | null): number | null {
 }
 
 // ============================================================
-// GlobalJukeboxPlayer
-// 役割: ミニプレイヤー UI のみ（音声再生は jukebox/[id].tsx の NowPlaying が担当）
+// GlobalJukeboxPlayer — mini-player UI only (audio: see jukebox/[id] NowPlaying)
 // ============================================================
 export function GlobalJukeboxPlayer() {
   const pathname = usePathname();
@@ -98,11 +97,11 @@ export function GlobalJukeboxPlayer() {
 
   const qc = useQueryClient();
 
-  // SSE でリアルタイム更新（Web のみ、jukebox ページ以外で接続）
+  // SSE live updates (web only; skip on jukebox route to avoid duplicate connections)
   useEffect(() => {
     if (Platform.OS !== "web") return;
     if (!communityId) return;
-    if (isOnJukeboxPage) return; // jukebox ページ自体が SSE を持つため重複接続しない
+    if (isOnJukeboxPage) return; // jukebox page already opens its own SSE stream
 
     const baseUrl = getApiUrl().replace(/\/$/, "");
     const sseUrl = `${baseUrl}/api/jukebox/${communityId}/stream`;
@@ -172,7 +171,7 @@ export function GlobalJukeboxPlayer() {
   const state = data?.state ?? null;
   const queue = data?.queue ?? [];
 
-  // 表示用の経過時間を1秒ごとに更新（再生中のみ）
+  // Tick elapsed display every second while playing
   useEffect(() => {
     if (!state) return;
     const calcElapsed = () => {
@@ -195,7 +194,7 @@ export function GlobalJukeboxPlayer() {
   const handleNextRef = useRef(handleNext);
   handleNextRef.current = handleNext;
 
-  // jukebox ページから離脱したらミニプレイヤーを自動表示
+  // Leaving jukebox page while playing → show mini player again
   const hasVisitedJukeboxRef = useRef(isOnJukeboxPage);
   const prevIsOnJukeboxPageRef = useRef(isOnJukeboxPage);
   useEffect(() => {
@@ -207,7 +206,7 @@ export function GlobalJukeboxPlayer() {
     }
   }, [isOnJukeboxPage, state?.isPlaying]);
 
-  // 再生終了 → ミニプレイヤーを隠す
+  // Playback ended → hide mini player
   const prevIsPlayingRef = useRef(state?.isPlaying);
   useEffect(() => {
     const wasPlaying = prevIsPlayingRef.current;
@@ -217,22 +216,22 @@ export function GlobalJukeboxPlayer() {
     }
   }, [state?.isPlaying, state?.currentVideoTitle]);
 
-  // jukeboxIsActive をコンテキストに反映
+  // Mirror jukeboxIsActive into playing-video context
   useEffect(() => {
     const isActive = !dismissed && !isOnJukeboxPage && !!state?.isPlaying;
     setJukeboxIsActive(isActive);
   }, [dismissed, isOnJukeboxPage, state?.isPlaying, setJukeboxIsActive]);
 
-  // communityId をコンテキストに反映（JUKE BOT バナーのナビゲーション用）
+  // Mirror communityId for home jukebox banner navigation
   useEffect(() => {
     setJukeboxCommunityId(communityId);
   }, [communityId, setJukeboxCommunityId]);
 
-  // コミュニティ/jukebox ページ以外では何も表示しない
+  // Nothing to render without a resolved community id
   if (!communityId) return null;
   if (!state) return null;
 
-  // jukebox ページ上はミニプレイヤーを表示しない
+  // Hide mini player while on the full jukebox screen
   if (isOnJukeboxPage) {
     return null;
   }
@@ -254,17 +253,17 @@ export function GlobalJukeboxPlayer() {
     return null;
   }
 
-  // 全画面ラッパは使わない（Web で背面タッチが死ぬことがある）。バー幅だけを占める。
+  // Avoid full-screen wrappers (can swallow touches on web); only the bar width is interactive.
   return (
     <View pointerEvents="box-none" style={styles.root}>
       <View style={styles.bar}>
-        {/* プログレスバー（バー上部） */}
+        {/* Progress strip (top of bar) */}
         <View style={styles.barProgress}>
           <View style={[styles.barProgressFill, { width: `${progress * 100}%` as any }]} />
         </View>
 
         <View style={styles.barRow}>
-          {/* サムネイル */}
+          {/* Thumbnail */}
           <Pressable
             style={styles.barThumbWrap}
             onPress={() => router.push(`/jukebox/${communityId}`)}
@@ -282,7 +281,7 @@ export function GlobalJukeboxPlayer() {
             )}
           </Pressable>
 
-          {/* タイトル・情報 */}
+          {/* Title / meta */}
           <Pressable
             style={styles.barInfo}
             onPress={() => router.push(`/jukebox/${communityId}`)}
@@ -307,7 +306,7 @@ export function GlobalJukeboxPlayer() {
             ) : null}
           </Pressable>
 
-          {/* ジュークボックスページへのリンク */}
+          {/* Open jukebox room */}
           <Pressable
             style={styles.barIconBtn}
             onPress={() => router.push(`/jukebox/${communityId}`)}
@@ -315,7 +314,7 @@ export function GlobalJukeboxPlayer() {
             <Ionicons name="musical-notes" size={18} color={C.accent} />
           </Pressable>
 
-          {/* 閉じる */}
+          {/* Dismiss */}
           <Pressable
             style={styles.barIconBtn}
             onPress={() => {

@@ -3,7 +3,7 @@
  * Native: wire SNOW / react-native-webrtc to produce a MediaStream, then call the same function.
  */
 
-/** iOS / PWA は ICE 収集が遅いことが多く、短いタイムアウトだと WHIP が 4xx になる */
+/** iOS/PWA often needs longer ICE gathering; short timeouts cause WHIP 4xx responses */
 const DEFAULT_ICE_GATHER_MS = 15000;
 
 function getRTCPeerConnection(): typeof RTCPeerConnection {
