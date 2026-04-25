@@ -811,6 +811,9 @@ export default function CommunityDetailScreen() {
   const [requestEditor, setRequestEditor] = useState<VideoEditor | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<number | null>(null);
   const [showCreateThread, setShowCreateThread] = useState(false);
+  const [threadComposerMode, setThreadComposerMode] = useState<"thread" | "announcement" | "feedback">(
+    "thread",
+  );
   const [newThreadTitle, setNewThreadTitle] = useState("");
   const [newThreadBody, setNewThreadBody] = useState("");
   const [announcementFlyerUrl, setAnnouncementFlyerUrl] = useState<string | null>(null);
@@ -947,7 +950,9 @@ export default function CommunityDetailScreen() {
 
   const createThreadMutation = useMutation({
     mutationFn: async () => {
-      const title = newThreadTitle.trim();
+      const title =
+        newThreadTitle.trim() ||
+        (threadComposerMode === "feedback" ? "Feedback" : "");
       const text = newThreadBody.trim();
       const flyer = announcementFlyerUrl?.trim() ?? "";
       const body = flyer ? (text ? `FLYER_IMAGE: ${flyer}\n\n${text}` : `FLYER_IMAGE: ${flyer}`) : text;
@@ -967,8 +972,22 @@ export default function CommunityDetailScreen() {
     },
   });
 
+  function openDefaultThreadComposer() {
+    setThreadComposerMode(isOfficialCommunity ? "announcement" : "thread");
+    setShowCreateThread(true);
+  }
+
+  function openFeedbackComposer() {
+    setThreadComposerMode("feedback");
+    setNewThreadTitle("");
+    setNewThreadBody("");
+    setAnnouncementFlyerUrl(null);
+    setShowCreateThread(true);
+  }
+
   function closeCreateThreadModal() {
     setShowCreateThread(false);
+    setThreadComposerMode(isOfficialCommunity ? "announcement" : "thread");
     setNewThreadTitle("");
     setNewThreadBody("");
     setAnnouncementFlyerUrl(null);
@@ -1062,11 +1081,15 @@ export default function CommunityDetailScreen() {
   }
 
   async function handleCreateThread() {
-    if (!newThreadTitle.trim()) {
+    if (!newThreadTitle.trim() && threadComposerMode !== "feedback") {
       Alert.alert("", "Please enter a title");
       return;
     }
-    if (!newThreadBody.trim() && !announcementFlyerUrl?.trim()) {
+    if (threadComposerMode === "feedback" && !newThreadBody.trim()) {
+      Alert.alert("", "Please enter your feedback");
+      return;
+    }
+    if (threadComposerMode === "announcement" && !newThreadBody.trim() && !announcementFlyerUrl?.trim()) {
       Alert.alert("", "Write a message and/or attach an image to start the thread.");
       return;
     }
@@ -1497,25 +1520,46 @@ export default function CommunityDetailScreen() {
                 <Ionicons name="chatbubbles-outline" size={22} color={C.accent} />
               </View>
               <View style={{ flex: 1, gap: 4 }}>
-                <Text style={styles.boardAnnounceIntroTitle}>Community conversations</Text>
+                <Text style={styles.boardAnnounceIntroTitle}>
+                  {isOfficialCommunity ? "Official updates and feedback" : "Community conversations"}
+                </Text>
                 <Text style={styles.boardAnnounceIntroSub}>
-                  Start threads, reply like chat, and keep discussions active in one place.
+                  {isOfficialCommunity
+                    ? "Check live updates and share requests through the feedback box."
+                    : "Start threads, reply like chat, and keep discussions active in one place."}
                 </Text>
               </View>
             </View>
             <View style={styles.boardHeader}>
-              <Text style={styles.boardSectionTitle}>Threads</Text>
+              <Text style={styles.boardSectionTitle}>
+                {isOfficialCommunity ? "Announcements & Feedback" : "Threads"}
+              </Text>
               {canPostToBoard && (
-                <Pressable
-                  style={styles.createThreadBtn}
-                  onPress={() => {
-                    if (!requireAuth("Create Thread")) return;
-                    setShowCreateThread(true);
-                  }}
-                  accessibilityLabel="New thread"
-                >
-                  <Ionicons name="add" size={22} color="#000" />
-                </Pressable>
+                <View style={styles.boardHeaderActions}>
+                  {isOfficialCommunity && (
+                    <Pressable
+                      style={styles.feedbackBoxBtn}
+                      onPress={() => {
+                        if (!requireAuth("Create feedback")) return;
+                        openFeedbackComposer();
+                      }}
+                      accessibilityLabel="Open feedback box"
+                    >
+                      <Ionicons name="chatbox-ellipses-outline" size={14} color={C.text} />
+                      <Text style={styles.feedbackBoxBtnText}>Feedback Box</Text>
+                    </Pressable>
+                  )}
+                  <Pressable
+                    style={styles.createThreadBtn}
+                    onPress={() => {
+                      if (!requireAuth("Create Thread")) return;
+                      openDefaultThreadComposer();
+                    }}
+                    accessibilityLabel="New thread"
+                  >
+                    <Ionicons name="add" size={22} color="#000" />
+                  </Pressable>
+                </View>
               )}
             </View>
             {canPostToBoard && !following && !isOfficialCommunity ? (
@@ -1702,7 +1746,7 @@ export default function CommunityDetailScreen() {
           </View>
         )}
 
-        {(staffData?.admin || (staffData?.moderators && staffData.moderators.length > 0)) && (
+        {!isOfficialCommunity && (staffData?.admin || (staffData?.moderators && staffData.moderators.length > 0)) && (
           <View style={styles.staffSection}>
             <View style={styles.staffSectionHeader}>
               <Text style={styles.staffSectionTitle}>Admin & moderators</Text>
@@ -1820,14 +1864,26 @@ export default function CommunityDetailScreen() {
           <View style={styles.requestModalSheet}>
             <View style={styles.requestModalHandle} />
             <View style={styles.requestModalHeader}>
-              <Text style={styles.requestModalTitle}>{announceBoard ? "New announcement" : "New thread"}</Text>
+              <Text style={styles.requestModalTitle}>
+                {threadComposerMode === "feedback"
+                  ? "Feedback Box"
+                  : announceBoard
+                    ? "New announcement"
+                    : "New thread"}
+              </Text>
               <Pressable onPress={closeCreateThreadModal} hitSlop={8}>
                 <Ionicons name="close" size={24} color={C.textMuted} />
               </Pressable>
             </View>
             <TextInput
               style={[styles.requestInput, { marginBottom: 8 }]}
-              placeholder={announceBoard ? "Title — e.g. Apr 20 live @ venue" : "Thread title"}
+              placeholder={
+                threadComposerMode === "feedback"
+                  ? "Title (optional)"
+                  : announceBoard
+                    ? "Title — e.g. Apr 20 live @ venue"
+                    : "Thread title"
+              }
               placeholderTextColor={C.textMuted}
               value={newThreadTitle}
               onChangeText={setNewThreadTitle}
@@ -1835,7 +1891,9 @@ export default function CommunityDetailScreen() {
             <TextInput
               style={[styles.requestInput, styles.requestInputMultiline]}
               placeholder={
-                announceBoard
+                threadComposerMode === "feedback"
+                  ? "Share your request, idea, or issue."
+                  : announceBoard
                   ? "Details: date, venue, links… (optional if flyer below)"
                   : "Body (optional)"
               }
@@ -1845,7 +1903,7 @@ export default function CommunityDetailScreen() {
               multiline
               textAlignVertical="top"
             />
-            {announceBoard ? (
+            {threadComposerMode === "announcement" ? (
               <View style={styles.flyerAttachBlock}>
                 <Text style={styles.flyerQualityHint}>
                   Upload an official flyer from the promoter or venue (short edge must be at least 720px). Screenshots
@@ -1881,23 +1939,33 @@ export default function CommunityDetailScreen() {
                 styles.requestSubmitBtn,
                 (creatingThread ||
                   uploadingFlyer ||
-                  !newThreadTitle.trim() ||
-                  (announceBoard && !newThreadBody.trim() && !announcementFlyerUrl?.trim())) &&
+                  (threadComposerMode !== "feedback" && !newThreadTitle.trim()) ||
+                  (threadComposerMode === "feedback" && !newThreadBody.trim()) ||
+                  (threadComposerMode === "announcement" &&
+                    !newThreadBody.trim() &&
+                    !announcementFlyerUrl?.trim())) &&
                   styles.requestSubmitBtnDisabled,
               ]}
               onPress={handleCreateThread}
               disabled={
                 creatingThread ||
                 uploadingFlyer ||
-                !newThreadTitle.trim() ||
-                (announceBoard && !newThreadBody.trim() && !announcementFlyerUrl?.trim())
+                (threadComposerMode !== "feedback" && !newThreadTitle.trim()) ||
+                (threadComposerMode === "feedback" && !newThreadBody.trim()) ||
+                (threadComposerMode === "announcement" &&
+                  !newThreadBody.trim() &&
+                  !announcementFlyerUrl?.trim())
               }
             >
               {creatingThread ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
                 <Text style={styles.requestSubmitBtnText}>
-                  {announceBoard ? "Post announcement" : "Create thread"}
+                  {threadComposerMode === "feedback"
+                    ? "Submit feedback"
+                    : announceBoard
+                      ? "Post announcement"
+                      : "Create thread"}
                 </Text>
               )}
             </Pressable>
@@ -2854,6 +2922,11 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 8,
   },
+  boardHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   boardSectionTitle: { color: C.text, fontSize: 15, fontWeight: "800" },
   createThreadBtn: {
     width: 40,
@@ -2864,6 +2937,22 @@ const styles = StyleSheet.create({
     backgroundColor: C.accent,
   },
   createThreadBtnText: { color: "#fff", fontSize: 12, fontWeight: "700" },
+  feedbackBoxBtn: {
+    height: 36,
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  feedbackBoxBtnText: {
+    color: C.text,
+    fontSize: 12,
+    fontWeight: "700",
+  },
   createThreadForm: {
     backgroundColor: C.surface,
     borderRadius: 12,

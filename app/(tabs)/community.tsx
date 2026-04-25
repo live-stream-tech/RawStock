@@ -48,7 +48,15 @@ function RankBadge({ rank }: { rank: number }) {
   );
 }
 
-function CommunityRankCard({ item, index }: { item: CommunityRow; index: number }) {
+function CommunityRankCard({
+  item,
+  index,
+  showCreateButton = false,
+}: {
+  item: CommunityRow;
+  index: number;
+  showCreateButton?: boolean;
+}) {
   return (
     <Pressable
       style={styles.rankCard}
@@ -68,6 +76,25 @@ function CommunityRankCard({ item, index }: { item: CommunityRow; index: number 
           <Text style={styles.onlineText}>LIVE</Text>
         </View>
       )}
+      {showCreateButton ? (
+        <Pressable
+          style={styles.createFromStationChip}
+          onPress={(e) => {
+            (e as any).stopPropagation?.();
+            router.push({
+              pathname: "/community/create",
+              params: {
+                stationId: String(item.id),
+                stationName: item.name,
+                stationCategory: item.category ?? "General",
+              },
+            });
+          }}
+        >
+          <Ionicons name="add" size={11} color="#000" />
+          <Text style={styles.createFromStationChipText}>Create</Text>
+        </Pressable>
+      ) : null}
       <View style={styles.rankCardBottom}>
         <Text style={styles.rankCardName} numberOfLines={1}>{item.name}</Text>
         <View style={styles.rankCardMeta}>
@@ -121,6 +148,13 @@ export default function CommunityScreen() {
 
   const { data: apiCommunities = [], isLoading: communitiesLoading } = useQuery<any[]>({
     queryKey: ["/api/communities"],
+  });
+  const { data: officialStationStats } = useQuery<{
+    officialCommunityCount: number;
+    uniqueMemberCount: number;
+    memberSum: number;
+  }>({
+    queryKey: ["/api/district/official-station/stats"],
   });
 
   const { officialBase, userBase } = useMemo(() => {
@@ -190,6 +224,9 @@ export default function CommunityScreen() {
             <View style={styles.sectionAccent} />
             <Text style={styles.sectionTitle}>Official Station</Text>
           </View>
+          <Text style={styles.stationSummaryText}>
+            {`Unique members: ${formatNum(officialStationStats?.uniqueMemberCount ?? 0)} · Communities: ${officialStationStats?.officialCommunityCount ?? 0}`}
+          </Text>
           <View style={styles.stationLinksRow}>
             <Pressable style={styles.stationLinkBtn} onPress={() => router.push("/live-announcements" as any)}>
               <Ionicons name="megaphone-outline" size={16} color={C.accent} />
@@ -229,7 +266,7 @@ export default function CommunityScreen() {
           ) : (
             <HorizontalScroll contentContainerStyle={styles.hList}>
               {filteredOfficial.map((item, index) => (
-                <CommunityRankCard key={item.id} item={item} index={index} />
+                <CommunityRankCard key={item.id} item={item} index={index} showCreateButton />
               ))}
             </HorizontalScroll>
           )}
@@ -281,6 +318,13 @@ export default function CommunityScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
+  stationSummaryText: {
+    color: C.textMuted,
+    fontSize: 11,
+    paddingHorizontal: 16,
+    marginBottom: 8,
+    fontWeight: "600",
+  },
   stationLinksRow: {
     flexDirection: "row",
     gap: 10,
@@ -439,6 +483,24 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontWeight: "900",
     letterSpacing: 0.6,
+  },
+  createFromStationChip: {
+    position: "absolute",
+    top: 36,
+    right: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    backgroundColor: C.accent,
+    borderRadius: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  createFromStationChipText: {
+    color: "#000",
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 0.2,
   },
   onlineChip: {
     position: "absolute",

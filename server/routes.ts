@@ -2295,6 +2295,34 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json(normalized);
   });
 
+  /** Official Station summary: unique users across top-10 communities by members. */
+  app.get("/api/district/official-station/stats", async (_req: Request, res: Response) => {
+    const topRows = await db
+      .select({ id: communities.id, members: communities.members })
+      .from(communities)
+      .orderBy(desc(communities.members), asc(communities.id))
+      .limit(10);
+    const topIds = topRows.map((r) => r.id);
+    const memberSum = topRows.reduce((sum, r) => sum + Number(r.members ?? 0), 0);
+    if (topIds.length === 0) {
+      return res.json({
+        officialCommunityCount: 0,
+        uniqueMemberCount: 0,
+        memberSum,
+      });
+    }
+    const distinctRows = await db
+      .select({ userId: communityMembers.userId })
+      .from(communityMembers)
+      .where(inArray(communityMembers.communityId, topIds))
+      .groupBy(communityMembers.userId);
+    return res.json({
+      officialCommunityCount: topIds.length,
+      uniqueMemberCount: distinctRows.length,
+      memberSum,
+    });
+  });
+
   /** 現在ログイン中ユーザーが参加しているコミュニティ一覧 */
   app.get("/api/communities/me", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);

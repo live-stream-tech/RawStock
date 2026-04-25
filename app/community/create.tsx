@@ -15,7 +15,7 @@ import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/query-client";
@@ -29,6 +29,13 @@ export default function CreateCommunityScreen() {
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
   const queryClient = useQueryClient();
+  const params = useLocalSearchParams<{
+    stationId?: string;
+    stationName?: string;
+    stationCategory?: string;
+  }>();
+  const linkedStationName = (params.stationName ?? "").trim();
+  const linkedStationCategory = (params.stationCategory ?? "").trim() || "General";
 
   const [bannerUri, setBannerUri] = useState<string | null>(null);
   const [iconUri, setIconUri] = useState<string | null>(null);
@@ -87,7 +94,7 @@ export default function CreateCommunityScreen() {
     setCreating(true);
 
     try {
-      const primaryCategory = "General";
+      const primaryCategory = linkedStationCategory;
       const defaults = getCommunityDefaultAssets(primaryCategory);
       const bannerUrl = bannerUri ?? defaults.bannerUrl;
       const iconUrl = iconUri ?? defaults.iconUrl;
@@ -169,6 +176,14 @@ export default function CreateCommunityScreen() {
 
         {/* Community name */}
         <View style={styles.section}>
+          {linkedStationName ? (
+            <View style={styles.stationLinkBox}>
+              <Ionicons name="git-network-outline" size={14} color={C.accent} />
+              <Text style={styles.stationLinkText}>
+                Linked to Official Station: {linkedStationName}
+              </Text>
+            </View>
+          ) : null}
           <Text style={styles.label}>
             Community Name <Text style={styles.required}>*</Text>
           </Text>
@@ -216,9 +231,8 @@ export default function CreateCommunityScreen() {
               <Text style={styles.consentModalTitle}>Before You Create</Text>
               <Text style={styles.consentModalIntro}>Please read and agree to the following terms.</Text>
               <View style={styles.consentBullets}>
-                <Text style={styles.consentBullet}>· 20% of banner ad revenue goes to RawStock as a platform fee</Text>
-                <Text style={styles.consentBullet}>· 10% is held as a community event fund</Text>
-                <Text style={styles.consentBullet}>· The remaining 70% is shared among the admin and moderators (ratio set by admin)</Text>
+                <Text style={styles.consentBullet}>· Banner ad revenue settings follow current platform policy</Text>
+                <Text style={styles.consentBullet}>· Community management settings follow current platform rules</Text>
                 <Text style={styles.consentBullet}>· If 50% of members vote no-confidence, the admin is replaced</Text>
                 <Text style={styles.consentBullet}>· A new admin is elected from moderators (or all members if no mods exist)</Text>
                 <Text style={styles.consentBullet}>· Moderators are appointed by the admin</Text>
@@ -304,6 +318,24 @@ const styles = StyleSheet.create({
   section: {
     marginHorizontal: 16,
     marginTop: 20,
+  },
+  stationLinkBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: C.surface,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: C.border,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 10,
+  },
+  stationLinkText: {
+    color: C.textSec,
+    fontSize: 12,
+    fontWeight: "600",
+    flex: 1,
   },
   label: {
     color: C.text,
