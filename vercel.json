@@ -58,6 +58,14 @@
     {
       "path": "/api/cron/ai-edit-process?limit=15",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/update-liver-rankings",
+      "schedule": "0 0 1 * *"
+    },
+    {
+      "path": "/api/cron/update-genre-owners",
+      "schedule": "0 1 1 * *"
     }
   ],
   "rewrites": [

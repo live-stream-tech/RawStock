@@ -3004,6 +3004,15 @@ export async function registerRoutes(app: Express): Promise<void> {
     return res.json(row ?? null);
   });
 
+  app.get("/api/editors/me/requests", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const [editor] = await db.select({ id: videoEditors.id }).from(videoEditors).where(eq(videoEditors.userId, user.id)).limit(1);
+    if (!editor) return res.json([]);
+    const rows = await db.select().from(videoEditRequests).where(eq(videoEditRequests.editorId, editor.id)).orderBy(desc(videoEditRequests.createdAt));
+    res.json(rows);
+  });
+
   app.get("/api/editors/:id", async (req: Request, res: Response) => {
     const id = paramNum(req, "id");
     const [editor] = await db.select().from(videoEditors).where(eq(videoEditors.id, id));
@@ -4105,6 +4114,51 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
 
     res.json({ ok: true });
+  });
+
+  /** 月次Cron: creator_monthly_scores の rankOverall / rankPaidLive を再計算し creators.rank / heatScore を同期 */
+  app.post("/api/cron/update-liver-rankings", async (_req: Request, res: Response) => {
+    const yearMonth = getYearMonth();
+    const allCreators = await db.select().from(creators);
+    if (allCreators.length === 0) return res.json({ ok: true, updated: 0 });
+
+    const scores = await db.select().from(creatorMonthlyScores).where(eq(creatorMonthlyScores.yearMonth, yearMonth));
+    const scoreMap = new Map(scores.map((s) => [s.creatorId, s]));
+
+    const ranked = allCreators.map((c) => {
+      const s = scoreMap.get(c.id);
+      const revenue = (s?.tipGross ?? 0) + (s?.paidLiveGross ?? 0);
+      const composite = revenue * 0.5 + c.totalViews * 0.3 + c.followers * 0.2;
+      return { creator: c, score: s ?? null, revenue, paidLiveGross: s?.paidLiveGross ?? 0, composite };
+    });
+
+    ranked.sort((a, b) => b.composite - a.composite);
+    const overallRanks = new Map(ranked.map((r, i) => [r.creator.id, i + 1]));
+
+    const byPaidLive = [...ranked].sort((a, b) => b.paidLiveGross - a.paidLiveGross);
+    const paidLiveRanks = new Map(byPaidLive.map((r, i) => [r.creator.id, i + 1]));
+
+    for (const { creator, score, composite } of ranked) {
+      const rankOverall = overallRanks.get(creator.id) ?? 999;
+      const rankPaidLive = paidLiveRanks.get(creator.id) ?? 999;
+
+      if (score) {
+        await db.update(creatorMonthlyScores)
+          .set({ compositeScore: composite, rankOverall, rankPaidLive, updatedAt: new Date() } as Partial<InferSelectModel<typeof creatorMonthlyScores>>)
+          .where(eq(creatorMonthlyScores.id, score.id));
+      } else {
+        await db.insert(creatorMonthlyScores).values({
+          creatorId: creator.id, yearMonth, tipGross: 0, paidLiveGross: 0,
+          compositeScore: composite, rankOverall, rankPaidLive,
+        } as typeof creatorMonthlyScores.$inferInsert);
+      }
+
+      await db.update(creators)
+        .set({ rank: rankOverall, heatScore: composite } as Partial<InferSelectModel<typeof creators>>)
+        .where(eq(creators.id, creator.id));
+    }
+
+    res.json({ ok: true, updated: ranked.length, yearMonth });
   });
 
   /** Admin: report queue — pending (gray_zone) items only. Pass ?all=1 to see everything. */
@@ -6500,6 +6554,29 @@ export async function registerRoutes(app: Express): Promise<void> {
       .select()
       .from(mentorSessions)
       .where(eq(mentorSessions.creatorId, user.id))
+      .orderBy(desc(mentorSessions.createdAt));
+    res.json(rows);
+  });
+
+  /** 公開: アクティブなメンターセッション一覧（クリエイター情報付き） */
+  app.get("/api/mentor/sessions", async (req: Request, res: Response) => {
+    const rows = await db
+      .select({
+        id: mentorSessions.id,
+        creatorId: mentorSessions.creatorId,
+        title: mentorSessions.title,
+        category: mentorSessions.category,
+        description: mentorSessions.description,
+        price: mentorSessions.price,
+        duration: mentorSessions.duration,
+        maxParticipants: mentorSessions.maxParticipants,
+        createdAt: mentorSessions.createdAt,
+        creatorName: users.displayName,
+        creatorAvatar: users.profileImageUrl,
+      })
+      .from(mentorSessions)
+      .innerJoin(users, eq(users.id, mentorSessions.creatorId))
+      .where(eq(mentorSessions.isActive, true))
       .orderBy(desc(mentorSessions.createdAt));
     res.json(rows);
   });

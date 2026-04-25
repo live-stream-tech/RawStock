@@ -26,6 +26,7 @@
     "db:push": "drizzle-kit push",
     "db:reset-official-communities": "npx tsx scripts/reset-official-communities.ts",
     "db:wipe-demo": "npx tsx server/scripts/wipe-communities-genres-videos.ts",
+    "db:seed-official-live": "npx tsx scripts/seed-official-live-feed.ts",
     "start": "npx expo start",
     "lint": "npx expo lint",
     "lint:fix": "npx expo lint --fix"

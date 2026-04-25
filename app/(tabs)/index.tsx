@@ -618,7 +618,7 @@ export default function HomeScreen() {
         <SectionHeader
           title="SESSIONS"
           right={
-            <Pressable onPress={() => router.push("/mentor-manage" as any)}>
+            <Pressable onPress={() => router.push("/mentor-sessions" as any)}>
               <Text style={styles.viewAllText}>VIEW ALL</Text>
             </Pressable>
           }

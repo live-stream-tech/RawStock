@@ -174,7 +174,17 @@ export default function EditorProfileScreen() {
         <Text style={styles.headerTitle}>
           {isEditing ? "Editor Profile" : "Register as Video Editor"}
         </Text>
-        <View style={{ width: 40 }} />
+        {isEditing ? (
+          <Pressable
+            style={styles.backBtn}
+            onPress={() => router.push("/editor-inbox" as any)}
+            hitSlop={8}
+          >
+            <Ionicons name="mail-outline" size={22} color={C.accent} />
+          </Pressable>
+        ) : (
+          <View style={{ width: 40 }} />
+        )}
       </View>
 
       <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical} keyboardShouldPersistTaps="handled">
