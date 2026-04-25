@@ -329,7 +329,7 @@ export default function ProfileScreen() {
 
   async function saveProfile() {
     if (!editName.trim()) {
-      Alert.alert("入力エラー", "表示名を入力してください。");
+      Alert.alert("Invalid input", "Please enter a display name.");
       return;
     }
     setProfileSaving(true);
@@ -338,7 +338,7 @@ export default function ProfileScreen() {
       setShowProfileModal(false);
       router.replace("/profile");
     } catch (e: any) {
-      Alert.alert("保存に失敗しました", e.message ?? "しばらくしてから再度お試しください。");
+      Alert.alert("Save failed", e.message ?? "Please try again in a moment.");
     } finally {
       setProfileSaving(false);
     }
@@ -448,7 +448,7 @@ export default function ProfileScreen() {
 
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("権限が必要です", "写真を選ぶにはフォトライブラリへのアクセスを許可してください。");
+      Alert.alert("Permission required", "Allow photo library access to choose a photo.");
       return null;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -480,7 +480,7 @@ export default function ProfileScreen() {
         avatar: url,
       });
     } catch (e: any) {
-      Alert.alert("更新に失敗しました", e?.message ?? "写真を保存できませんでした。");
+      Alert.alert("Update failed", e?.message ?? "Could not save the photo.");
     } finally {
       setHeaderAvatarUploading(false);
     }
@@ -493,7 +493,7 @@ export default function ProfileScreen() {
       const url = await pickAndUploadAvatarUrl();
       if (url) setEditAvatar(url);
     } catch (e: any) {
-      Alert.alert("アップロードに失敗しました", e?.message ?? "画像をアップロードできませんでした。");
+      Alert.alert("Upload failed", e?.message ?? "Could not upload the image.");
     } finally {
       setAvatarUploading(false);
     }
@@ -703,8 +703,8 @@ export default function ProfileScreen() {
               onLongPress={openProfileEdit}
               delayLongPress={380}
               accessibilityRole="button"
-              accessibilityLabel="プロフィール写真を変更"
-              accessibilityHint="長押しで名前や自己紹介を編集"
+              accessibilityLabel="Change profile photo"
+              accessibilityHint="Long press to edit name and bio"
             >
               {(user?.avatar ?? user?.profileImageUrl) ? (
                 <Image
@@ -1281,7 +1281,7 @@ export default function ProfileScreen() {
               </Pressable>
             </View>
             <Text style={styles.profileEditHint}>
-              写真はタップで変更できます。SNS・楽曲リンクは Settings → Edit Profile から。
+              Tap the photo to change it. Add SNS and music links from Settings → Edit Profile.
             </Text>
 
             <ScrollView
@@ -1294,7 +1294,7 @@ export default function ProfileScreen() {
                 onPress={pickAvatarImage}
                 disabled={avatarUploading}
                 accessibilityRole="button"
-                accessibilityLabel="プロフィール写真を変更"
+                accessibilityLabel="Change profile photo"
               >
                 {editAvatar ? (
                   <Image source={{ uri: editAvatar }} style={styles.editAvatarHeroImage} contentFit="cover" />
@@ -1313,43 +1313,43 @@ export default function ProfileScreen() {
                   </View>
                 )}
               </Pressable>
-              <Text style={styles.editAvatarTapHint}>写真をタップして変更</Text>
+              <Text style={styles.editAvatarTapHint}>Tap photo to change</Text>
               {editAvatar ? (
                 <Pressable
                   style={styles.removePhotoBtn}
                   onPress={() => {
-                    Alert.alert("写真を削除", "保存するまで反映されません。", [
-                      { text: "キャンセル", style: "cancel" },
-                      { text: "削除", style: "destructive", onPress: () => setEditAvatar("") },
+                    Alert.alert("Remove photo", "Changes apply after you save.", [
+                      { text: "Cancel", style: "cancel" },
+                      { text: "Remove", style: "destructive", onPress: () => setEditAvatar("") },
                     ]);
                   }}
                   disabled={avatarUploading}
                 >
-                  <Text style={styles.removePhotoText}>写真を削除</Text>
+                  <Text style={styles.removePhotoText}>Remove photo</Text>
                 </Pressable>
               ) : null}
 
-              <Text style={[styles.profileFieldLabel, styles.profileFieldLabelFirst]}>表示名</Text>
+              <Text style={[styles.profileFieldLabel, styles.profileFieldLabelFirst]}>Display name</Text>
               <View style={styles.profileInputWrap}>
                 <Ionicons name="person-outline" size={16} color={C.textMuted} />
                 <TextInput
                   style={styles.profileInput}
                   value={editName}
                   onChangeText={setEditName}
-                  placeholder="表示名"
+                  placeholder="Display name"
                   placeholderTextColor={C.textMuted}
                   maxLength={30}
                 />
               </View>
 
-              <Text style={styles.profileFieldLabel}>自己紹介</Text>
+              <Text style={styles.profileFieldLabel}>Bio</Text>
               <View style={[styles.profileInputWrap, { alignItems: "flex-start", paddingTop: 12, paddingBottom: 12 }]}>
                 <Ionicons name="text-outline" size={16} color={C.textMuted} style={{ marginTop: 2 }} />
                 <TextInput
                   style={[styles.profileInput, { height: 88, textAlignVertical: "top" }]}
                   value={editBio}
                   onChangeText={setEditBio}
-                  placeholder="自己紹介を書く"
+                  placeholder="Write a short bio"
                   placeholderTextColor={C.textMuted}
                   multiline
                   maxLength={200}
@@ -1358,7 +1358,7 @@ export default function ProfileScreen() {
 
               <View style={styles.modalActions}>
                 <Pressable style={styles.cancelBtn} onPress={() => setShowProfileModal(false)}>
-                  <Text style={styles.cancelBtnText}>閉じる</Text>
+                  <Text style={styles.cancelBtnText}>Close</Text>
                 </Pressable>
                 <Pressable
                   style={[styles.saveBtn, profileSaving && { opacity: 0.6 }]}
@@ -1370,7 +1370,7 @@ export default function ProfileScreen() {
                   ) : (
                     <>
                       <Ionicons name="checkmark" size={16} color="#fff" />
-                      <Text style={styles.saveBtnText}>保存</Text>
+                      <Text style={styles.saveBtnText}>Save</Text>
                     </>
                   )}
                 </Pressable>

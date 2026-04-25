@@ -200,7 +200,7 @@ export default function CommunityScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionAccent} />
-            <Text style={styles.sectionTitle}>コミュニティ</Text>
+            <Text style={styles.sectionTitle}>Communities</Text>
           </View>
           {communitiesLoading ? (
             <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />

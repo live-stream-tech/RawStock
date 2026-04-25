@@ -11,31 +11,31 @@ export function validateEditorPricing(
 ): { ok: true } | { ok: false; error: string } {
   const pt = row.priceType;
   if (pt !== "per_minute" && pt !== "revenue_share" && pt !== "both") {
-    return { ok: false, error: "不正な料金形式です" };
+    return { ok: false, error: "Invalid pricing type" };
   }
   const pm = row.pricePerMinute ?? null;
   const rs = row.revenueSharePercent ?? null;
 
   if (pt === "per_minute") {
     if (pm == null || !Number.isInteger(pm) || pm <= 0) {
-      return { ok: false, error: "分単価（🎫/分）を正の整数で入力してください" };
+      return { ok: false, error: "Enter per-minute price (🎫/min) as a positive integer" };
     }
     if (rs != null) {
-      return { ok: false, error: "分単価モードではレベニューシェア％は指定できません" };
+      return { ok: false, error: "Revenue share % cannot be set in per-minute mode" };
     }
   } else if (pt === "revenue_share") {
     if (rs == null || !Number.isInteger(rs) || rs < 1 || rs > 100) {
-      return { ok: false, error: "クリエイター取り分は1〜100の整数で入力してください" };
+      return { ok: false, error: "Creator share must be an integer from 1 to 100" };
     }
     if (pm != null) {
-      return { ok: false, error: "レベニューシェアモードでは分単価は指定できません" };
+      return { ok: false, error: "Per-minute price cannot be set in revenue-share mode" };
     }
   } else {
     if (pm == null || !Number.isInteger(pm) || pm <= 0) {
-      return { ok: false, error: "both では分単価（🎫/分）が必須です" };
+      return { ok: false, error: "Per-minute price (🎫/min) is required when using both" };
     }
     if (rs == null || !Number.isInteger(rs) || rs < 1 || rs > 100) {
-      return { ok: false, error: "both ではクリエイター取り分（1〜100）が必須です" };
+      return { ok: false, error: "Creator share (1–100) is required when using both" };
     }
   }
   return { ok: true };

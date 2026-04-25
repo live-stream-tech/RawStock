@@ -11,7 +11,7 @@ export function assertFlyerResolutionOk(width: number, height: number): void {
   const short = flyerShortEdge(width, height);
   if (short < MIN_FLYER_SHORT_EDGE_PX) {
     throw new Error(
-      `画像が小さすぎます（短辺 ${short}px）。公式サイトなどから配布されているフライヤー画像をダウンロードしてからアップロードしてください。スクリーンショットは非推奨です（目安: 短辺 ${MIN_FLYER_SHORT_EDGE_PX}px 以上）。`,
+      `Image is too small (short edge ${short}px). Download an official flyer from the promoter or venue and upload that. Screenshots are not recommended (use at least ${MIN_FLYER_SHORT_EDGE_PX}px on the short edge).`,
     );
   }
 }
@@ -34,7 +34,7 @@ export async function readImageDimensionsFromFileWeb(file: File): Promise<{ widt
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error("画像サイズを読み取れませんでした。"));
+      reject(new Error("Could not read image dimensions."));
     };
     img.src = url;
   });
@@ -46,7 +46,7 @@ export async function readImageDimensionsFromUri(uri: string): Promise<{ width: 
       const img = new window.Image();
       img.crossOrigin = "anonymous";
       img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
-      img.onerror = () => reject(new Error("画像サイズを読み取れませんでした。"));
+      img.onerror = () => reject(new Error("Could not read image dimensions."));
       img.src = uri;
     });
   }
@@ -54,7 +54,7 @@ export async function readImageDimensionsFromUri(uri: string): Promise<{ width: 
     RNImage.getSize(
       uri,
       (width, height) => resolve({ width, height }),
-      () => reject(new Error("画像サイズを読み取れませんでした。")),
+      () => reject(new Error("Could not read image dimensions.")),
     );
   });
 }

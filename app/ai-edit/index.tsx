@@ -371,7 +371,7 @@ export default function AIEditIndexScreen() {
       if (cancelled) return;
       if (durationSec <= 0) {
         setFlowError(
-          "投稿動画の長さを取得できませんでした。下の「Tap to select video files」からライブラリで動画を追加してください。",
+          'Could not read the length of the posted video. Add a clip from your library using "Tap to select video files" below.',
         );
         return;
       }

@@ -992,8 +992,8 @@ export default function CommunityDetailScreen() {
           assertFlyerResolutionOk(width, height);
         } catch (err: unknown) {
           Alert.alert(
-            "フライヤー画像",
-            err instanceof Error ? err.message : "画像を確認できませんでした。",
+            "Flyer image",
+            err instanceof Error ? err.message : "Could not verify the image.",
           );
           return;
         }
@@ -1038,8 +1038,8 @@ export default function CommunityDetailScreen() {
       assertFlyerResolutionOk(w, h);
     } catch (err: unknown) {
       Alert.alert(
-        "フライヤー画像",
-        err instanceof Error ? err.message : "画像を確認できませんでした。",
+        "Flyer image",
+        err instanceof Error ? err.message : "Could not verify the image.",
       );
       return;
     }
@@ -1846,7 +1846,8 @@ export default function CommunityDetailScreen() {
             {announceBoard ? (
               <View style={styles.flyerAttachBlock}>
                 <Text style={styles.flyerQualityHint}>
-                  フライヤーは公式配布の画像をダウンロードしてからアップロードしてください（短辺720px未満は不可）。スクリーンショットは劣化しやすいのでご遠慮ください。
+                  Upload an official flyer from the promoter or venue (short edge must be at least 720px). Screenshots
+                  often look soft—prefer a downloaded asset.
                 </Text>
                 <Pressable
                   style={[styles.flyerAttachBtn, (uploadingFlyer || creatingThread) && styles.flyerAttachBtnDisabled]}
