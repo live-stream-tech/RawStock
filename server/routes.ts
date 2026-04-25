@@ -550,6 +550,148 @@ async function getOrCreateUserWallet(userId: number, executor: DbOrTx = db): Pro
   return created.id;
 }
 
+/** District definition: top 10 communities by members are "Official Station". */
+async function isOfficialStationCommunityId(
+  communityId: number,
+  executor: DbOrTx = db,
+): Promise<boolean> {
+  const rows = await executor
+    .select({ id: communities.id })
+    .from(communities)
+    .orderBy(desc(communities.members), asc(communities.id))
+    .limit(10);
+  return rows.some((r) => r.id === communityId);
+}
+
+async function recordCommunityAdRevenueOnApproval(
+  ad: InferSelectModel<typeof communityAds>,
+  community: InferSelectModel<typeof communities>,
+  executor: DbOrTx = db,
+): Promise<void> {
+  const ref = `community_ad:${ad.id}`;
+  const already = await executor
+    .select({ id: transactions.id })
+    .from(transactions)
+    .where(and(eq(transactions.referenceId, ref), eq(transactions.type, "banner_ad")))
+    .limit(1);
+  if (already.length > 0) return;
+
+  const total = Math.max(0, Number(ad.totalAmount) || 0);
+  if (total <= 0) return;
+
+  const sys = await getOrCreateSystemWallets();
+  const isOfficialStation = await isOfficialStationCommunityId(ad.communityId, executor);
+
+  // Official Station ads are operation-owned (100% PLATFORM).
+  if (isOfficialStation) {
+    await executor.insert(transactions).values({
+      walletId: sys.PLATFORM,
+      amount: total,
+      source: "paid_live",
+      grossAmount: total,
+      backRate: 1,
+      netAmount: total,
+      creatorId: null,
+      yearMonth: getYearMonth(),
+      type: "banner_ad",
+      status: "PENDING",
+      referenceId: ref,
+    } as typeof transactions.$inferInsert);
+    return;
+  }
+
+  // Default distribution for normal communities:
+  // event fund 10% / admin+mods 70% / platform 20%
+  const eventAmount = Math.floor(total * 0.1);
+  const adminModsAmount = Math.floor(total * 0.7);
+  const platformAmount = total - eventAmount - adminModsAmount;
+  const yearMonth = getYearMonth();
+
+  await executor.insert(transactions).values([
+    {
+      walletId: sys.EVENT_RESERVE,
+      amount: eventAmount,
+      source: "paid_live",
+      grossAmount: eventAmount,
+      backRate: 1,
+      netAmount: eventAmount,
+      creatorId: null,
+      yearMonth,
+      type: "banner_ad",
+      status: "PENDING",
+      referenceId: ref,
+    },
+    {
+      walletId: sys.PLATFORM,
+      amount: platformAmount,
+      source: "paid_live",
+      grossAmount: platformAmount,
+      backRate: 1,
+      netAmount: platformAmount,
+      creatorId: null,
+      yearMonth,
+      type: "banner_ad",
+      status: "PENDING",
+      referenceId: ref,
+    },
+  ] as typeof transactions.$inferInsert[]);
+
+  // Split 70% among owner + moderators by revenueDistribution (%) config.
+  const mods = await executor
+    .select({ userId: communityModerators.userId })
+    .from(communityModerators)
+    .where(eq(communityModerators.communityId, ad.communityId));
+  const eligibleUserIds = Array.from(
+    new Set([community.adminId, ...mods.map((m) => m.userId)].filter((v): v is number => Number(v) > 0)),
+  );
+  if (eligibleUserIds.length === 0 || adminModsAmount <= 0) return;
+
+  let distribution: Record<string, number> = {};
+  if (community.revenueDistribution) {
+    try {
+      distribution = JSON.parse(community.revenueDistribution);
+    } catch {
+      distribution = {};
+    }
+  }
+
+  const filtered = Object.fromEntries(
+    Object.entries(distribution).filter(([uid]) => eligibleUserIds.includes(Number(uid))),
+  ) as Record<string, number>;
+  if (Object.keys(filtered).length === 0) {
+    const equal = Math.floor(100 / eligibleUserIds.length);
+    eligibleUserIds.forEach((uid, i) => {
+      filtered[String(uid)] = i === eligibleUserIds.length - 1 ? 100 - equal * (eligibleUserIds.length - 1) : equal;
+    });
+  }
+  const weightTotal = Object.values(filtered).reduce((s, v) => s + Math.max(0, Number(v) || 0), 0) || 100;
+  let remain = adminModsAmount;
+  const entries = Object.entries(filtered);
+  for (let i = 0; i < entries.length; i++) {
+    const [uidStr, wRaw] = entries[i];
+    const uid = Number(uidStr);
+    if (!uid) continue;
+    const walletId = await getOrCreateUserWallet(uid, executor);
+    const share =
+      i === entries.length - 1 ? remain : Math.floor((adminModsAmount * Math.max(0, Number(wRaw) || 0)) / weightTotal);
+    remain -= share;
+    if (share <= 0) continue;
+    await executor.insert(transactions).values({
+      walletId,
+      amount: share,
+      source: "paid_live",
+      grossAmount: share,
+      backRate: 1,
+      netAmount: share,
+      creatorId: null,
+      yearMonth,
+      type: "banner_ad",
+      status: "PENDING",
+      referenceId: ref,
+    } as typeof transactions.$inferInsert);
+  }
+}
+
 type RevenueSource = "tip" | "paid_live" | "mentor";
 
 const DEFAULT_LEVEL_THRESHOLDS = [
@@ -3533,6 +3675,15 @@ export async function registerRoutes(app: Express): Promise<void> {
     const [community] = await db.select().from(communities).where(eq(communities.id, cid));
     if (!community) return res.status(404).json({ error: "Community not found" });
     if (community.adminId !== user.id) return res.status(403).json({ error: "Only the community owner can change this" });
+    const isOfficialStation = await isOfficialStationCommunityId(cid);
+    if (isOfficialStation) {
+      return res.json({
+        moderators: [],
+        distribution: {},
+        fixed: true,
+        revenueStructure: { operations: 100 },
+      });
+    }
     // モデレーター一覧と分配比率を返す
     const mods = await db
       .select({ userId: communityModerators.userId, displayName: users.displayName, profileImageUrl: users.profileImageUrl })
@@ -3567,6 +3718,9 @@ export async function registerRoutes(app: Express): Promise<void> {
     const [community] = await db.select().from(communities).where(eq(communities.id, cid));
     if (!community) return res.status(404).json({ error: "Community not found" });
     if (community.adminId !== user.id) return res.status(403).json({ error: "Only the community owner can change this" });
+    if (await isOfficialStationCommunityId(cid)) {
+      return res.status(400).json({ error: "Official Station ad revenue is fixed to operations (100%)" });
+    }
     const { distribution } = req.body as { distribution?: Record<string, number> };
     if (!distribution || typeof distribution !== "object") {
       return res.status(400).json({ error: "distribution object is required" });
@@ -3676,7 +3830,13 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (ad.status !== "moderator_approved") return res.status(400).json({ error: "The owner can approve after moderator approval" });
     const [community] = await db.select().from(communities).where(eq(communities.id, ad.communityId));
     if (!community || community.adminId !== user.id) return res.status(403).json({ error: "Only the owner can give final approval" });
-    await db.update(communityAds).set({ status: "approved", approvedByOwner: user.id } as Partial<InferSelectModel<typeof communityAds>>).where(eq(communityAds.id, id));
+    await db.transaction(async (tx) => {
+      await tx
+        .update(communityAds)
+        .set({ status: "approved", approvedByOwner: user.id } as Partial<InferSelectModel<typeof communityAds>>)
+        .where(eq(communityAds.id, id));
+      await recordCommunityAdRevenueOnApproval(ad, community, tx);
+    });
     res.json({ ok: true });
   });
 

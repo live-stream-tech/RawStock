@@ -6,10 +6,9 @@ import {
   StyleSheet,
   Pressable,
   TextInput,
-  FlatList,
   ActivityIndicator,
 } from "react-native";
-import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
+import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,6 +18,7 @@ import { C } from "@/constants/colors";
 import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/layout";
 import { MetallicLine } from "@/components/MetallicLine";
 import { AppLogo } from "@/components/AppLogo";
+import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { useQuery } from "@tanstack/react-query";
 
 type CommunityRow = {
@@ -117,20 +117,20 @@ export default function CommunityScreen() {
   const topInset = getTabTopInset(insets);
   const bottomInset = getTabBottomInset();
   const [search, setSearch] = useState("");
+  const [officialSort, setOfficialSort] = useState<"members" | "active" | "newest">("members");
 
   const { data: apiCommunities = [], isLoading: communitiesLoading } = useQuery<any[]>({
     queryKey: ["/api/communities"],
   });
 
-  const { sortedOfficial, sortedRest } = useMemo(() => {
-    const sorted = [...apiCommunities].sort((a, b) => {
-      const o = Number(!!b.isOfficial) - Number(!!a.isOfficial);
-      if (o !== 0) return o;
-      return (b.members ?? 0) - (a.members ?? 0);
-    });
+  const { officialBase, userBase } = useMemo(() => {
+    // District definition:
+    // - Official Station = top 10 communities (legacy official bucket uplift)
+    // - Community = user-created communities (the rest)
+    const sorted = [...apiCommunities].sort((a, b) => (b.members ?? 0) - (a.members ?? 0));
     return {
-      sortedOfficial: sorted.filter((c) => Boolean(c.isOfficial)),
-      sortedRest: sorted.filter((c) => !Boolean(c.isOfficial)),
+      officialBase: sorted.slice(0, 10),
+      userBase: sorted.slice(10),
     };
   }, [apiCommunities]);
 
@@ -142,13 +142,24 @@ export default function CommunityScreen() {
 
   const query = search.trim().toLowerCase();
   const filteredOfficial = useMemo(() => {
-    if (!query) return sortedOfficial;
-    return sortedOfficial.filter((c) => c.name.toLowerCase().includes(query));
-  }, [sortedOfficial, query]);
-  const filteredRest = useMemo(() => {
-    if (!query) return sortedRest;
-    return sortedRest.filter((c) => c.name.toLowerCase().includes(query));
-  }, [sortedRest, query]);
+    const base = query ? officialBase.filter((c) => c.name.toLowerCase().includes(query)) : officialBase;
+    if (officialSort === "active") {
+      return [...base].sort((a, b) => {
+        const onlineDiff = Number(Boolean(b.online)) - Number(Boolean(a.online));
+        if (onlineDiff !== 0) return onlineDiff;
+        return (b.members ?? 0) - (a.members ?? 0);
+      });
+    }
+    if (officialSort === "newest") {
+      return [...base].sort((a, b) => (b.id ?? 0) - (a.id ?? 0));
+    }
+    return [...base].sort((a, b) => (b.members ?? 0) - (a.members ?? 0));
+  }, [officialBase, officialSort, query]);
+  const filteredUser = useMemo(() => {
+    if (!query) return userBase;
+    return userBase.filter((c) => c.name.toLowerCase().includes(query));
+  }, [userBase, query]);
+  const officialLeadId = filteredOfficial[0]?.id ?? officialBase[0]?.id ?? null;
 
   return (
     <View style={[styles.container, { paddingBottom: bottomInset }]}>
@@ -177,75 +188,88 @@ export default function CommunityScreen() {
         <View style={styles.section}>
           <View style={[styles.sectionHeader, styles.sectionHeaderFirst]}>
             <View style={styles.sectionAccent} />
-            <Text style={styles.sectionTitle}>Official list</Text>
+            <Text style={styles.sectionTitle}>Official Station</Text>
+          </View>
+          <View style={styles.stationLinksRow}>
+            <Pressable style={styles.stationLinkBtn} onPress={() => router.push("/live-announcements" as any)}>
+              <Ionicons name="megaphone-outline" size={16} color={C.accent} />
+              <Text style={styles.stationLinkText}>Live announcements</Text>
+            </Pressable>
+            <Pressable
+              style={styles.stationLinkBtn}
+              onPress={() =>
+                officialLeadId != null ? router.push(`/jukebox/${officialLeadId}` as any) : router.push("/community" as any)
+              }
+            >
+              <Ionicons name="musical-notes-outline" size={16} color={C.accent} />
+              <Text style={styles.stationLinkText}>Jukebox</Text>
+            </Pressable>
+          </View>
+          <View style={styles.sortRow}>
+            {([
+              ["members", "By Members"],
+              ["active", "By Active"],
+              ["newest", "By Newest"],
+            ] as const).map(([key, label]) => (
+              <Pressable
+                key={key}
+                style={[styles.sortPill, officialSort === key && styles.sortPillActive]}
+                onPress={() => setOfficialSort(key)}
+              >
+                <Text style={[styles.sortPillText, officialSort === key && styles.sortPillTextActive]}>{label}</Text>
+              </Pressable>
+            ))}
           </View>
           {communitiesLoading ? (
             <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
           ) : filteredOfficial.length === 0 ? (
             <Text style={styles.emptyInline}>
-              {query ? "No official communities match your search" : "No official communities yet"}
+              {query ? "No official stations match your search" : "No official stations yet"}
             </Text>
           ) : (
-            <FlatList
-              data={filteredOfficial}
-              keyExtractor={(item) => String(item.id)}
-              horizontal
-              showsHorizontalScrollIndicator={scrollShowsHorizontal}
-              contentContainerStyle={styles.hList}
-              renderItem={({ item, index }) => <CommunityRankCard item={item} index={index} />}
-            />
+            <HorizontalScroll contentContainerStyle={styles.hList}>
+              {filteredOfficial.map((item, index) => (
+                <CommunityRankCard key={item.id} item={item} index={index} />
+              ))}
+            </HorizontalScroll>
           )}
         </View>
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionAccent} />
-            <Text style={styles.sectionTitle}>Communities</Text>
-          </View>
-          {communitiesLoading ? (
-            <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
-          ) : filteredRest.length === 0 ? (
-            <Text style={styles.emptyInline}>
-              {query ? "No communities match your search" : "No communities yet"}
-            </Text>
-          ) : (
-            <FlatList
-              data={filteredRest}
-              keyExtractor={(item) => String(item.id)}
-              horizontal
-              showsHorizontalScrollIndicator={scrollShowsHorizontal}
-              contentContainerStyle={styles.hList}
-              renderItem={({ item, index }) => <CommunityRankCard item={item} index={index} />}
-            />
-          )}
-        </View>
-
-        <View style={styles.section}>
-          <Pressable style={styles.liveAnnounceLink} onPress={() => router.push("/live-announcements" as any)}>
-            <Ionicons name="megaphone-outline" size={18} color={C.accent} />
-            <Text style={styles.liveAnnounceLinkText}>Browse live announcements</Text>
-            <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
-          </Pressable>
-        </View>
-
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionAccent} />
-            <Text style={styles.sectionTitle}>Jukebox chart</Text>
+            <Text style={styles.sectionTitle}>Paid Video Ranking</Text>
           </View>
           {rankedLoading ? (
             <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
           ) : purchaseData.length === 0 ? (
-            <Text style={styles.emptyInline}>No chart entries yet</Text>
+            <Text style={styles.emptyInline}>No ranked paid videos yet</Text>
           ) : (
-            <FlatList
-              data={purchaseData}
-              keyExtractor={(item) => String(item.id)}
-              horizontal
-              showsHorizontalScrollIndicator={scrollShowsHorizontal}
-              contentContainerStyle={styles.hList}
-              renderItem={({ item }) => <PurchaseRankCard item={item} />}
-            />
+            <HorizontalScroll contentContainerStyle={styles.hList}>
+              {purchaseData.map((item) => (
+                <PurchaseRankCard key={item.id} item={item} />
+              ))}
+            </HorizontalScroll>
+          )}
+        </View>
+
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionAccent} />
+            <Text style={styles.sectionTitle}>Community</Text>
+          </View>
+          {communitiesLoading ? (
+            <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
+          ) : filteredUser.length === 0 ? (
+            <Text style={styles.emptyInline}>
+              {query ? "No communities match your search" : "No communities yet"}
+            </Text>
+          ) : (
+            <HorizontalScroll contentContainerStyle={styles.hList}>
+              {filteredUser.map((item, index) => (
+                <CommunityRankCard key={item.id} item={item} index={index} />
+              ))}
+            </HorizontalScroll>
           )}
         </View>
 
@@ -257,6 +281,40 @@ export default function CommunityScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
+  stationLinksRow: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 16,
+    marginBottom: 10,
+  },
+  stationLinkBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface,
+  },
+  stationLinkText: { color: C.textSec, fontSize: 12, fontWeight: "600" },
+  sortRow: { flexDirection: "row", gap: 8, paddingHorizontal: 16, marginBottom: 10 },
+  sortPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: C.surface2,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  sortPillActive: {
+    backgroundColor: C.accent,
+    borderColor: C.accent,
+  },
+  sortPillText: { color: C.textSec, fontSize: 11, fontWeight: "700" },
+  sortPillTextActive: { color: "#000" },
   liveAnnounceLink: {
     flexDirection: "row",
     alignItems: "center",
