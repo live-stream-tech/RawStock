@@ -503,10 +503,14 @@ export default function LiveScreen() {
   const [liveSearch, setLiveSearch] = useState("");
   const [creatorFilter, setCreatorFilter] = useState<"WEEKLY" | "MONTHLY" | "ALL">("MONTHLY");
 
-  const { data: liveStreams = [] } = useQuery<any[]>({ queryKey: ["/api/live-streams"] });
+  const { data: liveStreams = [] } = useQuery<any[]>({
+    queryKey: ["/api/live-streams"],
+    refetchInterval: 5000,
+  });
   const { data: bookingSessions = [] } = useQuery<any[]>({ queryKey: ["/api/booking-sessions"] });
-  /** WEEKLY/MONTHLY use overall rank; ALL uses paid-live rank (server monthly aggregate). */
-  const liverRankingType = creatorFilter === "ALL" ? "paid_live" : "overall";
+  /** WEEKLY = heat/views momentum; MONTHLY = composite rank for this month; ALL = paid-live sales rank. */
+  const liverRankingType =
+    creatorFilter === "ALL" ? "paid_live" : creatorFilter === "WEEKLY" ? "weekly" : "overall";
   const { data: liverRankingPayload } = useQuery<{ rows?: any[] }>({
     queryKey: [`/api/livers?rankingType=${liverRankingType}`],
   });
@@ -644,7 +648,11 @@ export default function LiveScreen() {
               </View>
             </View>
             <Text style={{ color: C.textMuted, fontSize: 10, fontFamily: F.mono, paddingHorizontal: 16, marginBottom: 12 }}>
-              Score = Revenue×0.5 + Views×0.3 + Followers×0.2 → Payout 70–95%
+              {creatorFilter === "WEEKLY"
+                ? "WEEK: ranked by heat, views, then revenue (momentum)."
+                : creatorFilter === "ALL"
+                  ? "ALL: paid-live ticket sales rank for this month."
+                  : "MONTH: monthly composite rank (satisfaction, streams, tips)."}
             </Text>
             <HorizontalScroll contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4, gap: 12 }}>
               {liverRankCards.length === 0 ? (

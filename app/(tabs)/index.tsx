@@ -404,7 +404,10 @@ export default function HomeScreen() {
   const { pulse: jukePulse } = useJukeboxPulse();
 
   const { data: apiVideos = [] } = useQuery<any[]>({ queryKey: ["/api/videos"] });
-  const { data: apiLive = [] } = useQuery<any[]>({ queryKey: ["/api/live-streams"] });
+  const { data: apiLive = [] } = useQuery<any[]>({
+    queryKey: ["/api/live-streams"],
+    refetchInterval: 5000,
+  });
   const { data: communities = [] } = useQuery<any[]>({ queryKey: ["/api/communities"] });
   const { data: liveAnnouncements = [] } = useQuery<any[]>({
     queryKey: ["/api/community-announcements/feed", "top"],

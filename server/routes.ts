@@ -5022,13 +5022,53 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   // ── Live Streams ──────────────────────────────────────────────────
+  /** On-air list: Cloudflare `streams` (WHIP/WHEP) plus legacy `live_streams` rows without id collision. */
   app.get("/api/live-streams", async (_req: Request, res: Response) => {
-    const rows = await db
+    const PLACEHOLDER_THUMB = "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&h=225&fit=crop";
+    const cfRows = await db
+      .select()
+      .from(streams)
+      .where(eq(streams.isLive, true))
+      .orderBy(desc(streams.currentViewers));
+    const cfIds = new Set(cfRows.map((r) => r.id));
+    const out: Record<string, unknown>[] = [];
+    for (const s of cfRows) {
+      let creator = "Host";
+      let avatar = "";
+      if (s.hostUserId != null) {
+        const [u] = await db.select().from(users).where(eq(users.id, s.hostUserId));
+        if (u) {
+          creator = u.displayName ?? creator;
+          avatar = u.profileImageUrl ?? "";
+        }
+      }
+      const thumb = (avatar && String(avatar).trim()) || PLACEHOLDER_THUMB;
+      out.push({
+        id: s.id,
+        title: (s.title && String(s.title).trim()) || "Live",
+        creator,
+        community: "Live",
+        viewers: s.currentViewers,
+        thumbnail: thumb,
+        avatar: avatar || thumb,
+        timeAgo: "LIVE",
+        isLive: true,
+        hostUserId: s.hostUserId ?? null,
+        visibility: s.visibility ?? "public",
+        source: "cloudflare",
+      });
+    }
+    const legacyRows = await db
       .select()
       .from(liveStreams)
       .where(eq(liveStreams.isLive, true))
       .orderBy(desc(liveStreams.viewers));
-    res.json(rows);
+    for (const l of legacyRows) {
+      if (cfIds.has(l.id)) continue;
+      out.push({ ...l, hostUserId: null, source: "legacy" });
+    }
+    out.sort((a, b) => Number(b.viewers ?? 0) - Number(a.viewers ?? 0));
+    res.json(out);
   });
 
   // ── Creators ──────────────────────────────────────────────────────
@@ -7271,7 +7311,19 @@ export async function registerRoutes(app: Express): Promise<void> {
     const rankingType = queryStr(req, "rankingType") || "overall";
     const month = queryStr(req, "month") || getYearMonth();
     let rows = await db.select().from(creators).orderBy(asc(creators.rank));
-    if (rankingType === "overall" || rankingType === "paid_live") {
+    if (rankingType === "weekly") {
+      // No calendar-week aggregates yet — surface a distinct "momentum" board from monthly composite ranks.
+      rows = [...rows].sort((a, b) => {
+        const heatDiff = Number(b.heatScore ?? 0) - Number(a.heatScore ?? 0);
+        if (heatDiff !== 0) return heatDiff;
+        const viewsDiff = Number(b.totalViews ?? 0) - Number(a.totalViews ?? 0);
+        if (viewsDiff !== 0) return viewsDiff;
+        const revDiff = Number(b.revenue ?? 0) - Number(a.revenue ?? 0);
+        if (revDiff !== 0) return revDiff;
+        return a.id - b.id;
+      });
+      rows = rows.map((r, i) => ({ ...r, rank: i + 1 }));
+    } else if (rankingType === "overall" || rankingType === "paid_live") {
       const scores = await db
         .select()
         .from(creatorMonthlyScores)

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -22,6 +22,7 @@ import {
   liveAuthHeaders,
 } from "@/lib/live/streamApi";
 import { acquireBroadcastMediaStream } from "@/lib/live/webBroadcastMedia";
+import { FaceFilterWeb, type FaceFilterWebHandle } from "@/components/web/FaceFilter";
 import type { LiveStreamVisibility } from "@/lib/live/streamApi";
 import { webBroadcastNeedsUserGestureForCamera } from "@/lib/pwa-standalone";
 import { alertDestructiveConfirm, alertMessage } from "@/lib/alertCompat";
@@ -73,13 +74,10 @@ function BroadcastWeb() {
       ? parseInt(params.ticketPrice, 10)
       : NaN;
 
-  const videoRef = useRef<any>(null);
+  const faceFilterRef = useRef<FaceFilterWebHandle | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const rawStreamRef = useRef<MediaStream | null>(null);
-  const processorVideoRef = useRef<HTMLVideoElement | null>(null);
-  const processorCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const processorRafRef = useRef<number | null>(null);
 
   const [phase, setPhase] = useState<"idle" | "creating" | "ready" | "starting" | "live" | "stopping">("idle");
   const [streamId, setStreamId] = useState<number | null>(null);
@@ -88,25 +86,39 @@ function BroadcastWeb() {
   const [elapsed, setElapsed] = useState(0);
   const [cameraError, setCameraError] = useState(false);
   const [webPreviewLoading, setWebPreviewLoading] = useState(false);
+  /** Jeeliz output (canvas + mic) when ready; null until FaceFilter reports. */
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  /** Raw getUserMedia stream passed into FaceFilter. */
+  const [jeelizSourceStream, setJeelizSourceStream] = useState<MediaStream | null>(null);
   const [lastLiveError, setLastLiveError] = useState<string | null>(null);
-  const [beautyEnabled, setBeautyEnabled] = useState(true);
-  const [beautyStrength, setBeautyStrength] = useState<number>(70);
   const blinkAnim = useRef(new Animated.Value(1)).current;
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const viewersPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const filterSettingsRef = useRef({ enabled: true, strength: 70 });
 
   const webNeedsCameraTap = webBroadcastNeedsUserGestureForCamera();
 
-  useEffect(() => {
-    filterSettingsRef.current = { enabled: beautyEnabled, strength: beautyStrength };
-  }, [beautyEnabled, beautyStrength]);
+  const onJeelizOutputStream = useCallback((stream: MediaStream | null) => {
+    if (stream) {
+      localStreamRef.current = stream;
+      setCameraStream(stream);
+      setCameraError(false);
+      setPhase("ready");
+    } else {
+      localStreamRef.current = null;
+      setCameraStream(null);
+    }
+  }, []);
+
+  const onJeelizError = useCallback((message: string) => {
+    setCameraError(true);
+    setLastLiveError(message);
+    setWebPreviewLoading(false);
+  }, []);
 
   useEffect(() => {
     if (!webNeedsCameraTap) void startWebCamera();
     return () => {
-      cleanup();
+      void cleanup();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -153,95 +165,14 @@ function BroadcastWeb() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- blinkAnim is stable ref-backed Animated.Value
   }, [phase, streamId]);
 
-  const bindWebPreview = async (stream: MediaStream) => {
-    localStreamRef.current = stream;
-    const el = videoRef.current as HTMLVideoElement | null;
-    if (el) {
-      el.srcObject = stream;
-      try {
-        await el.play();
-      } catch {
-        /* PWA/iOS may reject autoplay even for muted preview. */
-      }
-    }
-    setCameraError(false);
-    setPhase("ready");
-  };
-
-  const applyBeautyFilterToStream = async (source: MediaStream): Promise<MediaStream> => {
-    try {
-      const videoTrack = source.getVideoTracks()[0];
-      if (!videoTrack) return source;
-
-      const hiddenVideo = document.createElement("video");
-      hiddenVideo.muted = true;
-      hiddenVideo.playsInline = true;
-      hiddenVideo.autoplay = true;
-      hiddenVideo.srcObject = new MediaStream([videoTrack]);
-      hiddenVideo.style.position = "fixed";
-      hiddenVideo.style.opacity = "0";
-      hiddenVideo.style.pointerEvents = "none";
-      hiddenVideo.style.width = "1px";
-      hiddenVideo.style.height = "1px";
-      hiddenVideo.style.left = "-9999px";
-      hiddenVideo.style.top = "-9999px";
-      document.body.appendChild(hiddenVideo);
-
-      const canvas = document.createElement("canvas");
-      const context = canvas.getContext("2d");
-      if (!context) {
-        hiddenVideo.remove();
-        return source;
-      }
-
-      processorVideoRef.current = hiddenVideo;
-      processorCanvasRef.current = canvas;
-
-      await hiddenVideo.play().catch(() => undefined);
-
-      const draw = () => {
-        const vw = hiddenVideo.videoWidth || 1280;
-        const vh = hiddenVideo.videoHeight || 720;
-        if (canvas.width !== vw || canvas.height !== vh) {
-          canvas.width = vw;
-          canvas.height = vh;
-        }
-        const { enabled, strength } = filterSettingsRef.current;
-        const amount = Math.max(0, Math.min(100, strength)) / 100;
-        if (enabled) {
-          const brightness = 1 + 0.24 * amount;
-          const contrast = 1 + 0.15 * amount;
-          const saturate = 1 + 0.12 * amount;
-          const blurPx = 0.25 + 1.45 * amount;
-          context.filter = `brightness(${brightness}) contrast(${contrast}) saturate(${saturate}) blur(${blurPx}px)`;
-        } else {
-          context.filter = "none";
-        }
-        context.drawImage(hiddenVideo, 0, 0, canvas.width, canvas.height);
-        processorRafRef.current = requestAnimationFrame(draw);
-      };
-      draw();
-
-      const filtered = canvas.captureStream(30);
-      source.getAudioTracks().forEach((track) => filtered.addTrack(track));
-      return filtered;
-    } catch {
-      return source;
-    }
-  };
-
-  useEffect(() => {
-    if (!cameraStream) return;
-    void bindWebPreview(cameraStream);
-  }, [cameraStream]);
-
   const startWebCamera = async () => {
     setWebPreviewLoading(true);
+    setCameraError(false);
+    setLastLiveError(null);
     try {
       const raw = await acquireBroadcastMediaStream();
       rawStreamRef.current = raw;
-      const filtered = await applyBeautyFilterToStream(raw);
-      setCameraStream(filtered);
+      setJeelizSourceStream(raw);
     } catch {
       setCameraError(true);
     } finally {
@@ -249,7 +180,13 @@ function BroadcastWeb() {
     }
   };
 
-  const cleanup = () => {
+  const cleanup = async () => {
+    try {
+      await faceFilterRef.current?.destroy?.();
+    } catch {
+      /* ignore */
+    }
+    setJeelizSourceStream(null);
     if (pcRef.current) {
       pcRef.current.close();
       pcRef.current = null;
@@ -264,23 +201,7 @@ function BroadcastWeb() {
       });
       rawStreamRef.current = null;
     }
-    if (processorRafRef.current != null) {
-      cancelAnimationFrame(processorRafRef.current);
-      processorRafRef.current = null;
-    }
-    if (processorVideoRef.current) {
-      try {
-        processorVideoRef.current.pause();
-        processorVideoRef.current.srcObject = null;
-      } catch {
-        /* ignore */
-      }
-      processorVideoRef.current.remove();
-      processorVideoRef.current = null;
-    }
-    processorCanvasRef.current = null;
     setCameraStream(null);
-    if (videoRef.current) videoRef.current.srcObject = null;
   };
 
   const handleGoLive = async () => {
@@ -298,14 +219,16 @@ function BroadcastWeb() {
       try {
         const raw = await acquireBroadcastMediaStream();
         rawStreamRef.current = raw;
-        const filtered = await applyBeautyFilterToStream(raw);
-        setCameraStream(filtered);
-        await bindWebPreview(filtered);
+        setJeelizSourceStream(raw);
       } catch {
         const msg = t.cameraPermissionPWA;
         alertMessage(t.alertTitleLive, msg);
         setLastLiveError(msg);
         return;
+      }
+      const deadline = Date.now() + 20000;
+      while (!localStreamRef.current && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 80));
       }
     }
     if (!localStreamRef.current) {
@@ -368,7 +291,7 @@ function BroadcastWeb() {
         } catch {
           /* ignore */
         }
-        cleanup();
+        await cleanup();
         setPhase("idle");
         router.back();
       },
@@ -395,23 +318,16 @@ function BroadcastWeb() {
     cameraError ||
     !user ||
     !title.trim() ||
-    !localStreamRef.current;
+    !cameraStream;
 
   return (
     <View style={styles.container}>
       <View style={styles.cameraArea}>
-        <video
-          ref={videoRef}
-          autoPlay
-          muted
-          playsInline
-          style={{
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            transform: "scaleX(-1)",
-            display: "block",
-          }}
+        <FaceFilterWeb
+          ref={faceFilterRef}
+          sourceStream={jeelizSourceStream}
+          onOutputStream={onJeelizOutputStream}
+          onError={onJeelizError}
         />
 
         {cameraError && (
@@ -425,7 +341,7 @@ function BroadcastWeb() {
           </View>
         )}
 
-        {webNeedsCameraTap && !cameraStream && !cameraError && (
+        {webNeedsCameraTap && !jeelizSourceStream && !cameraError && (
           <View style={styles.pwaCameraGate}>
             {webPreviewLoading ? (
               <ActivityIndicator color="#fff" size="large" />
@@ -448,7 +364,7 @@ function BroadcastWeb() {
             onPress={() => {
               if (isLive) handleStop();
               else {
-                cleanup();
+                void cleanup();
                 router.back();
               }
             }}
@@ -484,44 +400,6 @@ function BroadcastWeb() {
       </View>
 
       <View style={[styles.controls, { paddingBottom: bottomInset + 12 }]}>
-        {!isLive && (
-          <View style={styles.beautyPanel}>
-            <View style={styles.beautyHeaderRow}>
-              <Text style={styles.beautyTitle}>Face Filter</Text>
-              <Pressable
-                style={[styles.beautyToggle, beautyEnabled && styles.beautyToggleActive]}
-                onPress={() => setBeautyEnabled((v) => !v)}
-              >
-                <Text style={[styles.beautyToggleText, beautyEnabled && styles.beautyToggleTextActive]}>
-                  {beautyEnabled ? "ON" : "OFF"}
-                </Text>
-              </Pressable>
-            </View>
-            <View style={styles.beautyStrengthRow}>
-              {[
-                { label: "Natural", value: 55 },
-                { label: "Strong", value: 78 },
-                { label: "Ultra", value: 95 },
-              ].map((preset) => (
-                <Pressable
-                  key={preset.label}
-                  style={[styles.strengthChip, beautyStrength === preset.value && styles.strengthChipActive]}
-                  onPress={() => setBeautyStrength(preset.value)}
-                >
-                  <Text
-                    style={[
-                      styles.strengthChipText,
-                      beautyStrength === preset.value && styles.strengthChipTextActive,
-                    ]}
-                  >
-                    {preset.label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        )}
-
         {!isLive && (
           <View style={styles.titleRow}>
             <Ionicons name="create-outline" size={16} color={C.textMuted} style={{ marginRight: 8 }} />
@@ -576,7 +454,7 @@ function BroadcastWeb() {
                 <>
                   <View style={styles.goLiveDot} />
                   <Text style={styles.goLiveBtnText}>
-                    {webNeedsCameraTap && !cameraStream ? t.allowCameraFirst : t.goLive}
+                    {webNeedsCameraTap && !jeelizSourceStream ? t.allowCameraFirst : t.goLive}
                   </Text>
                 </>
               )}
@@ -704,53 +582,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: C.border,
   },
-  beautyPanel: {
-    backgroundColor: C.surface,
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: C.border,
-    gap: 10,
-  },
-  beautyHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  beautyTitle: { color: C.text, fontSize: 13, fontWeight: "700" },
-  beautyToggle: {
-    backgroundColor: C.surface2,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderWidth: 1,
-    borderColor: C.border,
-  },
-  beautyToggleActive: {
-    backgroundColor: C.accent + "22",
-    borderColor: C.accent,
-  },
-  beautyToggleText: { color: C.textSec, fontSize: 12, fontWeight: "700" },
-  beautyToggleTextActive: { color: C.accent },
-  beautyStrengthRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  strengthChip: {
-    flex: 1,
-    alignItems: "center",
-    borderRadius: 10,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: C.border,
-    backgroundColor: C.surface2,
-  },
-  strengthChipActive: {
-    borderColor: C.accent,
-    backgroundColor: C.accent + "22",
-  },
-  strengthChipText: { color: C.textSec, fontSize: 12, fontWeight: "700" },
-  strengthChipTextActive: { color: C.accent },
   titleRow: {
     flexDirection: "row",
     alignItems: "center",

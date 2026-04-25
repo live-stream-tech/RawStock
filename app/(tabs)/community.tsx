@@ -105,7 +105,7 @@ function CommunityRankCard({
   );
 }
 
-function PurchaseRankCard({ item }: { item: any }) {
+function PurchaseRankCard({ item, rank }: { item: any; rank: number }) {
   return (
     <Pressable
       style={styles.purchaseCard}
@@ -113,7 +113,7 @@ function PurchaseRankCard({ item }: { item: any }) {
     >
       <Image source={{ uri: item.thumbnail }} style={styles.purchaseCardImage} contentFit="cover" />
       <View style={styles.purchaseCardOverlay} />
-      {item.rank && <RankBadge rank={item.rank} />}
+      <RankBadge rank={rank} />
       {item.price && (
         <View style={styles.priceChip}>
           <Text style={styles.priceChipText}>🎟{item.price.toLocaleString()}</Text>
@@ -186,9 +186,28 @@ export default function CommunityScreen() {
   const stationMembers = officialStationStats?.uniqueMemberCount ?? 0;
   const sortedRankingVideos = useMemo(() => {
     const arr = [...purchaseData];
-    if (videoSort === "views") return arr.sort((a, b) => (b.views ?? 0) - (a.views ?? 0));
-    if (videoSort === "newest") return arr.sort((a, b) => (b.id ?? 0) - (a.id ?? 0));
-    return arr.sort((a, b) => (b.price ?? 0) - (a.price ?? 0));
+    const ts = (v: any) => (v.createdAt ? new Date(v.createdAt).getTime() : 0);
+    if (videoSort === "views") {
+      return arr.sort((a, b) => {
+        const d = (b.views ?? 0) - (a.views ?? 0);
+        if (d !== 0) return d;
+        return ts(b) - ts(a);
+      });
+    }
+    if (videoSort === "newest") {
+      return arr.sort((a, b) => {
+        const d = ts(b) - ts(a);
+        if (d !== 0) return d;
+        return (b.id ?? 0) - (a.id ?? 0);
+      });
+    }
+    return arr.sort((a, b) => {
+      const d = (b.price ?? 0) - (a.price ?? 0);
+      if (d !== 0) return d;
+      const vd = (b.views ?? 0) - (a.views ?? 0);
+      if (vd !== 0) return vd;
+      return ts(b) - ts(a);
+    });
   }, [purchaseData, videoSort]);
 
   return (
@@ -340,8 +359,8 @@ export default function CommunityScreen() {
               <Text style={styles.emptyInline}>No ranked paid videos yet</Text>
             ) : (
               <HorizontalScroll contentContainerStyle={styles.hList}>
-                {sortedRankingVideos.map((item) => (
-                  <PurchaseRankCard key={item.id} item={item} />
+                {sortedRankingVideos.map((item, index) => (
+                  <PurchaseRankCard key={item.id} item={item} rank={index + 1} />
                 ))}
               </HorizontalScroll>
             )}
