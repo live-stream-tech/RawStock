@@ -888,8 +888,8 @@ export default function CommunityDetailScreen() {
   const timelineVideos = useMemo(() => {
     const videos = apiVideos as any[];
     if (isOfficialCommunity) {
+      const selfId = Number(communityId);
       const category = String(apiCommunity?.category ?? "").trim().toLowerCase();
-      if (!category) return [];
       const childIds = new Set(
         (allCommunities as any[])
           .filter((c) => !c.isOfficial)
@@ -900,9 +900,11 @@ export default function CommunityDetailScreen() {
           .map((c) => Number(c.id))
           .filter((n) => Number.isFinite(n) && n > 0),
       );
+      // Official Station direct posts must always be included.
+      // Child-community aggregation remains additive when available.
       return videos
         .filter((v) => v.visibility === "community")
-        .filter((v) => childIds.has(Number(v.communityId)))
+        .filter((v) => Number(v.communityId) === selfId || childIds.has(Number(v.communityId)))
         .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
     }
     const name = apiCommunity?.name;
@@ -911,8 +913,8 @@ export default function CommunityDetailScreen() {
   }, [apiVideos, apiCommunity?.name, apiCommunity?.category, isOfficialCommunity, allCommunities]);
   const communityRankedVideos = useMemo(() => {
     if (isOfficialCommunity) {
+      const selfId = Number(communityId);
       const category = String(apiCommunity?.category ?? "").trim().toLowerCase();
-      if (!category) return [];
       const childIds = new Set(
         (allCommunities as any[])
           .filter((c) => !c.isOfficial)
@@ -924,7 +926,7 @@ export default function CommunityDetailScreen() {
           .filter((n) => Number.isFinite(n) && n > 0),
       );
       const rankedByChildren = (rankedVideos as any[])
-        .filter((v) => childIds.has(Number(v.communityId)))
+        .filter((v) => Number(v.communityId) === selfId || childIds.has(Number(v.communityId)))
         .sort((a, b) => (b.views ?? 0) - (a.views ?? 0));
       if (rankedByChildren.length > 0) return rankedByChildren;
       return [...timelineVideos].sort((a, b) => (b.views ?? 0) - (a.views ?? 0));
@@ -1203,6 +1205,7 @@ export default function CommunityDetailScreen() {
 
   const community = apiCommunity;
   const ad = getAd(community.name ?? "");
+  const compactOfficialBoard = isOfficialCommunity && activeTab === "Board";
 
   return (
     <View style={[styles.container, { paddingBottom: bottomInset }]}>
@@ -1218,6 +1221,7 @@ export default function CommunityDetailScreen() {
           </View>
         </View>
 
+        {!compactOfficialBoard && (
         <View style={styles.promoRow}>
           <Pressable style={[styles.adBanner, styles.adBannerFlex, { backgroundColor: ad.bg }]}>
             <View style={styles.adPrBadge}>
@@ -1243,7 +1247,9 @@ export default function CommunityDetailScreen() {
             <Text style={styles.placeAdSideText}>Place{"\n"}Ad</Text>
           </Pressable>
         </View>
+        )}
 
+        {!compactOfficialBoard && (
         <View style={[styles.profileSection, styles.profileSectionTight]}>
           <View style={styles.profileRow}>
             <View style={styles.communityAvatarContainer}>
@@ -1296,8 +1302,6 @@ export default function CommunityDetailScreen() {
             ) : null}
           </View>
 
-          <Text style={styles.description}>Support community for {community.name} — connect through live streams and photo sessions</Text>
-
           <View style={styles.statsRow}>
             <Text style={styles.statText}>
               <Text style={styles.statNumber}>
@@ -1311,7 +1315,7 @@ export default function CommunityDetailScreen() {
               {" "}creators
             </Text>
           </View>
-          {isOfficialCommunity ? (
+          {isOfficialCommunity && activeTab !== "Board" ? (
             <View style={styles.childCommunitiesBox}>
               <View style={styles.childCommunitiesHead}>
                 <Ionicons name="layers-outline" size={13} color={C.accent} />
@@ -1332,7 +1336,7 @@ export default function CommunityDetailScreen() {
                 ))
               )}
             </View>
-          ) : (
+          ) : !isOfficialCommunity ? (
             <Pressable
               style={styles.membersLink}
               onPress={() => router.push(`/community/members/${communityId}`)}
@@ -1342,11 +1346,19 @@ export default function CommunityDetailScreen() {
               <Text style={styles.membersLinkText}>View all members</Text>
               <Ionicons name="chevron-forward" size={13} color={C.textMuted} />
             </Pressable>
+          ) : (
+            <View style={styles.stationBoardHintRow}>
+              <Ionicons name="layers-outline" size={12} color={C.textMuted} />
+              <Text style={styles.stationBoardHintText}>Community list is available in the Ranking tab.</Text>
+            </View>
           )}
 
         </View>
+        )}
 
-        <EmbeddedJukebox communityId={communityId} />
+        {!compactOfficialBoard && (
+          <EmbeddedJukebox communityId={communityId} />
+        )}
 
         <View style={styles.tabRow}>
           {tabs.map((tab) => (
@@ -1515,21 +1527,6 @@ export default function CommunityDetailScreen() {
 
         {activeTab === "Board" && (
           <View style={styles.boardList}>
-            <View style={styles.boardAnnounceIntro}>
-              <View style={styles.boardAnnounceIntroIcon}>
-                <Ionicons name="chatbubbles-outline" size={22} color={C.accent} />
-              </View>
-              <View style={{ flex: 1, gap: 4 }}>
-                <Text style={styles.boardAnnounceIntroTitle}>
-                  {isOfficialCommunity ? "Official updates and feedback" : "Community conversations"}
-                </Text>
-                <Text style={styles.boardAnnounceIntroSub}>
-                  {isOfficialCommunity
-                    ? "Check live updates and share requests through the feedback box."
-                    : "Start threads, reply like chat, and keep discussions active in one place."}
-                </Text>
-              </View>
-            </View>
             <View style={styles.boardHeader}>
               <Text style={styles.boardSectionTitle}>
                 {isOfficialCommunity ? "Announcements & Feedback" : "Threads"}
@@ -1729,17 +1726,30 @@ export default function CommunityDetailScreen() {
               </View>
             )}
             {isOfficialCommunity && canPostToBoard ? (
-              <Pressable
-                style={styles.feedbackBottomLink}
-                onPress={() => {
-                  if (!requireAuth("Create feedback")) return;
-                  openFeedbackComposer();
-                }}
-                accessibilityLabel="Open feedback box"
-              >
-                <Ionicons name="chatbox-ellipses-outline" size={13} color={C.textMuted} />
-                <Text style={styles.feedbackBottomLinkText}>Send feedback</Text>
-              </Pressable>
+              <View style={styles.stationBottomInfo}>
+                <View style={styles.boardAnnounceIntro}>
+                  <View style={styles.boardAnnounceIntroIcon}>
+                    <Ionicons name="chatbubbles-outline" size={22} color={C.accent} />
+                  </View>
+                  <View style={{ flex: 1, gap: 4 }}>
+                    <Text style={styles.boardAnnounceIntroTitle}>Official updates and feedback</Text>
+                    <Text style={styles.boardAnnounceIntroSub}>
+                      Check the latest updates, and send your requests through the feedback box.
+                    </Text>
+                  </View>
+                </View>
+                <Pressable
+                  style={styles.feedbackBottomLink}
+                  onPress={() => {
+                    if (!requireAuth("Create feedback")) return;
+                    openFeedbackComposer();
+                  }}
+                  accessibilityLabel="Open feedback box"
+                >
+                  <Ionicons name="chatbox-ellipses-outline" size={13} color={C.textMuted} />
+                  <Text style={styles.feedbackBottomLinkText}>Send feedback</Text>
+                </Pressable>
+              </View>
             ) : null}
           </View>
         )}
@@ -2616,6 +2626,18 @@ const styles = StyleSheet.create({
     borderBottomColor: C.border,
   },
   childCommunitiesEmpty: { color: C.textMuted, fontSize: 12, paddingHorizontal: 10, paddingVertical: 10 },
+  stationBoardHintRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 2,
+    marginTop: 6,
+  },
+  stationBoardHintText: {
+    color: C.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+  },
   childCommunityRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -2944,6 +2966,9 @@ const styles = StyleSheet.create({
     color: C.textMuted,
     fontSize: 12,
     fontWeight: "500",
+  },
+  stationBottomInfo: {
+    marginTop: 10,
   },
   createThreadForm: {
     backgroundColor: C.surface,
