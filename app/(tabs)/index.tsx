@@ -30,7 +30,8 @@ const { width: SCREEN_W } = Dimensions.get("window");
 const MENTOR_W = 200;
 // Hero card width: on web the app container is capped at 500px; on native use full screen width
 const HERO_CARD_W = Platform.OS === "web" ? Math.min(SCREEN_W, 500) : SCREEN_W;
-const ANNOUNCE_W = Platform.OS === "web" ? Math.min(HERO_CARD_W - 32, 440) : Math.max(SCREEN_W - 32, 300);
+/** Match jukebox banner inner width: column minus horizontal padding (16 + 16). */
+const ANNOUNCE_W = Platform.OS === "web" ? HERO_CARD_W - 32 : Math.max(SCREEN_W - 32, 300);
 
 function useUnreadCount() {
   const { data } = useQuery<{ count: number }>({
@@ -222,6 +223,10 @@ function LiveCard({ item }: { item: any }) {
   );
 }
 
+/**
+ * Live announcement flyer: 16:9 (same as live cards), `cover` + top anchor so the top
+ * of the poster is never cropped; bottom is clipped by the frame and read via gradient + overlay.
+ */
 function AnnouncementCard({ item }: { item: any }) {
   const flyer = parseThreadBody(item.body).flyerImageUrl;
   const fallbackThumb = item.communityThumbnail ? resolveVideoMediaUri(item.communityThumbnail) : null;
@@ -240,7 +245,7 @@ function AnnouncementCard({ item }: { item: any }) {
             recyclingKey={`announce-flyer-${item.id}-${imageUri}`}
             source={{ uri: imageUri }}
             style={styles.announceThumb}
-            contentFit="contain"
+            contentFit="cover"
             contentPosition="top"
             cachePolicy="memory-disk"
             onError={() => {
@@ -253,10 +258,14 @@ function AnnouncementCard({ item }: { item: any }) {
           />
         ) : (
           <View style={styles.announceThumbPlaceholder}>
-            <Text style={styles.announceThumbPlaceholderText}>フライヤー画像なし</Text>
+            <Text style={styles.announceThumbPlaceholderText}>No flyer image</Text>
           </View>
         )}
-        <LinearGradient colors={["transparent", "rgba(0,0,0,0.72)"]} style={styles.announceThumbGradient} />
+        <LinearGradient
+          colors={["rgba(0,0,0,0)", "rgba(0,0,0,0.22)", "rgba(0,0,0,0.82)"]}
+          locations={[0, 0.42, 1]}
+          style={styles.announceThumbGradient}
+        />
         <View style={styles.announceTextOverlay}>
           <Text style={styles.announceTitle} numberOfLines={2}>{item.title}</Text>
           <Text style={styles.announceCommunityMini} numberOfLines={1}>{item.communityName}</Text>
@@ -908,7 +917,8 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface2,
   },
   announceThumbPlaceholderText: { color: C.textMuted, fontSize: 11, fontFamily: F.mono },
-  announceThumbGradient: { position: "absolute", left: 0, right: 0, bottom: 0, height: "45%" },
+  /** Match live card thumb gradient zone (~60%) for a soft bottom “cut”. */
+  announceThumbGradient: { position: "absolute", left: 0, right: 0, bottom: 0, height: "58%" },
   announceTextOverlay: { position: "absolute", left: 10, right: 10, bottom: 10, gap: 2 },
   announceTitle: { color: "#fff", fontSize: 12, fontWeight: "700", lineHeight: 16 },
   announceCommunityMini: { color: "rgba(255,255,255,0.82)", fontSize: 10, fontFamily: F.mono },
