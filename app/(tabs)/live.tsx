@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -137,35 +137,32 @@ function calcPayoutRate(revenue: number, totalViews: number, followers: number, 
   return Math.min(95, Math.round(70 + score * 25));
 }
 
-const DUMMY_CREATORS: Record<string, any[]> = {
-  WEEKLY: (() => {
-    const raw = [
-      { id: 1, rank: 1, avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=60&h=60&fit=crop", name: "Yuki", community: "Hip-Hop Cypher", heatScore: 9840, totalViews: 124000, revenue: 480000, streamCount: 32, followers: 8900 },
-      { id: 2, rank: 2, avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=60&h=60&fit=crop", name: "Kenji", community: "Pop Underground", heatScore: 7210, totalViews: 98000, revenue: 320000, streamCount: 18, followers: 5400 },
-      { id: 3, rank: 3, avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=60&h=60&fit=crop", name: "Hana", community: "EDM Collective", heatScore: 5630, totalViews: 76000, revenue: 210000, streamCount: 24, followers: 4200 },
-    ];
-    const mR = Math.max(...raw.map(r => r.revenue)), mV = Math.max(...raw.map(r => r.totalViews)), mF = Math.max(...raw.map(r => r.followers));
-    return raw.map(r => ({ ...r, payoutRate: calcPayoutRate(r.revenue, r.totalViews, r.followers, mR, mV, mF) }));
-  })(),
-  MONTHLY: (() => {
-    const raw = [
-      { id: 1, rank: 1, avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=60&h=60&fit=crop", name: "Yuki", community: "Hip-Hop Cypher", heatScore: 42000, totalViews: 520000, revenue: 1800000, streamCount: 120, followers: 8900 },
-      { id: 2, rank: 2, avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=60&h=60&fit=crop", name: "Kenji", community: "Pop Underground", heatScore: 31000, totalViews: 410000, revenue: 1200000, streamCount: 72, followers: 5400 },
-      { id: 3, rank: 3, avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=60&h=60&fit=crop", name: "Hana", community: "EDM Collective", heatScore: 22000, totalViews: 310000, revenue: 890000, streamCount: 88, followers: 4200 },
-    ];
-    const mR = Math.max(...raw.map(r => r.revenue)), mV = Math.max(...raw.map(r => r.totalViews)), mF = Math.max(...raw.map(r => r.followers));
-    return raw.map(r => ({ ...r, payoutRate: calcPayoutRate(r.revenue, r.totalViews, r.followers, mR, mV, mF) }));
-  })(),
-  ALL: (() => {
-    const raw = [
-      { id: 1, rank: 1, avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=60&h=60&fit=crop", name: "Yuki", community: "Hip-Hop Cypher", heatScore: 198000, totalViews: 2400000, revenue: 8200000, streamCount: 480, followers: 8900 },
-      { id: 2, rank: 2, avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=60&h=60&fit=crop", name: "Kenji", community: "Pop Underground", heatScore: 145000, totalViews: 1800000, revenue: 5600000, streamCount: 320, followers: 5400 },
-      { id: 3, rank: 3, avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=60&h=60&fit=crop", name: "Hana", community: "EDM Collective", heatScore: 98000, totalViews: 1200000, revenue: 3800000, streamCount: 240, followers: 4200 },
-    ];
-    const mR = Math.max(...raw.map(r => r.revenue)), mV = Math.max(...raw.map(r => r.totalViews)), mF = Math.max(...raw.map(r => r.followers));
-    return raw.map(r => ({ ...r, payoutRate: calcPayoutRate(r.revenue, r.totalViews, r.followers, mR, mV, mF) }));
-  })(),
-};
+function mapLiverRowsToRankCards(rows: any[]): any[] {
+  const slice = rows.slice(0, 12);
+  if (slice.length === 0) return [];
+  const mR = Math.max(1, ...slice.map((r) => Number(r.revenue) || 0));
+  const mV = Math.max(1, ...slice.map((r) => Number(r.totalViews) || 0));
+  const mF = Math.max(1, ...slice.map((r) => Number(r.followers) || 0));
+  return slice.map((r) => {
+    const revenue = Number(r.revenue) || 0;
+    const totalViews = Number(r.totalViews) || 0;
+    const followers = Number(r.followers) || 0;
+    const heatScore = Number(r.heatScore) || 0;
+    return {
+      id: r.id,
+      rank: Number(r.rank) || 0,
+      avatar: r.avatar,
+      name: r.name,
+      community: r.community,
+      heatScore,
+      totalViews,
+      revenue,
+      streamCount: Number(r.streamCount) || 0,
+      followers,
+      payoutRate: calcPayoutRate(revenue, totalViews, followers, mR, mV, mF),
+    };
+  });
+}
 
 function CreatorRankCard({ item }: { item: any }) {
   const borderColor = item.rank === 1 ? C.orange : item.rank === 2 ? C.textSec : item.rank === 3 ? "#cd7f32" : C.border;
@@ -437,9 +434,9 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
               <View style={styles.previewStats}>
                 <View style={styles.previewStat}>
                   <Ionicons name="people-outline" size={16} color={C.textSec} />
-                  <Text style={styles.previewStatLabel}>Est. Viewers</Text>
+                  <Text style={styles.previewStatLabel}>Viewers</Text>
                 </View>
-                <Text style={styles.previewStatValue}>500–800</Text>
+                <Text style={styles.previewStatValue}>—</Text>
                 <View style={[styles.previewStat, { marginTop: 8 }]}>
                   <Ionicons name="time-outline" size={16} color={C.textSec} />
                   <Text style={styles.previewStatLabel}>Duration</Text>
@@ -508,6 +505,15 @@ export default function LiveScreen() {
 
   const { data: liveStreams = [] } = useQuery<any[]>({ queryKey: ["/api/live-streams"] });
   const { data: bookingSessions = [] } = useQuery<any[]>({ queryKey: ["/api/booking-sessions"] });
+  /** WEEKLY/MONTHLY use overall rank; ALL uses paid-live rank (server monthly aggregate). */
+  const liverRankingType = creatorFilter === "ALL" ? "paid_live" : "overall";
+  const { data: liverRankingPayload } = useQuery<{ rows?: any[] }>({
+    queryKey: [`/api/livers?rankingType=${liverRankingType}`],
+  });
+  const liverRankCards = useMemo(
+    () => mapLiverRowsToRankCards(liverRankingPayload?.rows ?? []),
+    [liverRankingPayload],
+  );
 
   const filteredLiveStreams = liveStreams.filter((s: any) => {
     const matchSearch = !liveSearch || s.title?.includes(liveSearch) || s.creator?.includes(liveSearch);
@@ -641,9 +647,13 @@ export default function LiveScreen() {
               Score = Revenue×0.5 + Views×0.3 + Followers×0.2 → Payout 70–95%
             </Text>
             <HorizontalScroll contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4, gap: 12 }}>
-              {DUMMY_CREATORS[creatorFilter].map((c: any) => (
-                <CreatorRankCard key={c.id} item={c} />
-              ))}
+              {liverRankCards.length === 0 ? (
+                <Text style={{ color: C.textMuted, fontSize: 12, fontFamily: F.mono, paddingVertical: 8 }}>
+                  No ranking data yet.
+                </Text>
+              ) : (
+                liverRankCards.map((c: any) => <CreatorRankCard key={c.id} item={c} />)
+              )}
             </HorizontalScroll>
             <View style={{ height: 100 + bottomInset }} />
           </View>

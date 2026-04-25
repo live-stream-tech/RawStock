@@ -12,7 +12,8 @@ type TabBarIconProps = { color: string; size: number; focused: boolean };
 export default function TabLayout() {
   const isWeb = Platform.OS === "web";
   const insets = useSafeAreaInsets();
-  const bottomPad = Math.max(insets.bottom, 0);
+  /** PWA / standalone sometimes under-reports bottom inset; keep a minimum so the bar clears the home indicator. */
+  const bottomPad = Math.max(insets.bottom, isWeb ? 8 : 0);
 
   return (
     <Tabs
@@ -21,7 +22,7 @@ export default function TabLayout() {
         tabBarActiveTintColor: C.accent,
         tabBarInactiveTintColor: C.textMuted,
         tabBarStyle: {
-          position: "absolute",
+          position: isWeb ? ("fixed" as const) : "absolute",
           backgroundColor: C.tabBg,
           borderTopWidth: 0,
           elevation: 0,
@@ -30,12 +31,13 @@ export default function TabLayout() {
           ...(isWeb
             ? {
                 maxWidth: 500,
-                alignSelf: "center" as const,
                 width: "100%",
+                marginHorizontal: "auto",
                 left: 0,
                 right: 0,
                 bottom: 0,
-                zIndex: 10000,
+                zIndex: 100000,
+                boxSizing: "border-box" as const,
               }
             : {}),
         },

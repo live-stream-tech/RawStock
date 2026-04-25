@@ -336,6 +336,7 @@ function SessionCard({ item }: { item: any }) {
 }
 
 // ─── Dummy Data ───────────────────────────────────────────────────────────────
+/** Placeholder paid hero cards when there are no paid uploads — thumbnails/titles only; stats are honest zeros. */
 const DUMMY_PAID = [
   {
     id: 1,
@@ -343,7 +344,7 @@ const DUMMY_PAID = [
     avatar: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=40&h=40&fit=crop",
     community: "Shimokitazawa Livehouses",
     title: "Basement Gig Archive — 4/20 Shimokitazawa 3-venue digest",
-    views: 31200,
+    views: 0,
     price: 1000,
   },
   {
@@ -352,7 +353,7 @@ const DUMMY_PAID = [
     avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=40&h=40&fit=crop",
     community: "Tokyo Club Circuit",
     title: "Warehouse Rave Recap — Peak Time Set + Crowd Cam",
-    views: 18900,
+    views: 0,
     price: 800,
   },
   {
@@ -361,55 +362,30 @@ const DUMMY_PAID = [
     avatar: "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=40&h=40&fit=crop",
     community: "Japan Indie Livehouses",
     title: "Indie tour finale — full set through encore (no cuts)",
-    views: 14200,
+    views: 0,
     price: 600,
   },
 ];
 
+/** Placeholder live tiles when no streams — not on air; viewer count is zero. */
 const DUMMY_LIVE = [
-  { id: 1, thumbnail: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&h=225&fit=crop", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=40&h=40&fit=crop", community: "Underground Scene", title: "Studio Practice — unfiltered stream", viewers: 47 },
-  { id: 2, thumbnail: "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=400&h=225&fit=crop", avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=40&h=40&fit=crop", community: "D&B Scene", title: "JAM Session LIVE", viewers: 23 },
-];
-
-const DUMMY_SESSIONS = [
   {
     id: 1,
-    thumbnail: "https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=300&h=169&fit=crop",
-    avatar: "https://images.unsplash.com/photo-1519340241574-2cec6aef0c01?w=40&h=40&fit=crop",
-    creator: "TAKA DRUMS",
-    title: "Pre-show drum tuning consult",
-    categoryLabel: "Music",
-    price: 2000,
-    duration: "30 min",
-    spotsLeft: 3,
-    date: "Apr 2",
-    time: "20:00",
+    thumbnail: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&h=225&fit=crop",
+    avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=40&h=40&fit=crop",
+    community: "Underground Scene",
+    title: "Studio Practice — unfiltered stream",
+    viewers: 0,
+    isDemo: true,
   },
   {
     id: 2,
-    thumbnail: "https://images.unsplash.com/photo-1498038432885-c6f3f1b912ee?w=300&h=169&fit=crop",
-    avatar: "https://images.unsplash.com/photo-1507591064344-4c6ce005b128?w=40&h=40&fit=crop",
-    creator: "Frame Edit RIKU",
-    title: "Live edit highlight plan review",
-    categoryLabel: "Editing",
-    price: 3500,
-    duration: "45 min",
-    spotsLeft: 5,
-    date: "Apr 3",
-    time: "19:00",
-  },
-  {
-    id: 3,
-    thumbnail: "https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=300&h=169&fit=crop",
-    avatar: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=40&h=40&fit=crop",
-    creator: "HANA KOBAYASHI",
-    title: "Acoustic setlist & MC flow consult",
-    categoryLabel: "Live Coaching",
-    price: 2500,
-    duration: "30 min",
-    spotsLeft: 2,
-    date: "Apr 5",
-    time: "18:00",
+    thumbnail: "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=400&h=225&fit=crop",
+    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=40&h=40&fit=crop",
+    community: "D&B Scene",
+    title: "JAM Session LIVE",
+    viewers: 0,
+    isDemo: true,
   },
 ];
 
@@ -464,7 +440,7 @@ export default function HomeScreen() {
   const usingDemoPaid = apiVideos.filter((v: any) => v.price != null && v.price > 0).length === 0;
 
   const allLiveStreams = apiLive.length > 0 ? apiLive : DUMMY_LIVE;
-  const sessions = mentorSessions.length > 0 ? mentorSessions : DUMMY_SESSIONS;
+  const sessions = mentorSessions;
 
   const announcementTeaserTitle = (() => {
     if (!announcementRows.length) return null;
@@ -648,9 +624,15 @@ export default function HomeScreen() {
           }
         />
         <HorizontalScroll contentContainerStyle={styles.hScroll}>
-          {sessions.map((s: any) => (
-            <SessionCard key={s.id} item={s} />
-          ))}
+          {sessions.length === 0 ? (
+            <View style={{ paddingHorizontal: 16, paddingVertical: 12, minWidth: Math.min(heroCardW, 320) }}>
+              <Text style={{ color: C.textMuted, fontSize: 12, fontFamily: F.mono }}>
+                No mentor sessions available to book yet.
+              </Text>
+            </View>
+          ) : (
+            sessions.map((s: any) => <SessionCard key={s.id} item={s} />)
+          )}
         </HorizontalScroll>
 
         <View style={styles.footerLinks}>

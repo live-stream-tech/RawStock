@@ -45,8 +45,11 @@ export default function Root({ children }: PropsWithChildren) {
           #root {
             flex: 1 1 auto;
             min-height: 0;
-            overflow-y: auto;
+            /* Do not scroll the whole shell — inner screens own ScrollViews. Keeps PWA tab bar fixed. */
             overflow-x: hidden;
+            overflow-y: hidden;
+            display: flex;
+            flex-direction: column;
             background-color: #070F18;
             position: relative;
             z-index: 1;
