@@ -6,7 +6,7 @@ import {
   StyleSheet,
   Pressable,
   Platform,
-  Dimensions,
+  useWindowDimensions,
 } from "react-native";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
@@ -26,12 +26,7 @@ import { CreatorPromoBanner } from "@/components/CreatorPromoBanner";
 import { parseThreadBody } from "@/lib/parse-thread-body";
 import { resolvePublicMediaUri as resolveVideoMediaUri } from "@/lib/resolve-public-media-uri";
 
-const { width: SCREEN_W } = Dimensions.get("window");
 const MENTOR_W = 200;
-// Hero card width: on web the app container is capped at 500px; on native use full screen width
-const HERO_CARD_W = Platform.OS === "web" ? Math.min(SCREEN_W, 500) : SCREEN_W;
-/** Match jukebox banner inner width: column minus horizontal padding (16 + 16). */
-const ANNOUNCE_W = Platform.OS === "web" ? HERO_CARD_W - 32 : Math.max(SCREEN_W - 32, 300);
 
 function useUnreadCount() {
   const { data } = useQuery<{ count: number }>({
@@ -53,7 +48,16 @@ function LiveOnAirDot() {
 }
 
 // ─── Paid Hero Section ────────────────────────────────────────────────────────
-function PaidHeroSection({ videos, isDemo }: { videos: any[]; isDemo: boolean }) {
+function PaidHeroSection({
+  videos,
+  isDemo,
+  heroCardWidth,
+}: {
+  videos: any[];
+  isDemo: boolean;
+  /** Same basis as WebRootWidth column: min(window, 500) on web, full width on native. */
+  heroCardWidth: number;
+}) {
   return (
     <HorizontalScroll
       pagingEnabled={Platform.OS !== "web"}
@@ -63,14 +67,14 @@ function PaidHeroSection({ videos, isDemo }: { videos: any[]; isDemo: boolean })
       {videos.map((item) => (
         <Pressable
           key={item.id}
-          style={paidHero.card}
+          style={[paidHero.card, { width: heroCardWidth }]}
           onPress={() =>
             router.push(
               isDemo ? (`/video/${item.id}?demo=1` as any) : (`/video/${item.id}` as any)
             )
           }
         >
-          <View style={paidHero.thumbWrap}>
+          <View style={[paidHero.thumbWrap, { width: heroCardWidth }]}>
             <Image
               source={{ uri: resolveVideoMediaUri(item.thumbnail) }}
               style={paidHero.thumbImage}
@@ -119,7 +123,6 @@ const paidHero = StyleSheet.create({
   hScroll: { minHeight: 300 } as any,
   hScrollContent: { alignItems: "stretch" } as any,
   card: {
-    width: HERO_CARD_W,
     height: 300,
     position: "relative",
     backgroundColor: "#0a0a0a",
@@ -129,7 +132,6 @@ const paidHero = StyleSheet.create({
     position: "absolute",
     top: 0,
     left: 0,
-    width: HERO_CARD_W,
     height: 300,
     overflow: "hidden",
   } as any,
@@ -227,7 +229,7 @@ function LiveCard({ item }: { item: any }) {
  * Live announcement flyer: 16:9 (same as live cards), `cover` + top anchor so the top
  * of the poster is never cropped; bottom is clipped by the frame and read via gradient + overlay.
  */
-function AnnouncementCard({ item }: { item: any }) {
+function AnnouncementCard({ item, cardWidth }: { item: any; cardWidth: number }) {
   const flyer = parseThreadBody(item.body).flyerImageUrl;
   const fallbackThumb = item.communityThumbnail ? resolveVideoMediaUri(item.communityThumbnail) : null;
   const [imageUri, setImageUri] = React.useState<string | null>(flyer ? resolveVideoMediaUri(flyer) : fallbackThumb);
@@ -236,7 +238,7 @@ function AnnouncementCard({ item }: { item: any }) {
   }, [flyer, fallbackThumb, item.id]);
   return (
     <Pressable
-      style={styles.announceCard}
+      style={[styles.announceCard, { width: cardWidth }]}
       onPress={() => router.push(`/community/${item.communityId}?tab=Board&openThread=${item.id}` as any)}
     >
       <View style={styles.announceThumbWrap}>
@@ -414,6 +416,12 @@ const DUMMY_SESSIONS = [
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function HomeScreen() {
+  const { width: windowWidth } = useWindowDimensions();
+  const heroCardW = Platform.OS === "web" ? Math.min(windowWidth, 500) : windowWidth;
+  /** Match jukebox banner: column minus horizontal padding (16 + 16). */
+  const announceInnerW =
+    Platform.OS === "web" ? heroCardW - 32 : Math.max(windowWidth - 32, 300);
+
   const insets = useSafeAreaInsets();
   const unreadCount = useUnreadCount();
   const { jukeboxIsActive, jukeboxCommunityId } = usePlayingVideo();
@@ -519,10 +527,14 @@ export default function HomeScreen() {
         <HorizontalScroll contentContainerStyle={styles.hScroll}>
           {liveAnnouncements.length > 0 ? (
             liveAnnouncements.slice(0, 8).map((item: any) => (
-              <AnnouncementCard key={`a-${item.communityId}-${item.id}`} item={item} />
+              <AnnouncementCard
+                key={`a-${item.communityId}-${item.id}`}
+                item={item}
+                cardWidth={announceInnerW}
+              />
             ))
           ) : (
-            <View style={styles.announceEmptyCard}>
+            <View style={[styles.announceEmptyCard, { width: announceInnerW }]}>
               <Ionicons name="megaphone-outline" size={18} color={C.textMuted} />
               <Text style={styles.announceEmptyText}>Live announcements coming soon.</Text>
             </View>
@@ -602,7 +614,7 @@ export default function HomeScreen() {
 
         {/* ── Paid Hero ── */}
         <View style={styles.sectionGap} />
-        <PaidHeroSection videos={paidVideos} isDemo={usingDemoPaid} />
+        <PaidHeroSection videos={paidVideos} isDemo={usingDemoPaid} heroCardWidth={heroCardW} />
 
         <CreatorPromoBanner />
 
@@ -906,7 +918,7 @@ const styles = StyleSheet.create({
   },
   viewerText: { color: "#fff", fontSize: 10, fontFamily: F.mono },
   liveInfo: { paddingHorizontal: 10, paddingVertical: 8, gap: 4, backgroundColor: C.surface },
-  announceCard: { width: ANNOUNCE_W, overflow: "hidden", backgroundColor: C.surface },
+  announceCard: { overflow: "hidden", backgroundColor: C.surface },
   announceThumbWrap: { position: "relative", overflow: "hidden", aspectRatio: 16 / 9, backgroundColor: C.surface2 },
   announceThumb: { width: "100%", height: "100%", backgroundColor: "transparent" },
   announceThumbPlaceholder: {
@@ -923,7 +935,6 @@ const styles = StyleSheet.create({
   announceTitle: { color: "#fff", fontSize: 12, fontWeight: "700", lineHeight: 16 },
   announceCommunityMini: { color: "rgba(255,255,255,0.82)", fontSize: 10, fontFamily: F.mono },
   announceEmptyCard: {
-    width: ANNOUNCE_W,
     height: 160,
     borderRadius: 2,
     borderWidth: 1,
