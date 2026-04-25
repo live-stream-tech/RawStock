@@ -1234,9 +1234,11 @@ export default function CommunityDetailScreen() {
             <View style={styles.profileInfo}>
               <View style={styles.nameRow}>
                 <Text style={styles.communityName} numberOfLines={2}>{community.name}</Text>
-                <View style={styles.officialBadge}>
-                  <Text style={styles.officialText}>OFFICIAL</Text>
-                </View>
+                {isOfficialCommunity ? (
+                  <View style={styles.officialBadge}>
+                    <Text style={styles.officialText}>OFFICIAL</Text>
+                  </View>
+                ) : null}
               </View>
               <Text style={styles.categoryText}>{community.category}</Text>
             </View>

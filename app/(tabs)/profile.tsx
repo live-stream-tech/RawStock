@@ -55,6 +55,7 @@ type MyCommunity = {
   iconUrl?: string | null;
   online: boolean;
   category: string;
+  isOfficial?: boolean;
 };
 
 type LevelProgress = {
@@ -265,6 +266,14 @@ export default function ProfileScreen() {
     queryKey: ["/api/communities/me"],
     enabled: !!user && !!token,
   });
+  const myOfficialJoined = React.useMemo(
+    () => myCommunities.filter((c) => Boolean(c.isOfficial)),
+    [myCommunities],
+  );
+  const myRegularJoined = React.useMemo(
+    () => myCommunities.filter((c) => !Boolean(c.isOfficial)),
+    [myCommunities],
+  );
   const { data: savedVideos = [] } = useQuery<MyVideo[]>({
     queryKey: ["/api/videos/saved"],
     enabled: !!user && !!token,
@@ -1010,22 +1019,68 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Joined communities panel */}
-        {myCommunities.length > 0 && (
+        {/* Official hubs joined */}
+        {myOfficialJoined.length > 0 && (
           <View style={styles.myCommunitiesSection}>
             <View style={styles.myCommunitiesHeader}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <Ionicons name="people-outline" size={16} color={C.accent} />
-                <Text style={styles.myCommunitiesTitle}>My Communities</Text>
+                <Ionicons name="layers-outline" size={16} color={C.accent} />
+                <Text style={styles.myCommunitiesTitle}>Official list</Text>
               </View>
-              <Text style={styles.myCommunitiesCount}>{myCommunities.length}</Text>
+              <Text style={styles.myCommunitiesCount}>{myOfficialJoined.length}</Text>
             </View>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={scrollShowsHorizontal}
               contentContainerStyle={styles.myCommunitiesList}
             >
-              {myCommunities.map((c) => (
+              {myOfficialJoined.map((c) => (
+                <Pressable
+                  key={c.id}
+                  style={styles.myCommunityCard}
+                  onPress={() => router.push(`/community/${c.id}`)}
+                >
+                  <Image source={{ uri: c.thumbnail }} style={styles.myCommunityThumb} contentFit="cover" />
+                  <View style={styles.myCommunityOverlay} />
+                  <View style={styles.myCommunityHubBadge}>
+                    <Text style={styles.myCommunityHubBadgeText}>HUB</Text>
+                  </View>
+                  {c.online && (
+                    <View style={styles.myCommunityLiveBadge}>
+                      <View style={styles.myCommunityLiveDot} />
+                      <Text style={styles.myCommunityLiveText}>LIVE</Text>
+                    </View>
+                  )}
+                  <View style={styles.myCommunityBottom}>
+                    <Text style={styles.myCommunityName} numberOfLines={1}>
+                      {c.name}
+                    </Text>
+                    <Text style={styles.myCommunityMeta} numberOfLines={1}>
+                      {c.members.toLocaleString()} members
+                    </Text>
+                  </View>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
+        {/* Other joined communities */}
+        {myRegularJoined.length > 0 && (
+          <View style={styles.myCommunitiesSection}>
+            <View style={styles.myCommunitiesHeader}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Ionicons name="people-outline" size={16} color={C.accent} />
+                <Text style={styles.myCommunitiesTitle}>My Communities</Text>
+              </View>
+              <Text style={styles.myCommunitiesCount}>{myRegularJoined.length}</Text>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={scrollShowsHorizontal}
+              contentContainerStyle={styles.myCommunitiesList}
+            >
+              {myRegularJoined.map((c) => (
                 <Pressable
                   key={c.id}
                   style={styles.myCommunityCard}
@@ -1228,11 +1283,28 @@ export default function ProfileScreen() {
                   </View>
                 ) : null}
               </View>
-               {myCommunities.length > 0 && (
+               {myOfficialJoined.length > 0 && (
+                <View style={styles.previewCommunitiesSection}>
+                  <Text style={styles.previewSectionTitle}>Official list</Text>
+                  <View style={styles.previewCommunityGrid}>
+                    {myOfficialJoined.slice(0, 6).map((c) => (
+                      <Pressable key={c.id} style={styles.previewCommunityChip} onPress={() => router.push(`/community/${c.id}`)}>
+                        <Image
+                          source={{ uri: c.iconUrl?.trim() || c.thumbnail }}
+                          style={styles.previewCommunityThumb}
+                          contentFit="cover"
+                        />
+                        <Text style={styles.previewCommunityName} numberOfLines={1}>{c.name}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              )}
+              {myRegularJoined.length > 0 && (
                 <View style={styles.previewCommunitiesSection}>
                   <Text style={styles.previewSectionTitle}>My Communities</Text>
                   <View style={styles.previewCommunityGrid}>
-                    {myCommunities.slice(0, 6).map((c) => (
+                    {myRegularJoined.slice(0, 6).map((c) => (
                       <Pressable key={c.id} style={styles.previewCommunityChip} onPress={() => router.push(`/community/${c.id}`)}>
                         <Image
                           source={{ uri: c.iconUrl?.trim() || c.thumbnail }}
@@ -1807,6 +1879,23 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 10,
     fontWeight: "700",
+  },
+  myCommunityHubBadge: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    backgroundColor: "rgba(0,0,0,0.75)",
+    borderRadius: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: C.accent + "99",
+  },
+  myCommunityHubBadgeText: {
+    color: C.accent,
+    fontSize: 8,
+    fontWeight: "900",
+    letterSpacing: 0.6,
   },
   modalBg: {
     flex: 1,

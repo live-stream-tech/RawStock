@@ -129,8 +129,8 @@ export default function CommunityScreen() {
       return (b.members ?? 0) - (a.members ?? 0);
     });
     return {
-      sortedOfficial: sorted.filter((c) => c.isOfficial),
-      sortedRest: sorted.filter((c) => !c.isOfficial),
+      sortedOfficial: sorted.filter((c) => Boolean(c.isOfficial)),
+      sortedRest: sorted.filter((c) => !Boolean(c.isOfficial)),
     };
   }, [apiCommunities]);
 
