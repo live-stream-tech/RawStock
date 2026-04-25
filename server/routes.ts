@@ -120,11 +120,13 @@ import { publishJukeboxEvent, redis, jukeboxChannel, subscribeJukeboxEvents } fr
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import type Stripe from "stripe";
+import { spawn } from "node:child_process";
 
 const JWT_SECRET = process.env.SESSION_SECRET ?? "livestage-dev-secret";
 const CLOUDFLARE_ACCOUNT_ID = (process.env.CLOUDFLARE_ACCOUNT_ID ?? "").trim();
 const CLOUDFLARE_STREAM_TOKEN = (process.env.CLOUDFLARE_STREAM_TOKEN ?? "").trim();
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
+let announcementRunInProgress = false;
 
 function maskSecretPrefix(value: string): string {
   if (!value) return "(empty, len=0)";
@@ -388,6 +390,36 @@ async function promoteAdminByEmail(target?: { id: number; email: string | null |
     .update(users)
     .set({ role: "ADMIN", updatedAt: new Date() } as Partial<InferSelectModel<typeof users>>)
     .where(eq(users.email, ADMIN_EMAIL));
+}
+
+async function runScriptForAnnouncements(command: string, args: string[]): Promise<{
+  ok: boolean;
+  exitCode: number | null;
+  output: string;
+}> {
+  return await new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let out = "";
+    child.stdout.on("data", (d) => {
+      out += String(d ?? "");
+      if (out.length > 6000) out = out.slice(-6000);
+    });
+    child.stderr.on("data", (d) => {
+      out += String(d ?? "");
+      if (out.length > 6000) out = out.slice(-6000);
+    });
+    child.on("close", (code) => {
+      resolve({
+        ok: code === 0,
+        exitCode: code,
+        output: out.trim(),
+      });
+    });
+  });
 }
 
 const OPERATIONS_DM_NAME = "Operations Team";
@@ -4347,6 +4379,52 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
 
     res.json({ ok: true, updated: ranked.length, yearMonth });
+  });
+
+  /** Admin: run official announcement collection pipeline now (rave discovery + BBC artist discovery + V3 + Route B). */
+  app.post("/api/admin/announcements/run", async (req: Request, res: Response) => {
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+    if (announcementRunInProgress) {
+      return res.status(409).json({ error: "Announcement run already in progress" });
+    }
+    announcementRunInProgress = true;
+    const startedAt = new Date();
+    try {
+      const steps = [
+        { key: "rave_discovery_candidates", cmd: "npx", args: ["tsx", "scripts/discover-rave-candidates.ts"] },
+        { key: "artist_discovery_bbc", cmd: "npx", args: ["tsx", "scripts/discover-artists-from-bbc.ts"] },
+        { key: "official_live_v3", cmd: "npx", args: ["tsx", "scripts/seed-official-live-feed.ts"] },
+        { key: "official_live_route_b", cmd: "npx", args: ["tsx", "scripts/seed-official-live-feed-route-b.ts"] },
+      ] as const;
+      const results: Array<{
+        key: string;
+        ok: boolean;
+        exitCode: number | null;
+        output: string;
+      }> = [];
+      for (const step of steps) {
+        const r = await runScriptForAnnouncements(step.cmd, step.args);
+        results.push({ key: step.key, ...r });
+        if (!r.ok) {
+          return res.status(500).json({
+            ok: false,
+            startedAt: startedAt.toISOString(),
+            finishedAt: new Date().toISOString(),
+            failedStep: step.key,
+            results,
+          });
+        }
+      }
+      return res.json({
+        ok: true,
+        startedAt: startedAt.toISOString(),
+        finishedAt: new Date().toISOString(),
+        results,
+      });
+    } finally {
+      announcementRunInProgress = false;
+    }
   });
 
   /** Admin: report queue — pending (gray_zone) items only. Pass ?all=1 to see everything. */

@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Pressable,
   Platform,
+  Linking,
   TextInput,
   Alert,
   Modal,
@@ -89,6 +90,10 @@ export default function VideoDetailScreen() {
 
   const fallbackVideo = isDemo ? VIDEOS.find((v) => v.id === String(id)) ?? VIDEOS[0] : undefined;
   const video = (apiVideo as any) ?? fallbackVideo;
+  const youtubeWatchUrl =
+    typeof (video as any)?.youtubeId === "string" && (video as any).youtubeId.trim()
+      ? `https://www.youtube.com/watch?v=${encodeURIComponent((video as any).youtubeId.trim())}`
+      : null;
 
   const { data: comments = [] } = useQuery<VideoComment[]>({
     queryKey: [`/api/videos/${id}/comments`],
@@ -288,17 +293,42 @@ export default function VideoDetailScreen() {
             {((video as any).videoUrl || (video as any).youtubeId) && !video.price && (
               <Pressable
                 style={styles.playOverlayBtn}
-                onPress={() =>
+                onPress={async () => {
+                  // On non-web environments, YouTube iframe playback is not guaranteed.
+                  // Fallback to opening the canonical watch URL directly.
+                  if (Platform.OS !== "web" && !(video as any).videoUrl && youtubeWatchUrl) {
+                    const canOpen = await Linking.canOpenURL(youtubeWatchUrl);
+                    if (canOpen) {
+                      await Linking.openURL(youtubeWatchUrl);
+                      return;
+                    }
+                  }
                   playVideo({
                     videoId: Number(id),
                     title: video.title,
                     thumbnail: (video as any).thumbnail,
                     videoUrl: (video as any).videoUrl ?? null,
                     youtubeId: (video as any).youtubeId ?? null,
-                  })
-                }
+                  });
+                }}
               >
                 <Ionicons name="play-circle" size={64} color="rgba(255,255,255,0.9)" />
+              </Pressable>
+            )}
+            {!!youtubeWatchUrl && (
+              <Pressable
+                style={styles.youtubeOpenBtn}
+                onPress={async () => {
+                  const canOpen = await Linking.canOpenURL(youtubeWatchUrl);
+                  if (!canOpen) {
+                    Alert.alert("Open failed", "Could not open YouTube for this video.");
+                    return;
+                  }
+                  await Linking.openURL(youtubeWatchUrl);
+                }}
+              >
+                <Ionicons name="logo-youtube" size={14} color="#fff" />
+                <Text style={styles.youtubeOpenBtnText}>Open on YouTube</Text>
               </Pressable>
             )}
             {/* Show lock only for paid content */}
@@ -639,6 +669,25 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
+  },
+  youtubeOpenBtn: {
+    position: "absolute",
+    right: 12,
+    bottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.22)",
+  },
+  youtubeOpenBtnText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
   },
   backBtn: {
     position: "absolute",

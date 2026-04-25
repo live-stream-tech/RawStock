@@ -29,6 +29,8 @@
     "db:seed-official-live": "npx tsx scripts/seed-official-live-feed.ts",
     "db:seed-official-live-route-b": "npx tsx scripts/seed-official-live-feed-route-b.ts",
     "db:seed-free-live-videos": "npx tsx scripts/seed-free-live-videos.ts",
+    "db:discover-artists-bbc": "npx tsx scripts/discover-artists-from-bbc.ts",
+    "db:discover-rave-candidates": "npx tsx scripts/discover-rave-candidates.ts",
     "start": "npx expo start",
     "lint": "npx expo lint",
     "lint:fix": "npx expo lint --fix"

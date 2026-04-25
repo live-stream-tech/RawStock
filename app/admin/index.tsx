@@ -1,5 +1,5 @@
-import React from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView } from "react-native";
+import React, { useState } from "react";
+import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
 import { webScrollStyle } from "@/constants/layout";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,6 +22,15 @@ function isAdminRole(role?: string | null) {
 export default function AdminDashboardScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const [runLoading, setRunLoading] = useState(false);
+  const [runResult, setRunResult] = useState<{
+    ok: boolean;
+    startedAt?: string;
+    finishedAt?: string;
+    failedStep?: string;
+    results?: Array<{ key: string; ok: boolean; exitCode: number | null; output: string }>;
+    error?: string;
+  } | null>(null);
 
   const { data, isLoading } = useQuery<AdminStats>({
     queryKey: ["/api/admin/stats"],
@@ -37,6 +46,21 @@ export default function AdminDashboardScreen() {
         </View>
       </AuthGuard>
     );
+  }
+
+  async function runAnnouncementsNow() {
+    if (runLoading) return;
+    setRunLoading(true);
+    setRunResult(null);
+    try {
+      const res = await apiRequest("POST", "/api/admin/announcements/run");
+      const body = (await res.json()) as any;
+      setRunResult({ ok: Boolean(body?.ok), ...body });
+    } catch (e: any) {
+      setRunResult({ ok: false, error: e?.message ?? "Failed to run announcements" });
+    } finally {
+      setRunLoading(false);
+    }
   }
 
   return (
@@ -69,6 +93,32 @@ export default function AdminDashboardScreen() {
           </View>
 
           <View style={styles.menuCard}>
+            <Pressable style={styles.menuRow} onPress={runAnnouncementsNow} disabled={runLoading}>
+              {runLoading ? (
+                <ActivityIndicator size="small" color={C.accent} />
+              ) : (
+                <Ionicons name="megaphone-outline" size={18} color={C.accent} />
+              )}
+              <Text style={styles.menuLabel}>告知実行 (Run Announcements)</Text>
+              <Ionicons name="play-circle-outline" size={16} color={C.textMuted} />
+            </Pressable>
+            {runResult ? (
+              <View style={styles.runResultBox}>
+                <Text style={styles.runResultTitle}>
+                  {runResult.ok ? "Announcement run: success" : "Announcement run: failed"}
+                </Text>
+                {runResult.failedStep ? (
+                  <Text style={styles.runResultText}>Failed step: {runResult.failedStep}</Text>
+                ) : null}
+                {runResult.results?.map((r) => (
+                  <Text key={r.key} style={styles.runResultText}>
+                    {r.key}: {r.ok ? "OK" : "FAIL"} (exit={String(r.exitCode)})
+                  </Text>
+                ))}
+                {runResult.error ? <Text style={styles.runResultText}>{runResult.error}</Text> : null}
+              </View>
+            ) : null}
+            <View style={styles.divider} />
             <Pressable style={styles.menuRow} onPress={() => router.push("/admin/users")}>
               <Ionicons name="people-outline" size={18} color={C.accent} />
               <Text style={styles.menuLabel}>User Management</Text>
@@ -145,6 +195,13 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   menuLabel: { flex: 1, color: C.text, fontWeight: "600" },
+  runResultBox: {
+    paddingHorizontal: 14,
+    paddingBottom: 12,
+    gap: 4,
+  },
+  runResultTitle: { color: C.text, fontSize: 12, fontWeight: "700" },
+  runResultText: { color: C.textMuted, fontSize: 11 },
   divider: { height: 1, backgroundColor: C.border },
   messageText: { color: C.textMuted, textAlign: "center" },
 });

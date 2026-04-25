@@ -5,7 +5,6 @@ import {
   ScrollView,
   StyleSheet,
   Pressable,
-  TextInput,
   ActivityIndicator,
 } from "react-native";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
@@ -143,8 +142,9 @@ export default function CommunityScreen() {
   const insets = useSafeAreaInsets();
   const topInset = getTabTopInset(insets);
   const bottomInset = getTabBottomInset();
-  const [search, setSearch] = useState("");
   const [officialSort, setOfficialSort] = useState<"members" | "active" | "newest">("members");
+  const [showStationCommunities, setShowStationCommunities] = useState(false);
+  const [contentTab, setContentTab] = useState<"paid" | "community">("paid");
 
   const { data: apiCommunities = [], isLoading: communitiesLoading } = useQuery<any[]>({
     queryKey: ["/api/communities"],
@@ -174,9 +174,8 @@ export default function CommunityScreen() {
 
   const purchaseData = rankedApiVideos;
 
-  const query = search.trim().toLowerCase();
   const filteredOfficial = useMemo(() => {
-    const base = query ? officialBase.filter((c) => c.name.toLowerCase().includes(query)) : officialBase;
+    const base = officialBase;
     if (officialSort === "active") {
       return [...base].sort((a, b) => {
         const onlineDiff = Number(Boolean(b.online)) - Number(Boolean(a.online));
@@ -188,12 +187,14 @@ export default function CommunityScreen() {
       return [...base].sort((a, b) => (b.id ?? 0) - (a.id ?? 0));
     }
     return [...base].sort((a, b) => (b.members ?? 0) - (a.members ?? 0));
-  }, [officialBase, officialSort, query]);
+  }, [officialBase, officialSort]);
   const filteredUser = useMemo(() => {
-    if (!query) return userBase;
-    return userBase.filter((c) => c.name.toLowerCase().includes(query));
-  }, [userBase, query]);
+    return userBase;
+  }, [userBase]);
   const officialLeadId = filteredOfficial[0]?.id ?? officialBase[0]?.id ?? null;
+  const stationLead = filteredOfficial[0] ?? officialBase[0] ?? null;
+  const stationCommunityCount = officialStationStats?.officialCommunityCount ?? filteredOfficial.length;
+  const stationMembers = officialStationStats?.uniqueMemberCount ?? 0;
 
   return (
     <View style={[styles.container, { paddingBottom: bottomInset }]}>
@@ -201,22 +202,6 @@ export default function CommunityScreen() {
         <AppLogo height={36} />
       </View>
       <MetallicLine thickness={1} style={{ marginHorizontal: 16 }} />
-      <View style={styles.searchRow}>
-        <View style={styles.searchWrap}>
-          <Ionicons name="search-outline" size={16} color={C.textMuted} style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search official & communities"
-            placeholderTextColor={C.textMuted}
-            value={search}
-            onChangeText={setSearch}
-          />
-        </View>
-        <Pressable style={styles.createBtn} onPress={() => router.push("/community/create")}>
-          <Ionicons name="add" size={18} color="#fff" />
-          <Text style={styles.createBtnText}>New</Text>
-        </Pressable>
-      </View>
 
       <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
         <View style={styles.section}>
@@ -224,14 +209,49 @@ export default function CommunityScreen() {
             <View style={styles.sectionAccent} />
             <Text style={styles.sectionTitle}>Official Station</Text>
           </View>
-          <Text style={styles.stationSummaryText}>
-            {`Unique members: ${formatNum(officialStationStats?.uniqueMemberCount ?? 0)} · Communities: ${officialStationStats?.officialCommunityCount ?? 0}`}
-          </Text>
+
+          <View style={styles.adBannerSlot}>
+            <Text style={styles.adBannerText}>Ad Banner Space</Text>
+          </View>
+
+          <View style={styles.stationCoreBox}>
+            <View style={styles.stationTopRow}>
+              <Image
+                source={{ uri: stationLead?.thumbnail || "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=256&h=256&fit=crop" }}
+                style={styles.stationIcon}
+                contentFit="cover"
+              />
+              <View style={{ flex: 1, gap: 6 }}>
+                <Text style={styles.stationName} numberOfLines={1}>
+                  {stationLead?.name ?? "Official Station"}
+                </Text>
+                <Pressable
+                  onPress={() => setShowStationCommunities((v) => !v)}
+                  style={styles.stationCountLink}
+                >
+                  <Text style={styles.stationCountLinkText}>
+                    Communities: {stationCommunityCount}
+                  </Text>
+                  <Ionicons
+                    name={showStationCommunities ? "chevron-up" : "chevron-down"}
+                    size={14}
+                    color={C.accent}
+                  />
+                </Pressable>
+                <Text style={styles.stationMembersText}>Members: {formatNum(stationMembers)}</Text>
+              </View>
+            </View>
+          </View>
+
+          {showStationCommunities && (
+            <HorizontalScroll contentContainerStyle={styles.hList}>
+              {filteredOfficial.map((item, index) => (
+                <CommunityRankCard key={item.id} item={item} index={index} showCreateButton />
+              ))}
+            </HorizontalScroll>
+          )}
+
           <View style={styles.stationLinksRow}>
-            <Pressable style={styles.stationLinkBtn} onPress={() => router.push("/live-announcements" as any)}>
-              <Ionicons name="megaphone-outline" size={16} color={C.accent} />
-              <Text style={styles.stationLinkText}>Live announcements</Text>
-            </Pressable>
             <Pressable
               style={styles.stationLinkBtn}
               onPress={() =>
@@ -239,9 +259,29 @@ export default function CommunityScreen() {
               }
             >
               <Ionicons name="musical-notes-outline" size={16} color={C.accent} />
-              <Text style={styles.stationLinkText}>Jukebox</Text>
+              <Text style={styles.stationLinkText}>JUKEBOX</Text>
             </Pressable>
           </View>
+
+          <View style={styles.tabSwitchRow}>
+            <Pressable
+              style={[styles.tabSwitchBtn, contentTab === "paid" && styles.tabSwitchBtnActive]}
+              onPress={() => setContentTab("paid")}
+            >
+              <Text style={[styles.tabSwitchText, contentTab === "paid" && styles.tabSwitchTextActive]}>
+                Paid Videos
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.tabSwitchBtn, contentTab === "community" && styles.tabSwitchBtnActive]}
+              onPress={() => setContentTab("community")}
+            >
+              <Text style={[styles.tabSwitchText, contentTab === "community" && styles.tabSwitchTextActive]}>
+                Community
+              </Text>
+            </Pressable>
+          </View>
+
           <View style={styles.sortRow}>
             {([
               ["members", "By Members"],
@@ -260,55 +300,49 @@ export default function CommunityScreen() {
           {communitiesLoading ? (
             <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
           ) : filteredOfficial.length === 0 ? (
-            <Text style={styles.emptyInline}>
-              {query ? "No official stations match your search" : "No official stations yet"}
-            </Text>
+            <Text style={styles.emptyInline}>No official stations yet</Text>
           ) : (
-            <HorizontalScroll contentContainerStyle={styles.hList}>
-              {filteredOfficial.map((item, index) => (
-                <CommunityRankCard key={item.id} item={item} index={index} showCreateButton />
-              ))}
-            </HorizontalScroll>
+            <View />
           )}
         </View>
 
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionAccent} />
-            <Text style={styles.sectionTitle}>Paid Video Ranking</Text>
+        {contentTab === "paid" ? (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionAccent} />
+              <Text style={styles.sectionTitle}>Paid Video Ranking</Text>
+            </View>
+            {rankedLoading ? (
+              <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
+            ) : purchaseData.length === 0 ? (
+              <Text style={styles.emptyInline}>No ranked paid videos yet</Text>
+            ) : (
+              <HorizontalScroll contentContainerStyle={styles.hList}>
+                {purchaseData.map((item) => (
+                  <PurchaseRankCard key={item.id} item={item} />
+                ))}
+              </HorizontalScroll>
+            )}
           </View>
-          {rankedLoading ? (
-            <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
-          ) : purchaseData.length === 0 ? (
-            <Text style={styles.emptyInline}>No ranked paid videos yet</Text>
-          ) : (
-            <HorizontalScroll contentContainerStyle={styles.hList}>
-              {purchaseData.map((item) => (
-                <PurchaseRankCard key={item.id} item={item} />
-              ))}
-            </HorizontalScroll>
-          )}
-        </View>
-
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionAccent} />
-            <Text style={styles.sectionTitle}>Community</Text>
+        ) : (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionAccent} />
+              <Text style={styles.sectionTitle}>Community</Text>
+            </View>
+            {communitiesLoading ? (
+              <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
+            ) : filteredUser.length === 0 ? (
+              <Text style={styles.emptyInline}>No communities yet</Text>
+            ) : (
+              <HorizontalScroll contentContainerStyle={styles.hList}>
+                {filteredUser.map((item, index) => (
+                  <CommunityRankCard key={item.id} item={item} index={index} />
+                ))}
+              </HorizontalScroll>
+            )}
           </View>
-          {communitiesLoading ? (
-            <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
-          ) : filteredUser.length === 0 ? (
-            <Text style={styles.emptyInline}>
-              {query ? "No communities match your search" : "No communities yet"}
-            </Text>
-          ) : (
-            <HorizontalScroll contentContainerStyle={styles.hList}>
-              {filteredUser.map((item, index) => (
-                <CommunityRankCard key={item.id} item={item} index={index} />
-              ))}
-            </HorizontalScroll>
-          )}
-        </View>
+        )}
 
         <View style={{ height: 100 }} />
       </ScrollView>
@@ -318,11 +352,62 @@ export default function CommunityScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
-  stationSummaryText: {
+  adBannerSlot: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    height: 72,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  adBannerText: {
     color: C.textMuted,
-    fontSize: 11,
-    paddingHorizontal: 16,
-    marginBottom: 8,
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+  },
+  stationCoreBox: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    padding: 10,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface,
+  },
+  stationTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  stationIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 6,
+  },
+  stationName: {
+    color: C.text,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  stationCountLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
+  },
+  stationCountLinkText: {
+    color: C.accent,
+    fontSize: 12,
+    fontWeight: "700",
+    textDecorationLine: "underline",
+  },
+  stationMembersText: {
+    color: C.textMuted,
+    fontSize: 12,
     fontWeight: "600",
   },
   stationLinksRow: {
@@ -344,6 +429,34 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface,
   },
   stationLinkText: { color: C.textSec, fontSize: 12, fontWeight: "600" },
+  tabSwitchRow: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 16,
+    marginBottom: 10,
+  },
+  tabSwitchBtn: {
+    flex: 1,
+    height: 36,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tabSwitchBtnActive: {
+    backgroundColor: C.accent,
+    borderColor: C.accent,
+  },
+  tabSwitchText: {
+    color: C.textSec,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  tabSwitchTextActive: {
+    color: "#000",
+  },
   sortRow: { flexDirection: "row", gap: 8, paddingHorizontal: 16, marginBottom: 10 },
   sortPill: {
     paddingHorizontal: 10,
@@ -378,29 +491,6 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 16,
     paddingBottom: 12,
-  },
-  searchRow: {
-    flexDirection: "row",
-    gap: 10,
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  searchWrap: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: C.surface,
-    borderRadius: 3,
-    paddingHorizontal: 12,
-    height: 42,
-  },
-  searchIcon: { marginRight: 6 },
-  searchInput: {
-    flex: 1,
-    color: C.text,
-    fontSize: 14,
-    height: 42,
   },
   createBtn: {
     flexDirection: "row",

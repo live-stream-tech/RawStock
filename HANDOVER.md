@@ -368,3 +368,20 @@ npx vercel env add EXPO_PUBLIC_DOMAIN preview <ブランチ名> --value "https:/
 
 - 本スクリプトは「差分更新」ではなく「再構築」なので、既存コミュニティに紐づくデータは削除される。
 - 実行前に必要であれば DB バックアップを取得すること。
+
+---
+
+## Announcement Runbook (`告知実行`)
+
+- Trigger phrase in Cursor chat: `告知実行`
+- Operational behavior: run the same admin API as the Admin Panel button.
+  - `POST /api/admin/announcements/run`
+- Execution pipeline (sequential):
+  1. `scripts/seed-official-live-feed.ts`
+  2. `scripts/seed-official-live-feed-route-b.ts`
+- Safety:
+  - Admin-only endpoint
+  - In-memory lock blocks concurrent runs (`409` when already running)
+- Return payload includes:
+  - `ok`, `failedStep` (if any)
+  - per-step `exitCode` and output tail for quick debugging
