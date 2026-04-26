@@ -21,6 +21,7 @@ import { DM_USAGE_GUIDE_BODY, DM_USAGE_GUIDE_TITLE } from "@/constants/dmUsageGu
 import { apiRequest, getApiUrl, readAuthToken } from "@/lib/query-client";
 import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { useAuth } from "@/lib/auth";
+import { saveLoginReturn } from "@/lib/login-return";
 import { TranslateButton } from "@/components/TranslateButton";
 import * as ImagePicker from "expo-image-picker";
 
@@ -66,7 +67,7 @@ export default function DMChatScreen() {
   const [input, setInput] = useState("");
   const [uploadingImage, setUploadingImage] = useState(false);
   const [attachmentUrl, setAttachmentUrl] = useState<string | null>(null);
-  const { token, user } = useAuth();
+  const { token, user, loading: authLoading } = useAuth();
 
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
@@ -103,6 +104,15 @@ export default function DMChatScreen() {
     enabled: Number.isFinite(dmId) && dmId !== 0 && !!(token || user),
     refetchInterval: 4000,
   });
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (user || token) return;
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      saveLoginReturn(window.location.pathname + window.location.search);
+    }
+    router.replace("/auth/login" as any);
+  }, [authLoading, user, token]);
 
   const sendMutation = useMutation({
     mutationFn: (payload: { text?: string; attachmentUrl?: string }) =>

@@ -1,10 +1,11 @@
-import React from "react";
+import React, { useEffect } from "react";
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
   Pressable,
+  Platform,
 } from "react-native";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
@@ -12,6 +13,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { useAuth } from "@/lib/auth";
+import { saveLoginReturn } from "@/lib/login-return";
 import { C } from "@/constants/colors";
 import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/layout";
@@ -33,6 +36,16 @@ export default function DMScreen() {
   const insets = useSafeAreaInsets();
   const topInset = getTabTopInset(insets);
   const bottomInset = getTabBottomInset();
+  const { user, token, loading: authLoading } = useAuth();
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (user || token) return;
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      saveLoginReturn(window.location.pathname + window.location.search);
+    }
+    router.replace("/auth/login" as any);
+  }, [authLoading, user, token]);
 
   const { data: dmList = [] } = useQuery<DMItem[]>({
     queryKey: ["/api/dm-messages"],

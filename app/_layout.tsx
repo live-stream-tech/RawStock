@@ -77,6 +77,8 @@ function normalizePathname(raw: string): string {
  */
 function isPublicPath(rawPathname: string): boolean {
   const pathname = normalizePathname(rawPathname);
+  /** DM is never guest-readable — force sign-in even if pathname normalization changes. */
+  if (pathname === "/dm" || pathname.startsWith("/dm/")) return false;
   if (pathname === "/" || pathname === "") return true;
 
   const exact = new Set([
