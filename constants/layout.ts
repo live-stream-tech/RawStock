@@ -1,4 +1,5 @@
 import { Platform, type StyleProp, type ViewStyle } from "react-native";
+import { isLikelyIosWeb, isPwaStandalone } from "@/lib/pwa-standalone";
 
 /** Tab screens: top padding above header (aligned with profile). Web/PWA uses notch via insets.top. */
 export function getTabTopInset(insets: { top: number }): number {
@@ -18,7 +19,11 @@ export const WEB_TAB_BAR_CONTENT_HEIGHT = 60;
 export function getTabBottomInset(insets?: { bottom?: number }): number {
   if (Platform.OS === "web") {
     const b = Math.max(insets?.bottom ?? 0, 0);
-    return WEB_TAB_BAR_CONTENT_HEIGHT + b + 12;
+    const standalone = typeof window !== "undefined" && isPwaStandalone();
+    const iosBrowser = typeof navigator !== "undefined" && isLikelyIosWeb() && !standalone;
+    /** Gap below the fixed tab bar (avoid double-padding vs tabBarStyle.paddingBottom on PWA). */
+    const tail = standalone ? 4 : iosBrowser ? 6 : 12;
+    return WEB_TAB_BAR_CONTENT_HEIGHT + b + tail;
   }
   return insets?.bottom ?? 0;
 }

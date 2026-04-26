@@ -6,14 +6,16 @@ import { Ionicons } from "@expo/vector-icons";
 import { WEB_TAB_BAR_CONTENT_HEIGHT } from "@/constants/layout";
 import { C } from "@/constants/colors";
 import { MetallicLine } from "@/components/MetallicLine";
+import { isPwaStandalone } from "@/lib/pwa-standalone";
 
 type TabBarIconProps = { color: string; size: number; focused: boolean };
 
 export default function TabLayout() {
   const isWeb = Platform.OS === "web";
   const insets = useSafeAreaInsets();
-  /** PWA / standalone sometimes under-reports bottom inset; keep a minimum so the bar clears the home indicator. */
-  const bottomPad = Math.max(insets.bottom, isWeb ? 8 : 0);
+  /** PWA: rely on safe-area inset only (avoids a thick empty band under the tab bar). Safari tab: small minimum when inset is 0. */
+  const standalone = isWeb && isPwaStandalone();
+  const bottomPad = standalone ? Math.max(insets.bottom, 0) : Math.max(insets.bottom, isWeb ? 8 : 0);
 
   return (
     <Tabs

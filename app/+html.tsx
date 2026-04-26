@@ -110,38 +110,13 @@ export default function Root({ children }: PropsWithChildren) {
             z-index: 0;
           }
           /*
-           * Global legal footer: keep real anchors outside #root for OAuth crawlers.
-           * Place it at the end of the body flex column; tab spacing stays in RN layouts.
+           * Legal links live inside each screen (e.g. Top tab) with correct padding above the fixed tab bar.
+           * A static HTML footer here duplicated links and sat under/over the RN tab bar on Safari & PWA.
            */
-          #global-legal-footer {
-            flex-shrink: 0;
-            position: relative;
-            z-index: 2;
-            padding: 10px 12px;
-            text-align: center;
-            font-size: 11px;
-            letter-spacing: 0.04em;
-            color: rgba(255, 255, 255, 0.45);
-            border-top: 1px solid rgba(0, 255, 204, 0.12);
-            background: rgba(7, 15, 24, 0.96);
-            font-family: 'Courier Prime', monospace;
-          }
-          #global-legal-footer a {
-            color: #00ffcc;
-            text-decoration: none;
-          }
-          #global-legal-footer a:hover {
-            text-decoration: underline;
-          }
         `}</style>
       </head>
       <body>
         {children}
-        <footer id="global-legal-footer">
-          <a href="/privacy">Privacy Policy</a>
-          <span aria-hidden="true"> · </span>
-          <a href="/terms">Terms</a>
-        </footer>
       </body>
     </html>
   );

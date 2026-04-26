@@ -472,7 +472,7 @@ export default function HomeScreen() {
   })();
 
   const topInset = getTabTopInset(insets);
-  const bottomInset = getTabBottomInset();
+  const bottomInset = getTabBottomInset(insets);
 
   return (
     <View style={[styles.container, { paddingBottom: bottomInset }]}>
@@ -693,7 +693,7 @@ export default function HomeScreen() {
           )}
         </View>
 
-        <View style={{ height: 80 }} />
+        <View style={{ height: 12 }} />
       </ScrollView>
     </View>
   );

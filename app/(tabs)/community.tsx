@@ -82,7 +82,7 @@ function PurchaseRankCard({ item, rank }: { item: any; rank: number }) {
 export default function CommunityScreen() {
   const insets = useSafeAreaInsets();
   const topInset = getTabTopInset(insets);
-  const bottomInset = getTabBottomInset();
+  const bottomInset = getTabBottomInset(insets);
   const [contentTab, setContentTab] = useState<"announcements" | "ranking">("announcements");
   const [videoSort, setVideoSort] = useState<"sales" | "newest" | "views">("sales");
 

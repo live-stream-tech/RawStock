@@ -35,7 +35,7 @@ type DMItem = {
 export default function DMScreen() {
   const insets = useSafeAreaInsets();
   const topInset = getTabTopInset(insets);
-  const bottomInset = getTabBottomInset();
+  const bottomInset = getTabBottomInset(insets);
   const { user, token, loading: authLoading } = useAuth();
 
   useEffect(() => {

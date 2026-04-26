@@ -95,7 +95,7 @@ export default function GenreScreen() {
   const { genreId } = useLocalSearchParams<{ genreId: string }>();
   const insets = useSafeAreaInsets();
   const topInset = getTabTopInset(insets);
-  const bottomInset = getTabBottomInset();
+  const bottomInset = getTabBottomInset(insets);
 
   const genre = GENRE_DATA[genreId ?? ""] ?? null;
 
