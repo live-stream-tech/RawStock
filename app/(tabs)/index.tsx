@@ -402,6 +402,23 @@ export default function HomeScreen() {
   const unreadCount = useUnreadCount();
   const { jukeboxIsActive, jukeboxCommunityId } = usePlayingVideo();
   const { pulse: jukePulse } = useJukeboxPulse();
+  const [isPwaStandalone, setIsPwaStandalone] = React.useState(false);
+
+  React.useEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined") return;
+    const mediaQuery = window.matchMedia("(display-mode: standalone)");
+    const updateStandaloneState = () => {
+      const iosStandalone = typeof (window.navigator as any).standalone === "boolean"
+        ? Boolean((window.navigator as any).standalone)
+        : false;
+      setIsPwaStandalone(mediaQuery.matches || iosStandalone);
+    };
+    updateStandaloneState();
+    mediaQuery.addEventListener("change", updateStandaloneState);
+    return () => {
+      mediaQuery.removeEventListener("change", updateStandaloneState);
+    };
+  }, []);
 
   const { data: apiVideos = [] } = useQuery<any[]>({ queryKey: ["/api/videos"] });
   const { data: apiLive = [] } = useQuery<any[]>({
@@ -461,6 +478,18 @@ export default function HomeScreen() {
       <View style={[styles.header, { paddingTop: topInset + 8 }]}>
         <AppLogo height={32} />
         <View style={styles.headerRight}>
+          {isPwaStandalone && (
+            <Pressable
+              style={styles.iconBtn}
+              onPress={() => {
+                if (typeof window !== "undefined") window.location.reload();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Reload app"
+            >
+              <Ionicons name="refresh-outline" size={21} color={C.text} />
+            </Pressable>
+          )}
           <Pressable style={styles.iconBtn} onPress={() => router.push("/notifications?filter=purchase")}>
             <Ionicons name="notifications-outline" size={22} color={C.text} />
             {unreadCount > 0 && (
