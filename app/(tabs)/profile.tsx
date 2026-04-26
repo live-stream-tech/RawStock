@@ -401,39 +401,24 @@ export default function ProfileScreen() {
         const input = document.createElement("input");
         input.type = "file";
         input.accept = "image/*";
+        input.style.position = "fixed";
+        input.style.left = "-9999px";
+        input.style.top = "-9999px";
+        input.style.opacity = "0";
+        document.body.appendChild(input);
         let settled = false;
         const settle = () => {
           if (settled) return;
           settled = true;
-          window.removeEventListener("focus", onWindowFocus);
           clearTimeout(safetyTimer);
+          input.onchange = null;
+          input.remove();
         };
-        const onWindowFocus = () => {
-          setTimeout(() => {
-            if (settled) return;
-            if (!input.files?.length) {
-              settle();
-              resolve(null);
-            }
-          }, 200);
-        };
-        const safetyTimer = setTimeout(() => {
+        const safetyTimer = window.setTimeout(() => {
           if (settled) return;
           settle();
           resolve(null);
-        }, 120_000);
-        input.addEventListener(
-          "cancel",
-          () => {
-            settle();
-            resolve(null);
-          },
-          { once: true },
-        );
-        setTimeout(() => {
-          if (settled) return;
-          window.addEventListener("focus", onWindowFocus);
-        }, 400);
+        }, 30_000);
         input.onchange = async (e: Event) => {
           try {
             const target = e.target as HTMLInputElement;
@@ -737,7 +722,9 @@ export default function ProfileScreen() {
               )}
             </Pressable>
             <View style={styles.profileInfo}>
-              <Text style={styles.profileName}>{user?.name ?? user?.displayName ?? ""}</Text>
+              <Text style={styles.profileName} numberOfLines={1}>
+                {user?.name ?? user?.displayName ?? ""}
+              </Text>
             </View>
           </View>
           <View style={styles.headerActions}>
@@ -764,26 +751,6 @@ export default function ProfileScreen() {
                 styles.editBtn,
                 pressed && styles.headerBtnPressed,
               ]}
-              onPress={() => router.push("/dm")}
-            >
-              <Ionicons name="paper-plane-outline" size={18} color={C.accent} />
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.editBtn,
-                pressed && styles.headerBtnPressed,
-              ]}
-              onPress={() => router.push("/live" as any)}
-              accessibilityLabel="Go live"
-              accessibilityRole="button"
-            >
-              <Ionicons name="radio-outline" size={18} color={C.accent} />
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.settingsBtn,
-                pressed && styles.headerBtnPressed,
-              ]}
               onPress={() => router.push("/settings")}
             >
               <Ionicons name="settings-outline" size={18} color={C.accent} />
@@ -804,6 +771,21 @@ export default function ProfileScreen() {
         </View>
 
         {user?.bio ? <Text style={styles.bio}>{user.bio}</Text> : null}
+        <View style={styles.quickActionsRow}>
+          <Pressable style={styles.quickActionBtn} onPress={() => router.push("/dm")}>
+            <Ionicons name="paper-plane-outline" size={15} color={C.accent} />
+            <Text style={styles.quickActionText}>DM</Text>
+          </Pressable>
+          <Pressable
+            style={styles.quickActionBtn}
+            onPress={() => router.push("/live" as any)}
+            accessibilityLabel="Go live"
+            accessibilityRole="button"
+          >
+            <Ionicons name="radio-outline" size={15} color={C.accent} />
+            <Text style={styles.quickActionText}>Live</Text>
+          </Pressable>
+        </View>
         <View style={styles.followRow}>
           <Pressable style={styles.followStat} onPress={() => router.push(`/user/${user?.id}/followers`)}>
             <Text style={styles.followStatValue}>{user?.followersCount ?? 0}</Text>
@@ -1513,7 +1495,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginBottom: 12,
   },
-  profileLeft: { flexDirection: "row", alignItems: "center", gap: 14 },
+  profileLeft: { flexDirection: "row", alignItems: "center", gap: 14, flex: 1, minWidth: 0 },
   avatarContainer: {
     position: "relative",
     borderWidth: 2,
@@ -1523,7 +1505,7 @@ const styles = StyleSheet.create({
   },
   avatar: { width: 66, height: 66, borderRadius: 33 },
   profileInfo: { gap: 6 },
-  profileName: { color: C.text, fontSize: 18, fontWeight: "800" },
+  profileName: { color: C.text, fontSize: 18, fontWeight: "800", flexShrink: 1 },
   followRow: { flexDirection: "row", gap: 24, marginTop: 10, marginBottom: 4 },
   followStat: { alignItems: "center" as const, gap: 2 },
   followStatValue: { fontSize: 18, fontWeight: "700" as const, color: C.text },
@@ -1540,6 +1522,25 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   bio: { color: C.textSec, fontSize: 13, paddingHorizontal: 16, marginBottom: 10 },
+  quickActionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    marginBottom: 10,
+  },
+  quickActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: C.surface,
+  },
+  quickActionText: { color: C.textSec, fontSize: 12, fontWeight: "700" },
   socialLinksRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -2203,17 +2204,17 @@ const styles = StyleSheet.create({
   pwaPopupBtnText: { color: "#050505", fontSize: 14, fontWeight: "700" },
 
   // Header actions (edit + logout)
-  headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
-  logoutBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 3,
-    borderWidth: 1,
-    borderColor: C.border,
+  headerActions: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-end",
+    flexWrap: "wrap",
+    columnGap: 8,
+    rowGap: 8,
+    marginLeft: 8,
+    maxWidth: 128,
   },
-  settingsBtn: {
+  logoutBtn: {
     width: 36,
     height: 36,
     borderRadius: 3,

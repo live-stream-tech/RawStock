@@ -27,7 +27,14 @@ export function getTabBottomInset(insets?: { bottom?: number }): number {
  * Web: ScrollView inside a flex column. Without minHeight:0, min-height:auto lets the child grow to content and breaks scrolling.
  */
 export const webFlexScrollStyle: ViewStyle | undefined =
-  Platform.OS === "web" ? { minHeight: 0 } : undefined;
+  Platform.OS === "web"
+    ? ({
+        minHeight: 0,
+        // Keep vertical scrollbar area stable on desktop web for easier grab/drag UX.
+        overflowY: "scroll",
+        scrollbarGutter: "stable",
+      } as unknown as ViewStyle)
+    : undefined;
 
 /** Merge Web minHeight:0 into vertical ScrollView styles (do not use on horizontal ScrollViews). */
 export function webScrollStyle(style: StyleProp<ViewStyle>): StyleProp<ViewStyle> {

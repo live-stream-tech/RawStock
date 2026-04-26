@@ -88,9 +88,28 @@ export default function SettingsScreen() {
   }
 
   function handleLogout() {
+    const doLogout = async () => {
+      try {
+        await AsyncStorage.removeItem("auth_token");
+        if (Platform.OS === "web" && typeof window !== "undefined") {
+          try {
+            window.localStorage?.removeItem("auth_token");
+          } catch {
+            /* ignore */
+          }
+        }
+      } finally {
+        logout();
+      }
+    };
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const ok = window.confirm("Are you sure you want to sign out?");
+      if (ok) void doLogout();
+      return;
+    }
     Alert.alert("Sign Out", "Are you sure you want to sign out?", [
       { text: "Cancel", style: "cancel" },
-      { text: "Sign Out", style: "destructive", onPress: logout },
+      { text: "Sign Out", style: "destructive", onPress: () => void doLogout() },
     ]);
   }
 

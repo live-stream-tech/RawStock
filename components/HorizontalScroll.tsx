@@ -44,7 +44,10 @@ export const HorizontalScroll = React.forwardRef<ScrollView, HorizontalScrollPro
       const node = getScrollableNode(scrollViewRef.current);
       if (node) {
         const scrollAmount = 200;
-        node.scrollLeft += direction === "left" ? -scrollAmount : scrollAmount;
+        node.scrollBy({
+          left: direction === "left" ? -scrollAmount : scrollAmount,
+          behavior: "smooth",
+        });
       }
     };
 
@@ -68,6 +71,7 @@ export const HorizontalScroll = React.forwardRef<ScrollView, HorizontalScrollPro
         <ScrollView
           ref={scrollViewRef}
           horizontal
+          style={Platform.OS === "web" ? styles.webHorizontalScroll : undefined}
           showsHorizontalScrollIndicator={scrollShowsHorizontal}
           contentContainerStyle={contentContainerStyle}
           scrollEventThrottle={16}
@@ -104,9 +108,14 @@ function useWheelScroll(ref: React.RefObject<ScrollView | null>) {
     const node = getScrollableNode(ref.current);
     if (!node) return;
     const onWheel = (e: WheelEvent) => {
-      if (Math.abs(e.deltaX) > 0) return;
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      if (node.scrollWidth <= node.clientWidth + 1) return;
+      const before = node.scrollLeft;
+      const max = node.scrollWidth - node.clientWidth;
+      const next = Math.max(0, Math.min(max, before + e.deltaY));
+      if (next === before) return;
       e.preventDefault();
-      node.scrollLeft += e.deltaY;
+      node.scrollLeft = next;
     };
     node.addEventListener("wheel", onWheel, { passive: false });
     return () => node.removeEventListener("wheel", onWheel);
@@ -117,6 +126,12 @@ const styles = StyleSheet.create({
   container: {
     position: "relative",
     width: "100%",
+  },
+  webHorizontalScroll: {
+    // Keep wheel/touch behavior contained to horizontal strips.
+    ...(Platform.OS === "web"
+      ? ({ overscrollBehaviorX: "contain", scrollbarGutter: "stable" } as unknown as ViewStyle)
+      : {}),
   },
   arrowBtn: {
     position: "absolute",

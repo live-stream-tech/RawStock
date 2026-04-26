@@ -2,7 +2,7 @@ import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef,
 import { Platform, StyleSheet, Text, View } from "react-native";
 
 const JEELIZ_SCRIPT = "https://appstatic.jeeliz.com/faceFilter/jeelizFaceFilter.js";
-const HELPER_SCRIPT = "/jeeliz/JeelizCanvas2DHelper.js";
+const HELPER_SCRIPT = "jeeliz/JeelizCanvas2DHelper.js";
 export const RAWSTOCK_JEELIZ_CANVAS_ID = "rawstock-jeeliz-canvas";
 
 type JeelizGlobal = {
@@ -199,7 +199,7 @@ export const FaceFilterWeb = forwardRef<FaceFilterWebHandle, FaceFilterWebProps>
       try {
         await loadScriptOnce(JEELIZ_SCRIPT, "jeeliz-core");
         if (!window.JEELIZFACEFILTER) throw new Error("Jeeliz script did not expose JEELIZFACEFILTER.");
-        const helperUrl = `${window.location.origin}${HELPER_SCRIPT}`;
+        const helperUrl = new URL(HELPER_SCRIPT, window.location.href).href;
         await loadScriptOnce(helperUrl, "jeeliz-canvas2d-helper");
         if (!window.JeelizCanvas2DHelper) throw new Error("JeelizCanvas2DHelper failed to load.");
       } catch (e: unknown) {
@@ -240,14 +240,23 @@ export const FaceFilterWeb = forwardRef<FaceFilterWebHandle, FaceFilterWebProps>
 
       if (cancelled) return;
 
-      const neuralDir = new URL("/jeeliz/neuralNets/", window.location.origin).href;
+      const neuralDir = new URL("jeeliz/neuralNets/", window.location.href).href;
+      const neuralJson = new URL("jeeliz/neuralNets/NN_DEFAULT.json", window.location.href).href;
       const JF = window.JEELIZFACEFILTER!;
 
       try {
         await new Promise<void>((resolve, reject) => {
+          const initTimeout = window.setTimeout(() => {
+            reject(new Error("Face filter initialization timed out (NNC/WebGL/camera readiness)."));
+          }, 15000);
+          const done = (fn: () => void) => {
+            window.clearTimeout(initTimeout);
+            fn();
+          };
           JF.init({
             canvasId: RAWSTOCK_JEELIZ_CANVAS_ID,
             NNCPath: neuralDir,
+            NNC: neuralJson,
             videoSettings: {
               videoElement: hiddenVideo,
               flipX: true,
@@ -257,18 +266,18 @@ export const FaceFilterWeb = forwardRef<FaceFilterWebHandle, FaceFilterWebProps>
                 const msg = errCodeToMessage(errCode);
                 if (msg) onError(msg);
                 else onError("Face filter failed to start.");
-                reject(new Error(String(errCode)));
+                done(() => reject(new Error(String(errCode))));
                 return;
               }
               try {
                 helperRef.current = window.JeelizCanvas2DHelper!(spec);
               } catch (e) {
-                reject(e instanceof Error ? e : new Error("Canvas2D helper init failed"));
+                done(() => reject(e instanceof Error ? e : new Error("Canvas2D helper init failed")));
                 return;
               }
               const glCanvas = document.getElementById(RAWSTOCK_JEELIZ_CANVAS_ID) as HTMLCanvasElement | null;
               if (!glCanvas) {
-                reject(new Error("Jeeliz canvas missing from DOM."));
+                done(() => reject(new Error("Jeeliz canvas missing from DOM.")));
                 return;
               }
               requestAnimationFrame(() => {
@@ -279,7 +288,7 @@ export const FaceFilterWeb = forwardRef<FaceFilterWebHandle, FaceFilterWebProps>
               outputStreamRef.current = cap;
               onOutputStream(cap);
               setStatusText(null);
-              resolve();
+              done(() => resolve());
             },
             callbackTrack: (detectState: DetectState) => {
               const CVD = helperRef.current;

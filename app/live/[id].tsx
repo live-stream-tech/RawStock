@@ -131,6 +131,7 @@ export default function LiveStreamScreen() {
   // WHEP WebRTC viewer
   const videoRef = useRef<any>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  const trackAttachedRef = useRef(false);
   const [whepError, setWhepError] = useState(false);
 
   const topInset = Platform.OS === "web" ? 67 : insets.top;
@@ -245,6 +246,8 @@ export default function LiveStreamScreen() {
   const connectWHEP = useCallback(async (whepUrl: string) => {
     if (Platform.OS !== "web") return;
     try {
+      setWhepError(false);
+      trackAttachedRef.current = false;
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }],
         bundlePolicy: "max-bundle",
@@ -254,7 +257,10 @@ export default function LiveStreamScreen() {
 
       pc.ontrack = (e) => {
         if (videoRef.current && e.streams[0]) {
+          trackAttachedRef.current = true;
           videoRef.current.srcObject = e.streams[0];
+          videoRef.current.muted = true; // Safari/PWA blocks autoplay with audio unless muted
+          videoRef.current.setAttribute("muted", "true");
           videoRef.current.play().catch(() => {});
         }
       };
@@ -296,6 +302,17 @@ export default function LiveStreamScreen() {
   useEffect(() => {
     if (whepUrl && streamLive && Platform.OS === "web") {
       void connectWHEP(whepUrl);
+      const timeout = setTimeout(() => {
+        // If SDP exchange succeeded but no media track arrives, surface an explicit error.
+        if (!trackAttachedRef.current) setWhepError(true);
+      }, 10000);
+      return () => {
+        clearTimeout(timeout);
+        if (pcRef.current) {
+          pcRef.current.close();
+          pcRef.current = null;
+        }
+      };
     }
     return () => {
       if (pcRef.current) {
@@ -406,6 +423,7 @@ export default function LiveStreamScreen() {
             <video
               ref={videoRef}
               autoPlay
+              muted
               playsInline
               style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }}
             />
