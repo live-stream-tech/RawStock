@@ -305,7 +305,7 @@ async function harvestFromSource(src: AnnouncementSource): Promise<HarvestedFlye
 }
 
 async function mirrorFlyerToR2(sourceUrl: string, title: string): Promise<string> {
-  if (!r2Client || !r2Bucket || !r2Endpoint) return sourceUrl;
+  if (!r2Client || !r2Bucket || !r2PublicBase) return sourceUrl;
   const res = await fetch(sourceUrl, { signal: AbortSignal.timeout(30_000) });
   if (!res.ok) throw new Error(`Failed flyer download: HTTP ${res.status}`);
   const arr = await res.arrayBuffer();
@@ -320,14 +320,13 @@ async function mirrorFlyerToR2(sourceUrl: string, title: string): Promise<string
       ContentType: contentType,
     }),
   );
-  return r2PublicBase
-    ? `${r2PublicBase.replace(/\/$/, "")}/${key}`
-    : `${r2Endpoint.replace(/\/$/, "")}/${r2Bucket}/${key}`;
+  return `${r2PublicBase.replace(/\/$/, "")}/${key}`;
 }
 
 function buildBody(item: HarvestedFlyer, finalImageUrl: string) {
   return [
     `FLYER_IMAGE: ${finalImageUrl}`,
+    `FLYER_IMAGE_ORIGINAL: ${item.imageUrl}`,
     BODY_MARKER,
     `Source: ${item.sourceLabel} (official event page image)`,
     `City: ${item.city}`,

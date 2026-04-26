@@ -14,6 +14,29 @@ export type ParsedThreadBody = {
   text: string;
 };
 
+/**
+ * R2 S3 API endpoints (…r2.cloudflarestorage.com) are not anonymously readable in the browser.
+ * URLs under a dedicated public domain (R2_PUBLIC_BASE_URL) are fine.
+ */
+export function isNonPublicObjectStorageFlyerUrl(url: string | null | undefined): boolean {
+  const s = typeof url === "string" ? url.trim() : "";
+  if (!s) return false;
+  try {
+    const host = new URL(s).hostname.toLowerCase();
+    return host.endsWith(".r2.cloudflarestorage.com");
+  } catch {
+    return false;
+  }
+}
+
+function pickDisplayFlyerUrl(primary: string | null, original: string | null): string | null {
+  const p = primary?.trim() || null;
+  const o = original?.trim() || null;
+  if (p && !isNonPublicObjectStorageFlyerUrl(p)) return p;
+  if (o && !isNonPublicObjectStorageFlyerUrl(o)) return o;
+  return p || o;
+}
+
 function extractUrlFromLine(trimmed: string): string | null {
   const md = trimmed.match(/\((https?:\/\/[^)\s]+)\)/i);
   if (md?.[1]) return md[1].replace(/[)\],。．、]+$/g, "");
@@ -56,10 +79,17 @@ export function parseThreadBody(raw: string | null | undefined): ParsedThreadBod
   const lines = body.split("\n");
 
   let flyerImageUrl: string | null = null;
+  /** Backup when `FLYER_IMAGE` points at a non-public object-storage URL (e.g. R2 S3 API host). */
+  let flyerImageOriginalUrl: string | null = null;
   let shortVideoUrl: string | null = null;
 
   for (const line of lines) {
     const trimmed = line.trim();
+    if (/^FLYER_IMAGE_ORIGINAL\s*[:：]/i.test(trimmed)) {
+      const u = extractUrlFromLine(trimmed);
+      if (u) flyerImageOriginalUrl = u;
+      continue;
+    }
     if (/^FLYER_IMAGE\s*[:：]/i.test(trimmed) || /^フライヤー画像(?:URL)?\s*[:：]/i.test(trimmed)) {
       const u = extractUrlFromLine(trimmed);
       if (u) flyerImageUrl = u;
@@ -74,6 +104,9 @@ export function parseThreadBody(raw: string | null | undefined): ParsedThreadBod
   const kept: string[] = [];
   for (const line of lines) {
     const trimmed = line.trim();
+    if (/^FLYER_IMAGE_ORIGINAL\s*[:：]/i.test(trimmed)) {
+      continue;
+    }
     if (/^FLYER_IMAGE\s*[:：]/i.test(trimmed) || /^フライヤー画像(?:URL)?\s*[:：]/i.test(trimmed)) {
       continue;
     }
@@ -83,5 +116,7 @@ export function parseThreadBody(raw: string | null | undefined): ParsedThreadBod
     kept.push(line);
   }
 
-  return { flyerImageUrl, shortVideoUrl, text: kept.join("\n").trim() };
+  const flyer = pickDisplayFlyerUrl(flyerImageUrl, flyerImageOriginalUrl);
+
+  return { flyerImageUrl: flyer, shortVideoUrl, text: kept.join("\n").trim() };
 }

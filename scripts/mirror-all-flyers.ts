@@ -140,6 +140,11 @@ function extractFlyerDirectiveRaw(body: string): string | null {
 
 async function mirrorToR2(sourceUrl: string, keySeed: string): Promise<string> {
   if (!r2Client || !r2Bucket || !r2Endpoint) throw new Error("R2 config is missing");
+  if (!r2PublicBase) {
+    throw new Error(
+      "R2_PUBLIC_BASE_URL is not set; refusing to emit a non-public R2 API URL (browsers cannot load *.r2.cloudflarestorage.com anonymously).",
+    );
+  }
   const res = await fetch(sourceUrl, { signal: AbortSignal.timeout(30_000) });
   if (!res.ok) throw new Error(`download failed: HTTP ${res.status}`);
 
@@ -161,9 +166,7 @@ async function mirrorToR2(sourceUrl: string, keySeed: string): Promise<string> {
     })
   );
 
-  return r2PublicBase
-    ? `${r2PublicBase.replace(/\/$/, "")}/${key}`
-    : `${r2Endpoint.replace(/\/$/, "")}/${r2Bucket}/${key}`;
+  return `${r2PublicBase.replace(/\/$/, "")}/${key}`;
 }
 
 async function mirrorWithFallback(sourceUrl: string, body: string, keySeed: string): Promise<string> {

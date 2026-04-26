@@ -492,11 +492,13 @@ function pickUpToTenWithFlyer(items: ParsedItem[], src: AnnouncementSource): { p
   return { picked: out, diag };
 }
 
-function buildBody(sourceLabel: string, item: ParsedItem): string {
+function buildBody(sourceLabel: string, item: ParsedItem, sourceFlyerUrl: string | null): string {
   const flyer = usableOfficialImageUrl(item.imageUrl) ?? usableFlyerUrl(item.imageUrl);
   if (!flyer) throw new Error("buildBody requires a flyer URL");
+  const orig = sourceFlyerUrl?.trim() && sourceFlyerUrl.trim() !== flyer ? sourceFlyerUrl.trim() : null;
   return [
     `FLYER_IMAGE: ${flyer}`,
+    ...(orig ? [`FLYER_IMAGE_ORIGINAL: ${orig}`] : []),
     BODY_MARKER,
     `Source: ${sourceLabel} (public RSS; image from feed)`,
     `Official link: ${item.link}`,
@@ -539,6 +541,11 @@ async function mirrorFlyerToR2(sourceUrl: string, title: string): Promise<string
   if (!r2Client || !r2Bucket || !r2Endpoint) {
     throw new Error("R2 not configured for flyer mirroring");
   }
+  if (!r2PublicBase) {
+    throw new Error(
+      "R2_PUBLIC_BASE_URL is not set; refusing to emit a non-public R2 API URL for mirrored flyers (browsers cannot load *.r2.cloudflarestorage.com anonymously).",
+    );
+  }
   if (sourceUrl.length > 1900) {
     throw new Error("Flyer URL too long to mirror safely");
   }
@@ -558,9 +565,7 @@ async function mirrorFlyerToR2(sourceUrl: string, title: string): Promise<string
       ContentType: contentType,
     }),
   );
-  return r2PublicBase
-    ? `${r2PublicBase.replace(/\/$/, "")}/${key}`
-    : `${r2Endpoint.replace(/\/$/, "")}/${r2Bucket}/${key}`;
+  return `${r2PublicBase.replace(/\/$/, "")}/${key}`;
 }
 
 async function fetchXml(url: string): Promise<string> {
@@ -704,7 +709,7 @@ async function main() {
           }
         }
       }
-      const body = buildBody(src.label, { ...item, imageUrl: finalImageUrl });
+      const body = buildBody(src.label, { ...item, imageUrl: finalImageUrl }, originalFlyer);
       const genre = inferGenreKey(`${item.title} ${item.blurb}`);
       const bucket = communityByGenre.get(genre) ?? communityByGenre.get("default") ?? fallbackIds;
       const idx = perGenreIndex.get(genre) ?? 0;
