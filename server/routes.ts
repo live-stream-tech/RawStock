@@ -2016,12 +2016,24 @@ export async function registerRoutes(app: Express): Promise<void> {
           } as typeof users.$inferInsert)
           .returning();
       } else {
+        const hasCustomName =
+          typeof existing.displayName === "string" &&
+          existing.displayName.trim().length > 0 &&
+          existing.displayName.trim().toLowerCase() !== "google user";
+        const hasCustomAvatar =
+          typeof existing.profileImageUrl === "string" &&
+          existing.profileImageUrl.trim().length > 0;
         const nextValues: Partial<InferSelectModel<typeof users>> = {
-          displayName,
-          profileImageUrl: avatar,
           updatedAt: new Date(),
           ...tokenUpdate,
         };
+        // Keep user-edited profile values on re-login; only backfill when missing/default.
+        if (!hasCustomName && displayName) {
+          nextValues.displayName = displayName;
+        }
+        if (!hasCustomAvatar && avatar) {
+          nextValues.profileImageUrl = avatar;
+        }
         if (googleEmail) nextValues.email = googleEmail;
         [existing] = await db
           .update(users)
