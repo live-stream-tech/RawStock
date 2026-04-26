@@ -51,6 +51,20 @@ function toHttps(url: string): string {
   return url.replace(/^http:\/\//i, "https://");
 }
 
+function normalizeSingleHttpUrl(raw: string | null | undefined): string | null {
+  if (!raw || typeof raw !== "string") return null;
+  const s = raw.trim();
+  if (!s) return null;
+  const firstHttp = s.search(/https?:\/\//i);
+  if (firstHttp < 0) return null;
+  let candidate = s.slice(firstHttp);
+  const nextHttp = candidate.slice(8).search(/https?:\/\//i);
+  if (nextHttp >= 0) {
+    candidate = candidate.slice(0, nextHttp + 8);
+  }
+  return candidate.replace(/[)\],。．、"'<>]+$/g, "").trim();
+}
+
 function extractImgSrcsFromHtml(html: string): string[] {
   const out: string[] = [];
   const re = /<img[^>]+src=["']([^"']+)["']/gi;
@@ -63,8 +77,9 @@ function extractImgSrcsFromHtml(html: string): string[] {
 }
 
 function usableFlyerUrl(raw: string | null | undefined): string | null {
-  if (!raw || typeof raw !== "string") return null;
-  let u = raw.trim();
+  const normalized = normalizeSingleHttpUrl(raw);
+  if (!normalized) return null;
+  let u = normalized;
   if (!/^https?:\/\//i.test(u)) return null;
   u = toHttps(u);
   const low = u.toLowerCase();
@@ -83,6 +98,31 @@ function usableFlyerUrl(raw: string | null | undefined): string | null {
   return u;
 }
 
+/** Same as V3: accept venue/feed hero images without strict URL keyword heuristics. */
+function usableOfficialImageUrl(raw: string | null | undefined): string | null {
+  const normalized = normalizeSingleHttpUrl(raw);
+  if (!normalized) return null;
+  let u = normalized;
+  if (!/^https?:\/\//i.test(u)) return null;
+  u = toHttps(u);
+  const low = u.toLowerCase();
+  if (/\b(favicon|\/icons?\/|pixel\.|1x1|spacer|blank\.|transparent\.|gravatar\.com\/avatar|avatar|logo)\b/i.test(low)) {
+    return null;
+  }
+  const looksImage =
+    /\.(jpe?g|png|webp|gif)(\?|$|\/)/i.test(low) ||
+    /\/wp-content\/uploads\//i.test(low) ||
+    /wp\.com\//i.test(low) ||
+    /cloudinary\.com/i.test(low) ||
+    /blogger\.googleusercontent\.com/i.test(low) ||
+    /cdn\.|images\.|i\.imgur\.com/i.test(low);
+  return looksImage ? u : null;
+}
+
+function pickFeedImageUrl(raw: string | null | undefined): string | null {
+  return usableFlyerUrl(raw) ?? usableOfficialImageUrl(raw);
+}
+
 function pickFlyerFromItem(block: string, descRaw: string): string | null {
   const thumb =
     extractFirst(/<media:thumbnail[^>]+url="([^"]+)"/i, block) ??
@@ -92,10 +132,10 @@ function pickFlyerFromItem(block: string, descRaw: string): string | null {
     extractFirst(/<enclosure[^>]+url="([^"]+)"/i, block) ??
     extractFirst(/<enclosure[^>]+url='([^']+)'/i, block) ??
     extractFirst(/url="([^"]+)"[^>]*medium="image"/i, block);
-  const fromThumb = usableFlyerUrl(thumb ? toHttps(thumb) : null);
+  const fromThumb = pickFeedImageUrl(thumb ? toHttps(thumb) : null);
   if (fromThumb) return fromThumb;
   for (const src of extractImgSrcsFromHtml(descRaw)) {
-    const ok = usableFlyerUrl(toHttps(src));
+    const ok = pickFeedImageUrl(toHttps(src));
     if (ok) return ok;
   }
   return null;
@@ -134,7 +174,70 @@ function absolutizeLink(baseUrl: string, maybeLink: string): string | null {
   }
 }
 
+async function fetchXml(url: string): Promise<string> {
+  const res = await fetch(url, {
+    headers: { "User-Agent": "RawStockOfficialLiveRouteB/1.0 (+https://rawstock.uk)" },
+    signal: AbortSignal.timeout(25_000),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+  return await res.text();
+}
+
+function extractJsonLdItems(html: string, baseUrl: string): ParsedItem[] {
+  const out: ParsedItem[] = [];
+  const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html))) {
+    const raw = (m[1] ?? "").trim();
+    if (!raw) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    const nodes = Array.isArray(parsed) ? parsed : [parsed];
+    for (const node of nodes) {
+      if (!node || typeof node !== "object") continue;
+      const rec = node as Record<string, unknown>;
+      const type = String(rec["@type"] ?? "").toLowerCase();
+      if (type !== "event") continue;
+      const name = typeof rec.name === "string" ? rec.name.trim() : "";
+      if (!name) continue;
+      const eventUrl = typeof rec.url === "string" ? rec.url : null;
+      const link = eventUrl ? absolutizeLink(baseUrl, eventUrl) : baseUrl;
+      if (!link) continue;
+      const desc = typeof rec.description === "string" ? rec.description : "";
+      const startDate = typeof rec.startDate === "string" ? rec.startDate : null;
+      const location =
+        rec.location && typeof rec.location === "object"
+          ? (rec.location as Record<string, unknown>)
+          : null;
+      const venueName = typeof location?.name === "string" ? location.name : "";
+      const offers = rec.offers;
+      const offersBlob =
+        typeof offers === "string"
+          ? offers
+          : offers && typeof offers === "object"
+            ? JSON.stringify(offers)
+            : "";
+      const imageRaw =
+        typeof rec.image === "string"
+          ? rec.image
+          : Array.isArray(rec.image)
+            ? String(rec.image[0] ?? "")
+            : null;
+      const imageUrl = usableOfficialImageUrl(imageRaw ? absolutizeLink(baseUrl, imageRaw) : null);
+      const blurb = stripTags(`${desc} ${venueName} ${offersBlob}`).slice(0, 400);
+      out.push({ title: name, link, blurb, imageUrl, pubDate: startDate });
+    }
+  }
+  return out;
+}
+
 function parseHtmlItems(html: string, baseUrl: string): ParsedItem[] {
+  const fromJsonLd = extractJsonLdItems(html, baseUrl);
+  if (fromJsonLd.length) return fromJsonLd;
   const out: ParsedItem[] = [];
   const re = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let m: RegExpExecArray | null;
@@ -148,6 +251,103 @@ function parseHtmlItems(html: string, baseUrl: string): ParsedItem[] {
     const imageUrl = pickFlyerFromItem(ctx, ctx);
     out.push({ title, link, blurb, imageUrl, pubDate: null });
     if (out.length >= 160) break;
+  }
+  return out;
+}
+
+function extractMetaContent(html: string, key: "property" | "name", value: string): string | null {
+  const re = new RegExp(
+    `<meta[^>]+${key}=["']${value}["'][^>]+content=["']([^"']+)["'][^>]*>|<meta[^>]+content=["']([^"']+)["'][^>]+${key}=["']${value}["'][^>]*>`,
+    "i",
+  );
+  const m = html.match(re);
+  const raw = m?.[1] ?? m?.[2] ?? null;
+  return raw ? decodeXml(raw.trim()) : null;
+}
+
+function pickImageFromDetailPage(html: string, pageUrl: string): string | null {
+  const og =
+    extractMetaContent(html, "property", "og:image") ??
+    extractMetaContent(html, "name", "og:image") ??
+    extractMetaContent(html, "name", "twitter:image");
+  const ogAbs = og ? absolutizeLink(pageUrl, og) : null;
+  const fromOg = usableOfficialImageUrl(ogAbs);
+  if (fromOg) return fromOg;
+  const fromJsonLd = extractJsonLdItems(html, pageUrl);
+  for (const it of fromJsonLd) {
+    const ok = usableOfficialImageUrl(it.imageUrl);
+    if (ok) return ok;
+  }
+  return null;
+}
+
+function extractDateHintFromDetail(html: string): string | null {
+  const timeDatetime = extractFirst(/<time[^>]+datetime=["']([^"']+)["']/i, html);
+  if (timeDatetime) return stripTags(timeDatetime).slice(0, 32);
+  const text = stripTags(html).slice(0, 12000);
+  const monthDate = text.match(/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:,\s*\d{4})?\b/i)?.[0] ?? null;
+  if (monthDate) return monthDate;
+  const numeric = text.match(/\b\d{4}[./-]\d{1,2}[./-]\d{1,2}\b|\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/)?.[0] ?? null;
+  return numeric;
+}
+
+function extractTicketHintFromDetail(html: string): string | null {
+  const ticketLink = extractFirst(
+    /<a[^>]+href=["']([^"']*(?:ticket|tickets|buy|rsvp|admission|entry)[^"']*)["'][^>]*>/i,
+    html,
+  );
+  if (ticketLink) return `Tickets: ${ticketLink}`;
+  const text = stripTags(html).slice(0, 16000);
+  if (/\b(ticket|tickets|buy now|rsvp|admission|entry)\b/i.test(text)) return "Tickets available";
+  return null;
+}
+
+function extractLineupHintFromDetail(html: string): string | null {
+  const hLike = extractFirst(
+    /<(?:h1|h2|h3|strong|b)[^>]*>([^<]*(?:lineup|line-?up|feat\.?|featuring|with|b2b|dj)[^<]*)<\/(?:h1|h2|h3|strong|b)>/i,
+    html,
+  );
+  if (hLike) return `Lineup: ${stripTags(hLike).slice(0, 160)}`;
+  const text = stripTags(html).slice(0, 16000);
+  const lineupText =
+    text.match(/\b(?:lineup|line-?up)\b[:\s-]*([a-z0-9&,'\-\s]{4,120})/i)?.[0] ??
+    text.match(/\b(?:feat\.?|featuring|with|b2b)\b[:\s-]*([a-z0-9&,'\-\s]{4,120})/i)?.[0] ??
+    null;
+  return lineupText ? `Lineup: ${lineupText.slice(0, 160)}` : null;
+}
+
+function enrichBlurbWithDetailSignals(blurb: string, dateHint: string | null, lineupHint: string | null, ticketHint: string | null): string {
+  const chunks = [blurb.trim()];
+  if (dateHint) chunks.push(`Event date ${dateHint}`);
+  if (lineupHint) chunks.push(lineupHint);
+  if (ticketHint) chunks.push(ticketHint);
+  return chunks.filter(Boolean).join(" ").replace(/\s+/g, " ").slice(0, 400);
+}
+
+async function enrichItemsWithDetailImages(items: ParsedItem[]): Promise<ParsedItem[]> {
+  const out: ParsedItem[] = [];
+  let checked = 0;
+  for (const item of items) {
+    if (checked >= 25) {
+      out.push(item);
+      continue;
+    }
+    checked++;
+    try {
+      const html = await fetchXml(item.link);
+      const detailImage = pickImageFromDetailPage(html, item.link);
+      const dateHint = extractDateHintFromDetail(html);
+      const lineupHint = extractLineupHintFromDetail(html);
+      const ticketHint = extractTicketHintFromDetail(html);
+      out.push({
+        ...item,
+        imageUrl: detailImage ?? item.imageUrl,
+        pubDate: item.pubDate ?? dateHint ?? null,
+        blurb: enrichBlurbWithDetailSignals(item.blurb, dateHint, lineupHint, ticketHint),
+      });
+    } catch {
+      out.push(item);
+    }
   }
   return out;
 }
@@ -188,10 +388,10 @@ function normalizeCommunityGenre(category: string | null | undefined, name: stri
 function pickUpToTenWithFlyer(items: ParsedItem[], src: AnnouncementSource): ParsedItem[] {
   const seen = new Set<string>();
   const seenDedup = new Set<string>();
-  const pool = items.filter((i) => isVenueOrFestivalItem(i) && usableFlyerUrl(i.imageUrl));
+  const pool = items.filter((i) => isVenueOrFestivalItem(i) && pickFeedImageUrl(i.imageUrl));
   const out: ParsedItem[] = [];
   for (const i of pool) {
-    const flyer = usableFlyerUrl(i.imageUrl)!;
+    const flyer = pickFeedImageUrl(i.imageUrl)!;
     if (seen.has(i.link)) continue;
     const check = evaluateAnnouncementFields({
       title: i.title,
@@ -219,7 +419,7 @@ function pickUpToTenWithFlyer(items: ParsedItem[], src: AnnouncementSource): Par
 }
 
 function buildBody(sourceLabel: string, item: ParsedItem): string {
-  const flyer = usableFlyerUrl(item.imageUrl);
+  const flyer = pickFeedImageUrl(item.imageUrl);
   if (!flyer) throw new Error("buildBody requires a flyer URL");
   return [
     `FLYER_IMAGE: ${flyer}`,
@@ -233,14 +433,8 @@ function buildBody(sourceLabel: string, item: ParsedItem): string {
   ].join("\n");
 }
 
-async function fetchXml(url: string): Promise<string> {
-  const res = await fetch(url, {
-    headers: { "User-Agent": "RawStockOfficialLiveRouteB/1.0 (+https://rawstock.uk)" },
-    signal: AbortSignal.timeout(25_000),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-  return await res.text();
-}
+/** Limit overlap with V3 hub volume per venue pass. */
+const MAX_INSERT_PER_SOURCE = 3;
 
 async function main() {
   const cs = process.env.DATABASE_URL;
@@ -298,6 +492,7 @@ async function main() {
       } else {
         const html = await fetchXml(src.officialCalendarUrl);
         items = parseHtmlItems(html, src.officialCalendarUrl);
+        items = await enrichItemsWithDetailImages(items);
       }
     } catch (e) {
       console.warn(`[${src.key}] fetch/parse failed:`, e instanceof Error ? e.message : e);
@@ -308,7 +503,9 @@ async function main() {
       `[${src.key}] ${picked.length} threads (priority ${src.sourcePriority}; fields: date+venue+lineup+ticket).`,
     );
 
+    let sourceInserted = 0;
     for (const item of picked) {
+      if (sourceInserted >= MAX_INSERT_PER_SOURCE) break;
       const prefix = `[${src.label}] `;
       const rawTitle = item.title.replace(/\s+/g, " ").trim();
       const title = (prefix + rawTitle).slice(0, 220);
@@ -326,6 +523,7 @@ async function main() {
         [communityId, authorId, title, body],
       );
       inserted++;
+      sourceInserted++;
     }
   }
 
