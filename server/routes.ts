@@ -555,6 +555,31 @@ async function sendWelcomeDmIfNeeded(userId: number): Promise<void> {
   }
 }
 
+let dmThreadTablesEnsured = false;
+async function ensureDmThreadTables(): Promise<void> {
+  if (dmThreadTablesEnsured) return;
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS dm_threads (
+      id serial PRIMARY KEY,
+      user_1_id integer NOT NULL,
+      user_2_id integer NOT NULL,
+      last_message_preview text,
+      updated_at timestamp DEFAULT now(),
+      UNIQUE (user_1_id, user_2_id)
+    )
+  `);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS dm_thread_messages (
+      id serial PRIMARY KEY,
+      thread_id integer NOT NULL,
+      sender_user_id integer NOT NULL,
+      text text NOT NULL,
+      created_at timestamp DEFAULT now()
+    )
+  `);
+  dmThreadTablesEnsured = true;
+}
+
 const SYSTEM_WALLET_KINDS = ["MODERATOR", "ADMIN", "EVENT_RESERVE", "PLATFORM"] as const;
 
 /** Get or create system wallet. */
@@ -5112,6 +5137,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   // --- DM threads (user-to-user) ---
   app.post("/api/dm/open", async (req: Request, res: Response) => {
+    await ensureDmThreadTables();
     const me = await getAuthUser(req);
     if (!me) return res.status(401).json({ error: "Not authenticated" });
     const raw = (req.body as { peerUserId?: unknown })?.peerUserId;
@@ -5143,6 +5169,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   app.get("/api/dm-messages", async (req: Request, res: Response) => {
+    await ensureDmThreadTables();
     const me = await getAuthUser(req);
     if (!me) return res.json([]);
     const threads = await db
@@ -5205,6 +5232,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   app.post("/api/dm-messages/:id/read", async (req: Request, res: Response) => {
+    await ensureDmThreadTables();
     const rawId = paramNum(req, "id");
     const legacyDmId = rawId < 0 ? -rawId : rawId;
     const me = await getAuthUser(req);
@@ -5313,6 +5341,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   // --- DM thread by id (= dm_threads.id; legacy dm_messages id fallback below) ---
   app.get("/api/dm-messages/:id/peer", async (req: Request, res: Response) => {
+    await ensureDmThreadTables();
     const rawId = paramNum(req, "id");
     const me = await getAuthUser(req);
     if (!me) return res.status(401).json({ error: "Not authenticated" });
@@ -5348,6 +5377,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   app.get("/api/dm-messages/:id/conversation", async (req: Request, res: Response) => {
+    await ensureDmThreadTables();
     const rawId = paramNum(req, "id");
     const me = await getAuthUser(req);
     if (!me) return res.status(401).json({ error: "Not authenticated" });
@@ -5413,6 +5443,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   app.post("/api/dm-messages/:id/conversation", async (req: Request, res: Response) => {
+    await ensureDmThreadTables();
     const rawId = paramNum(req, "id");
     const legacyDmId = rawId < 0 ? -rawId : rawId;
     const me = await getAuthUser(req);

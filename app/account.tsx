@@ -29,14 +29,16 @@ async function uploadImageBlobToR2(blob: Blob, fileName: string, mime: string): 
     fileName,
     contentType: mime,
   });
-  const data = (await resp.json()) as { uploadUrl: string; fileUrl: string };
+  const data = (await resp.json()) as { uploadUrl: string; fileUrl?: string; url?: string };
   const put = await fetch(data.uploadUrl, {
     method: "PUT",
     headers: { "Content-Type": mime },
     body: blob,
   });
   if (!put.ok) throw new Error("Upload failed");
-  return data.fileUrl;
+  const publicUrl = data.fileUrl ?? data.url;
+  if (!publicUrl) throw new Error("Upload URL response did not include a public URL");
+  return publicUrl;
 }
 export default function AccountEditScreen() {
   const insets = useSafeAreaInsets();

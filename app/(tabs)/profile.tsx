@@ -361,18 +361,45 @@ export default function ProfileScreen() {
       fileName,
       contentType: mimeType,
     });
-    const { uploadUrl, url } = (await resp.json()) as { uploadUrl: string; url: string };
+    const { uploadUrl, url, fileUrl } = (await resp.json()) as { uploadUrl: string; url?: string; fileUrl?: string };
     const putRes = await fetch(uploadUrl, {
       method: "PUT",
       headers: { "Content-Type": mimeType },
       body: blob,
     });
     if (!putRes.ok) throw new Error("Failed to upload avatar");
-    return url;
+    const publicUrl = url ?? fileUrl;
+    if (!publicUrl) throw new Error("Upload URL response did not include a public URL");
+    return publicUrl;
   }
 
   /** Returns public URL after upload, or null if user cancelled / no file */
   async function pickAndUploadAvatarUrl(): Promise<string | null> {
+    if (Platform.OS === "web" && typeof document !== "undefined") {
+      return await new Promise((resolve, reject) => {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "image/jpeg,image/png,image/webp,image/gif";
+        input.onchange = async (e: Event) => {
+          const file = (e.target as HTMLInputElement).files?.[0];
+          if (!file) {
+            resolve(null);
+            return;
+          }
+          try {
+            const mime = file.type && /^image\/(jpeg|png|webp|gif)$/i.test(file.type) ? file.type : "image/jpeg";
+            const safeName = (file.name || `avatar_${Date.now()}.jpg`).replace(/[^\w.-]/g, "_");
+            resolve(await uploadAvatarBlob(file, safeName, mime));
+          } catch (err) {
+            reject(err);
+          } finally {
+            input.remove();
+          }
+        };
+        document.body.appendChild(input);
+        input.click();
+      });
+    }
     if (Platform.OS !== "web") {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== "granted") {
