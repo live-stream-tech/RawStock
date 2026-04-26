@@ -109,6 +109,7 @@ import { translateText } from "./lib/translate";
 import { debugIngestServer } from "./debugIngest";
 import { LEGAL_PRIVACY_VERSION, LEGAL_TERMS_VERSION } from "../constants/legalVersions";
 import { parseThreadBody } from "../lib/parse-thread-body";
+import { STATIONS } from "../constants/stations";
 import { diversifyAnnouncementRowsByCommunity } from "./lib/diversifyAnnouncementFeed";
 import {
   fetchCommunitiesForIds,
@@ -392,13 +393,13 @@ async function promoteAdminByEmail(target?: { id: number; email: string | null |
     .where(eq(users.email, ADMIN_EMAIL));
 }
 
-async function runScriptForAnnouncements(command: string, args: string[]): Promise<{
+async function runScriptForAnnouncements(command: string, args: readonly string[]): Promise<{
   ok: boolean;
   exitCode: number | null;
   output: string;
 }> {
   return await new Promise((resolve) => {
-    const child = spawn(command, args, {
+    const child = spawn(command, [...args], {
       cwd: process.cwd(),
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
@@ -2339,30 +2340,26 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json(normalized);
   });
 
-  /** Official Station summary: unique users across top-10 communities by members. */
+  /** Station list: official editorial lanes, fully separate from user-created communities. */
+  app.get("/api/stations", async (_req: Request, res: Response) => {
+    res.json(STATIONS);
+  });
+
+  /** Station summary: separate from user-created communities. */
+  app.get("/api/stations/stats", async (_req: Request, res: Response) => {
+    const memberSum = STATIONS.reduce((sum, r) => sum + Number(r.members ?? 0), 0);
+    res.json({
+      stationCount: STATIONS.length,
+      memberSum,
+    });
+  });
+
+  /** Legacy route kept for old clients; now mirrors Station stats, not communities. */
   app.get("/api/district/official-station/stats", async (_req: Request, res: Response) => {
-    const topRows = await db
-      .select({ id: communities.id, members: communities.members })
-      .from(communities)
-      .orderBy(desc(communities.members), asc(communities.id))
-      .limit(10);
-    const topIds = topRows.map((r) => r.id);
-    const memberSum = topRows.reduce((sum, r) => sum + Number(r.members ?? 0), 0);
-    if (topIds.length === 0) {
-      return res.json({
-        officialCommunityCount: 0,
-        uniqueMemberCount: 0,
-        memberSum,
-      });
-    }
-    const distinctRows = await db
-      .select({ userId: communityMembers.userId })
-      .from(communityMembers)
-      .where(inArray(communityMembers.communityId, topIds))
-      .groupBy(communityMembers.userId);
+    const memberSum = STATIONS.reduce((sum, r) => sum + Number(r.members ?? 0), 0);
     return res.json({
-      officialCommunityCount: topIds.length,
-      uniqueMemberCount: distinctRows.length,
+      officialCommunityCount: STATIONS.length,
+      uniqueMemberCount: memberSum,
       memberSum,
     });
   });
@@ -2647,7 +2644,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       "premiere",
     ];
 
-    let out = rows;
+    let out = rows.filter((r) => Number.isFinite(Number(r.communityId)) && Number(r.communityId) > 0);
     if (qRaw) {
       const ql = qRaw.toLowerCase();
       out = out.filter((r) => `${r.title} ${r.body}`.toLowerCase().includes(ql));
@@ -5035,7 +5032,9 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   // ── Live Streams ──────────────────────────────────────────────────
   /** On-air list: Cloudflare `streams` (WHIP/WHEP) plus legacy `live_streams` rows without id collision. */
-  app.get("/api/live-streams", async (_req: Request, res: Response) => {
+  app.get("/api/live-streams", async (req: Request, res: Response) => {
+    const me = await getAuthUser(req);
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const PLACEHOLDER_THUMB = "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&h=225&fit=crop";
     const cfRows = await db
       .select()
@@ -5277,12 +5276,15 @@ export async function registerRoutes(app: Express): Promise<void> {
   // ── Live Stream single + chat ─────────────────────────────────────
   app.get("/api/live-streams/:id", async (req: Request, res: Response) => {
     const id = paramNum(req, "id");
-    const [stream] = await db.select().from(liveStreams).where(eq(liveStreams.id, id));
-    if (!stream) return res.status(404).json({ error: "Not found" });
-    res.json(stream);
+    if (!id) return res.status(400).json({ error: "Invalid id" });
+    const payload = await viewerStreamPayload(id, req);
+    if (!payload) return res.status(404).json({ error: "Not found" });
+    return res.json(payload);
   });
 
   app.get("/api/live-streams/:id/chat", async (req: Request, res: Response) => {
+    const me = await getAuthUser(req);
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const id = paramNum(req, "id");
     const msgs = await db.select().from(liveStreamChat)
       .where(eq(liveStreamChat.streamId, id))
@@ -5291,6 +5293,8 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   app.post("/api/live-streams/:id/chat", async (req: Request, res: Response) => {
+    const me = await getAuthUser(req);
+    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const id = paramNum(req, "id");
     const { username, avatar, message, isGift, giftAmount } = req.body;
     // Gift messages skip moderation (amount only); normal messages moderated
@@ -5720,11 +5724,13 @@ export async function registerRoutes(app: Express): Promise<void> {
     viewer: Awaited<ReturnType<typeof getAuthUser>>,
   ): Promise<boolean> {
     const vis = (srow.visibility ?? "public") as StreamVisibility;
-    if (vis === "public") return true;
     const hostId = srow.hostUserId;
     if (viewer && hostId != null && viewer.id === hostId) return true;
+    if (vis === "public") {
+      return viewer != null;
+    }
     if (vis === "followers") {
-      if (hostId == null) return true;
+      if (hostId == null) return viewer != null;
       if (!viewer) return false;
       const [f] = await db
         .select({ id: userFollows.id })
@@ -5966,11 +5972,8 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
   });
 
-  /** Broadcast session state + viewer count (polling / watch page). */
-  app.get("/api/stream/:id", async (req: Request, res: Response) => {
-    const id = paramNum(req, "id");
-    if (!id) return res.status(400).json({ error: "Invalid id" });
-
+  /** Unified viewer payload: Cloudflare `streams` row first, else legacy `live_streams` (no tips). */
+  async function viewerStreamPayload(id: number, req: Request): Promise<Record<string, unknown> | null> {
     const [srow] = await db.select().from(streams).where(eq(streams.id, id));
     if (srow) {
       let creator = "Host";
@@ -5985,7 +5988,15 @@ export async function registerRoutes(app: Express): Promise<void> {
       const viewer = await getAuthUser(req);
       const playbackOk = await canViewerAccessLiveStream(srow, viewer);
       const vis = (srow.visibility ?? "public") as StreamVisibility;
-      const streamAccessDenied = !playbackOk && vis !== "public";
+      const streamAccessDenied = !playbackOk;
+      let streamAccessDeniedReason: string | undefined;
+      if (!playbackOk) {
+        if (!viewer) {
+          streamAccessDeniedReason = "auth_required";
+        } else if (vis === "paid") {
+          streamAccessDeniedReason = "ticket_required";
+        }
+      }
       const hid = srow.hostUserId;
       let isFollowingHost = false;
       if (viewer && hid != null && viewer.id !== hid) {
@@ -5995,7 +6006,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           .where(and(eq(userFollows.followerId, viewer.id), eq(userFollows.followingId, hid)));
         isFollowingHost = !!f;
       }
-      return res.json({
+      return {
         id: srow.id,
         title: srow.title ?? "Live",
         creator,
@@ -6014,16 +6025,17 @@ export async function registerRoutes(app: Express): Promise<void> {
         timeAgo: srow.isLive ? "LIVE" : "Offline",
         visibility: vis,
         streamAccessDenied,
-        streamAccessDeniedReason:
-          streamAccessDenied && vis === "paid" ? "ticket_required" : undefined,
+        streamAccessDeniedReason,
         hostUserId: hid ?? null,
         isFollowingHost: viewer && hid != null && viewer.id !== hid ? isFollowingHost : false,
-      });
+      };
     }
 
     const [live] = await db.select().from(liveStreams).where(eq(liveStreams.id, id));
-    if (!live) return res.status(404).json({ error: "Not found" });
-    return res.json({
+    if (!live) return null;
+    const legacyViewer = await getAuthUser(req);
+    const legacyDenied = !legacyViewer;
+    return {
       id: live.id,
       title: live.title,
       creator: live.creator,
@@ -6040,9 +6052,21 @@ export async function registerRoutes(app: Express): Promise<void> {
       isLive: live.isLive,
       community: live.community,
       timeAgo: live.timeAgo,
+      visibility: "public",
+      streamAccessDenied: legacyDenied,
+      streamAccessDeniedReason: legacyDenied ? "auth_required" : undefined,
       hostUserId: null,
       isFollowingHost: false,
-    });
+    };
+  }
+
+  /** Broadcast session state + viewer count (polling / watch page). */
+  app.get("/api/stream/:id", async (req: Request, res: Response) => {
+    const id = paramNum(req, "id");
+    if (!id) return res.status(400).json({ error: "Invalid id" });
+    const payload = await viewerStreamPayload(id, req);
+    if (!payload) return res.status(404).json({ error: "Not found" });
+    return res.json(payload);
   });
 
   /** Go live: is_live + started_at; reset viewer count (host only). */
@@ -6099,6 +6123,12 @@ export async function registerRoutes(app: Express): Promise<void> {
       const viewer = await getAuthUser(req);
       const allowed = await canViewerAccessLiveStream(srow, viewer);
       if (!allowed) {
+        if (!viewer) {
+          return res.status(401).json({
+            error: "Sign in required to watch live streams",
+            code: "STREAM_AUTH_REQUIRED",
+          });
+        }
         const vis = (srow.visibility ?? "public") as StreamVisibility;
         if (vis === "paid") {
           return res.status(402).json({
@@ -6121,6 +6151,10 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
     const [live] = await db.select().from(liveStreams).where(eq(liveStreams.id, id));
     if (!live) return res.status(404).json({ error: "Not found" });
+    const legacyJoinUser = await getAuthUser(req);
+    if (!legacyJoinUser) {
+      return res.status(401).json({ error: "Sign in required to watch live streams", code: "STREAM_AUTH_REQUIRED" });
+    }
     const next = Math.max(0, live.viewers + 1);
     await db
       .update(liveStreams)
@@ -7314,6 +7348,44 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json(rows);
   });
 
+  /** Station live announcements (community-independent). */
+  app.get("/api/station/live-announcements", async (_req: Request, res: Response) => {
+    const limit = Math.min(100, Math.max(1, parseInt(String(_req.query.limit ?? "20"), 10) || 20));
+    const liveOnly =
+      String(_req.query.liveOnly ?? "1") === "1" ||
+      String(_req.query.liveOnly ?? "").toLowerCase() === "true";
+    const rows = await db
+      .select()
+      .from(announcements)
+      .where(
+        sql`(start_at IS NULL OR start_at <= now()) AND (end_at IS NULL OR end_at >= now())`,
+      )
+      .orderBy(desc(announcements.isPinned), desc(announcements.createdAt))
+      .limit(Math.min(500, limit * 10));
+    const out = rows
+      .filter((r) => !liveOnly || String(r.type ?? "").toLowerCase().includes("live"))
+      .filter((r) => {
+        if (!liveOnly) return true;
+        const flyer = parseThreadBody(r.body).flyerImageUrl;
+        return Boolean(flyer);
+      })
+      .slice(0, limit)
+      .map((r) => ({
+        id: r.id,
+        communityId: 0,
+        communityName: "Station",
+        communityCategory: "Official",
+        communityThumbnail: null,
+        title: r.title,
+        body: r.body,
+        pinned: r.isPinned,
+        createdAt: r.createdAt,
+        authorUserId: 0,
+        author: { displayName: "Station", profileImageUrl: null },
+      }));
+    res.json(out);
+  });
+
   // ── Livers (Creators extended) ────────────────────────────────────
   app.get("/api/livers", async (req: Request, res: Response) => {
     const name = queryStr(req, "name");
@@ -8005,12 +8077,12 @@ export async function registerRoutes(app: Express): Promise<void> {
   app.post("/api/tickets/spend", async (req: Request, res: Response) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { amount, type, referenceId, description, creatorId, videoId: rawVideoId } = req.body as {
+    const { amount, type, referenceId, description, creatorId: rawCreatorId, videoId: rawVideoId } = req.body as {
       amount: number;
       type: string;
       referenceId?: string;
       description?: string;
-      creatorId?: number;
+      creatorId?: number | string;
       videoId?: number | string;
     };
     if (!amount || amount <= 0) return res.status(400).json({ error: "amount must be positive" });
@@ -8018,6 +8090,12 @@ export async function registerRoutes(app: Express): Promise<void> {
     const userId = String(user.id);
     const revenueTypes = new Set(["spend_session", "spend_gift", "spend_jukebox", "spend_tip"]);
     const needsRevenueRecord = revenueTypes.has(type);
+    const creatorIdParsed =
+      typeof rawCreatorId === "number" && Number.isInteger(rawCreatorId) && rawCreatorId > 0
+        ? rawCreatorId
+        : typeof rawCreatorId === "string" && /^\d+$/.test(rawCreatorId.trim())
+          ? parseInt(rawCreatorId.trim(), 10)
+          : null;
 
     let videoIdForGift: number | null = null;
     if (rawVideoId !== undefined && rawVideoId !== null && String(rawVideoId).trim() !== "") {
@@ -8029,10 +8107,10 @@ export async function registerRoutes(app: Express): Promise<void> {
       if (Number.isFinite(v) && v > 0) videoIdForGift = v;
     }
 
-    if (needsRevenueRecord && type !== "spend_gift" && (!Number.isInteger(creatorId) || (creatorId as number) <= 0)) {
+    if (needsRevenueRecord && type !== "spend_gift" && creatorIdParsed == null) {
       return res.status(400).json({ error: "creatorId required for revenue-eligible spend type" });
     }
-    if (needsRevenueRecord && type === "spend_gift" && videoIdForGift == null && (!Number.isInteger(creatorId) || (creatorId as number) <= 0)) {
+    if (needsRevenueRecord && type === "spend_gift" && videoIdForGift == null && creatorIdParsed == null) {
       return res.status(400).json({ error: "videoId or creatorId required for video purchase (spend_gift)" });
     }
 
@@ -8067,10 +8145,10 @@ export async function registerRoutes(app: Express): Promise<void> {
               }
               payoutCreatorUserId = sellerId;
             } else {
-              payoutCreatorUserId = Number(creatorId);
+              payoutCreatorUserId = creatorIdParsed!;
             }
           } else {
-            payoutCreatorUserId = Number(creatorId);
+            payoutCreatorUserId = creatorIdParsed!;
           }
         }
 

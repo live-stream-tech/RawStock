@@ -99,7 +99,7 @@ export default function AdminDashboardScreen() {
               ) : (
                 <Ionicons name="megaphone-outline" size={18} color={C.accent} />
               )}
-              <Text style={styles.menuLabel}>告知実行 (Run Announcements)</Text>
+              <Text style={styles.menuLabel}>Run announcements</Text>
               <Ionicons name="play-circle-outline" size={16} color={C.textMuted} />
             </Pressable>
             {runResult ? (

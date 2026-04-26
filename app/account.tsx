@@ -19,6 +19,25 @@ import { router } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { AuthGuard, useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
+import { apiRequest, formatUserFacingApiError } from "@/lib/query-client";
+import * as ImagePicker from "expo-image-picker";
+
+const MAX_AVATAR_BYTES = 8 * 1024 * 1024;
+
+async function uploadImageBlobToR2(blob: Blob, fileName: string, mime: string): Promise<string> {
+  const resp = await apiRequest("POST", "/api/upload-url", {
+    fileName,
+    contentType: mime,
+  });
+  const data = (await resp.json()) as { uploadUrl: string; fileUrl: string };
+  const put = await fetch(data.uploadUrl, {
+    method: "PUT",
+    headers: { "Content-Type": mime },
+    body: blob,
+  });
+  if (!put.ok) throw new Error("Upload failed");
+  return data.fileUrl;
+}
 export default function AccountEditScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
@@ -36,6 +55,7 @@ export default function AccountEditScreen() {
   const [xUrl, setXUrl] = useState(user?.xUrl ?? "");
   const [phoneNumber, setPhoneNumber] = useState(user?.phoneNumber ?? "");
   const [saving, setSaving] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [pinnedCommunityIds, setPinnedCommunityIds] = useState<number[]>([]);
 
   const { data: myCommunities = [] } = useQuery<{ id: number; name: string; thumbnail: string; category: string }[]>({
@@ -67,6 +87,71 @@ export default function AccountEditScreen() {
       if (prev.length >= 4) return prev;
       return [...prev, id];
     });
+  }
+
+  async function pickAvatarImage() {
+    try {
+      if (Platform.OS === "web") {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "image/jpeg,image/png,image/webp,image/gif";
+        input.onchange = async (e: Event) => {
+          const file = (e.target as HTMLInputElement).files?.[0];
+          if (!file) return;
+          if (file.size > MAX_AVATAR_BYTES) {
+            Alert.alert("", "Image must be under 8MB");
+            return;
+          }
+          try {
+            setUploadingAvatar(true);
+            const mime = file.type && /^image\/(jpeg|png|webp|gif)$/i.test(file.type) ? file.type : "image/jpeg";
+            const name = (file.name || "avatar.jpg").replace(/[^\w.-]/g, "_");
+            const url = await uploadImageBlobToR2(file, name, mime);
+            setAvatar(url);
+          } catch (err: unknown) {
+            Alert.alert("Upload failed", formatUserFacingApiError(err));
+          } finally {
+            setUploadingAvatar(false);
+          }
+        };
+        document.body.appendChild(input);
+        input.click();
+        document.body.removeChild(input);
+        return;
+      }
+
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permission required", "Allow Photos access to upload your profile image.");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.9,
+      });
+      if (result.canceled || !result.assets[0]) return;
+      const asset = result.assets[0];
+      const blob = await (await fetch(asset.uri)).blob();
+      if (blob.size > MAX_AVATAR_BYTES) {
+        Alert.alert("", "Image must be under 8MB");
+        return;
+      }
+      try {
+        setUploadingAvatar(true);
+        const mime = asset.mimeType ?? "image/jpeg";
+        const name = (asset.fileName ?? "avatar.jpg").replace(/[^\w.-]/g, "_");
+        const url = await uploadImageBlobToR2(blob, name, mime);
+        setAvatar(url);
+      } catch (err: unknown) {
+        Alert.alert("Upload failed", formatUserFacingApiError(err));
+      } finally {
+        setUploadingAvatar(false);
+      }
+    } catch (err: unknown) {
+      Alert.alert("Image", formatUserFacingApiError(err));
+    }
   }
 
   async function handleSave() {
@@ -162,6 +247,28 @@ export default function AccountEditScreen() {
               autoCapitalize="none"
               keyboardType="url"
             />
+          </View>
+          <View style={styles.avatarActionsRow}>
+            <Pressable
+              style={[styles.avatarUploadBtn, uploadingAvatar && styles.avatarUploadBtnDisabled]}
+              onPress={pickAvatarImage}
+              disabled={uploadingAvatar}
+            >
+              {uploadingAvatar ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="cloud-upload-outline" size={16} color="#fff" />
+                  <Text style={styles.avatarUploadBtnText}>Upload image</Text>
+                </>
+              )}
+            </Pressable>
+            {!!avatar && !uploadingAvatar && (
+              <Pressable style={styles.avatarClearBtn} onPress={() => setAvatar("")}>
+                <Ionicons name="trash-outline" size={16} color={C.textMuted} />
+                <Text style={styles.avatarClearBtnText}>Clear</Text>
+              </Pressable>
+            )}
           </View>
 
           {avatar ? (
@@ -391,6 +498,36 @@ const styles = StyleSheet.create({
     borderColor: C.accent,
     alignSelf: "center",
   },
+  avatarActionsRow: {
+    marginTop: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  avatarUploadBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: C.accent,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 10,
+  },
+  avatarUploadBtnDisabled: { opacity: 0.65 },
+  avatarUploadBtnText: { color: "#fff", fontSize: 12, fontWeight: "700" },
+  avatarClearBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  avatarClearBtnText: { color: C.textMuted, fontSize: 12, fontWeight: "700" },
   footer: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 28 },
   cancelBtn: {
     flex: 1,

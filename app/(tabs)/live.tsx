@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
+import { useAuth } from "@/lib/auth";
 import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { C } from "@/constants/colors";
 import { F } from "@/constants/fonts";
@@ -498,6 +499,7 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
 
 export default function LiveScreen() {
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<"now" | "booking">("now");
   const [modalVisible, setModalVisible] = useState(false);
   const [liveSearch, setLiveSearch] = useState("");
@@ -506,6 +508,7 @@ export default function LiveScreen() {
   const { data: liveStreams = [] } = useQuery<any[]>({
     queryKey: ["/api/live-streams"],
     refetchInterval: 5000,
+    enabled: !!user,
   });
   const { data: bookingSessions = [] } = useQuery<any[]>({ queryKey: ["/api/booking-sessions"] });
   /** WEEKLY = heat/views momentum; MONTHLY = composite rank for this month; ALL = paid-live sales rank. */

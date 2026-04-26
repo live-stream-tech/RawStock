@@ -20,14 +20,13 @@ import { AppLogo } from "@/components/AppLogo";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { useQuery } from "@tanstack/react-query";
 
-type CommunityRow = {
+type StationRow = {
   id: number;
   name: string;
   members: number;
   thumbnail: string;
   online?: boolean;
   category?: string;
-  isOfficial?: boolean;
 };
 
 function formatNum(n: number): string {
@@ -47,28 +46,35 @@ function RankBadge({ rank }: { rank: number }) {
   );
 }
 
-function CommunityRankCard({
+function StationRankCard({
   item,
   index,
   showCreateButton = false,
 }: {
-  item: CommunityRow;
+  item: StationRow;
   index: number;
   showCreateButton?: boolean;
 }) {
   return (
     <Pressable
       style={styles.rankCard}
-      onPress={() => router.push(`/community/${item.id}`)}
+      onPress={() =>
+        router.push({
+          pathname: "/community/create",
+          params: {
+            stationId: String(item.id),
+            stationName: item.name,
+            stationCategory: item.category ?? "General",
+          },
+        })
+      }
     >
       <Image source={{ uri: item.thumbnail }} style={styles.rankCardImage} contentFit="cover" />
       <View style={styles.rankCardOverlay} />
       <RankBadge rank={index + 1} />
-      {item.isOfficial ? (
-        <View style={styles.officialChip}>
-          <Text style={styles.officialChipText}>HUB</Text>
-        </View>
-      ) : null}
+      <View style={styles.officialChip}>
+        <Text style={styles.officialChipText}>STATION</Text>
+      </View>
       {item.online && (
         <View style={styles.onlineChip}>
           <View style={styles.onlineDot} />
@@ -146,33 +152,29 @@ export default function CommunityScreen() {
   const [contentTab, setContentTab] = useState<"announcements" | "ranking">("announcements");
   const [videoSort, setVideoSort] = useState<"sales" | "newest" | "views">("sales");
 
-  const { data: apiCommunities = [], isLoading: communitiesLoading } = useQuery<any[]>({
-    queryKey: ["/api/communities"],
+  const { data: stations = [], isLoading: stationsLoading } = useQuery<StationRow[]>({
+    queryKey: ["/api/stations"],
   });
-  const { data: officialStationStats } = useQuery<{
-    officialCommunityCount: number;
-    uniqueMemberCount: number;
+  const { data: stationStats } = useQuery<{
+    stationCount: number;
     memberSum: number;
   }>({
-    queryKey: ["/api/district/official-station/stats"],
+    queryKey: ["/api/stations/stats"],
   });
   const { data: stationAnnouncements = [] } = useQuery<any[]>({
-    queryKey: ["/api/community-announcements/feed", "station"],
+    queryKey: ["/api/station/live-announcements", "station"],
     queryFn: async () => {
       const qs = new URLSearchParams({ limit: "20", liveOnly: "1" });
-      const res = await fetch(`/api/community-announcements/feed?${qs.toString()}`, { credentials: "include" });
+      const res = await fetch(`/api/station/live-announcements?${qs.toString()}`, { credentials: "include" });
       if (!res.ok) return [];
       return (await res.json()) as any[];
     },
   });
 
-  const linkedStationCommunities = useMemo(() => {
-    // Station and community are intentionally separated.
-    // Show only explicit official communities, never "top N communities".
-    return [...apiCommunities]
-      .filter((c) => Boolean(c?.isOfficial))
-      .sort((a, b) => (b.members ?? 0) - (a.members ?? 0));
-  }, [apiCommunities]);
+  const stationRows = useMemo(
+    () => [...stations].sort((a, b) => (b.members ?? 0) - (a.members ?? 0)),
+    [stations],
+  );
 
   const { data: rankedApiVideos = [], isLoading: rankedLoading } = useQuery<any[]>({
     queryKey: ["/api/videos/ranked"],
@@ -180,10 +182,9 @@ export default function CommunityScreen() {
 
   const purchaseData = rankedApiVideos;
 
-  const officialLeadId = linkedStationCommunities[0]?.id ?? null;
-  const stationLead = linkedStationCommunities[0] ?? null;
-  const stationCommunityCount = officialStationStats?.officialCommunityCount ?? 0;
-  const stationMembers = officialStationStats?.uniqueMemberCount ?? 0;
+  const stationLead = stationRows[0] ?? null;
+  const stationCommunityCount = stationStats?.stationCount ?? stationRows.length;
+  const stationMembers = stationStats?.memberSum ?? stationRows.reduce((sum, s) => sum + Number(s.members ?? 0), 0);
   const sortedRankingVideos = useMemo(() => {
     const arr = [...purchaseData];
     const ts = (v: any) => (v.createdAt ? new Date(v.createdAt).getTime() : 0);
@@ -253,19 +254,21 @@ export default function CommunityScreen() {
                   />
                 </Pressable>
                 <Text style={styles.stationMembersText}>Members: {formatNum(stationMembers)}</Text>
+                <Text style={styles.stationPitchStrong}>Your scene. Your bag.</Text>
+                <Text style={styles.stationPitchSub}>Run a community — keep the upside.</Text>
               </View>
             </View>
           </View>
 
           {showStationCommunities && (
-            linkedStationCommunities.length > 0 ? (
+            stationRows.length > 0 ? (
               <HorizontalScroll contentContainerStyle={styles.hList}>
-                {linkedStationCommunities.map((item, index) => (
-                  <CommunityRankCard key={item.id} item={item} index={index} showCreateButton />
+                {stationRows.map((item, index) => (
+                  <StationRankCard key={item.id} item={item} index={index} showCreateButton />
                 ))}
               </HorizontalScroll>
             ) : (
-              <Text style={styles.emptyInline}>No linked communities yet</Text>
+              <Text style={styles.emptyInline}>No stations yet</Text>
             )
           )}
 
@@ -273,7 +276,7 @@ export default function CommunityScreen() {
             <Pressable
               style={styles.stationLinkBtn}
               onPress={() =>
-                officialLeadId != null ? router.push(`/jukebox/${officialLeadId}` as any) : router.push("/community" as any)
+                router.push("/community" as any)
               }
             >
               <Ionicons name="musical-notes-outline" size={16} color={C.accent} />
@@ -300,10 +303,10 @@ export default function CommunityScreen() {
             </Pressable>
           </View>
 
-          {communitiesLoading ? (
+          {stationsLoading ? (
             <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
-          ) : linkedStationCommunities.length === 0 ? (
-            <Text style={styles.emptyInline}>No station communities linked yet</Text>
+          ) : stationRows.length === 0 ? (
+            <Text style={styles.emptyInline}>No stations yet</Text>
           ) : (
             <View />
           )}
@@ -321,9 +324,9 @@ export default function CommunityScreen() {
               <HorizontalScroll contentContainerStyle={styles.hList}>
                 {stationAnnouncements.slice(0, 20).map((item: any) => (
                   <Pressable
-                    key={`${item.communityId}-${item.id}`}
+                    key={`station-${item.id}`}
                     style={styles.announcementMiniCard}
-                    onPress={() => router.push(`/community/${item.communityId}?tab=Board&openThread=${item.id}` as any)}
+                    onPress={() => router.push("/community")}
                   >
                     <Text style={styles.announcementMiniTitle} numberOfLines={2}>{item.title}</Text>
                     <Text style={styles.announcementMiniMeta} numberOfLines={1}>{item.communityName}</Text>
@@ -428,6 +431,19 @@ const styles = StyleSheet.create({
     color: C.textMuted,
     fontSize: 12,
     fontWeight: "600",
+  },
+  stationPitchStrong: {
+    color: C.text,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  stationPitchSub: {
+    color: C.accent,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "700",
   },
   stationLinksRow: {
     flexDirection: "row",

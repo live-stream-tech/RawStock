@@ -9,6 +9,8 @@ import { getApiUrl } from "@/lib/query-client";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { webScrollStyle } from "@/constants/layout";
 import { TranslateButton } from "@/components/TranslateButton";
+import { EventFlyerImage } from "@/components/EventFlyerImage";
+import { AnnouncementBodyView } from "@/components/AnnouncementBodyView";
 import { parseThreadBody } from "@/lib/parse-thread-body";
 import { resolvePublicMediaUri } from "@/lib/resolve-public-media-uri";
 
@@ -47,9 +49,9 @@ export function GlobalLiveAnnouncementsFeed({ searchQuery = "", onSearchQueryCha
   const q = (controlled ? searchQuery : localQ).trim();
 
   const { data = [], isLoading, isError, refetch, isFetching } = useQuery<GlobalAnnouncementItem[]>({
-    queryKey: ["community-announcements-feed", { q, liveOnly }],
+    queryKey: ["station-live-announcements-feed", { q, liveOnly }],
     queryFn: async () => {
-      const u = new URL("/api/community-announcements/feed", getApiUrl());
+      const u = new URL("/api/station/live-announcements", getApiUrl());
       u.searchParams.set("limit", "80");
       u.searchParams.set("lang", "en");
       if (q) u.searchParams.set("q", q);
@@ -65,7 +67,7 @@ export function GlobalLiveAnnouncementsFeed({ searchQuery = "", onSearchQueryCha
 
   const intro = useMemo(
     () =>
-      "Cross-community board posts that look like streams, lives, or events. Use this feed to scan announcements from everywhere on RawStock.",
+      "Cross-community event announcements (each post includes a screenshot of the event). Use this feed to scan posts from every community on RawStock.",
     [],
   );
 
@@ -127,76 +129,83 @@ export function GlobalLiveAnnouncementsFeed({ searchQuery = "", onSearchQueryCha
           data.map((item) => {
             const parsed = parseThreadBody(item.body);
             return (
-            <Pressable
-              key={`${item.communityId}-${item.id}`}
-              style={[styles.card, item.pinned && styles.cardPinned]}
-              onPress={() => {
-                router.push(`/community/${item.communityId}?tab=Board&openThread=${item.id}`);
-              }}
-            >
-              <View style={styles.cardTop}>
-                <Image
-                  source={{ uri: resolvePublicMediaUri(item.communityThumbnail) }}
-                  style={styles.commThumb}
-                  contentFit="cover"
-                />
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={styles.commName} numberOfLines={1}>
-                    {item.communityName}
-                  </Text>
-                  <Text style={styles.commCat} numberOfLines={1}>
-                    {item.communityCategory}
+            <View key={`${item.communityId}-${item.id}`} style={[styles.card, item.pinned && styles.cardPinned]}>
+              <Pressable
+                onPress={() => {
+                  router.push("/community");
+                }}
+              >
+                <View style={styles.cardTop}>
+                  <Image
+                    source={{ uri: resolvePublicMediaUri(item.communityThumbnail) }}
+                    style={styles.commThumb}
+                    contentFit="cover"
+                  />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.commName} numberOfLines={1}>
+                      {item.communityName}
+                    </Text>
+                    <Text style={styles.commCat} numberOfLines={1}>
+                      {item.communityCategory}
+                    </Text>
+                  </View>
+                  <Text style={styles.when}>{formatWhen(item.createdAt)}</Text>
+                </View>
+                <View style={styles.titleRow}>
+                  {item.pinned ? (
+                    <View style={styles.pinBadge}>
+                      <Ionicons name="pin" size={11} color={C.orange} />
+                      <Text style={styles.pinText}>Pinned</Text>
+                    </View>
+                  ) : null}
+                  <Text style={styles.title} numberOfLines={3}>
+                    {item.title}
                   </Text>
                 </View>
-                <Text style={styles.when}>{formatWhen(item.createdAt)}</Text>
-              </View>
-              <View style={styles.titleRow}>
-                {item.pinned ? (
-                  <View style={styles.pinBadge}>
-                    <Ionicons name="pin" size={11} color={C.orange} />
-                    <Text style={styles.pinText}>Pinned</Text>
-                  </View>
+                {parsed.flyerImageUrl ? (
+                  <EventFlyerImage
+                    uri={parsed.flyerImageUrl}
+                    fallbackUri={item.communityThumbnail}
+                    recyclingKey={`global-flyer-${item.communityId}-${item.id}`}
+                    style={styles.cardFlyer}
+                    contentFit="contain"
+                    contentPosition="top"
+                  />
                 ) : null}
-                <Text style={styles.title} numberOfLines={3}>
-                  {item.title}
-                </Text>
-              </View>
-              {parsed.flyerImageUrl ? (
-                <Image
-                  recyclingKey={`global-flyer-${item.communityId}-${item.id}`}
-                  source={{ uri: resolvePublicMediaUri(parsed.flyerImageUrl) }}
-                  style={styles.cardFlyer}
-                  contentFit="contain"
-                  contentPosition="top"
-                />
-              ) : null}
-              {parsed.shortVideoUrl ? (
-                <Pressable
-                  style={styles.cardClipRow}
-                  onPress={(ev) => {
-                    (ev as { stopPropagation?: () => void }).stopPropagation?.();
-                    Linking.openURL(parsed.shortVideoUrl!);
-                  }}
-                >
-                  <Ionicons name="play-circle" size={20} color={C.accent} />
-                  <Text style={styles.cardClipText} numberOfLines={1}>
-                    Short clip attached
-                  </Text>
-                </Pressable>
-              ) : null}
+                {parsed.shortVideoUrl ? (
+                  <Pressable
+                    style={styles.cardClipRow}
+                    onPress={(ev) => {
+                      (ev as { stopPropagation?: () => void }).stopPropagation?.();
+                      Linking.openURL(parsed.shortVideoUrl!);
+                    }}
+                  >
+                    <Ionicons name="play-circle" size={20} color={C.accent} />
+                    <Text style={styles.cardClipText} numberOfLines={1}>
+                      Short clip attached
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </Pressable>
               {parsed.text ? (
-                <Text style={styles.body} numberOfLines={3}>
-                  {parsed.text}
-                </Text>
+                <View style={styles.bodyBlock}>
+                  <AnnouncementBodyView text={parsed.text} variant="compact" proseNumberOfLines={3} maxCompactFields={3} />
+                </View>
               ) : null}
               {parsed.text ? <TranslateButton text={parsed.text} dstLang="en" compact /> : null}
-              <View style={styles.footer}>
-                <Text style={styles.author} numberOfLines={1}>
-                  {item.author.displayName}
-                </Text>
-                <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
-              </View>
-            </Pressable>
+              <Pressable
+                onPress={() => {
+                  router.push("/community");
+                }}
+              >
+                <View style={styles.footer}>
+                  <Text style={styles.author} numberOfLines={1}>
+                    {item.author.displayName}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+                </View>
+              </Pressable>
+            </View>
             );
           })
         )}
@@ -313,6 +322,7 @@ const styles = StyleSheet.create({
   },
   cardClipText: { flex: 1, color: C.accent, fontSize: 12, fontWeight: "800" },
   body: { color: C.textSec, fontSize: 13, lineHeight: 19 },
+  bodyBlock: { marginTop: 4 },
   footer: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 },
   author: { color: C.textMuted, fontSize: 12, fontWeight: "600", flex: 1, marginRight: 8 },
 });

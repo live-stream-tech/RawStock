@@ -60,9 +60,66 @@ function TokenHandler({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function isPublicPath(_pathname: string): boolean {
-  // EVENT MODE: all pages are open for browsing during the event period
-  return true;
+/** Normalize Expo Router pathnames for matching (web + native). */
+function normalizePathname(raw: string): string {
+  if (!raw) return "/";
+  let p = raw.split("?")[0] ?? "/";
+  if (p.length > 1 && p.endsWith("/")) p = p.slice(0, -1);
+  if (p.startsWith("/(tabs)")) {
+    p = p.slice("/(tabs)".length) || "/";
+  }
+  return p || "/";
+}
+
+/**
+ * Routes guests may open without signing in (browse / legal / auth).
+ * Everything else redirects to /auth/login via GlobalAuthGate.
+ */
+function isPublicPath(rawPathname: string): boolean {
+  const pathname = normalizePathname(rawPathname);
+  if (pathname === "/" || pathname === "") return true;
+
+  const exact = new Set([
+    "/community",
+    "/auth/login",
+    "/auth/register",
+    "/auth/callback",
+    "/auth/popup-fallback",
+    "/privacy",
+    "/terms",
+    "/legal",
+    "/legal-notice",
+    "/dmca",
+    "/tokusho",
+    "/community-guidelines",
+    "/lp",
+    "/teamz",
+    "/livers",
+    "/livers/index",
+    "/find-editor",
+    "/editors",
+    "/announcements",
+    "/live-announcements",
+    "/mentor-sessions",
+    "/+not-found",
+  ]);
+  if (exact.has(pathname)) return true;
+  if (pathname.startsWith("/rawstock-lp")) return true;
+
+  if (/^\/community\/\d+$/.test(pathname)) return true;
+  if (/^\/community\/members\/\d+$/.test(pathname)) return true;
+  if (/^\/community\/genre\/[^/]+$/.test(pathname)) return true;
+
+  if (/^\/user\/\d+$/.test(pathname)) return true;
+  if (/^\/user\/\d+\/(followers|following)$/.test(pathname)) return true;
+
+  if (/^\/video\/\d+$/.test(pathname)) return true;
+
+  if (/^\/livers\/\d+$/.test(pathname)) return true;
+
+  if (/^\/concert\/\d+$/.test(pathname)) return true;
+
+  return false;
 }
 
 /** Require profile setup on first login. */
@@ -78,8 +135,12 @@ function ProfileSetupGuard({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (loading || !user) return;
-    if (pathname === "/account" || pathname === "/auth/login" || pathname === "/auth/register" || pathname === "/auth/callback") return;
-    if (isPublicPath(pathname)) return;
+    const authPath =
+      pathname === "/auth/login" ||
+      pathname === "/auth/register" ||
+      pathname === "/auth/callback" ||
+      pathname === "/auth/popup-fallback";
+    if (pathname === "/account" || authPath) return;
     if (needsProfileSetup(user.displayName ?? user.name)) {
       router.replace("/account");
     }

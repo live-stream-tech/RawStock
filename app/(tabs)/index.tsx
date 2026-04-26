@@ -19,12 +19,14 @@ import { C } from "@/constants/colors";
 import { F } from "@/constants/fonts";
 import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/layout";
 import { AppLogo } from "@/components/AppLogo";
+import { EventFlyerImage } from "@/components/EventFlyerImage";
 import { usePlayingVideo } from "@/lib/playing-video-context";
 import { useJukeboxPulse } from "@/lib/useJukeboxPulse";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { CreatorPromoBanner } from "@/components/CreatorPromoBanner";
 import { parseThreadBody } from "@/lib/parse-thread-body";
 import { resolvePublicMediaUri as resolveVideoMediaUri } from "@/lib/resolve-public-media-uri";
+import { useAuth } from "@/lib/auth";
 
 const MENTOR_W = 200;
 
@@ -226,37 +228,27 @@ function LiveCard({ item }: { item: any }) {
 }
 
 /**
- * Live announcement flyer: 16:9 (same as live cards), `cover` + top anchor so the top
- * of the poster is never cropped; bottom is clipped by the frame and read via gradient + overlay.
+ * Live announcement card: event screenshot (stored as flyer URL), 16:9-style frame, `cover` + top anchor.
  */
 function AnnouncementCard({ item, cardWidth }: { item: any; cardWidth: number }) {
   const flyer = parseThreadBody(item.body).flyerImageUrl;
-  const fallbackThumb = item.communityThumbnail ? resolveVideoMediaUri(item.communityThumbnail) : null;
-  const [imageUri, setImageUri] = React.useState<string | null>(flyer ? resolveVideoMediaUri(flyer) : fallbackThumb);
-  React.useEffect(() => {
-    setImageUri(flyer ? resolveVideoMediaUri(flyer) : fallbackThumb);
-  }, [flyer, fallbackThumb, item.id]);
+  const thumbRaw = typeof item.communityThumbnail === "string" ? item.communityThumbnail.trim() : "";
+  const primaryUri = (flyer?.trim() || thumbRaw || undefined) as string | undefined;
+  const fallbackOnly = flyer?.trim() ? thumbRaw || undefined : undefined;
   return (
     <Pressable
       style={[styles.announceCard, { width: cardWidth }]}
-      onPress={() => router.push(`/community/${item.communityId}?tab=Board&openThread=${item.id}` as any)}
+      onPress={() => router.push("/community")}
     >
       <View style={styles.announceThumbWrap}>
-        {imageUri ? (
-          <Image
-            recyclingKey={`announce-flyer-${item.id}-${imageUri}`}
-            source={{ uri: imageUri }}
+        {primaryUri ? (
+          <EventFlyerImage
+            uri={primaryUri}
+            fallbackUri={fallbackOnly}
+            recyclingKey={`announce-${item.id}`}
             style={styles.announceThumb}
             contentFit="cover"
             contentPosition="top"
-            cachePolicy="memory-disk"
-            onError={() => {
-              if (fallbackThumb && imageUri !== fallbackThumb) {
-                setImageUri(fallbackThumb);
-              } else {
-                setImageUri(null);
-              }
-            }}
           />
         ) : (
           <View style={styles.announceThumbPlaceholder}>
@@ -392,6 +384,7 @@ const DUMMY_LIVE = [
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function HomeScreen() {
+  const { user } = useAuth();
   const { width: windowWidth } = useWindowDimensions();
   const heroCardW = Platform.OS === "web" ? Math.min(windowWidth, 500) : windowWidth;
   /** Match jukebox banner: column minus horizontal padding (16 + 16). */
@@ -424,13 +417,14 @@ export default function HomeScreen() {
   const { data: apiLive = [] } = useQuery<any[]>({
     queryKey: ["/api/live-streams"],
     refetchInterval: 5000,
+    enabled: !!user,
   });
   const { data: communities = [] } = useQuery<any[]>({ queryKey: ["/api/communities"] });
   const { data: liveAnnouncements = [] } = useQuery<any[]>({
-    queryKey: ["/api/community-announcements/feed", "top"],
+    queryKey: ["/api/station/live-announcements", "top"],
     queryFn: async () => {
       const qs = new URLSearchParams({ limit: "12", liveOnly: "1" });
-      const res = await fetch(`/api/community-announcements/feed?${qs.toString()}`, { credentials: "include" });
+      const res = await fetch(`/api/station/live-announcements?${qs.toString()}`, { credentials: "include" });
       if (!res.ok) return [];
       return (await res.json()) as any[];
     },
@@ -467,7 +461,7 @@ export default function HomeScreen() {
   })();
   const usingDemoPaid = apiVideos.filter((v: any) => v.price != null && v.price > 0).length === 0;
 
-  const allLiveStreams = apiLive.length > 0 ? apiLive : DUMMY_LIVE;
+  const allLiveStreams = !user ? [] : apiLive.length > 0 ? apiLive : DUMMY_LIVE;
   const sessions = mentorSessions;
 
   const announcementTeaserTitle = (() => {
@@ -646,9 +640,15 @@ export default function HomeScreen() {
           }
         />
         <HorizontalScroll contentContainerStyle={styles.hScroll}>
-          {allLiveStreams.map((s) => (
-            <LiveCard key={s.id} item={s} />
-          ))}
+          {allLiveStreams.length === 0 ? (
+            <View style={{ paddingHorizontal: 16, paddingVertical: 10, minWidth: 220 }}>
+              <Text style={{ color: C.textMuted, fontSize: 12, fontFamily: F.mono }}>
+                {!user ? "Open the Live tab after signing in to see channels on air." : "No channels on air right now."}
+              </Text>
+            </View>
+          ) : (
+            allLiveStreams.map((s) => <LiveCard key={s.id} item={s} />)
+          )}
         </HorizontalScroll>
 
         {/* ── Sessions ── */}

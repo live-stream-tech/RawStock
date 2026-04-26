@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Alert, Platform } from "react-native";
+import { ActivityIndicator, Platform, View } from "react-native";
 import { getApiUrl, readAuthToken } from "@/lib/query-client";
 import { saveLoginReturn } from "@/lib/login-return";
 import { router } from "expo-router";
@@ -179,8 +179,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               try { window.localStorage?.removeItem(TOKEN_KEY); } catch {}
             }
           } else {
-            // On network failure: keep token and stop loading; GlobalAuthGate avoids redirect while token exists.
+            // On network failure: keep token so API calls still work; retry /me so user state hydrates (DM, guards).
             setToken(tokenFromStorage);
+            const tryHydrateUser = async () => {
+              for (let attempt = 0; attempt < 4; attempt++) {
+                if (attempt > 0) {
+                  await new Promise((r) => setTimeout(r, 400 * attempt));
+                }
+                try {
+                  const me = await apiFetch("/api/auth/me", {
+                    headers: { Authorization: `Bearer ${tokenFromStorage}` },
+                  });
+                  setUser(normalizeMe(me));
+                  return;
+                } catch (e2: unknown) {
+                  const st = (e2 as Error & { status?: number }).status;
+                  if (st === 401 || st === 403) {
+                    await AsyncStorage.removeItem(TOKEN_KEY);
+                    if (Platform.OS === "web" && typeof window !== "undefined") {
+                      try { window.localStorage?.removeItem(TOKEN_KEY); } catch {}
+                    }
+                    setToken(null);
+                    return;
+                  }
+                }
+              }
+            };
+            void tryHydrateUser();
           }
         }
       }
@@ -259,32 +284,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const requireAuth = useCallback(
-    (actionLabel?: string): boolean => {
-      if (!user) {
-        Alert.alert(
-          "Sign In Required",
-          actionLabel ? `Sign in to ${actionLabel}.` : "Sign in to continue.",
-          [
-            { text: "Cancel", style: "cancel" },
-            {
-              text: "Sign In",
-              onPress: () => {
-                if (Platform.OS === "web" && typeof window !== "undefined") {
-                  const returnTo = window.location.pathname + window.location.search;
-                  saveLoginReturn(returnTo);
-                  window.location.href = new URL("/api/auth/google", getApiUrl()).toString();
-                } else {
-                  router.push("/auth/login" as any);
-                }
-              },
-            },
-          ]
-        );
+    (_actionLabel?: string): boolean => {
+      // Bearer is enough for APIs; `user` may still be null briefly after cold start / transient /me failures.
+      if (!user && !token) {
+        if (Platform.OS === "web" && typeof window !== "undefined") {
+          saveLoginReturn(window.location.pathname + window.location.search);
+        }
+        router.replace("/auth/login" as any);
         return false;
       }
       return true;
     },
-    [user]
+    [user, token]
   );
 
   const acceptPolicies = useCallback(async () => {
@@ -322,22 +333,32 @@ function hasTokenInUrl(): boolean {
 
 /** Guard: redirect anonymous users on protected routes to Google sign-in */
 export function AuthGuard({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, token } = useAuth();
 
   useEffect(() => {
     if (loading) return;
     if (hasTokenInUrl()) return; // do not redirect while handling callback token in URL
-    if (!user) {
+    if (!user && !token) {
       if (typeof window !== "undefined") {
         const returnTo = window.location.pathname + window.location.search;
         saveLoginReturn(returnTo);
       }
       router.replace("/auth/login");
     }
-  }, [user, loading]);
+  }, [user, loading, token]);
 
-  if (loading || !user) {
+  if (loading) {
     return null;
+  }
+  if (!user && !token) {
+    return null;
+  }
+  if (!user && token) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#050505" }}>
+        <ActivityIndicator size="large" color="#ffffff88" />
+      </View>
+    );
   }
   return <>{children}</>;
 }

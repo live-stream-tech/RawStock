@@ -14,6 +14,7 @@ import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
+import { saveLoginReturn } from "@/lib/login-return";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
@@ -128,8 +129,11 @@ export default function UserProfileScreen() {
     },
   });
   const handleDM = useCallback(async () => {
-    if (!me) {
-      Alert.alert("Login Required", "Please sign in to send a DM.");
+    if (!me && !token) {
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        saveLoginReturn(window.location.pathname + window.location.search);
+      }
+      router.replace("/auth/login" as any);
       return;
     }
     try {
@@ -145,15 +149,18 @@ export default function UserProfileScreen() {
       const msg = e instanceof Error ? e.message : "Could not open DM.";
       Alert.alert("DM", msg);
     }
-  }, [me, userId, queryClient]);
+  }, [me, token, userId, queryClient]);
 
   const handleFollow = useCallback(() => {
-    if (!me) {
-      Alert.alert("Login Required", "Please sign in to follow");
+    if (!me && !token) {
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        saveLoginReturn(window.location.pathname + window.location.search);
+      }
+      router.replace("/auth/login" as any);
       return;
     }
     followMutation.mutate();
-  }, [me, followMutation]);
+  }, [me, token, followMutation]);
   const topInset = Platform.OS === "web" ? 67 : insets.top;
 
   const { data: profile, isLoading, isError } = useQuery<UserProfile>({

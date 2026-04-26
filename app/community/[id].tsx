@@ -22,6 +22,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { C } from "@/constants/colors";
 import { formatEditorRevenueShareLabel, formatEditorTicketsPerMinute, PRICE_PER_TICKET_USD } from "@/constants/tickets";
 import { AppLogo } from "@/components/AppLogo";
+import { EventFlyerImage } from "@/components/EventFlyerImage";
+import { AnnouncementBodyView } from "@/components/AnnouncementBodyView";
 import { CreatorPromoBanner } from "@/components/CreatorPromoBanner";
 import { apiRequest, formatUserFacingApiError } from "@/lib/query-client";
 import { navigateToUserOrLiverProfile, navigateFromVideoCreatorRow } from "@/lib/navigate-profile";
@@ -30,14 +32,15 @@ import { webScrollStyle } from "@/constants/layout";
 import { TranslateButton } from "@/components/TranslateButton";
 import { parseThreadBody, youtubeThumbnailFromVideoUrl } from "@/lib/parse-thread-body";
 import {
-  assertFlyerResolutionOk,
+  assertAnnouncementScreenshotResolutionOk,
   readImageDimensionsFromFileWeb,
   readImageDimensionsFromUri,
 } from "@/lib/flyer-image-quality";
 import * as ImagePicker from "expo-image-picker";
+import type { ImagePickerAsset } from "expo-image-picker";
 import { useDemoMode } from "@/lib/demo-mode";
 
-const MAX_ANNOUNCEMENT_FLYER_BYTES = 15 * 1024 * 1024;
+const MAX_ANNOUNCEMENT_SCREENSHOT_BYTES = 15 * 1024 * 1024;
 
 async function uploadImageBlobToR2(blob: Blob, fileName: string, mime: string): Promise<string> {
   const resp = await apiRequest("POST", "/api/upload-url", {
@@ -579,6 +582,7 @@ function PollsTab({
 function ThreadDetailContent({
   thread,
   communityId,
+  communityThumbnail,
   onClose,
   onReply,
   requireAuth,
@@ -588,6 +592,8 @@ function ThreadDetailContent({
 }: {
   thread: ThreadDetail;
   communityId: number;
+  /** Shown if the announcement image URL is dead. */
+  communityThumbnail?: string | null;
   onClose: () => void;
   onReply: () => void;
   requireAuth: (label: string) => boolean;
@@ -656,11 +662,12 @@ function ThreadDetailContent({
             <Text style={styles.threadDetailDate}> · {formatThreadDate(thread.createdAt)}</Text>
           </View>
           {parsedThreadBody.flyerImageUrl ? (
-            <Image
-              source={{ uri: parsedThreadBody.flyerImageUrl }}
+            <EventFlyerImage
+              uri={parsedThreadBody.flyerImageUrl}
+              fallbackUri={communityThumbnail}
               style={styles.threadDetailFlyer}
               contentFit="contain"
-              cachePolicy="memory-disk"
+              recyclingKey={`thread-flyer-${thread.id}`}
             />
           ) : null}
           {parsedThreadBody.shortVideoUrl ? (
@@ -679,7 +686,11 @@ function ThreadDetailContent({
               </View>
             </Pressable>
           ) : null}
-          {parsedThreadBody.text ? <Text style={styles.threadDetailBody}>{parsedThreadBody.text}</Text> : null}
+          {parsedThreadBody.text ? (
+            <View style={styles.threadDetailBodyWrap}>
+              <AnnouncementBodyView text={parsedThreadBody.text} variant="full" />
+            </View>
+          ) : null}
         </View>
         {thread.posts.map((p) => (
           <View key={p.id} style={styles.threadPostRow}>
@@ -816,8 +827,8 @@ export default function CommunityDetailScreen() {
   );
   const [newThreadTitle, setNewThreadTitle] = useState("");
   const [newThreadBody, setNewThreadBody] = useState("");
-  const [announcementFlyerUrl, setAnnouncementFlyerUrl] = useState<string | null>(null);
-  const [uploadingFlyer, setUploadingFlyer] = useState(false);
+  const [announcementScreenshotUrl, setAnnouncementScreenshotUrl] = useState<string | null>(null);
+  const [uploadingAnnouncementScreenshot, setUploadingAnnouncementScreenshot] = useState(false);
   const [creatingThread, setCreatingThread] = useState(false);
   const [requestTitle, setRequestTitle] = useState("");
   const [requestDescription, setRequestDescription] = useState("");
@@ -956,8 +967,8 @@ export default function CommunityDetailScreen() {
         newThreadTitle.trim() ||
         (threadComposerMode === "feedback" ? "Feedback" : "");
       const text = newThreadBody.trim();
-      const flyer = announcementFlyerUrl?.trim() ?? "";
-      const body = flyer ? (text ? `FLYER_IMAGE: ${flyer}\n\n${text}` : `FLYER_IMAGE: ${flyer}`) : text;
+      const shot = announcementScreenshotUrl?.trim() ?? "";
+      const body = shot ? (text ? `FLYER_IMAGE: ${shot}\n\n${text}` : `FLYER_IMAGE: ${shot}`) : text;
       const res = await apiRequest("POST", `/api/communities/${communityId}/threads`, {
         title,
         body,
@@ -968,7 +979,7 @@ export default function CommunityDetailScreen() {
       setShowCreateThread(false);
       setNewThreadTitle("");
       setNewThreadBody("");
-      setAnnouncementFlyerUrl(null);
+      setAnnouncementScreenshotUrl(null);
       refetchThreads();
       setSelectedThreadId(data.id);
     },
@@ -983,7 +994,7 @@ export default function CommunityDetailScreen() {
     setThreadComposerMode("feedback");
     setNewThreadTitle("");
     setNewThreadBody("");
-    setAnnouncementFlyerUrl(null);
+    setAnnouncementScreenshotUrl(null);
     setShowCreateThread(true);
   }
 
@@ -992,62 +1003,50 @@ export default function CommunityDetailScreen() {
     setThreadComposerMode(isOfficialCommunity ? "announcement" : "thread");
     setNewThreadTitle("");
     setNewThreadBody("");
-    setAnnouncementFlyerUrl(null);
+    setAnnouncementScreenshotUrl(null);
   }
 
-  async function pickAnnouncementFlyer() {
+  async function pickAnnouncementScreenshotWeb() {
     if (!requireAuth("Create Thread")) return;
-    if (Platform.OS === "web") {
-      const input = document.createElement("input");
-      input.type = "file";
-      input.accept = "image/jpeg,image/png,image/webp,image/gif";
-      input.onchange = async (e: Event) => {
-        const file = (e.target as HTMLInputElement).files?.[0];
-        if (!file) return;
-        if (file.size > MAX_ANNOUNCEMENT_FLYER_BYTES) {
-          Alert.alert("", "Image must be under 15MB");
-          return;
-        }
-        try {
-          const { width, height } = await readImageDimensionsFromFileWeb(file);
-          assertFlyerResolutionOk(width, height);
-        } catch (err: unknown) {
-          Alert.alert(
-            "Flyer image",
-            err instanceof Error ? err.message : "Could not verify the image.",
-          );
-          return;
-        }
-        try {
-          setUploadingFlyer(true);
-          const mime =
-            file.type && /^image\/(jpeg|png|webp|gif)$/i.test(file.type) ? file.type : "image/jpeg";
-          const name = (file.name || "flyer.jpg").replace(/[^\w.-]/g, "_");
-          const url = await uploadImageBlobToR2(file, name, mime);
-          setAnnouncementFlyerUrl(url);
-        } catch (err: unknown) {
-          Alert.alert("Upload failed", formatUserFacingApiError(err));
-        } finally {
-          setUploadingFlyer(false);
-        }
-      };
-      document.body.appendChild(input);
-      input.click();
-      document.body.removeChild(input);
-      return;
-    }
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert("Permission required", "Allow photo library access to attach a flyer.");
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsEditing: false,
-      quality: 0.92,
-    });
-    if (result.canceled || !result.assets[0]) return;
-    const asset = result.assets[0];
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/jpeg,image/png,image/webp,image/gif";
+    input.onchange = async (e: Event) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      if (file.size > MAX_ANNOUNCEMENT_SCREENSHOT_BYTES) {
+        Alert.alert("", "Screenshot must be under 15MB");
+        return;
+      }
+      try {
+        const { width, height } = await readImageDimensionsFromFileWeb(file);
+        assertAnnouncementScreenshotResolutionOk(width, height);
+      } catch (err: unknown) {
+        Alert.alert(
+          "Screenshot",
+          err instanceof Error ? err.message : "Could not verify the image.",
+        );
+        return;
+      }
+      try {
+        setUploadingAnnouncementScreenshot(true);
+        const mime =
+          file.type && /^image\/(jpeg|png|webp|gif)$/i.test(file.type) ? file.type : "image/jpeg";
+        const name = (file.name || "event-screenshot.jpg").replace(/[^\w.-]/g, "_");
+        const url = await uploadImageBlobToR2(file, name, mime);
+        setAnnouncementScreenshotUrl(url);
+      } catch (err: unknown) {
+        Alert.alert("Upload failed", formatUserFacingApiError(err));
+      } finally {
+        setUploadingAnnouncementScreenshot(false);
+      }
+    };
+    document.body.appendChild(input);
+    input.click();
+    document.body.removeChild(input);
+  }
+
+  async function uploadNativeAnnouncementScreenshot(asset: ImagePickerAsset) {
     try {
       let w = typeof asset.width === "number" ? asset.width : 0;
       let h = typeof asset.height === "number" ? asset.height : 0;
@@ -1056,30 +1055,65 @@ export default function CommunityDetailScreen() {
         w = d.width;
         h = d.height;
       }
-      assertFlyerResolutionOk(w, h);
+      assertAnnouncementScreenshotResolutionOk(w, h);
     } catch (err: unknown) {
       Alert.alert(
-        "Flyer image",
+        "Screenshot",
         err instanceof Error ? err.message : "Could not verify the image.",
       );
       return;
     }
     try {
-      setUploadingFlyer(true);
+      setUploadingAnnouncementScreenshot(true);
       const mime = asset.mimeType ?? "image/jpeg";
-      const name = asset.fileName ?? "flyer.jpg";
+      const name = asset.fileName ?? "event-screenshot.jpg";
       const blob = await (await fetch(asset.uri)).blob();
-      if (blob.size > MAX_ANNOUNCEMENT_FLYER_BYTES) {
-        Alert.alert("", "Image must be under 15MB");
+      if (blob.size > MAX_ANNOUNCEMENT_SCREENSHOT_BYTES) {
+        Alert.alert("", "Screenshot must be under 15MB");
         return;
       }
       const url = await uploadImageBlobToR2(blob, name.replace(/[^\w.-]/g, "_"), mime);
-      setAnnouncementFlyerUrl(url);
+      setAnnouncementScreenshotUrl(url);
     } catch (err: unknown) {
       Alert.alert("Upload failed", formatUserFacingApiError(err));
     } finally {
-      setUploadingFlyer(false);
+      setUploadingAnnouncementScreenshot(false);
     }
+  }
+
+  async function pickAnnouncementScreenshotFromLibrary() {
+    if (!requireAuth("Create Thread")) return;
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission required", "Allow Photos access to upload your screenshot.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: false,
+      quality: 1,
+    });
+    if (result.canceled || !result.assets[0]) return;
+    await uploadNativeAnnouncementScreenshot(result.assets[0]);
+  }
+
+  async function pickAnnouncementScreenshotFromCamera() {
+    if (!requireAuth("Create Thread")) return;
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert(
+        "Permission required",
+        "Allow camera access if you are photographing a printed poster instead of uploading a screen capture.",
+      );
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ["images"],
+      allowsEditing: false,
+      quality: 0.92,
+    });
+    if (result.canceled || !result.assets[0]) return;
+    await uploadNativeAnnouncementScreenshot(result.assets[0]);
   }
 
   async function handleCreateThread() {
@@ -1091,8 +1125,11 @@ export default function CommunityDetailScreen() {
       Alert.alert("", "Please enter your feedback");
       return;
     }
-    if (threadComposerMode === "announcement" && !newThreadBody.trim() && !announcementFlyerUrl?.trim()) {
-      Alert.alert("", "Write a message and/or attach an image to start the thread.");
+    if (threadComposerMode === "announcement" && !announcementScreenshotUrl?.trim()) {
+      Alert.alert(
+        "",
+        "Announcements require an event screenshot. Capture the ticket app, calendar, or poster, then add it from Photos (or use Take photo for a printout).",
+      );
       return;
     }
     if (!requireAuth("Create thread")) return;
@@ -1368,7 +1405,7 @@ export default function CommunityDetailScreen() {
               onPress={() => setActiveTab(tab)}
             >
               <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-                {tab === "Board" ? (isOfficialCommunity ? "Flyer Board" : BOARD_TAB_LABEL) : tab === "Ranking" ? "Video Ranking" : tab}
+                {tab === "Board" ? (isOfficialCommunity ? "Event board" : BOARD_TAB_LABEL) : tab === "Ranking" ? "Video Ranking" : tab}
               </Text>
             </Pressable>
           ))}
@@ -1554,67 +1591,87 @@ export default function CommunityDetailScreen() {
                 const parsed = parseThreadBody(t.body);
                 const hasFlyer = !!parsed.flyerImageUrl;
                 return (
-                  <Pressable
+                  <View
                     key={t.id}
                     style={[
                       hasFlyer ? styles.boardCardAnnouncePeatix : styles.boardCardAnnounce,
                       t.pinned ? styles.boardCardAnnouncePinned : null,
                     ]}
-                    onPress={() => setSelectedThreadId(t.id)}
                   >
-                    {hasFlyer ? (
-                      <View style={styles.boardFlyerHeroWrap}>
-                        <Image source={{ uri: parsed.flyerImageUrl! }} style={styles.boardFlyerImageHero} contentFit="cover" />
-                        {t.pinned ? (
-                          <View style={styles.boardFlyerPinnedBadge}>
-                            <Ionicons name="pin" size={11} color={C.orange} />
-                            <Text style={styles.boardAnnouncePinnedText}>Pinned</Text>
-                          </View>
-                        ) : null}
-                      </View>
-                    ) : (
-                      <View style={styles.boardAnnounceTopRow}>
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1, flexWrap: "wrap" }}>
+                    <Pressable onPress={() => setSelectedThreadId(t.id)}>
+                      {hasFlyer ? (
+                        <View style={styles.boardFlyerHeroWrap}>
+                          <EventFlyerImage
+                            uri={parsed.flyerImageUrl}
+                            fallbackUri={apiCommunity?.thumbnail ?? null}
+                            style={styles.boardFlyerImageHero}
+                            contentFit="cover"
+                            recyclingKey={`board-hero-${t.id}`}
+                          />
                           {t.pinned ? (
-                            <View style={styles.boardAnnouncePinnedPill}>
+                            <View style={styles.boardFlyerPinnedBadge}>
                               <Ionicons name="pin" size={11} color={C.orange} />
                               <Text style={styles.boardAnnouncePinnedText}>Pinned</Text>
                             </View>
                           ) : null}
                         </View>
-                        <Text style={styles.boardAnnounceDateStrong}>{formatThreadDate(t.createdAt)}</Text>
-                      </View>
-                    )}
-                    <View style={hasFlyer ? styles.boardAnnouncePeatixBody : undefined}>
-                      {hasFlyer ? (
-                        <View style={styles.boardAnnouncePeatixMetaRow}>
+                      ) : (
+                        <View style={styles.boardAnnounceTopRow}>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1, flexWrap: "wrap" }}>
+                            {t.pinned ? (
+                              <View style={styles.boardAnnouncePinnedPill}>
+                                <Ionicons name="pin" size={11} color={C.orange} />
+                                <Text style={styles.boardAnnouncePinnedText}>Pinned</Text>
+                              </View>
+                            ) : null}
+                          </View>
                           <Text style={styles.boardAnnounceDateStrong}>{formatThreadDate(t.createdAt)}</Text>
                         </View>
-                      ) : null}
-                      {parsed.shortVideoUrl ? (
-                        <Pressable
-                          style={styles.boardShortClipRow}
-                          onPress={(e) => {
-                            e?.stopPropagation?.();
-                            Linking.openURL(parsed.shortVideoUrl!);
-                          }}
-                        >
-                          <Ionicons name="logo-youtube" size={18} color="#ff4d4d" />
-                          <Text style={styles.boardShortClipText} numberOfLines={1}>
-                            Short clip
-                          </Text>
-                          <Ionicons name="open-outline" size={16} color={C.textMuted} />
-                        </Pressable>
-                      ) : null}
-                      <Text style={hasFlyer ? styles.boardTitleAnnouncePeatix : styles.boardTitleAnnounce} numberOfLines={hasFlyer ? 2 : 3}>
-                        {t.title}
-                      </Text>
-                      {parsed.text ? (
-                        <Text style={styles.boardDetailAnnounce} numberOfLines={hasFlyer ? 3 : 4}>
-                          {parsed.text}
+                      )}
+                      <View style={hasFlyer ? styles.boardAnnouncePeatixBody : styles.boardAnnouncePressBlock}>
+                        {hasFlyer ? (
+                          <View style={styles.boardAnnouncePeatixMetaRow}>
+                            <Text style={styles.boardAnnounceDateStrong}>{formatThreadDate(t.createdAt)}</Text>
+                          </View>
+                        ) : null}
+                        {parsed.shortVideoUrl ? (
+                          <Pressable
+                            style={styles.boardShortClipRow}
+                            onPress={(e) => {
+                              e?.stopPropagation?.();
+                              Linking.openURL(parsed.shortVideoUrl!);
+                            }}
+                          >
+                            <Ionicons name="logo-youtube" size={18} color="#ff4d4d" />
+                            <Text style={styles.boardShortClipText} numberOfLines={1}>
+                              Short clip
+                            </Text>
+                            <Ionicons name="open-outline" size={16} color={C.textMuted} />
+                          </Pressable>
+                        ) : null}
+                        <Text style={hasFlyer ? styles.boardTitleAnnouncePeatix : styles.boardTitleAnnounce} numberOfLines={hasFlyer ? 2 : 3}>
+                          {t.title}
                         </Text>
-                      ) : null}
-                      <View style={[styles.boardAnnounceFooter, hasFlyer && styles.boardAnnounceFooterPeatix]}>
+                      </View>
+                    </Pressable>
+                    {parsed.text ? (
+                      <View style={hasFlyer ? styles.boardAnnounceLinkedBlockPeatix : styles.boardAnnounceLinkedBlock}>
+                        <AnnouncementBodyView
+                          text={parsed.text}
+                          variant="compact"
+                          proseNumberOfLines={hasFlyer ? 3 : 4}
+                          maxCompactFields={4}
+                        />
+                      </View>
+                    ) : null}
+                    <Pressable onPress={() => setSelectedThreadId(t.id)}>
+                      <View
+                        style={[
+                          styles.boardAnnounceFooter,
+                          hasFlyer && styles.boardAnnounceFooterPeatix,
+                          hasFlyer ? styles.boardAnnounceFooterPadH : styles.boardAnnounceFooterPadHInner,
+                        ]}
+                      >
                         <Text style={styles.boardAnnounceAuthor} numberOfLines={1}>
                           {t.author.displayName}
                         </Text>
@@ -1625,8 +1682,8 @@ export default function CommunityDetailScreen() {
                           <Ionicons name="chevron-forward" size={14} color={C.textMuted} />
                         </View>
                       </View>
-                    </View>
-                  </Pressable>
+                    </Pressable>
+                  </View>
                 );
               })
             ) : (
@@ -1636,7 +1693,13 @@ export default function CommunityDetailScreen() {
                 return (
                   <View key={t.id} style={[styles.boardCard, hasFlyer && styles.boardCardPeatixThread]}>
                     {hasFlyer ? (
-                      <Image source={{ uri: parsed.flyerImageUrl! }} style={styles.boardFlyerThreadHero} contentFit="cover" />
+                      <EventFlyerImage
+                        uri={parsed.flyerImageUrl}
+                        fallbackUri={apiCommunity?.thumbnail ?? null}
+                        style={styles.boardFlyerThreadHero}
+                        contentFit="cover"
+                        recyclingKey={`board-thread-${t.id}`}
+                      />
                     ) : null}
                     <View
                       style={[
@@ -1645,25 +1708,32 @@ export default function CommunityDetailScreen() {
                         hasFlyer && styles.boardThreadRowUnderFlyer,
                       ]}
                     >
-                      <Pressable style={styles.boardBody} onPress={() => setSelectedThreadId(t.id)}>
-                        <View style={styles.boardTagRow}>
-                          {t.pinned && (
-                            <View style={[styles.boardTag, { backgroundColor: C.orange + "33" }]}>
-                              <Text style={[styles.boardTagText, { color: C.orange }]}>Pinned</Text>
-                            </View>
-                          )}
-                          <Text style={styles.boardDate}>
-                            {t.author.displayName} · {formatThreadDate(t.createdAt)}
-                          </Text>
-                        </View>
-                        <Text style={[styles.boardTitle, hasFlyer && styles.boardTitleUnderFlyer]}>{t.title}</Text>
+                      <View style={[styles.boardBody, { flex: 1, minWidth: 0 }]}>
+                        <Pressable onPress={() => setSelectedThreadId(t.id)}>
+                          <View style={styles.boardTagRow}>
+                            {t.pinned && (
+                              <View style={[styles.boardTag, { backgroundColor: C.orange + "33" }]}>
+                                <Text style={[styles.boardTagText, { color: C.orange }]}>Pinned</Text>
+                              </View>
+                            )}
+                            <Text style={styles.boardDate}>
+                              {t.author.displayName} · {formatThreadDate(t.createdAt)}
+                            </Text>
+                          </View>
+                          <Text style={[styles.boardTitle, hasFlyer && styles.boardTitleUnderFlyer]}>{t.title}</Text>
+                          <Text style={styles.boardPostCount}>{t.postCount} replies</Text>
+                        </Pressable>
                         {parsed.text ? (
-                          <Text style={[styles.boardDetail, hasFlyer && styles.boardDetailUnderFlyer]} numberOfLines={hasFlyer ? 2 : 1}>
-                            {parsed.text}
-                          </Text>
+                          <View style={{ marginTop: 6 }}>
+                            <AnnouncementBodyView
+                              text={parsed.text}
+                              variant="compact"
+                              proseNumberOfLines={hasFlyer ? 2 : 1}
+                              maxCompactFields={2}
+                            />
+                          </View>
                         ) : null}
-                        <Text style={styles.boardPostCount}>{t.postCount} replies</Text>
-                      </Pressable>
+                      </View>
                       <Pressable onPress={() => setSelectedThreadId(t.id)} hitSlop={8} style={{ justifyContent: "center" }}>
                         <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
                       </Pressable>
@@ -1734,7 +1804,8 @@ export default function CommunityDetailScreen() {
                   <View style={{ flex: 1, gap: 4 }}>
                     <Text style={styles.boardAnnounceIntroTitle}>Official updates and feedback</Text>
                     <Text style={styles.boardAnnounceIntroSub}>
-                      Check the latest updates, and send your requests through the feedback box.
+                      New announcements use a screenshot of the event (ticket app, poster, or calendar). Send requests
+                      through the feedback box.
                     </Text>
                   </View>
                 </View>
@@ -1828,6 +1899,7 @@ export default function CommunityDetailScreen() {
               <ThreadDetailContent
                 thread={threadDetail}
                 communityId={communityId}
+                communityThumbnail={apiCommunity?.thumbnail ?? null}
                 onClose={() => setSelectedThreadId(null)}
                 onReply={() => refetchThreadDetail()}
                 requireAuth={requireAuth}
@@ -1902,7 +1974,7 @@ export default function CommunityDetailScreen() {
                 threadComposerMode === "feedback"
                   ? "Share your request, idea, or issue."
                   : announceBoard
-                  ? "Details: date, venue, links… (optional if flyer below)"
+                  ? "Optional: Date: …, Venue: …, Tickets: https://…"
                   : "Body (optional)"
               }
               placeholderTextColor={C.textMuted}
@@ -1914,27 +1986,73 @@ export default function CommunityDetailScreen() {
             {threadComposerMode === "announcement" ? (
               <View style={styles.flyerAttachBlock}>
                 <Text style={styles.flyerQualityHint}>
-                  Upload an official flyer from the promoter or venue (short edge must be at least 720px). Screenshots
-                  often look soft—prefer a downloaded asset.
+                  Use the image buttons for the event screenshot only (not profile or avatar images). In the text box,
+                  use clear lines such as Date:, City:, Venue:, Lineup:, Tickets:, and paste ticket or map links — they
+                  stay tappable after posting. Full-screen captures work best (short edge at least 320px).
                 </Text>
-                <Pressable
-                  style={[styles.flyerAttachBtn, (uploadingFlyer || creatingThread) && styles.flyerAttachBtnDisabled]}
-                  onPress={pickAnnouncementFlyer}
-                  disabled={uploadingFlyer || creatingThread}
-                >
-                  {uploadingFlyer ? (
+                {Platform.OS === "web" ? (
+                  <Pressable
+                    style={[
+                      styles.flyerAttachBtn,
+                      (uploadingAnnouncementScreenshot || creatingThread) && styles.flyerAttachBtnDisabled,
+                    ]}
+                    onPress={pickAnnouncementScreenshotWeb}
+                    disabled={uploadingAnnouncementScreenshot || creatingThread}
+                  >
+                    {uploadingAnnouncementScreenshot ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <>
+                        <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
+                        <Text style={styles.flyerAttachBtnText}>Upload screenshot file</Text>
+                      </>
+                    )}
+                  </Pressable>
+                ) : uploadingAnnouncementScreenshot ? (
+                  <View style={[styles.flyerAttachBtn, styles.flyerAttachBtnUploading]}>
                     <ActivityIndicator color="#fff" size="small" />
-                  ) : (
-                    <>
-                      <Ionicons name="image-outline" size={18} color="#fff" />
-                      <Text style={styles.flyerAttachBtnText}>Attach flyer image</Text>
-                    </>
-                  )}
-                </Pressable>
-                {announcementFlyerUrl ? (
+                    <Text style={styles.flyerAttachBtnText}>Uploading…</Text>
+                  </View>
+                ) : (
+                  <View style={styles.screenshotPickRow}>
+                    <Pressable
+                      style={[
+                        styles.flyerAttachBtn,
+                        styles.flyerAttachBtnHalf,
+                        creatingThread && styles.flyerAttachBtnDisabled,
+                      ]}
+                      onPress={pickAnnouncementScreenshotFromLibrary}
+                      disabled={creatingThread}
+                    >
+                      <Ionicons name="images-outline" size={18} color="#fff" />
+                      <Text style={styles.flyerAttachBtnText}>From Photos</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[
+                        styles.flyerAttachBtn,
+                        styles.flyerAttachBtnHalf,
+                        creatingThread && styles.flyerAttachBtnDisabled,
+                      ]}
+                      onPress={pickAnnouncementScreenshotFromCamera}
+                      disabled={creatingThread}
+                    >
+                      <Ionicons name="camera-outline" size={18} color="#fff" />
+                      <Text style={styles.flyerAttachBtnText}>Take photo</Text>
+                    </Pressable>
+                  </View>
+                )}
+                {announcementScreenshotUrl ? (
                   <View style={styles.flyerPreviewWrap}>
-                    <Image source={{ uri: announcementFlyerUrl }} style={styles.flyerPreviewImg} contentFit="cover" />
-                    <Pressable style={styles.flyerRemoveBtn} onPress={() => setAnnouncementFlyerUrl(null)} hitSlop={8}>
+                    <Image
+                      source={{ uri: announcementScreenshotUrl }}
+                      style={styles.flyerPreviewImg}
+                      contentFit="cover"
+                    />
+                    <Pressable
+                      style={styles.flyerRemoveBtn}
+                      onPress={() => setAnnouncementScreenshotUrl(null)}
+                      hitSlop={8}
+                    >
                       <Ionicons name="trash-outline" size={18} color="#ff6b6b" />
                       <Text style={styles.flyerRemoveText}>Remove</Text>
                     </Pressable>
@@ -1946,23 +2064,19 @@ export default function CommunityDetailScreen() {
               style={[
                 styles.requestSubmitBtn,
                 (creatingThread ||
-                  uploadingFlyer ||
+                  uploadingAnnouncementScreenshot ||
                   (threadComposerMode !== "feedback" && !newThreadTitle.trim()) ||
                   (threadComposerMode === "feedback" && !newThreadBody.trim()) ||
-                  (threadComposerMode === "announcement" &&
-                    !newThreadBody.trim() &&
-                    !announcementFlyerUrl?.trim())) &&
+                  (threadComposerMode === "announcement" && !announcementScreenshotUrl?.trim())) &&
                   styles.requestSubmitBtnDisabled,
               ]}
               onPress={handleCreateThread}
               disabled={
                 creatingThread ||
-                uploadingFlyer ||
+                uploadingAnnouncementScreenshot ||
                 (threadComposerMode !== "feedback" && !newThreadTitle.trim()) ||
                 (threadComposerMode === "feedback" && !newThreadBody.trim()) ||
-                (threadComposerMode === "announcement" &&
-                  !newThreadBody.trim() &&
-                  !announcementFlyerUrl?.trim())
+                (threadComposerMode === "announcement" && !announcementScreenshotUrl?.trim())
               }
             >
               {creatingThread ? (
@@ -3020,6 +3134,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   flyerAttachBtnDisabled: { opacity: 0.45 },
+  screenshotPickRow: { flexDirection: "row", gap: 10 },
+  flyerAttachBtnHalf: { flex: 1, minWidth: 0 },
+  flyerAttachBtnUploading: { opacity: 0.88 },
   flyerAttachBtnText: { color: C.text, fontSize: 14, fontWeight: "700" },
   flyerPreviewWrap: {
     borderRadius: 10,
@@ -3116,8 +3233,32 @@ const styles = StyleSheet.create({
   boardAnnouncePeatixBody: {
     paddingHorizontal: 14,
     paddingTop: 10,
-    paddingBottom: 12,
+    paddingBottom: 6,
     gap: 8,
+  },
+  /** Title / clip block inside official announce cards (body with links is separate). */
+  /** Inside boardCardAnnounce (already padded); do not add extra horizontal inset. */
+  boardAnnouncePressBlock: {
+    paddingTop: 4,
+    paddingBottom: 4,
+    gap: 8,
+  },
+  boardAnnounceLinkedBlockPeatix: {
+    paddingHorizontal: 14,
+    paddingTop: 2,
+    paddingBottom: 8,
+  },
+  boardAnnounceLinkedBlock: {
+    paddingTop: 2,
+    paddingBottom: 6,
+  },
+  boardAnnounceFooterPadH: {
+    paddingHorizontal: 14,
+    paddingBottom: 12,
+  },
+  boardAnnounceFooterPadHInner: {
+    paddingHorizontal: 12,
+    paddingBottom: 12,
   },
   boardAnnouncePeatixMetaRow: {
     flexDirection: "row",
@@ -3223,7 +3364,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   threadDetailShortLabel: { color: "#fff", fontSize: 13, fontWeight: "800" },
-  threadDetailBody: { color: C.textSec, fontSize: 13, lineHeight: 20 },
+  threadDetailBodyWrap: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 12 },
   threadDetailRoot: { flex: 1 },
   threadDetailMainScroll: { flex: 1 },
   threadDetailMainScrollContent: { paddingBottom: 16 },

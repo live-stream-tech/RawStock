@@ -1,19 +1,35 @@
 import { Image as RNImage, Platform } from "react-native";
 
-/** Short edge must be at least this (discourages tiny screenshots / chat captures). */
-export const MIN_FLYER_SHORT_EDGE_PX = 720;
+/**
+ * Minimum short edge for an uploaded event-poster screenshot.
+ * Full-screen phone captures of ticketing apps or calendars are expected.
+ */
+export const MIN_SCREENSHOT_SHORT_EDGE_PX = 320;
 
-export function flyerShortEdge(width: number, height: number): number {
+/** @deprecated Use MIN_SCREENSHOT_SHORT_EDGE_PX */
+export const MIN_FLYER_SHORT_EDGE_PX = MIN_SCREENSHOT_SHORT_EDGE_PX;
+
+export function screenshotShortEdge(width: number, height: number): number {
   return Math.min(width, height);
 }
 
-export function assertFlyerResolutionOk(width: number, height: number): void {
-  const short = flyerShortEdge(width, height);
-  if (short < MIN_FLYER_SHORT_EDGE_PX) {
+/** @deprecated Use screenshotShortEdge */
+export function flyerShortEdge(width: number, height: number): number {
+  return screenshotShortEdge(width, height);
+}
+
+export function assertAnnouncementScreenshotResolutionOk(width: number, height: number): void {
+  const short = screenshotShortEdge(width, height);
+  if (short < MIN_SCREENSHOT_SHORT_EDGE_PX) {
     throw new Error(
-      `Image is too small (short edge ${short}px). Download an official flyer from the promoter or venue and upload that. Screenshots are not recommended (use at least ${MIN_FLYER_SHORT_EDGE_PX}px on the short edge).`,
+      `Screenshot is too small (short edge ${short}px). Capture the event screen full-screen, then upload again — short edge must be at least ${MIN_SCREENSHOT_SHORT_EDGE_PX}px.`,
     );
   }
+}
+
+/** @deprecated Use assertAnnouncementScreenshotResolutionOk */
+export function assertFlyerResolutionOk(width: number, height: number): void {
+  assertAnnouncementScreenshotResolutionOk(width, height);
 }
 
 export async function readImageDimensionsFromFileWeb(file: File): Promise<{ width: number; height: number }> {

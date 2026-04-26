@@ -73,10 +73,11 @@ export default function MentorBookingScreen() {
   const [step, setStep] = useState<Step>("terms");
   const [agreed, setAgreed] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(false);
-  const { requireAuth } = useAuth();
+  const { requireAuth, user } = useAuth();
 
   const { data: stream } = useQuery<LiveStream>({
     queryKey: [`/api/live-streams/${streamId}`],
+    enabled: !!user,
   });
   const { data: queueData } = useQuery<{ count: number }>({
     queryKey: [`/api/mentor/${streamId}/queue-count`],

@@ -3,6 +3,9 @@
  * - FLYER_IMAGE: https://...  /  legacy Japanese line `フライヤー画像:` (still parsed for old threads)
  * - SHORT_VIDEO: https://...
  * Directive lines are removed from display text.
+ *
+ * Flyer URL is taken **only** from explicit directives — not from random image URLs in the body
+ * (avoids profile / avatar images being treated as the event flyer).
  */
 
 export type ParsedThreadBody = {
@@ -11,10 +14,7 @@ export type ParsedThreadBody = {
   text: string;
 };
 
-const directImageRe = /(https?:\/\/\S+\.(?:png|jpe?g|webp|gif)(?:\?\S*)?)/i;
-
 function extractUrlFromLine(trimmed: string): string | null {
-  // Supports markdown-style links first: [text](https://...)
   const md = trimmed.match(/\((https?:\/\/[^)\s]+)\)/i);
   if (md?.[1]) return md[1].replace(/[)\],。．、]+$/g, "");
   const m = trimmed.match(/https?:\/\/\S+/i);
@@ -54,30 +54,34 @@ export function parseThreadBody(raw: string | null | undefined): ParsedThreadBod
   const body = String(raw ?? "");
   if (!body.trim()) return { flyerImageUrl: null, shortVideoUrl: null, text: "" };
   const lines = body.split("\n");
+
   let flyerImageUrl: string | null = null;
   let shortVideoUrl: string | null = null;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (/^FLYER_IMAGE\s*[:：]/i.test(trimmed) || /^フライヤー画像(?:URL)?\s*[:：]/i.test(trimmed)) {
+      const u = extractUrlFromLine(trimmed);
+      if (u) flyerImageUrl = u;
+      continue;
+    }
+    if (/^SHORT_VIDEO\s*[:：]/i.test(trimmed)) {
+      const u = extractUrlFromLine(trimmed);
+      if (u) shortVideoUrl = u;
+    }
+  }
+
   const kept: string[] = [];
   for (const line of lines) {
     const trimmed = line.trim();
-    if (
-      !flyerImageUrl &&
-      (
-        /^FLYER_IMAGE\s*[:：]/i.test(trimmed) ||
-        /^フライヤー画像(?:URL)?\s*[:：]/i.test(trimmed)
-      )
-    ) {
-      flyerImageUrl = extractUrlFromLine(trimmed);
+    if (/^FLYER_IMAGE\s*[:：]/i.test(trimmed) || /^フライヤー画像(?:URL)?\s*[:：]/i.test(trimmed)) {
       continue;
     }
-    if (!shortVideoUrl && /^SHORT_VIDEO\s*[:：]/i.test(trimmed)) {
-      shortVideoUrl = extractUrlFromLine(trimmed);
+    if (/^SHORT_VIDEO\s*[:：]/i.test(trimmed)) {
       continue;
-    }
-    if (!flyerImageUrl) {
-      const m = trimmed.match(directImageRe);
-      if (m?.[1]) flyerImageUrl = m[1];
     }
     kept.push(line);
   }
+
   return { flyerImageUrl, shortVideoUrl, text: kept.join("\n").trim() };
 }

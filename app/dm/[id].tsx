@@ -18,7 +18,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { C } from "@/constants/colors";
 import { DM_USAGE_GUIDE_BODY, DM_USAGE_GUIDE_TITLE } from "@/constants/dmUsageGuide";
-import { apiRequest, getApiUrl } from "@/lib/query-client";
+import { apiRequest, getApiUrl, readAuthToken } from "@/lib/query-client";
 import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { useAuth } from "@/lib/auth";
 import { TranslateButton } from "@/components/TranslateButton";
@@ -66,7 +66,7 @@ export default function DMChatScreen() {
   const [input, setInput] = useState("");
   const [uploadingImage, setUploadingImage] = useState(false);
   const [attachmentUrl, setAttachmentUrl] = useState<string | null>(null);
-  const { token } = useAuth();
+  const { token, user } = useAuth();
 
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
@@ -81,11 +81,13 @@ export default function DMChatScreen() {
     enabled:
       Number.isFinite(dmId) &&
       dmId !== 0 &&
-      !!token &&
+      !!(token || user) &&
       (!dmInfo || !dmInfo.otherUserId || dmInfo.otherUserId <= 0),
     queryFn: async () => {
+      const t = (await readAuthToken()) ?? token;
+      if (!t) throw new Error("peer");
       const res = await fetch(new URL(`/api/dm-messages/${dmId}/peer`, getApiUrl()).toString(), {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${t}` },
       });
       if (!res.ok) throw new Error("peer");
       return res.json() as Promise<{ name: string; avatar: string; otherUserId: number }>;
@@ -98,7 +100,7 @@ export default function DMChatScreen() {
 
   const { data: messages = [] } = useQuery<ConvMsg[]>({
     queryKey: [`/api/dm-messages/${dmId}/conversation`],
-    enabled: Number.isFinite(dmId) && dmId !== 0 && !!token,
+    enabled: Number.isFinite(dmId) && dmId !== 0 && !!(token || user),
     refetchInterval: 4000,
   });
 
@@ -199,7 +201,7 @@ export default function DMChatScreen() {
 
   /** Clear ops-DM unread badge the first time a legacy negative thread id is opened */
   useEffect(() => {
-    if (!token || !Number.isFinite(dmId) || dmId === 0 || dmId > 0) return;
+    if (!(token || user) || !Number.isFinite(dmId) || dmId === 0 || dmId > 0) return;
     void (async () => {
       try {
         await apiRequest("POST", `/api/dm-messages/${dmId}/read`, {});
@@ -208,7 +210,7 @@ export default function DMChatScreen() {
         // ignore
       }
     })();
-  }, [dmId, token, qc]);
+  }, [dmId, token, user, qc]);
 
   return (
     <KeyboardAvoidingView

@@ -150,17 +150,18 @@ type AnnouncementSeed = {
   pinned: boolean;
 };
 
+/** Stable Lorem Picsum IDs (CDN) — avoids Unsplash hotlink / asset churn for seed announcements. */
 const FLYERS = [
-  "https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=1200&h=1600&fit=crop",
-  "https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=1200&h=1600&fit=crop",
-  "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=1200&h=1600&fit=crop",
-  "https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=1200&h=1600&fit=crop",
-  "https://images.unsplash.com/photo-1506157786151-b8491531f063?w=1200&h=1600&fit=crop",
-  "https://images.unsplash.com/photo-1516280440614-37939bbacd81?w=1200&h=1600&fit=crop",
-  "https://images.unsplash.com/photo-1517457373958-b7bdd4587205?w=1200&h=1600&fit=crop",
-  "https://images.unsplash.com/photo-1571266028243-d220c9d4bb31?w=1200&h=1600&fit=crop",
-  "https://images.unsplash.com/photo-1507878866276-a947ef722fee?w=1200&h=1600&fit=crop",
-  "https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=1200&h=1600&fit=crop",
+  "https://picsum.photos/id/1015/1200/1600",
+  "https://picsum.photos/id/1016/1200/1600",
+  "https://picsum.photos/id/1018/1200/1600",
+  "https://picsum.photos/id/1025/1200/1600",
+  "https://picsum.photos/id/1035/1200/1600",
+  "https://picsum.photos/id/1036/1200/1600",
+  "https://picsum.photos/id/1037/1200/1600",
+  "https://picsum.photos/id/1038/1200/1600",
+  "https://picsum.photos/id/1043/1200/1600",
+  "https://picsum.photos/id/1047/1200/1600",
 ] as const;
 
 const SHORT_VIDEOS = [

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -20,8 +20,9 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { C } from "@/constants/colors";
-import { ApiError, apiRequest, getApiUrl } from "@/lib/query-client";
+import { ApiError, apiRequest, formatUserFacingApiError, getApiUrl } from "@/lib/query-client";
 import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
+import { saveLoginReturn } from "@/lib/login-return";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/lib/auth";
 
@@ -61,7 +62,7 @@ type LiveStream = {
   isLive?: boolean;
   /** API: true when access requirements are not met (no playback URL). */
   streamAccessDenied?: boolean;
-  streamAccessDeniedReason?: "ticket_required" | string;
+  streamAccessDeniedReason?: "ticket_required" | "auth_required" | string;
   visibility?: string;
   hostUserId?: number | null;
   /** Whether current user already follows the host (excluding self). */
@@ -156,7 +157,18 @@ export default function LiveStreamScreen() {
   const stream = apiStream ?? DEMO_LIVE_STREAMS[streamId];
   const streamAccessDenied = apiStream?.streamAccessDenied === true;
   const paidTicketRequired = apiStream?.streamAccessDeniedReason === "ticket_required";
+  const authRequiredForStream = apiStream?.streamAccessDeniedReason === "auth_required";
   const hostUserId = apiStream?.hostUserId ?? null;
+  /** Tips require a real host user id (legacy seed streams do not have one). */
+  const tipRecipientUserId = useMemo(() => {
+    const h = apiStream?.hostUserId;
+    if (h == null) return null;
+    if (typeof h === "number" && Number.isInteger(h) && h > 0) return h;
+    const s = String(h).trim();
+    if (/^\d+$/.test(s)) return parseInt(s, 10);
+    return null;
+  }, [apiStream?.hostUserId]);
+  const canSendTips = streamMetaFetched && tipRecipientUserId != null;
   const showFollowControl = hostUserId != null && user?.id !== hostUserId;
 
   const followHostMutation = useMutation({
@@ -225,6 +237,7 @@ export default function LiveStreamScreen() {
   const { data: chat = [] } = useQuery<ChatMsg[]>({
     queryKey: [`/api/live-streams/${streamId}/chat`],
     refetchInterval: 3000,
+    enabled: !!user,
   });
 
   const { data: myBooking } = useQuery<MentorBooking[], Error, MentorBooking | null>({
@@ -333,11 +346,7 @@ export default function LiveStreamScreen() {
   });
 
   const giftSpendMutation = useMutation({
-    mutationFn: async ({ amount }: { amount: number }) => {
-      const creatorId = stream?.hostUserId;
-      if (!creatorId || !Number.isInteger(creatorId) || creatorId <= 0) {
-        throw new Error("Creator information is missing");
-      }
+    mutationFn: async ({ amount, creatorId }: { amount: number; creatorId: number }) => {
       await apiRequest("POST", "/api/tickets/spend", {
         amount,
         type: "spend_tip",
@@ -359,36 +368,46 @@ export default function LiveStreamScreen() {
     chatMutation.mutate({ message: msg });
   }, [chatInput, requireAuth, chatMutation]);
 
-  const sendGift = useCallback((amount: number, emoji: string) => {
-    if (!requireAuth("send gifts")) return;
-    setShowGiftModal(false);
-    giftSpendMutation.mutate(
-      { amount },
-      {
-        onSuccess: () => {
-          chatMutation.mutate({
-            message: `${emoji} Sent a 🎟${amount.toLocaleString()} gift!`,
-            isGift: true,
-            giftAmount: amount,
-          });
+  const sendGift = useCallback(
+    (amount: number, emoji: string) => {
+      if (!requireAuth("send gifts")) return;
+      if (!canSendTips || tipRecipientUserId == null) {
+        Alert.alert(
+          "Tips Unavailable",
+          "This stream does not support tips yet, or stream details are still loading. Try again in a moment.",
+        );
+        return;
+      }
+      setShowGiftModal(false);
+      giftSpendMutation.mutate(
+        { amount, creatorId: tipRecipientUserId },
+        {
+          onSuccess: () => {
+            chatMutation.mutate({
+              message: `${emoji} Sent a 🎟${amount.toLocaleString()} gift!`,
+              isGift: true,
+              giftAmount: amount,
+            });
+          },
+          onError: (err) => {
+            if (err instanceof ApiError && err.status === 402) {
+              Alert.alert(
+                "Not Enough Tickets",
+                `You need 🎟${amount.toLocaleString()} to send this gift. Please top up your tickets.`,
+                [
+                  { text: "Cancel", style: "cancel" },
+                  { text: "Get Tickets", onPress: () => router.push("/tickets") },
+                ],
+              );
+              return;
+            }
+            Alert.alert("Gift Failed", formatUserFacingApiError(err));
+          },
         },
-        onError: (err) => {
-          if (err instanceof ApiError && err.status === 402) {
-            Alert.alert(
-              "Not Enough Tickets",
-              `You need 🎟${amount.toLocaleString()} to send this gift. Please top up your tickets.`,
-              [
-                { text: "Cancel", style: "cancel" },
-                { text: "Get Tickets", onPress: () => router.push("/tickets") },
-              ],
-            );
-            return;
-          }
-          Alert.alert("Gift Failed", "Could not send gift. Please try again.");
-        },
-      },
-    );
-  }, [chatMutation, giftSpendMutation, requireAuth]);
+      );
+    },
+    [canSendTips, tipRecipientUserId, chatMutation, giftSpendMutation, requireAuth],
+  );
 
   useEffect(() => {
     if (chat.length > 0) {
@@ -452,17 +471,32 @@ export default function LiveStreamScreen() {
             >
               <Ionicons name="lock-closed-outline" size={40} color="#ffffffaa" />
               <Text style={{ color: "#fff", marginTop: 12, fontSize: 15, fontWeight: "700", textAlign: "center" }}>
-                You do not have permission to watch this stream.
+                {authRequiredForStream ? "Sign in required" : "You do not have permission to watch this stream."}
               </Text>
               <Text style={{ color: "#ffffffb3", marginTop: 8, fontSize: 13, textAlign: "center" }}>
-                {apiStream?.visibility === "followers"
-                  ? "Please sign in and follow the streamer."
-                  : apiStream?.visibility === "community"
-                    ? "Please sign in and join the required community."
-                    : apiStream?.visibility === "paid"
-                      ? "This is a paid stream. Unlock with tickets to watch."
-                    : "Please meet the requirements and try again."}
+                {authRequiredForStream
+                  ? "Sign in with your RawStock account to watch this live stream."
+                  : apiStream?.visibility === "followers"
+                    ? "Follow this streamer to watch."
+                    : apiStream?.visibility === "community"
+                      ? "Join the required community to watch."
+                      : apiStream?.visibility === "paid"
+                        ? "This is a paid stream. Unlock with tickets to watch."
+                        : "Please meet the requirements and try again."}
               </Text>
+              {authRequiredForStream ? (
+                <Pressable
+                  style={{ marginTop: 16, backgroundColor: C.accent, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8 }}
+                  onPress={() => {
+                    if (Platform.OS === "web" && typeof window !== "undefined") {
+                      saveLoginReturn(`${window.location.pathname}${window.location.search}`);
+                    }
+                    router.push("/auth/login");
+                  }}
+                >
+                  <Text style={{ color: "#000", fontSize: 13, fontWeight: "800" }}>Sign in</Text>
+                </Pressable>
+              ) : null}
               {paidTicketRequired ? (
                 <Pressable
                   style={{ marginTop: 16, backgroundColor: C.orange, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8 }}
@@ -672,8 +706,22 @@ export default function LiveStreamScreen() {
 
         {/* Input row */}
         <View style={[styles.inputRow, { paddingBottom: bottomInset + 8 }]}>
-          <Pressable style={styles.giftBtn} onPress={() => setShowGiftModal(true)}>
-            <Ionicons name="gift" size={18} color={C.orange} />
+          <Pressable
+            style={[styles.giftBtn, !canSendTips && styles.giftBtnDisabled]}
+            onPress={() => {
+              if (!canSendTips) {
+                Alert.alert(
+                  "Tips Unavailable",
+                  streamMetaFetched
+                    ? "This stream does not support tips (no linked host account)."
+                    : "Stream details are still loading. Wait a moment and try again.",
+                );
+                return;
+              }
+              setShowGiftModal(true);
+            }}
+          >
+            <Ionicons name="gift" size={18} color={canSendTips ? C.orange : C.textMuted} />
           </Pressable>
           <TextInput
             style={styles.input}
@@ -880,6 +928,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
     borderColor: C.orange + "55",
+  },
+  giftBtnDisabled: {
+    opacity: 0.45,
+    borderColor: C.border,
   },
   input: {
     flex: 1,
