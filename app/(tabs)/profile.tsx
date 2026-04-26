@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Linking,
   KeyboardAvoidingView,
+  useWindowDimensions,
 } from "react-native";
 import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
@@ -204,6 +205,7 @@ function usePwaInstallBanner() {
 }
 
 export default function ProfileScreen() {
+  const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const topInset = getTabTopInset(insets);
   const bottomInset = getTabBottomInset(insets);
@@ -295,6 +297,7 @@ export default function ProfileScreen() {
   const ticketBalance = ticketData?.balance ?? 0;
 
   const pwaBanner = usePwaInstallBanner();
+  const compactProfileHeader = windowWidth <= 390;
 
   // Search state
   const [searchText, setSearchText] = useState("");
@@ -353,38 +356,12 @@ export default function ProfileScreen() {
     }
   }
 
-  async function uploadAvatarFileWeb(file: File): Promise<string> {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    const authToken = token ?? (await readAuthToken());
-    if (authToken) headers.Authorization = `Bearer ${authToken}`;
-    const res = await fetch(new URL("/api/upload-url", getApiUrl()).toString(), {
-      method: "POST",
-      headers,
-      credentials: "include",
-      body: JSON.stringify({
-        fileName: file.name,
-        contentType: file.type || "application/octet-stream",
-      }),
-    });
-    if (!res.ok) throw new Error("Failed to get upload URL");
-    const { uploadUrl, url } = (await res.json()) as { uploadUrl: string; url: string };
-    const putRes = await fetch(uploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": file.type || "application/octet-stream" },
-      credentials: "omit",
-      body: file,
-    });
-    if (!putRes.ok) throw new Error("Failed to upload avatar");
-    return url;
-  }
-
-  async function uploadAvatarNative(uri: string, fileName: string, mimeType: string): Promise<string> {
+  async function uploadAvatarBlob(blob: Blob, fileName: string, mimeType: string): Promise<string> {
     const resp = await apiRequest("POST", "/api/upload-url", {
       fileName,
       contentType: mimeType,
     });
     const { uploadUrl, url } = (await resp.json()) as { uploadUrl: string; url: string };
-    const blob = await (await fetch(uri)).blob();
     const putRes = await fetch(uploadUrl, {
       method: "PUT",
       headers: { "Content-Type": mimeType },
@@ -396,54 +373,12 @@ export default function ProfileScreen() {
 
   /** Returns public URL after upload, or null if user cancelled / no file */
   async function pickAndUploadAvatarUrl(): Promise<string | null> {
-    if (Platform.OS === "web") {
-      return await new Promise<string | null>((resolve, reject) => {
-        const input = document.createElement("input");
-        input.type = "file";
-        input.accept = "image/*";
-        input.style.position = "fixed";
-        input.style.left = "-9999px";
-        input.style.top = "-9999px";
-        input.style.opacity = "0";
-        document.body.appendChild(input);
-        let settled = false;
-        const settle = () => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(safetyTimer);
-          input.onchange = null;
-          input.remove();
-        };
-        const safetyTimer = window.setTimeout(() => {
-          if (settled) return;
-          settle();
-          resolve(null);
-        }, 30_000);
-        input.onchange = async (e: Event) => {
-          try {
-            const target = e.target as HTMLInputElement;
-            const file = target.files?.[0];
-            if (!file) {
-              settle();
-              resolve(null);
-              return;
-            }
-            settle();
-            const uploadedUrl = await uploadAvatarFileWeb(file);
-            resolve(uploadedUrl);
-          } catch (err) {
-            settle();
-            reject(err);
-          }
-        };
-        input.click();
-      });
-    }
-
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert("Permission required", "Allow photo library access to choose a photo.");
-      return null;
+    if (Platform.OS !== "web") {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permission required", "Allow photo library access to choose a photo.");
+        return null;
+      }
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
@@ -454,12 +389,10 @@ export default function ProfileScreen() {
     if (result.canceled || result.assets.length === 0) return null;
     const asset = result.assets[0];
     const mime = asset.mimeType || "image/jpeg";
-    const ext = mime.includes("png") ? "png" : mime.includes("webp") ? "webp" : "jpg";
-    return await uploadAvatarNative(
-      asset.uri,
-      `avatar_${Date.now()}.${ext}`,
-      mime,
-    );
+    const ext = mime.includes("png") ? "png" : mime.includes("webp") ? "webp" : mime.includes("gif") ? "gif" : "jpg";
+    const fileName = asset.fileName?.trim() || `avatar_${Date.now()}.${ext}`;
+    const blob = await (await fetch(asset.uri)).blob();
+    return await uploadAvatarBlob(blob, fileName, mime);
   }
 
   async function pickAvatarFromHeader() {
@@ -689,7 +622,7 @@ export default function ProfileScreen() {
       </View>
 
       <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
-        <View style={styles.profileHeader}>
+        <View style={[styles.profileHeader, compactProfileHeader && styles.profileHeaderCompact]}>
           <View style={styles.profileLeft}>
             <Pressable
               style={[styles.avatarContainer, (headerAvatarUploading || avatarUploading) && { opacity: 0.75 }]}
@@ -727,7 +660,7 @@ export default function ProfileScreen() {
               </Text>
             </View>
           </View>
-          <View style={styles.headerActions}>
+          <View style={[styles.headerActions, compactProfileHeader && styles.headerActionsCompact]}>
             <Pressable
               style={({ pressed }) => [
                 styles.editBtn,
@@ -1495,6 +1428,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginBottom: 12,
   },
+  profileHeaderCompact: {
+    gap: 10,
+  },
   profileLeft: { flexDirection: "row", alignItems: "center", gap: 14, flex: 1, minWidth: 0 },
   avatarContainer: {
     position: "relative",
@@ -2208,11 +2144,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
-    flexWrap: "wrap",
-    columnGap: 8,
-    rowGap: 8,
+    flexWrap: "nowrap",
+    columnGap: 6,
+    rowGap: 0,
     marginLeft: 8,
-    maxWidth: 128,
+    maxWidth: 170,
+    flexShrink: 0,
+  },
+  headerActionsCompact: {
+    marginLeft: 6,
+    maxWidth: 156,
   },
   logoutBtn: {
     width: 36,

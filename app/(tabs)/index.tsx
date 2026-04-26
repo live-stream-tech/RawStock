@@ -260,7 +260,7 @@ function AnnouncementCard({ item, cardWidth }: { item: any; cardWidth: number })
           />
         ) : (
           <View style={styles.announceThumbPlaceholder}>
-            <Text style={styles.announceThumbPlaceholderText}>No flyer image</Text>
+            <Ionicons name="megaphone-outline" size={18} color={C.textMuted} />
           </View>
         )}
         <LinearGradient
@@ -436,6 +436,14 @@ export default function HomeScreen() {
     },
     staleTime: 60_000,
   });
+  const liveAnnouncementsWithImage = React.useMemo(
+    () =>
+      liveAnnouncements.filter((item: any) => {
+        const flyer = parseThreadBody(item.body).flyerImageUrl;
+        return Boolean(flyer || item.communityThumbnail);
+      }),
+    [liveAnnouncements]
+  );
   const { data: announcementRows = [] } = useQuery<
     { id: number; title: string; isPinned: boolean; createdAt: string | null }[]
   >({
@@ -533,8 +541,8 @@ export default function HomeScreen() {
           }
         />
         <HorizontalScroll contentContainerStyle={styles.hScroll}>
-          {liveAnnouncements.length > 0 ? (
-            liveAnnouncements.slice(0, 8).map((item: any) => (
+          {liveAnnouncementsWithImage.length > 0 ? (
+            liveAnnouncementsWithImage.slice(0, 8).map((item: any) => (
               <AnnouncementCard
                 key={`a-${item.communityId}-${item.id}`}
                 item={item}
@@ -942,7 +950,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: C.surface2,
   },
-  announceThumbPlaceholderText: { color: C.textMuted, fontSize: 11, fontFamily: F.mono },
   /** Match live card thumb gradient zone (~60%) for a soft bottom “cut”. */
   announceThumbGradient: { position: "absolute", left: 0, right: 0, bottom: 0, height: "58%" },
   announceTextOverlay: { position: "absolute", left: 10, right: 10, bottom: 10, gap: 2 },
