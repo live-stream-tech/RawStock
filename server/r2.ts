@@ -1,5 +1,6 @@
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import type { Response } from "express";
 
 const endpoint = process.env.R2_ENDPOINT;
 const bucket = process.env.R2_BUCKET_NAME;
@@ -46,12 +47,62 @@ export async function createSignedUploadUrl(key: string, contentType: string) {
 
   const uploadUrl = await getSignedUrl(r2Client, cmd, { expiresIn: 60 * 5 });
 
-  /** ブラウザから読める公開 URL（R2.dev / カスタムドメイン）。未設定時は API エンドポイント直下の path-style URL */
+  /**
+   * Browser-readable URL. When unset, callers should use same-origin `/api/r2-public/:key`
+   * (see `pipeR2PublicObjectToResponse`) — never return the private R2 S3 API host as a "public" URL.
+   */
   const publicBase = process.env.R2_PUBLIC_BASE_URL?.trim();
-  const publicUrl = publicBase
-    ? `${publicBase.replace(/\/$/, "")}/${key}`
-    : `${endpoint.replace(/\/$/, "")}/${bucket}/${key}`;
+  const publicUrl = publicBase ? `${publicBase.replace(/\/$/, "")}/${key}` : null;
 
   return { uploadUrl, publicUrl };
+}
+
+/** Keys issued by `/api/upload-url` (no slashes) — safe to expose via anonymous GET proxy. */
+export function isAppUploadR2Key(key: string): boolean {
+  return /^rawstock_\d+_[a-zA-Z0-9_.-]+$/.test(key);
+}
+
+export async function pipeR2PublicObjectToResponse(res: Response, key: string): Promise<void> {
+  if (!isAppUploadR2Key(key)) {
+    res.status(400).end();
+    return;
+  }
+  if (!r2Client || !bucket) {
+    res.status(503).json({ error: "R2 is not configured" });
+    return;
+  }
+
+  try {
+    const out = await r2Client.send(
+      new GetObjectCommand({
+        Bucket: bucket,
+        Key: key,
+      }),
+    );
+    const ct = out.ContentType?.split(";")[0]?.trim() || "application/octet-stream";
+    res.setHeader("Content-Type", ct);
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    const body = out.Body;
+    if (!body) {
+      res.status(404).end();
+      return;
+    }
+    const stream = body as NodeJS.ReadableStream;
+    stream.on("error", () => {
+      if (!res.headersSent) res.status(500).end();
+    });
+    stream.pipe(res);
+  } catch (e: unknown) {
+    const name = e && typeof e === "object" && "name" in e ? String((e as { name?: string }).name) : "";
+    const status =
+      e && typeof e === "object" && "$metadata" in e
+        ? Number((e as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode)
+        : 0;
+    if (name === "NoSuchKey" || status === 404) {
+      res.status(404).end();
+      return;
+    }
+    if (!res.headersSent) res.status(500).end();
+  }
 }
 

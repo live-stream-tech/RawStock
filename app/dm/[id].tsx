@@ -122,7 +122,12 @@ export default function DMChatScreen() {
       fileName,
       contentType: mime,
     });
-    const { uploadUrl, url } = (await resp.json()) as { uploadUrl: string; url: string };
+    const data = (await resp.json()) as { uploadUrl: string; url?: string; fileUrl?: string };
+    const { uploadUrl } = data;
+    const publicUrl = data.url ?? data.fileUrl;
+    if (!uploadUrl || !publicUrl) {
+      throw new Error("Upload response missing public URL");
+    }
     const putRes = await fetch(uploadUrl, {
       method: "PUT",
       headers: { "Content-Type": mime },
@@ -131,7 +136,7 @@ export default function DMChatScreen() {
     if (!putRes.ok) {
       throw new Error(`Storage upload failed (${putRes.status})`);
     }
-    return url;
+    return publicUrl;
   }, []);
 
   const pickImage = useCallback(async () => {

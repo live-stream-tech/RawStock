@@ -102,7 +102,7 @@ import { creditTicketsFromTicketCheckoutSession } from "./lib/stripeTicketPurcha
 import { computeWithdrawalFeeBreakdown, getWithdrawalFeePolicy } from "./lib/withdrawalFees";
 import { dslToTemplated } from "./lib/dslToTemplated";
 import { createTemplatedRender } from "./lib/templatedClient";
-import { createSignedUploadUrl } from "./r2";
+import { createSignedUploadUrl, pipeR2PublicObjectToResponse } from "./r2";
 import { moderateContent } from "./moderation";
 import { detectContentLang } from "./langFromText";
 import { translateText } from "./lib/translate";
@@ -927,6 +927,18 @@ async function resolveVideoSellerUserId(executor: DbOrTx, videoId: number): Prom
 
 export async function registerRoutes(app: Express): Promise<void> {
   await promoteAdminByEmail();
+
+  /** Anonymous read for user-upload keys when R2_PUBLIC_BASE_URL is not configured (browser cannot load *.r2.cloudflarestorage.com). */
+  app.get("/api/r2-public/:key", async (req: Request, res: Response) => {
+    const raw = String(req.params.key ?? "");
+    let key = raw;
+    try {
+      key = decodeURIComponent(raw);
+    } catch {
+      return res.status(400).end();
+    }
+    await pipeR2PublicObjectToResponse(res, key);
+  });
 
   // ── LP lead capture (email / LINE) ───────────────────────────────
   app.post("/api/lp/leads", async (req: Request, res: Response) => {
@@ -4701,12 +4713,31 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     try {
       const { uploadUrl, publicUrl } = await createSignedUploadUrl(key, contentType);
+      const host = String(req.get("x-forwarded-host") ?? req.get("host") ?? "").trim();
+      const xfProto = String(req.get("x-forwarded-proto") ?? "").split(",")[0]?.trim();
+      const proto =
+        xfProto === "http" || xfProto === "https"
+          ? xfProto
+          : req.protocol === "https"
+            ? "https"
+            : "http";
+      let filePublicUrl = publicUrl;
+      if (!filePublicUrl) {
+        if (!host) {
+          return res.status(500).json({
+            error:
+              "Cannot build a browser-loadable file URL. Set R2_PUBLIC_BASE_URL or ensure reverse-proxy forwards Host / X-Forwarded-* headers.",
+            code: "R2_PUBLIC_URL_UNAVAILABLE",
+          });
+        }
+        filePublicUrl = `${proto}://${host}/api/r2-public/${encodeURIComponent(key)}`;
+      }
       console.log("[upload-url] presign_ok", {
         keyLen: key.length,
         keyPrefix: key.slice(0, 56),
         contentType,
       });
-      res.json({ uploadUrl, key, url: publicUrl });
+      res.json({ uploadUrl, key, url: filePublicUrl, fileUrl: filePublicUrl });
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : String(e);
       const notConfigured =
