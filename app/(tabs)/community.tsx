@@ -46,71 +46,6 @@ function RankBadge({ rank }: { rank: number }) {
   );
 }
 
-function StationRankCard({
-  item,
-  index,
-  showCreateButton = false,
-}: {
-  item: StationRow;
-  index: number;
-  showCreateButton?: boolean;
-}) {
-  return (
-    <Pressable
-      style={styles.rankCard}
-      onPress={() =>
-        router.push({
-          pathname: "/community/create",
-          params: {
-            stationId: String(item.id),
-            stationName: item.name,
-            stationCategory: item.category ?? "General",
-          },
-        })
-      }
-    >
-      <Image source={{ uri: item.thumbnail }} style={styles.rankCardImage} contentFit="cover" />
-      <View style={styles.rankCardOverlay} />
-      <RankBadge rank={index + 1} />
-      <View style={styles.officialChip}>
-        <Text style={styles.officialChipText}>STATION</Text>
-      </View>
-      {item.online && (
-        <View style={styles.onlineChip}>
-          <View style={styles.onlineDot} />
-          <Text style={styles.onlineText}>LIVE</Text>
-        </View>
-      )}
-      {showCreateButton ? (
-        <Pressable
-          style={styles.createFromStationChip}
-          onPress={(e) => {
-            (e as any).stopPropagation?.();
-            router.push({
-              pathname: "/community/create",
-              params: {
-                stationId: String(item.id),
-                stationName: item.name,
-                stationCategory: item.category ?? "General",
-              },
-            });
-          }}
-        >
-          <Ionicons name="add" size={11} color="#000" />
-          <Text style={styles.createFromStationChipText}>Create</Text>
-        </Pressable>
-      ) : null}
-      <View style={styles.rankCardBottom}>
-        <Text style={styles.rankCardName} numberOfLines={1}>{item.name}</Text>
-        <View style={styles.rankCardMeta}>
-          <Ionicons name="people" size={11} color="rgba(255,255,255,0.7)" />
-          <Text style={styles.rankCardMembers}>{formatNum(item.members)}</Text>
-        </View>
-      </View>
-    </Pressable>
-  );
-}
-
 function PurchaseRankCard({ item, rank }: { item: any; rank: number }) {
   return (
     <Pressable
@@ -148,7 +83,6 @@ export default function CommunityScreen() {
   const insets = useSafeAreaInsets();
   const topInset = getTabTopInset(insets);
   const bottomInset = getTabBottomInset();
-  const [showStationCommunities, setShowStationCommunities] = useState(false);
   const [contentTab, setContentTab] = useState<"announcements" | "ranking">("announcements");
   const [videoSort, setVideoSort] = useState<"sales" | "newest" | "views">("sales");
 
@@ -183,7 +117,6 @@ export default function CommunityScreen() {
   const purchaseData = rankedApiVideos;
 
   const stationLead = stationRows[0] ?? null;
-  const stationCommunityCount = stationStats?.stationCount ?? stationRows.length;
   const stationMembers = stationStats?.memberSum ?? stationRows.reduce((sum, s) => sum + Number(s.members ?? 0), 0);
   const sortedRankingVideos = useMemo(() => {
     const arr = [...purchaseData];
@@ -240,37 +173,12 @@ export default function CommunityScreen() {
                 <Text style={styles.stationName} numberOfLines={1}>
                   {stationLead?.name ?? "Official Station"}
                 </Text>
-                <Pressable
-                  onPress={() => setShowStationCommunities((v) => !v)}
-                  style={styles.stationCountLink}
-                >
-                  <Text style={styles.stationCountLinkText}>
-                    Communities: {stationCommunityCount}
-                  </Text>
-                  <Ionicons
-                    name={showStationCommunities ? "chevron-up" : "chevron-down"}
-                    size={14}
-                    color={C.accent}
-                  />
-                </Pressable>
                 <Text style={styles.stationMembersText}>Members: {formatNum(stationMembers)}</Text>
                 <Text style={styles.stationPitchStrong}>Your scene. Your bag.</Text>
                 <Text style={styles.stationPitchSub}>Run a community — keep the upside.</Text>
               </View>
             </View>
           </View>
-
-          {showStationCommunities && (
-            stationRows.length > 0 ? (
-              <HorizontalScroll contentContainerStyle={styles.hList}>
-                {stationRows.map((item, index) => (
-                  <StationRankCard key={item.id} item={item} index={index} showCreateButton />
-                ))}
-              </HorizontalScroll>
-            ) : (
-              <Text style={styles.emptyInline}>No stations yet</Text>
-            )
-          )}
 
           <View style={styles.stationLinksRow}>
             <Pressable
@@ -415,18 +323,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "800",
   },
-  stationCountLink: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    alignSelf: "flex-start",
-  },
-  stationCountLinkText: {
-    color: C.accent,
-    fontSize: 12,
-    fontWeight: "700",
-    textDecorationLine: "underline",
-  },
   stationMembersText: {
     color: C.textMuted,
     fontSize: 12,
@@ -557,21 +453,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     gap: 10,
   },
-  rankCard: {
-    width: 140,
-    height: 180,
-    borderRadius: 3,
-    overflow: "hidden",
-    position: "relative",
-    backgroundColor: C.surface,
-  },
-  rankCardImage: {
-    ...StyleSheet.absoluteFillObject as any,
-  },
-  rankCardOverlay: {
-    ...StyleSheet.absoluteFillObject as any,
-    backgroundColor: "rgba(0,0,0,0.35)",
-  },
   rankBadge: {
     position: "absolute",
     top: 8,
@@ -585,87 +466,6 @@ const styles = StyleSheet.create({
   rankBadgeText: {
     fontSize: 11,
     fontWeight: "800",
-  },
-  officialChip: {
-    position: "absolute",
-    top: 36,
-    left: 8,
-    backgroundColor: "rgba(0,0,0,0.75)",
-    borderRadius: 2,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderWidth: 1,
-    borderColor: C.accent + "99",
-  },
-  officialChipText: {
-    color: C.accent,
-    fontSize: 8,
-    fontWeight: "900",
-    letterSpacing: 0.6,
-  },
-  createFromStationChip: {
-    position: "absolute",
-    top: 36,
-    right: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-    backgroundColor: C.accent,
-    borderRadius: 2,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-  },
-  createFromStationChipText: {
-    color: "#000",
-    fontSize: 9,
-    fontWeight: "800",
-    letterSpacing: 0.2,
-  },
-  onlineChip: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    borderRadius: 2,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-  },
-  onlineDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 2,
-    backgroundColor: "#FF3B30",
-  },
-  onlineText: {
-    color: "#fff",
-    fontSize: 9,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-  },
-  rankCardBottom: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 10,
-    gap: 4,
-  },
-  rankCardName: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  rankCardMeta: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-  },
-  rankCardMembers: {
-    color: "rgba(255,255,255,0.7)",
-    fontSize: 11,
   },
   purchaseCard: {
     width: 160,
