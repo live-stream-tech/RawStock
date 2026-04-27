@@ -1,13 +1,5 @@
 import React, { useEffect } from "react";
-import {
-  View,
-  Text,
-  ScrollView,
-  StyleSheet,
-  Pressable,
-  Platform,
-  Alert,
-} from "react-native";
+import { View, Text, ScrollView, StyleSheet, Pressable, Platform } from "react-native";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -16,6 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useAuth } from "@/lib/auth";
 import { saveLoginReturn } from "@/lib/login-return";
+import { alertMessage } from "@/lib/alertCompat";
 import { C } from "@/constants/colors";
 import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/layout";
@@ -53,11 +46,10 @@ export default function DMScreen() {
   });
 
   function handleComposePress() {
-    Alert.alert(
+    alertMessage(
       "Start a new DM",
-      "Open a user's profile and tap Message to start a new conversation.",
+      "Open someone's profile (for example from Live, Live Cast, or your Following list), then tap Message to start a conversation. New threads cannot be created from this list alone.",
     );
-    router.push("/community");
   }
 
   return (
