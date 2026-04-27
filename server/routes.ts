@@ -131,6 +131,8 @@ import { spawn } from "node:child_process";
 const JWT_SECRET = process.env.SESSION_SECRET ?? "livestage-dev-secret";
 const CLOUDFLARE_ACCOUNT_ID = (process.env.CLOUDFLARE_ACCOUNT_ID ?? "").trim();
 const CLOUDFLARE_STREAM_TOKEN = (process.env.CLOUDFLARE_STREAM_TOKEN ?? "").trim();
+const CLOUDFLARE_GLOBAL_API_KEY = (process.env.CLOUDFLARE_GLOBAL_API_KEY ?? "").trim();
+const CLOUDFLARE_EMAIL = (process.env.CLOUDFLARE_EMAIL ?? "").trim();
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
 let announcementRunInProgress = false;
 
@@ -138,6 +140,19 @@ function maskSecretPrefix(value: string): string {
   if (!value) return "(empty, len=0)";
   const prefix = value.slice(0, 3);
   return `${prefix}*** (len=${value.length})`;
+}
+
+function buildCloudflareAuthHeaders(): Record<string, string> | null {
+  if (CLOUDFLARE_STREAM_TOKEN) {
+    return { Authorization: `Bearer ${CLOUDFLARE_STREAM_TOKEN}` };
+  }
+  if (CLOUDFLARE_GLOBAL_API_KEY && CLOUDFLARE_EMAIL) {
+    return {
+      "X-Auth-Email": CLOUDFLARE_EMAIL,
+      "X-Auth-Key": CLOUDFLARE_GLOBAL_API_KEY,
+    };
+  }
+  return null;
 }
 
 /**
@@ -5948,7 +5963,8 @@ export async function registerRoutes(app: Express): Promise<void> {
       },
       timestamp: Date.now(),
     });
-    if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_STREAM_TOKEN) {
+    const cfAuthHeaders = buildCloudflareAuthHeaders();
+    if (!CLOUDFLARE_ACCOUNT_ID || !cfAuthHeaders) {
       return res.status(500).json({ error: "Cloudflare Stream is not configured" });
     }
 
@@ -6005,6 +6021,8 @@ export async function registerRoutes(app: Express): Promise<void> {
       console.log("[Cloudflare Stream] creating live_input with env:", {
         accountId: maskSecretPrefix(CLOUDFLARE_ACCOUNT_ID),
         streamToken: maskSecretPrefix(CLOUDFLARE_STREAM_TOKEN),
+        globalApiKey: maskSecretPrefix(CLOUDFLARE_GLOBAL_API_KEY),
+        cloudflareEmail: CLOUDFLARE_EMAIL ? `${CLOUDFLARE_EMAIL.slice(0, 3)}***` : "(empty)",
       });
 
       const cfRes = await fetch(
@@ -6012,7 +6030,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${CLOUDFLARE_STREAM_TOKEN}`,
+            ...cfAuthHeaders,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -6045,7 +6063,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           low.includes("forbidden") ||
           cfRes.status === 403;
         const hint = authHint
-          ? "Fix: In Cloudflare Dashboard → My Profile → API Tokens, create a token with Account → Stream → Edit (or Stream with write). Set CLOUDFLARE_STREAM_TOKEN to that token and CLOUDFLARE_ACCOUNT_ID to the same account. R2 tokens will not work."
+          ? "Fix: Use either CLOUDFLARE_STREAM_TOKEN (API token with Account > Stream > Edit) or CLOUDFLARE_GLOBAL_API_KEY + CLOUDFLARE_EMAIL, and ensure CLOUDFLARE_ACCOUNT_ID is from the same account."
           : undefined;
         return res.status(502).json({
           error: "Failed to create Cloudflare Stream live input",
@@ -7201,19 +7219,22 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
 
     // Create Cloudflare Stream live input
-    if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_STREAM_TOKEN) {
+    const cfAuthHeaders = buildCloudflareAuthHeaders();
+    if (!CLOUDFLARE_ACCOUNT_ID || !cfAuthHeaders) {
       return res.status(503).json({ error: "Cloudflare Stream not configured" });
     }
     console.log("[Cloudflare Stream] creating mentor live_input with env:", {
       accountId: maskSecretPrefix(CLOUDFLARE_ACCOUNT_ID),
       streamToken: maskSecretPrefix(CLOUDFLARE_STREAM_TOKEN),
+      globalApiKey: maskSecretPrefix(CLOUDFLARE_GLOBAL_API_KEY),
+      cloudflareEmail: CLOUDFLARE_EMAIL ? `${CLOUDFLARE_EMAIL.slice(0, 3)}***` : "(empty)",
     });
     const cfRes = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/stream/live_inputs`,
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${CLOUDFLARE_STREAM_TOKEN}`,
+          ...cfAuthHeaders,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ meta: { name: `mentor-booking-${bookingId}` }, recording: { mode: "automatic" } }),
@@ -7263,12 +7284,13 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (!booking) return res.status(404).json({ error: "Booking not found" });
 
     // Delete Cloudflare Stream live input (optional)
-    if (booking.cfStreamUid && CLOUDFLARE_ACCOUNT_ID && CLOUDFLARE_STREAM_TOKEN) {
+    const cfAuthHeaders = buildCloudflareAuthHeaders();
+    if (booking.cfStreamUid && CLOUDFLARE_ACCOUNT_ID && cfAuthHeaders) {
       await fetch(
         `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/stream/live_inputs/${booking.cfStreamUid}`,
         {
           method: "DELETE",
-          headers: { Authorization: `Bearer ${CLOUDFLARE_STREAM_TOKEN}` },
+          headers: cfAuthHeaders,
         }
       ).catch(() => {}); // continue even if delete fails
     }

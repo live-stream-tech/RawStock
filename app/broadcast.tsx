@@ -110,10 +110,42 @@ function BroadcastWeb() {
   }, []);
 
   const onJeelizError = useCallback((message: string) => {
+    // Fallback: keep broadcast usable even when face filter initialization fails.
+    const raw = rawStreamRef.current;
+    if (raw) {
+      localStreamRef.current = raw;
+      setCameraStream(raw);
+      setCameraError(false);
+      setPhase("ready");
+      setLastLiveError(`Face filter is unavailable, so live uses normal camera. ${message}`);
+      setWebPreviewLoading(false);
+      return;
+    }
     setCameraError(true);
     setLastLiveError(message);
     setWebPreviewLoading(false);
   }, []);
+
+  /** If Jeeliz never calls back (CDN hang, WebGL stall), do not block Go live forever. */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!jeelizSourceStream) return;
+    const raw = rawStreamRef.current;
+    if (!raw) return;
+    const tid = window.setTimeout(() => {
+      if (localStreamRef.current) return;
+      void faceFilterRef.current?.destroy?.().catch(() => undefined);
+      localStreamRef.current = raw;
+      setCameraStream(raw);
+      setCameraError(false);
+      setPhase("ready");
+      setLastLiveError(
+        "Face filter took too long to start; using normal camera. Try reloading if this keeps happening.",
+      );
+      setWebPreviewLoading(false);
+    }, 22000);
+    return () => window.clearTimeout(tid);
+  }, [jeelizSourceStream]);
 
   useEffect(() => {
     if (!webNeedsCameraTap) void startWebCamera();

@@ -311,12 +311,16 @@ export const FaceFilterWeb = forwardRef<FaceFilterWebHandle, FaceFilterWebProps>
             },
           });
         });
-      } catch {
+      } catch (e: unknown) {
         if (!cancelled) setStatusText(null);
         try {
           await window.JEELIZFACEFILTER?.destroy?.();
         } catch {
           /* ignore */
+        }
+        if (!cancelled) {
+          const msg = e instanceof Error ? e.message : "Face filter initialization failed.";
+          onError(msg);
         }
         if (hiddenVideo.parentNode) hiddenVideo.remove();
         videoElRef.current = null;

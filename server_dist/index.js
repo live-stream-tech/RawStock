@@ -3069,12 +3069,26 @@ import { spawn } from "node:child_process";
 var JWT_SECRET = process.env.SESSION_SECRET ?? "livestage-dev-secret";
 var CLOUDFLARE_ACCOUNT_ID = (process.env.CLOUDFLARE_ACCOUNT_ID ?? "").trim();
 var CLOUDFLARE_STREAM_TOKEN = (process.env.CLOUDFLARE_STREAM_TOKEN ?? "").trim();
+var CLOUDFLARE_GLOBAL_API_KEY = (process.env.CLOUDFLARE_GLOBAL_API_KEY ?? "").trim();
+var CLOUDFLARE_EMAIL = (process.env.CLOUDFLARE_EMAIL ?? "").trim();
 var ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
 var announcementRunInProgress = false;
 function maskSecretPrefix(value) {
   if (!value) return "(empty, len=0)";
   const prefix = value.slice(0, 3);
   return `${prefix}*** (len=${value.length})`;
+}
+function buildCloudflareAuthHeaders() {
+  if (CLOUDFLARE_STREAM_TOKEN) {
+    return { Authorization: `Bearer ${CLOUDFLARE_STREAM_TOKEN}` };
+  }
+  if (CLOUDFLARE_GLOBAL_API_KEY && CLOUDFLARE_EMAIL) {
+    return {
+      "X-Auth-Email": CLOUDFLARE_EMAIL,
+      "X-Auth-Key": CLOUDFLARE_GLOBAL_API_KEY
+    };
+  }
+  return null;
 }
 function resolvePublicAppOrigin() {
   const fromEnv = process.env.FRONTEND_URL?.trim().replace(/\/$/, "");
@@ -7398,7 +7412,8 @@ data: ${data}
       },
       timestamp: Date.now()
     });
-    if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_STREAM_TOKEN) {
+    const cfAuthHeaders = buildCloudflareAuthHeaders();
+    if (!CLOUDFLARE_ACCOUNT_ID || !cfAuthHeaders) {
       return res.status(500).json({ error: "Cloudflare Stream is not configured" });
     }
     const user = await getAuthUser(req);
@@ -7436,14 +7451,16 @@ data: ${data}
       const metaName = displayTitle || `RawStock Stream by ${user.displayName}`;
       console.log("[Cloudflare Stream] creating live_input with env:", {
         accountId: maskSecretPrefix(CLOUDFLARE_ACCOUNT_ID),
-        streamToken: maskSecretPrefix(CLOUDFLARE_STREAM_TOKEN)
+        streamToken: maskSecretPrefix(CLOUDFLARE_STREAM_TOKEN),
+        globalApiKey: maskSecretPrefix(CLOUDFLARE_GLOBAL_API_KEY),
+        cloudflareEmail: CLOUDFLARE_EMAIL ? `${CLOUDFLARE_EMAIL.slice(0, 3)}***` : "(empty)"
       });
       const cfRes = await fetch(
         `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/stream/live_inputs`,
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${CLOUDFLARE_STREAM_TOKEN}`,
+            ...cfAuthHeaders,
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
@@ -7459,7 +7476,7 @@ data: ${data}
         console.error("Cloudflare Stream create error:", cfRes.status, json.errors);
         const low = (detail ?? "").toLowerCase();
         const authHint = low.includes("authorization") || low.includes("not authorized") || low.includes("credentials") || low.includes("forbidden") || cfRes.status === 403;
-        const hint = authHint ? "Fix: In Cloudflare Dashboard \u2192 My Profile \u2192 API Tokens, create a token with Account \u2192 Stream \u2192 Edit (or Stream with write). Set CLOUDFLARE_STREAM_TOKEN to that token and CLOUDFLARE_ACCOUNT_ID to the same account. R2 tokens will not work." : void 0;
+        const hint = authHint ? "Fix: Use either CLOUDFLARE_STREAM_TOKEN (API token with Account > Stream > Edit) or CLOUDFLARE_GLOBAL_API_KEY + CLOUDFLARE_EMAIL, and ensure CLOUDFLARE_ACCOUNT_ID is from the same account." : void 0;
         return res.status(502).json({
           error: "Failed to create Cloudflare Stream live input",
           ...detail ? { detail } : {},
@@ -8307,19 +8324,22 @@ data: ${data}
     if (booking.whipUrl) {
       return res.json({ whipUrl: booking.whipUrl, whepUrl: booking.whepUrl });
     }
-    if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_STREAM_TOKEN) {
+    const cfAuthHeaders = buildCloudflareAuthHeaders();
+    if (!CLOUDFLARE_ACCOUNT_ID || !cfAuthHeaders) {
       return res.status(503).json({ error: "Cloudflare Stream not configured" });
     }
     console.log("[Cloudflare Stream] creating mentor live_input with env:", {
       accountId: maskSecretPrefix(CLOUDFLARE_ACCOUNT_ID),
-      streamToken: maskSecretPrefix(CLOUDFLARE_STREAM_TOKEN)
+      streamToken: maskSecretPrefix(CLOUDFLARE_STREAM_TOKEN),
+      globalApiKey: maskSecretPrefix(CLOUDFLARE_GLOBAL_API_KEY),
+      cloudflareEmail: CLOUDFLARE_EMAIL ? `${CLOUDFLARE_EMAIL.slice(0, 3)}***` : "(empty)"
     });
     const cfRes = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/stream/live_inputs`,
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${CLOUDFLARE_STREAM_TOKEN}`,
+          ...cfAuthHeaders,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({ meta: { name: `mentor-booking-${bookingId}` }, recording: { mode: "automatic" } })
@@ -8358,12 +8378,13 @@ data: ${data}
     const bookingId = paramNum(req, "bookingId");
     const [booking] = await db.select().from(mentorBookings).where(eq6(mentorBookings.id, bookingId));
     if (!booking) return res.status(404).json({ error: "Booking not found" });
-    if (booking.cfStreamUid && CLOUDFLARE_ACCOUNT_ID && CLOUDFLARE_STREAM_TOKEN) {
+    const cfAuthHeaders = buildCloudflareAuthHeaders();
+    if (booking.cfStreamUid && CLOUDFLARE_ACCOUNT_ID && cfAuthHeaders) {
       await fetch(
         `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/stream/live_inputs/${booking.cfStreamUid}`,
         {
           method: "DELETE",
-          headers: { Authorization: `Bearer ${CLOUDFLARE_STREAM_TOKEN}` }
+          headers: cfAuthHeaders
         }
       ).catch(() => {
       });
