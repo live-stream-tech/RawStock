@@ -2812,16 +2812,16 @@ function parseThreadBody(raw) {
 
 // constants/stations.ts
 var STATIONS = [
-  { id: 1, name: "Hip-Hop Station", category: "hiphop", members: 6400, online: true, thumbnail: "https://picsum.photos/id/1027/800/800" },
-  { id: 2, name: "Reggae / Dub Station", category: "reggae", members: 2800, online: true, thumbnail: "https://picsum.photos/id/1033/800/800" },
-  { id: 3, name: "R&B / Neo Soul Station", category: "rnb", members: 3100, online: true, thumbnail: "https://picsum.photos/id/1062/800/800" },
-  { id: 4, name: "Punk / Hardcore Station", category: "punk", members: 2500, online: true, thumbnail: "https://picsum.photos/id/1058/800/800" },
-  { id: 5, name: "Metal / Loud Station", category: "metal", members: 2300, online: false, thumbnail: "https://picsum.photos/id/1068/800/800" },
-  { id: 6, name: "Indie Rock Station", category: "indie", members: 3900, online: true, thumbnail: "https://picsum.photos/id/1043/800/800" },
-  { id: 7, name: "Japan Indie Station", category: "indie", members: 4200, online: true, thumbnail: "https://picsum.photos/id/1047/800/800" },
-  { id: 8, name: "Techno / House Station", category: "edm", members: 5200, online: true, thumbnail: "https://picsum.photos/id/1035/800/800" },
-  { id: 9, name: "Drum & Bass Station", category: "edm", members: 3600, online: true, thumbnail: "https://picsum.photos/id/1036/800/800" },
-  { id: 10, name: "Classical Station", category: "classical", members: 1800, online: false, thumbnail: "https://picsum.photos/id/1060/800/800" }
+  { id: 1, name: "\u796D\u793C\u30FB\u307E\u3064\u308A\uFF08\u795E\u8F3F\u30FB\u5C4B\u53F0\uFF09", category: "matsuri", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1027/800/800" },
+  { id: 2, name: "\u795E\u793E\u4ECF\u95A3\u30FB\u5E74\u4E2D\u884C\u4E8B", category: "shrine", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1015/800/800" },
+  { id: 3, name: "\u5B66\u6821\u6587\u5316\uFF08\u6F14\u5287\u30FB\u90E8\u6D3B\u30FB\u6587\u5316\u796D\uFF09", category: "school", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1025/800/800" },
+  { id: 4, name: "\u843D\u8A9E\u30FB\u8B1B\u8AC7\u30FB\u5BC4\u5E2D", category: "yose", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1031/800/800" },
+  { id: 5, name: "\u30E9\u30A4\u30D6\u30CF\u30A6\u30B9\u30FB\u30A2\u30A4\u30C9\u30EB\u73FE\u5834", category: "livehouse", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1040/800/800" },
+  { id: 6, name: "\u8336\u9053\u30FB\u6B66\u9053\u30FB\u4F1D\u7D71\u82B8\u80FD", category: "dougei", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1050/800/800" },
+  { id: 7, name: "\u540C\u4EBA\u30FB\u30B3\u30DF\u30B1\u30FB\u5275\u4F5C\u5373\u58F2", category: "doujin", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1060/800/800" },
+  { id: 8, name: "\u91CE\u7403\u30FB\u30B9\u30DD\u30FC\u30C4\u89B3\u6226\u30FB\u5FDC\u63F4", category: "sports", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1033/800/800" },
+  { id: 9, name: "\u30DE\u30EB\u30B7\u30A7\u30FB\u5730\u65B9\u5275\u751F\u30FB\u753A\u304A\u3053\u3057", category: "machi", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1043/800/800" },
+  { id: 10, name: "\u7F8E\u8853\u30FB\u5C55\u793A\u30FB\u30AE\u30E3\u30E9\u30EA\u30FC", category: "gallery", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1047/800/800" }
 ];
 
 // server/lib/diversifyAnnouncementFeed.ts
@@ -6882,9 +6882,7 @@ async function registerRoutes(app2) {
     });
     res.json(filtered);
   });
-  app2.get("/api/live-streams", async (req, res) => {
-    const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "Not authenticated" });
+  app2.get("/api/live-streams", async (_req, res) => {
     const PLACEHOLDER_THUMB = "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&h=225&fit=crop";
     const cfRows = await db.select().from(streams).where(eq6(streams.isLive, true)).orderBy(desc2(streams.currentViewers));
     const cfIds = new Set(cfRows.map((r) => r.id));
@@ -10018,6 +10016,9 @@ function configureExpoAndLanding(app2) {
   const isDev = process.env.NODE_ENV === "development";
   log2("Serving static Expo files with dynamic manifest routing");
   const lpStandalonePath = path.resolve(process.cwd(), "public/lp-standalone.html");
+  const lpViteRoot = path.resolve(process.cwd(), "dist", "lp");
+  const lpViteIndex = path.join(lpViteRoot, "index.html");
+  const hasLpViteApp = fs.existsSync(lpViteIndex);
   function serveLpStandalone(req, res, canonicalPath) {
     if (!fs.existsSync(lpStandalonePath)) {
       return res.status(404).send("lp-standalone.html not found");
@@ -10028,13 +10029,31 @@ function configureExpoAndLanding(app2) {
     res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
     return res.status(200).send(html);
   }
-  app2.get("/lp", (req, res) => {
-    return serveLpStandalone(req, res, "/lp");
-  });
+  if (hasLpViteApp) {
+    app2.use(
+      "/lp",
+      express3.static(lpViteRoot, {
+        index: "index.html",
+        setHeaders(res, filePath) {
+          if (filePath.endsWith("index.html")) {
+            res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
+          }
+        }
+      })
+    );
+  }
+  if (!hasLpViteApp) {
+    app2.get("/lp", (req, res) => {
+      return serveLpStandalone(req, res, "/lp");
+    });
+  }
   app2.get("/lp-standalone.html", (req, res) => {
     return serveLpStandalone(req, res, "/lp");
   });
   app2.get("/lp-static", (req, res) => {
+    if (hasLpViteApp) {
+      return res.redirect(302, "/lp");
+    }
     return serveLpStandalone(req, res, "/lp");
   });
   const teamzPath = path.resolve(process.cwd(), "public/teamz.html");
@@ -10060,7 +10079,7 @@ function configureExpoAndLanding(app2) {
     if (req.path.startsWith("/api")) {
       return next();
     }
-    if (req.path === "/lp" || req.path === "/teamz" || req.path === "/lp-static" || req.path === "/lp-standalone.html") {
+    if (req.path === "/lp" || req.path.startsWith("/lp/") || req.path === "/teamz" || req.path === "/lp-static" || req.path === "/lp-standalone.html") {
       return next();
     }
     const platform = req.header("expo-platform");
@@ -10094,6 +10113,7 @@ function configureExpoAndLanding(app2) {
     });
     app2.use((req, res, next) => {
       if (req.path.startsWith("/api")) return next();
+      if (req.path === "/lp" || req.path.startsWith("/lp/")) return next();
       const platform = req.header("expo-platform");
       if (platform && (platform === "ios" || platform === "android")) return next();
       return expoProxy(req, res, next);
@@ -10105,6 +10125,7 @@ function configureExpoAndLanding(app2) {
       app2.use(express3.static(distPath));
       app2.use((req, res, next) => {
         if (req.path.startsWith("/api")) return next();
+        if (req.path === "/lp" || req.path.startsWith("/lp/")) return next();
         const indexPath = path.join(distPath, "index.html");
         if (fs.existsSync(indexPath)) {
           res.sendFile(indexPath);

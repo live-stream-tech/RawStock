@@ -32,6 +32,19 @@ type StationRow = {
   category?: string;
 };
 
+const STATION_CATEGORY_LABEL: Record<string, string> = {
+  matsuri: "祭礼",
+  shrine: "寺社",
+  school: "学校",
+  yose: "寄席",
+  livehouse: "ライブ",
+  dougei: "伝統芸能",
+  doujin: "同人",
+  sports: "スポーツ",
+  machi: "マルシェ",
+  gallery: "美術",
+};
+
 function formatNum(n: number): string {
   if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
   if (n >= 1000) return (n / 1000).toFixed(1) + "K";
@@ -120,7 +133,6 @@ export default function CommunityScreen() {
 
   const purchaseData = rankedApiVideos;
 
-  const stationLead = stationRows[0] ?? null;
   const stationMembers = stationStats?.memberSum ?? stationRows.reduce((sum, s) => sum + Number(s.members ?? 0), 0);
   const adSlotMaxW = Math.min(728, Math.max(0, windowWidth - 32));
   const adSlotH = 90;
@@ -170,7 +182,7 @@ export default function CommunityScreen() {
         <View style={styles.section}>
           <View style={[styles.sectionHeader, styles.sectionHeaderFirst]}>
             <View style={styles.sectionAccent} />
-            <Text style={styles.sectionTitle}>STATION</Text>
+            <Text style={styles.sectionTitle}>ステーション</Text>
           </View>
 
           <View style={[styles.adBannerSlot, { height: adSlotH }]}>
@@ -187,27 +199,18 @@ export default function CommunityScreen() {
           </View>
 
           <View style={styles.stationCoreBox}>
-            <View style={styles.stationTopRow}>
-              <Image
-                source={{ uri: stationLead?.thumbnail || "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=256&h=256&fit=crop" }}
-                style={styles.stationIcon}
-                contentFit="cover"
-              />
-              <View style={{ flex: 1, gap: 6 }}>
-                <Text style={styles.stationName} numberOfLines={1}>
-                  {stationLead?.name ?? "Official station"}
-                </Text>
-                <Text style={styles.stationMembersText}>Members: {formatNum(stationMembers)}</Text>
-                <Text style={styles.stationPitchStrong}>
-                  Turn your venue into revenue—announcements, streams, edits, and community ops in one loop.
-                </Text>
-                <Text style={styles.stationPitchSub}>
-                  Bands, idols, storefronts, and schools first. Japan-first workflows over overseas polish.
-                </Text>
-              </View>
-            </View>
+            <Text style={styles.stationCoreTitle}>公式ステーション（10の扉）</Text>
+            <Text style={styles.stationMembersText}>
+              想定参加者（参考・合算）: {formatNum(stationMembers)}　／　扉: {stationRows.length > 0 ? `${stationRows.length}件` : "—"}
+            </Text>
+            <Text style={styles.stationPitchStrong}>
+              祭礼・寺社・学校・寄席・スポーツ・同人・マルシェ・美術など、音楽だけに偏らない国内の現場文化のための公式扉です。
+            </Text>
+            <Text style={styles.stationPitchSub}>
+              告知・配信・編集・コミュニティ運営を、国内の現場文化に合わせてひとつの循環に。
+            </Text>
             <View style={styles.stationSceneRow}>
-              {["Band", "Idol", "Store", "School"].map((label) => (
+              {["祭礼", "寺社", "学校", "寄席", "スポーツ", "同人", "マルシェ", "美術"].map((label) => (
                 <View key={label} style={styles.stationSceneChip}>
                   <Text style={styles.stationSceneChipText}>{label}</Text>
                 </View>
@@ -250,7 +253,9 @@ export default function CommunityScreen() {
                   <Text style={styles.stationMiniName} numberOfLines={2}>
                     {s.name}
                   </Text>
-                  <Text style={styles.stationMiniMeta}>{formatNum(s.members)} members</Text>
+                  <Text style={styles.stationMiniMeta}>
+                    {(s.category && STATION_CATEGORY_LABEL[s.category]) || "公式"}
+                  </Text>
                 </Pressable>
               ))}
             </HorizontalScroll>
@@ -355,20 +360,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "rgba(255,255,255,0.05)",
   },
-  stationTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  stationIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 6,
-  },
-  stationName: {
+  stationCoreTitle: {
     color: C.text,
     fontSize: 15,
     fontWeight: "800",
+    marginBottom: 4,
   },
   stationMembersText: {
     color: C.textMuted,

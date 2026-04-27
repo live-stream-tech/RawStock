@@ -7,16 +7,16 @@ export type StationRow = {
   online?: boolean;
 };
 
+/** Ten official hub labels (Japan-first scenes, not music-only). Same member baseline so no single row dominates sorting. */
 export const STATIONS: StationRow[] = [
-  { id: 1, name: "Hip-Hop Station", category: "hiphop", members: 6400, online: true, thumbnail: "https://picsum.photos/id/1027/800/800" },
-  { id: 2, name: "Reggae / Dub Station", category: "reggae", members: 2800, online: true, thumbnail: "https://picsum.photos/id/1033/800/800" },
-  { id: 3, name: "R&B / Neo Soul Station", category: "rnb", members: 3100, online: true, thumbnail: "https://picsum.photos/id/1062/800/800" },
-  { id: 4, name: "Punk / Hardcore Station", category: "punk", members: 2500, online: true, thumbnail: "https://picsum.photos/id/1058/800/800" },
-  { id: 5, name: "Metal / Loud Station", category: "metal", members: 2300, online: false, thumbnail: "https://picsum.photos/id/1068/800/800" },
-  { id: 6, name: "Indie Rock Station", category: "indie", members: 3900, online: true, thumbnail: "https://picsum.photos/id/1043/800/800" },
-  { id: 7, name: "Japan Indie Station", category: "indie", members: 4200, online: true, thumbnail: "https://picsum.photos/id/1047/800/800" },
-  { id: 8, name: "Techno / House Station", category: "edm", members: 5200, online: true, thumbnail: "https://picsum.photos/id/1035/800/800" },
-  { id: 9, name: "Drum & Bass Station", category: "edm", members: 3600, online: true, thumbnail: "https://picsum.photos/id/1036/800/800" },
-  { id: 10, name: "Classical Station", category: "classical", members: 1800, online: false, thumbnail: "https://picsum.photos/id/1060/800/800" },
+  { id: 1, name: "祭礼・まつり（神輿・屋台）", category: "matsuri", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1027/800/800" },
+  { id: 2, name: "神社仏閣・年中行事", category: "shrine", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1015/800/800" },
+  { id: 3, name: "学校文化（演劇・部活・文化祭）", category: "school", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1025/800/800" },
+  { id: 4, name: "落語・講談・寄席", category: "yose", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1031/800/800" },
+  { id: 5, name: "ライブハウス・アイドル現場", category: "livehouse", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1040/800/800" },
+  { id: 6, name: "茶道・武道・伝統芸能", category: "dougei", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1050/800/800" },
+  { id: 7, name: "同人・コミケ・創作即売", category: "doujin", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1060/800/800" },
+  { id: 8, name: "野球・スポーツ観戦・応援", category: "sports", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1033/800/800" },
+  { id: 9, name: "マルシェ・地方創生・町おこし", category: "machi", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1043/800/800" },
+  { id: 10, name: "美術・展示・ギャラリー", category: "gallery", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1047/800/800" },
 ];
-
