@@ -390,6 +390,9 @@ export default function ProfileScreen() {
             return;
           }
           try {
+            // #region agent log
+            fetch("http://127.0.0.1:7652/ingest/22e351bd-1e97-4a00-ab87-c9defd35899c",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"1296ac"},body:JSON.stringify({sessionId:"1296ac",runId:"run1",hypothesisId:"H4",location:"app/(tabs)/profile.tsx:pickAndUploadAvatarUrl:fileSelected",message:"avatar file selected on web",data:{fileSize:file.size,fileType:file.type || "",fileNameExt:(file.name.split(".").pop() ?? "").toLowerCase()},timestamp:Date.now()})}).catch(()=>{});
+            // #endregion
             let mime =
               file.type && /^image\/(jpeg|png|webp|gif|heic|heif)$/i.test(file.type) ? file.type : "image/jpeg";
             let safeName = (file.name || `avatar_${Date.now()}.jpg`).replace(/[^\w.-]/g, "_");
@@ -414,6 +417,9 @@ export default function ProfileScreen() {
               mime = "image/jpeg";
               safeName = safeName.replace(/\.[^.]+$/, "") + ".jpg";
             }
+            // #region agent log
+            fetch("http://127.0.0.1:7652/ingest/22e351bd-1e97-4a00-ab87-c9defd35899c",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"1296ac"},body:JSON.stringify({sessionId:"1296ac",runId:"run1",hypothesisId:"H4",location:"app/(tabs)/profile.tsx:pickAndUploadAvatarUrl:beforeUploadAvatarBlob",message:"avatar normalized before upload",data:{mime,bodySize:body.size,safeNameExt:(safeName.split(".").pop() ?? "").toLowerCase(),needsCoerce},timestamp:Date.now()})}).catch(()=>{});
+            // #endregion
             resolve(await uploadAvatarBlob(body, safeName, mime));
           } catch (err) {
             reject(err);

@@ -311,12 +311,18 @@ async function uploadBlobViaR2SameOriginProxy(
     "X-Upload-Content-Type": contentType.split(";")[0].trim(),
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
+  // #region agent log
+  fetch("http://127.0.0.1:7652/ingest/22e351bd-1e97-4a00-ab87-c9defd35899c",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"1296ac"},body:JSON.stringify({sessionId:"1296ac",runId:"run1",hypothesisId:"H1",location:"lib/query-client.ts:uploadBlobViaR2SameOriginProxy:beforeFetch",message:"avatar upload proxy request start",data:{url:url.toString(),blobSize:blob.size,contentType:contentType.split(";")[0].trim(),fileNameExt:fileName.split(".").pop() ?? ""},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   const res = await fetch(url.toString(), {
     method: "POST",
     headers,
     body: blob,
     credentials: "include",
   });
+  // #region agent log
+  fetch("http://127.0.0.1:7652/ingest/22e351bd-1e97-4a00-ab87-c9defd35899c",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"1296ac"},body:JSON.stringify({sessionId:"1296ac",runId:"run1",hypothesisId:"H1",location:"lib/query-client.ts:uploadBlobViaR2SameOriginProxy:afterFetch",message:"avatar upload proxy response",data:{status:res.status,ok:res.ok},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   await throwIfResNotOk(res);
   const data = (await res.json()) as { url?: string; fileUrl?: string };
   const publicUrl = data.url ?? data.fileUrl;

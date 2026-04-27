@@ -28,6 +28,13 @@ export function GlobalMyListPlayer() {
   /** Jukebox has bottom chat; a high z-index mini-player can steal keyboard/focus when overlapping */
   const isOnJukebox = pathname != null && pathname.includes("/jukebox");
 
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    // #region agent log
+    fetch("http://127.0.0.1:7652/ingest/22e351bd-1e97-4a00-ab87-c9defd35899c",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"1296ac"},body:JSON.stringify({sessionId:"1296ac",runId:"run1",hypothesisId:"H5",location:"components/GlobalMyListPlayer.tsx:playingStateEffect",message:"global player state on route",data:{pathname:pathname ?? "",hasPlaying:Boolean(playing),hasYoutube:Boolean(playing?.youtubeId),hasVideoUrl:Boolean(playing?.videoUrl),isCurrentVideo:Boolean(isCurrentVideo)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+  }, [pathname, playing?.youtubeId, playing?.videoUrl, isCurrentVideo, playing]);
+
   // Leaving the video page → show mini player (Spotify-style)
   const prevIsOnVideoPageRef = useRef(isOnVideoPage);
   useEffect(() => {
