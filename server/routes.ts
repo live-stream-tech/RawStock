@@ -5206,9 +5206,8 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   // ── Live Streams ──────────────────────────────────────────────────
   /** On-air list: Cloudflare `streams` (WHIP/WHEP) plus legacy `live_streams` rows without id collision. */
-  app.get("/api/live-streams", async (req: Request, res: Response) => {
-    const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "Not authenticated" });
+  app.get("/api/live-streams", async (_req: Request, res: Response) => {
+    // Public on-air list (home + discovery). Auth not required so logged-out clients still see live channels.
     const PLACEHOLDER_THUMB = "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&h=225&fit=crop";
     const cfRows = await db
       .select()

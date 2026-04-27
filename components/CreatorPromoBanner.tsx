@@ -49,12 +49,17 @@ const styles = StyleSheet.create({
     borderColor: C.border,
     overflow: "hidden",
     backgroundColor: C.surface,
+    alignItems: "center",
+    justifyContent: "center",
   },
   creatorBannerActive: {
     opacity: 0.92,
   },
   bannerImage: {
     width: "100%",
-    aspectRatio: 728 / 90,
+    height: 90,
+    maxWidth: 728,
+    alignSelf: "center",
+    backgroundColor: "#0a0a0a",
   },
 });

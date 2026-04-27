@@ -1,6 +1,6 @@
 {
   "framework": null,
-  "buildCommand": "npx expo export --platform web && node scripts/inject-sw-version.js && cp public/favi.png dist/favi.png && cp public/teamz.html dist/teamz.html && cp -r public/jeeliz dist/jeeliz",
+  "buildCommand": "sh scripts/vercel-build.sh",
   "outputDirectory": "dist",
   "headers": [
     {
@@ -70,7 +70,6 @@
   ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/[...path]" },
-    { "source": "/lp", "destination": "/api/[...path]" },
     { "source": "/lp-standalone.html", "destination": "/api/[...path]" },
     { "source": "/lp-static", "destination": "/api/[...path]" },
     { "source": "/teamz", "destination": "/api/[...path]" },

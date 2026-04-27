@@ -180,6 +180,10 @@ function configureExpoAndLanding(app: express.Application) {
   log("Serving static Expo files with dynamic manifest routing");
 
   const lpStandalonePath = path.resolve(process.cwd(), "public/lp-standalone.html");
+  const lpViteRoot = path.resolve(process.cwd(), "dist", "lp");
+  const lpViteIndex = path.join(lpViteRoot, "index.html");
+  const hasLpViteApp = fs.existsSync(lpViteIndex);
+
   function serveLpStandalone(req: Request, res: Response, canonicalPath: string) {
     if (!fs.existsSync(lpStandalonePath)) {
       return res.status(404).send("lp-standalone.html not found");
@@ -191,16 +195,36 @@ function configureExpoAndLanding(app: express.Application) {
     return res.status(200).send(html);
   }
 
-  /** `/lp` は常にこのHTMLを直接返す（別URLへリダイレクトしない） */
-  app.get("/lp", (req: Request, res: Response) => {
-    return serveLpStandalone(req, res, "/lp");
-  });
+  /** Vite ビルドの rawstock-lp 同系 LP（`scripts/vercel-build.sh` が `dist/lp` に出力） */
+  if (hasLpViteApp) {
+    app.use(
+      "/lp",
+      express.static(lpViteRoot, {
+        index: "index.html",
+        setHeaders(res, filePath) {
+          if (filePath.endsWith("index.html")) {
+            res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
+          }
+        },
+      }),
+    );
+  }
+
+  /** `/lp` — Vite ビルドが無いときのみスタンドアロン HTML（別URLへリダイレクトしない） */
+  if (!hasLpViteApp) {
+    app.get("/lp", (req: Request, res: Response) => {
+      return serveLpStandalone(req, res, "/lp");
+    });
+  }
 
   // 互換パス（内容は同一）
   app.get("/lp-standalone.html", (req: Request, res: Response) => {
     return serveLpStandalone(req, res, "/lp");
   });
   app.get("/lp-static", (req: Request, res: Response) => {
+    if (hasLpViteApp) {
+      return res.redirect(302, "/lp");
+    }
     return serveLpStandalone(req, res, "/lp");
   });
 
@@ -231,9 +255,10 @@ function configureExpoAndLanding(app: express.Application) {
       return next();
     }
 
-    // Skip Expo manifest for LP / static marketing HTML
+    // Skip Expo manifest for LP / static marketing HTML / Vite LP assets
     if (
       req.path === "/lp" ||
+      req.path.startsWith("/lp/") ||
       req.path === "/teamz" ||
       req.path === "/lp-static" ||
       req.path === "/lp-standalone.html"
@@ -277,6 +302,7 @@ function configureExpoAndLanding(app: express.Application) {
 
     app.use((req: Request, res: Response, next: NextFunction) => {
       if (req.path.startsWith("/api")) return next();
+      if (req.path === "/lp" || req.path.startsWith("/lp/")) return next();
       const platform = req.header("expo-platform");
       if (platform && (platform === "ios" || platform === "android")) return next();
       return (expoProxy as express.RequestHandler)(req, res, next);
@@ -288,6 +314,7 @@ function configureExpoAndLanding(app: express.Application) {
       app.use(express.static(distPath));
       app.use((req: Request, res: Response, next: NextFunction) => {
         if (req.path.startsWith("/api")) return next();
+        if (req.path === "/lp" || req.path.startsWith("/lp/")) return next();
         const indexPath = path.join(distPath, "index.html");
         if (fs.existsSync(indexPath)) {
           res.sendFile(indexPath);

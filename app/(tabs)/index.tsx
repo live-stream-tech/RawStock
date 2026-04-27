@@ -23,11 +23,8 @@ import { EventFlyerImage } from "@/components/EventFlyerImage";
 import { usePlayingVideo } from "@/lib/playing-video-context";
 import { useJukeboxPulse } from "@/lib/useJukeboxPulse";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
-import { CreatorPromoBanner } from "@/components/CreatorPromoBanner";
 import { parseThreadBody } from "@/lib/parse-thread-body";
 import { resolvePublicMediaUri as resolveVideoMediaUri } from "@/lib/resolve-public-media-uri";
-import { useAuth } from "@/lib/auth";
-
 const MENTOR_W = 200;
 
 function useUnreadCount() {
@@ -327,64 +324,8 @@ function SessionCard({ item }: { item: any }) {
   );
 }
 
-// ─── Dummy Data ───────────────────────────────────────────────────────────────
-/** Placeholder paid hero cards when there are no paid uploads — thumbnails/titles only; stats are honest zeros. */
-const DUMMY_PAID = [
-  {
-    id: 1,
-    thumbnail: "https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=800&h=520&fit=crop",
-    avatar: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=40&h=40&fit=crop",
-    community: "Shimokitazawa Livehouses",
-    title: "Basement Gig Archive — 4/20 Shimokitazawa 3-venue digest",
-    views: 0,
-    price: 1000,
-  },
-  {
-    id: 2,
-    thumbnail: "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=800&h=520&fit=crop",
-    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=40&h=40&fit=crop",
-    community: "Tokyo Club Circuit",
-    title: "Warehouse Rave Recap — Peak Time Set + Crowd Cam",
-    views: 0,
-    price: 800,
-  },
-  {
-    id: 3,
-    thumbnail: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=800&h=520&fit=crop",
-    avatar: "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=40&h=40&fit=crop",
-    community: "Japan Indie Livehouses",
-    title: "Indie tour finale — full set through encore (no cuts)",
-    views: 0,
-    price: 600,
-  },
-];
-
-/** Placeholder live tiles when no streams — not on air; viewer count is zero. */
-const DUMMY_LIVE = [
-  {
-    id: 1,
-    thumbnail: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&h=225&fit=crop",
-    avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=40&h=40&fit=crop",
-    community: "Underground Scene",
-    title: "Studio Practice — unfiltered stream",
-    viewers: 0,
-    isDemo: true,
-  },
-  {
-    id: 2,
-    thumbnail: "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=400&h=225&fit=crop",
-    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=40&h=40&fit=crop",
-    community: "D&B Scene",
-    title: "JAM Session LIVE",
-    viewers: 0,
-    isDemo: true,
-  },
-];
-
-
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function HomeScreen() {
-  const { user } = useAuth();
   const { width: windowWidth } = useWindowDimensions();
   const heroCardW = Platform.OS === "web" ? Math.min(windowWidth, 500) : windowWidth;
   /** Match jukebox banner: column minus horizontal padding (16 + 16). */
@@ -417,7 +358,6 @@ export default function HomeScreen() {
   const { data: apiLive = [] } = useQuery<any[]>({
     queryKey: ["/api/live-streams"],
     refetchInterval: 5000,
-    enabled: !!user,
   });
   const { data: communities = [] } = useQuery<any[]>({ queryKey: ["/api/communities"] });
   const { data: liveAnnouncements = [] } = useQuery<any[]>({
@@ -452,16 +392,13 @@ export default function HomeScreen() {
   };
   const { data: mentorSessions = [] } = useQuery<BookingSession[]>({ queryKey: ["/api/booking-sessions"] });
 
-  const paidVideos = (() => {
-    const paid = apiVideos
-      .filter((v: any) => v.price != null && v.price > 0)
-      .sort((a: any, b: any) => (b.views ?? 0) - (a.views ?? 0))
-      .slice(0, 5);
-    return paid.length > 0 ? paid : DUMMY_PAID;
-  })();
-  const usingDemoPaid = apiVideos.filter((v: any) => v.price != null && v.price > 0).length === 0;
+  const paidVideos = apiVideos
+    .filter((v: any) => v.price != null && v.price > 0)
+    .sort((a: any, b: any) => (b.views ?? 0) - (a.views ?? 0))
+    .slice(0, 5);
+  const usingDemoPaid = false;
 
-  const allLiveStreams = !user ? [] : apiLive.length > 0 ? apiLive : DUMMY_LIVE;
+  const allLiveStreams = apiLive;
   const sessions = mentorSessions;
 
   const announcementTeaserTitle = (() => {
@@ -526,11 +463,11 @@ export default function HomeScreen() {
         {/* ── Live Announcements First ── */}
         <View style={styles.sectionGap} />
         <SectionHeader
-          title="LIVE ANNOUNCEMENTS"
+          title="Live announcements"
           accent
           right={
             <Pressable onPress={() => router.push("/live-announcements" as any)}>
-              <Text style={styles.viewAllText}>VIEW ALL</Text>
+              <Text style={styles.viewAllText}>View all</Text>
             </Pressable>
           }
         />
@@ -546,7 +483,7 @@ export default function HomeScreen() {
           ) : (
             <View style={[styles.announceEmptyCard, { width: announceInnerW }]}>
               <Ionicons name="megaphone-outline" size={18} color={C.textMuted} />
-              <Text style={styles.announceEmptyText}>Live announcements coming soon.</Text>
+              <Text style={styles.announceEmptyText}>No live announcements yet.</Text>
             </View>
           )}
         </HorizontalScroll>
@@ -624,18 +561,22 @@ export default function HomeScreen() {
 
         {/* ── Paid Hero ── */}
         <View style={styles.sectionGap} />
-        <PaidHeroSection videos={paidVideos} isDemo={usingDemoPaid} heroCardWidth={heroCardW} />
-
-        <CreatorPromoBanner />
+        {paidVideos.length > 0 ? (
+          <PaidHeroSection videos={paidVideos} isDemo={usingDemoPaid} heroCardWidth={heroCardW} />
+        ) : (
+          <View style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
+            <Text style={{ color: C.textMuted, fontSize: 12, fontFamily: F.mono }}>No paid uploads yet.</Text>
+          </View>
+        )}
 
         {/* ── Now Live ── */}
         <View style={styles.sectionGap} />
         <SectionHeader
-          title="NOW LIVE"
+          title="On air now"
           accent
           right={
             <Pressable onPress={() => router.push("/live" as any)}>
-              <Text style={styles.viewAllText}>VIEW ALL</Text>
+              <Text style={styles.viewAllText}>View all</Text>
             </Pressable>
           }
         />
@@ -643,7 +584,7 @@ export default function HomeScreen() {
           {allLiveStreams.length === 0 ? (
             <View style={{ paddingHorizontal: 16, paddingVertical: 10, minWidth: 220 }}>
               <Text style={{ color: C.textMuted, fontSize: 12, fontFamily: F.mono }}>
-                {!user ? "Open the Live tab after signing in to see channels on air." : "No channels on air right now."}
+                No channels on air right now.
               </Text>
             </View>
           ) : (
@@ -656,10 +597,10 @@ export default function HomeScreen() {
         <View style={styles.sectionDivider} />
         <View style={styles.sectionGap} />
         <SectionHeader
-          title="SESSIONS"
+          title="Sessions"
           right={
             <Pressable onPress={() => router.push("/mentor-sessions" as any)}>
-              <Text style={styles.viewAllText}>VIEW ALL</Text>
+              <Text style={styles.viewAllText}>View all</Text>
             </Pressable>
           }
         />
@@ -667,7 +608,7 @@ export default function HomeScreen() {
           {sessions.length === 0 ? (
             <View style={{ paddingHorizontal: 16, paddingVertical: 12, minWidth: Math.min(heroCardW, 320) }}>
               <Text style={{ color: C.textMuted, fontSize: 12, fontFamily: F.mono }}>
-                No mentor sessions available to book yet.
+                No bookable sessions yet.
               </Text>
             </View>
           ) : (
@@ -678,17 +619,21 @@ export default function HomeScreen() {
         <View style={styles.footerLinks}>
           {Platform.OS === "web" ? (
             <>
+              <Link href="/">
+                <Text style={styles.footerLinkText}>Top</Text>
+              </Link>
+              <Text style={styles.footerLinkSeparator}> | </Text>
               <Link href="/privacy">
-                <Text style={styles.footerLinkText}>Privacy Policy</Text>
+                <Text style={styles.footerLinkText}>Privacy</Text>
               </Link>
               <Text style={styles.footerLinkSeparator}> | </Text>
               <Pressable onPress={() => router.push("/legal" as any)}>
-                <Text style={styles.footerLinkText}>Legal & Policies</Text>
+                <Text style={styles.footerLinkText}>Legal</Text>
               </Pressable>
             </>
           ) : (
             <Pressable onPress={() => router.push("/legal" as any)}>
-              <Text style={styles.footerLinkText}>Legal & Policies</Text>
+              <Text style={styles.footerLinkText}>Legal</Text>
             </Pressable>
           )}
         </View>
@@ -748,7 +693,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     minWidth: 0,
   },
-
   scroll: { flex: 1 },
 
   // Jukebox Banner

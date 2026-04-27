@@ -1,5 +1,5 @@
-// __CACHE_VERSION__ is replaced at build time to rotate caches per deploy.
-const CACHE_NAME = "rawstock-__CACHE_VERSION__";
+// t1777310029179 is replaced at build time to rotate caches per deploy.
+const CACHE_NAME = "rawstock-t1777310029179";
 const STATIC_ASSETS = [
   "/",
   "/manifest.json",

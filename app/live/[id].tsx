@@ -64,7 +64,7 @@ async function viewerApiFetch(path: string, init?: RequestInit): Promise<Respons
   } catch {
     /* ignore */
   }
-  const nativeBase = process.env.EXPO_PUBLIC_API_URL?.trim() || getApiUrl();
+  const nativeBase = getApiUrl();
   const url =
     Platform.OS === "web"
       ? path.startsWith("/")
@@ -168,7 +168,7 @@ export default function LiveStreamScreen() {
   const { user, requireAuth } = useAuth();
 
   const myUserId = user ? `user-${user.id}` : "guest";
-  const myUsername = user?.name ?? "Guest";
+  const myUsername = user?.name ?? "ゲスト";
 
   const { data: apiStream, isFetched: streamMetaFetched } = useQuery<LiveStream | null>({
     queryKey: ["stream-viewer", streamId],
@@ -249,7 +249,7 @@ export default function LiveStreamScreen() {
       if (e.message === "AUTH_REQUIRED") return;
       if (e.status === 402) {
         Alert.alert(
-          "Not Enough Tickets",
+          "チケット不足",
           `You need 🎟${(e.required ?? 0).toLocaleString()} to watch this stream.`,
           [
             { text: "Cancel", style: "cancel" },
@@ -401,7 +401,7 @@ export default function LiveStreamScreen() {
       if (!requireAuth("send gifts")) return;
       if (!canSendTips || tipRecipientUserId == null) {
         Alert.alert(
-          "Tips Unavailable",
+          "投げ銭不可",
           "This stream does not support tips yet, or stream details are still loading. Try again in a moment.",
         );
         return;
@@ -420,7 +420,7 @@ export default function LiveStreamScreen() {
           onError: (err) => {
             if (err instanceof ApiError && err.status === 402) {
               Alert.alert(
-                "Not Enough Tickets",
+                "チケット不足",
                 `You need 🎟${amount.toLocaleString()} to send this gift. Please top up your tickets.`,
                 [
                   { text: "Cancel", style: "cancel" },
@@ -429,7 +429,7 @@ export default function LiveStreamScreen() {
               );
               return;
             }
-            Alert.alert("Gift Failed", formatUserFacingApiError(err));
+            Alert.alert("ギフト送信失敗", formatUserFacingApiError(err));
           },
         },
       );
@@ -450,7 +450,7 @@ export default function LiveStreamScreen() {
           <Ionicons name="chevron-back" size={22} color="#fff" />
         </Pressable>
         <View style={styles.loading}>
-          <Text style={styles.loadingText}>Loading...</Text>
+          <Text style={styles.loadingText}>読み込み中...</Text>
         </View>
       </View>
     );
@@ -472,7 +472,7 @@ export default function LiveStreamScreen() {
           {whepError && (
             <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.6)" }}>
               <Ionicons name="wifi-outline" size={40} color="#ffffff88" />
-              <Text style={{ color: "#fff", marginTop: 8, fontSize: 13 }}>Failed to load stream</Text>
+              <Text style={{ color: "#fff", marginTop: 8, fontSize: 13 }}>配信の読み込みに失敗しました</Text>
             </View>
           )}
           {streamAccessDenied && (
@@ -491,18 +491,18 @@ export default function LiveStreamScreen() {
             >
               <Ionicons name="lock-closed-outline" size={40} color="#ffffffaa" />
               <Text style={{ color: "#fff", marginTop: 12, fontSize: 15, fontWeight: "700", textAlign: "center" }}>
-                {authRequiredForStream ? "Sign in required" : "You do not have permission to watch this stream."}
+                {authRequiredForStream ? "ログインが必要です" : "この配信を視聴する権限がありません。"}
               </Text>
               <Text style={{ color: "#ffffffb3", marginTop: 8, fontSize: 13, textAlign: "center" }}>
                 {authRequiredForStream
-                  ? "Sign in with your RawStock account to watch this live stream."
+                  ? "RawStockアカウントでログインすると視聴できます。"
                   : apiStream?.visibility === "followers"
-                    ? "Follow this streamer to watch."
+                    ? "この配信者をフォローすると視聴できます。"
                     : apiStream?.visibility === "community"
-                      ? "Join the required community to watch."
+                      ? "指定のコミュニティに参加すると視聴できます。"
                       : apiStream?.visibility === "paid"
-                        ? "This is a paid stream. Unlock with tickets to watch."
-                        : "Please meet the requirements and try again."}
+                        ? "有料配信です。チケットで解放すると視聴できます。"
+                        : "条件を満たしたうえで、再度お試しください。"}
               </Text>
               {authRequiredForStream ? (
                 <Pressable
@@ -514,7 +514,7 @@ export default function LiveStreamScreen() {
                     router.push("/auth/login");
                   }}
                 >
-                  <Text style={{ color: "#000", fontSize: 13, fontWeight: "800" }}>Sign in</Text>
+                  <Text style={{ color: "#000", fontSize: 13, fontWeight: "800" }}>ログイン</Text>
                 </Pressable>
               ) : null}
               {paidTicketRequired ? (
@@ -525,7 +525,7 @@ export default function LiveStreamScreen() {
                 >
                   <Text style={{ color: "#000", fontSize: 13, fontWeight: "800" }}>
                     {unlockPaidStreamMutation.isPending
-                      ? "Unlocking..."
+                      ? "解放中..."
                       : `Unlock for 🎟${(apiStream?.price ?? 0).toLocaleString()}`}
                   </Text>
                 </Pressable>
@@ -731,10 +731,10 @@ export default function LiveStreamScreen() {
             onPress={() => {
               if (!canSendTips) {
                 Alert.alert(
-                  "Tips Unavailable",
+                  "投げ銭不可",
                   streamMetaFetched
-                    ? "This stream does not support tips (no linked host account)."
-                    : "Stream details are still loading. Wait a moment and try again.",
+                    ? "この配信は投げ銭に対応していません（配信者アカウント未連携）。"
+                    : "配信情報を読み込み中です。少し待ってから再試行してください。",
                 );
                 return;
               }

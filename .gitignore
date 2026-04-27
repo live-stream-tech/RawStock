@@ -3,6 +3,10 @@
 # dependencies
 node_modules/
 
+# Vendored rawstock-lp (see vendor/README.md) — track source, ignore install/build artifacts
+vendor/rawstock-lp/node_modules/
+vendor/rawstock-lp/dist/
+
 # Expo
 .expo/
 web-build/

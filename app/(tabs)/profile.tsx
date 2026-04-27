@@ -34,7 +34,6 @@ import {
 } from "@/lib/query-client";
 import { AppLogo } from "@/components/AppLogo";
 import { MetallicLine } from "@/components/MetallicLine";
-import { CreatorPromoBanner } from "@/components/CreatorPromoBanner";
 import { saveLoginReturn } from "@/lib/login-return";
 
 function useUnreadCount() {
@@ -1145,8 +1144,6 @@ export default function ProfileScreen() {
             <Text style={styles.uploadBtnText}>Post Work</Text>
           </Pressable>
         </View>
-
-        <CreatorPromoBanner style={{ marginTop: 4, marginBottom: 12 }} />
 
         <View style={styles.timelineList}>
           {myVideos

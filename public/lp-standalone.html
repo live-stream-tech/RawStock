@@ -88,7 +88,8 @@ a{text-decoration:none;color:inherit}
     <div class="nav-right">
       <a class="nav-link" href="#structure">仕組み</a>
       <a class="nav-link" href="#promise">3つの約束</a>
-      <a class="btn ghost" href="#early-access">LINE / Gmail</a>
+      <a class="nav-link" href="https://x.com/ndjtpamwu" target="_blank" rel="noopener noreferrer">X</a>
+      <a class="nav-link" href="https://camp-fire.jp/projects/937352/preview?token=33fzs9q3&amp;utm_campaign=cp_po_share_c_msg_projects_show" target="_blank" rel="noopener noreferrer">CAMPFIRE</a>
     </div>
   </div>
 </header>
@@ -106,8 +107,9 @@ a{text-decoration:none;color:inherit}
     </div>
     <p class="sub">本当は自分が前に出たい訳ではない。でも想いに共感するあなたの目線で、このプロダクトを一緒に叩き直してください。</p>
     <div class="cta reveal">
-      <a href="#early-access" class="btn primary">意見を送る（LINE/Gmail）</a>
-      <a href="LP_APP_ORIGIN_PLACEHOLDER/stations" class="btn ghost">実体を確認する（見てみる）</a>
+      <a href="https://x.com/ndjtpamwu" class="btn primary" target="_blank" rel="noopener noreferrer">Follow on X</a>
+      <a href="https://camp-fire.jp/projects/937352/preview?token=33fzs9q3&amp;utm_campaign=cp_po_share_c_msg_projects_show" class="btn ghost" target="_blank" rel="noopener noreferrer">CAMPFIRE (crowdfunding)</a>
+      <a href="LP_APP_ORIGIN_PLACEHOLDER/stations" class="btn ghost">Open the app (stations)</a>
     </div>
   </div>
 </section>
@@ -165,21 +167,18 @@ a{text-decoration:none;color:inherit}
     <p class="section-desc" style="margin:0 auto 10px">アドバイス、批判、紹介、あるいは「子育てと仕事」の悔しさでも。</p>
     <p class="section-desc" style="margin:0 auto 10px">SNSや動画の経済圏が海外に吸い上げられる現状を打破し、国内で回せるようにしたい。次の世代へ、未来に希望がある状態でバトンを渡したい。その一念で、誰にも言わず一人で数年間練り上げてきました。</p>
     <div class="cta" style="justify-content:center">
-      <a href="#early-access" class="btn primary">意見を送る（LINE/Gmail）</a>
-      <a href="LP_APP_ORIGIN_PLACEHOLDER/stations" class="btn ghost">実体を確認する（見てみる）</a>
+      <a href="https://x.com/ndjtpamwu" class="btn primary" target="_blank" rel="noopener noreferrer">Follow on X</a>
+      <a href="https://camp-fire.jp/projects/937352/preview?token=33fzs9q3&amp;utm_campaign=cp_po_share_c_msg_projects_show" class="btn ghost" target="_blank" rel="noopener noreferrer">CAMPFIRE (crowdfunding)</a>
+      <a href="LP_APP_ORIGIN_PLACEHOLDER/stations" class="btn ghost">Open the app (stations)</a>
     </div>
 
     <div class="lead-card" id="early-access" style="margin-left:auto;margin-right:auto;text-align:left">
-      <h3>ご意見フォーム</h3>
-      <p>Gmail または LINE で意見を送ってください。アドバイス、初期テスト、紹介、プロダクト案内の連絡に使います。</p>
-      <form id="lead-form">
-        <div class="lead-form-row">
-          <input id="lead-email" class="lead-email-input" type="email" autocomplete="email" required placeholder="your@gmail.com" />
-          <button type="submit" id="lead-submit" class="btn primary">意見を送る</button>
-        </div>
-      </form>
-      <a id="line-add-friend" class="btn ghost" style="margin-top:10px" href="LP_APP_ORIGIN_PLACEHOLDER/api/auth/line">LINEで意見を送る</a>
-      <p id="lead-status" class="lead-status" aria-live="polite"></p>
+      <h3>Connect</h3>
+      <p style="color:var(--muted);font-size:15px;line-height:1.8;margin:0 0 16px">Updates and backing: follow on X, or support the CAMPFIRE preview project.</p>
+      <div class="lead-form-row" style="flex-wrap:wrap">
+        <a class="btn primary" href="https://x.com/ndjtpamwu" target="_blank" rel="noopener noreferrer">Follow on X</a>
+        <a class="btn ghost" href="https://camp-fire.jp/projects/937352/preview?token=33fzs9q3&amp;utm_campaign=cp_po_share_c_msg_projects_show" target="_blank" rel="noopener noreferrer">Open CAMPFIRE</a>
+      </div>
     </div>
   </div>
 </section>
@@ -205,47 +204,6 @@ a{text-decoration:none;color:inherit}
     revealNodes.forEach(function (n) { n.classList.add("in"); });
   }
 
-  var leadForm = document.getElementById("lead-form");
-  var leadEmail = document.getElementById("lead-email");
-  var leadSubmit = document.getElementById("lead-submit");
-  var leadStatus = document.getElementById("lead-status");
-
-  function setLeadStatus(kind, msg) {
-    if (!leadStatus) return;
-    leadStatus.classList.remove("ok", "err");
-    if (kind === "ok") leadStatus.classList.add("ok");
-    if (kind === "err") leadStatus.classList.add("err");
-    leadStatus.textContent = msg || "";
-  }
-
-  if (leadForm && leadEmail) {
-    leadForm.addEventListener("submit", async function (e) {
-      e.preventDefault();
-      var email = String(leadEmail.value || "").trim().toLowerCase();
-      if (!email) {
-        setLeadStatus("err", "メールアドレスを入力してください。");
-        return;
-      }
-      if (leadSubmit) leadSubmit.setAttribute("disabled", "true");
-      setLeadStatus("", "送信中...");
-      try {
-        var campaign = "";
-        try { campaign = new URL(window.location.href).searchParams.get("utm_campaign") || ""; } catch (err) {}
-        var r = await fetch("/api/lp/leads", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: email, source: "feedback_form", locale: "ja", campaign: campaign || null })
-        });
-        if (!r.ok) throw new Error("save_failed");
-        setLeadStatus("ok", "送信しました。ご意見として確認します。");
-        leadEmail.value = "";
-      } catch (err) {
-        setLeadStatus("err", "送信に失敗しました。時間をおいて再試行してください。");
-      } finally {
-        if (leadSubmit) leadSubmit.removeAttribute("disabled");
-      }
-    });
-  }
 })();
 </script>
 </body>

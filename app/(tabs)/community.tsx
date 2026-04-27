@@ -122,11 +122,8 @@ export default function CommunityScreen() {
 
   const stationLead = stationRows[0] ?? null;
   const stationMembers = stationStats?.memberSum ?? stationRows.reduce((sum, s) => sum + Number(s.members ?? 0), 0);
-  const AD_BASE_W = 728;
-  const AD_BASE_H = 90;
-  const adHorizontalPadding = 32; // section margin (16 * 2)
-  const adAvailableWidth = Math.max(0, windowWidth - adHorizontalPadding);
-  const adBoxHeight = Math.round(adAvailableWidth * (AD_BASE_H / AD_BASE_W));
+  const adSlotMaxW = Math.min(728, Math.max(0, windowWidth - 32));
+  const adSlotH = 90;
   const sortedRankingVideos = useMemo(() => {
     const arr = [...purchaseData];
     const ts = (v: any) => (v.createdAt ? new Date(v.createdAt).getTime() : 0);
@@ -157,6 +154,15 @@ export default function CommunityScreen() {
     <View style={[styles.container, { paddingBottom: bottomInset }]}>
       <View style={[styles.header, { paddingTop: topInset + 12 }]}>
         <AppLogo height={36} />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Create community"
+          style={styles.createBtn}
+          onPress={() => router.push("/community/create" as any)}
+        >
+          <Ionicons name="add" size={18} color="#050505" />
+          <Text style={styles.createBtnText}>Create community</Text>
+        </Pressable>
       </View>
       <MetallicLine thickness={1} style={{ marginHorizontal: 16 }} />
 
@@ -167,16 +173,16 @@ export default function CommunityScreen() {
             <Text style={styles.sectionTitle}>STATION</Text>
           </View>
 
-          <View style={[styles.adBannerSlot, { height: adBoxHeight }]}>
+          <View style={[styles.adBannerSlot, { height: adSlotH }]}>
             <Pressable
               accessibilityRole="link"
               accessibilityLabel="Sponsored banner"
               onPress={() => {
                 void Linking.openURL(TEMP_BANNER_TARGET_URL);
               }}
-              style={[styles.adBannerFixedFrame, { width: adAvailableWidth, height: adBoxHeight }]}
+              style={[styles.adBannerFixedFrame, { width: adSlotMaxW, height: adSlotH }]}
             >
-              <Image source={{ uri: TEMP_BANNER_IMAGE_PATH }} style={styles.adBannerImage} contentFit="contain" />
+              <Image source={{ uri: TEMP_BANNER_IMAGE_PATH }} style={styles.adBannerImage} contentFit="cover" />
             </Pressable>
           </View>
 
@@ -189,12 +195,23 @@ export default function CommunityScreen() {
               />
               <View style={{ flex: 1, gap: 6 }}>
                 <Text style={styles.stationName} numberOfLines={1}>
-                  {stationLead?.name ?? "Official Station"}
+                  {stationLead?.name ?? "Official station"}
                 </Text>
                 <Text style={styles.stationMembersText}>Members: {formatNum(stationMembers)}</Text>
-                <Text style={styles.stationPitchStrong}>Your scene. Your bag.</Text>
-                <Text style={styles.stationPitchSub}>Run a community — keep the upside.</Text>
+                <Text style={styles.stationPitchStrong}>
+                  Turn your venue into revenue—announcements, streams, edits, and community ops in one loop.
+                </Text>
+                <Text style={styles.stationPitchSub}>
+                  Bands, idols, storefronts, and schools first. Japan-first workflows over overseas polish.
+                </Text>
               </View>
+            </View>
+            <View style={styles.stationSceneRow}>
+              {["Band", "Idol", "Store", "School"].map((label) => (
+                <View key={label} style={styles.stationSceneChip}>
+                  <Text style={styles.stationSceneChipText}>{label}</Text>
+                </View>
+              ))}
             </View>
           </View>
 
@@ -204,7 +221,7 @@ export default function CommunityScreen() {
               onPress={() => setContentTab("announcements")}
             >
               <Text style={[styles.tabSwitchText, contentTab === "announcements" && styles.tabSwitchTextActive]}>
-                Live Announcements
+                Live announcements
               </Text>
             </Pressable>
             <Pressable
@@ -212,7 +229,7 @@ export default function CommunityScreen() {
               onPress={() => setContentTab("ranking")}
             >
               <Text style={[styles.tabSwitchText, contentTab === "ranking" && styles.tabSwitchTextActive]}>
-                Live Video Ranking
+                Video ranking
               </Text>
             </Pressable>
           </View>
@@ -220,9 +237,23 @@ export default function CommunityScreen() {
           {stationsLoading ? (
             <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
           ) : stationRows.length === 0 ? (
-            <Text style={styles.emptyInline}>No stations yet</Text>
+            <Text style={styles.emptyInline}>No stations yet.</Text>
           ) : (
-            <View />
+            <HorizontalScroll contentContainerStyle={styles.stationStrip}>
+              {stationRows.slice(0, 10).map((s) => (
+                <Pressable
+                  key={s.id}
+                  style={styles.stationMiniCard}
+                  onPress={() => router.push("/stations" as any)}
+                >
+                  <Image source={{ uri: s.thumbnail }} style={styles.stationMiniThumb} contentFit="cover" />
+                  <Text style={styles.stationMiniName} numberOfLines={2}>
+                    {s.name}
+                  </Text>
+                  <Text style={styles.stationMiniMeta}>{formatNum(s.members)} members</Text>
+                </Pressable>
+              ))}
+            </HorizontalScroll>
           )}
         </View>
 
@@ -230,10 +261,10 @@ export default function CommunityScreen() {
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionAccent} />
-              <Text style={styles.sectionTitle}>Live Announcements</Text>
+              <Text style={styles.sectionTitle}>Live announcements</Text>
             </View>
             {stationAnnouncements.length === 0 ? (
-              <Text style={styles.emptyInline}>No live announcements yet</Text>
+              <Text style={styles.emptyInline}>No live announcements yet.</Text>
             ) : (
               <HorizontalScroll contentContainerStyle={styles.hList}>
                 {stationAnnouncements.slice(0, 20).map((item: any) => (
@@ -253,7 +284,7 @@ export default function CommunityScreen() {
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionAccent} />
-              <Text style={styles.sectionTitle}>Live Video Ranking</Text>
+              <Text style={styles.sectionTitle}>Video ranking</Text>
             </View>
             <View style={styles.sortRow}>
               {([
@@ -273,7 +304,7 @@ export default function CommunityScreen() {
             {rankedLoading ? (
               <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
             ) : sortedRankingVideos.length === 0 ? (
-              <Text style={styles.emptyInline}>No ranked paid videos yet</Text>
+              <Text style={styles.emptyInline}>No ranked videos yet.</Text>
             ) : (
               <HorizontalScroll contentContainerStyle={styles.hList}>
                 {sortedRankingVideos.map((item, index) => (
@@ -357,6 +388,25 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: "700",
   },
+  stationSceneRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 10,
+  },
+  stationSceneChip: {
+    borderRadius: 2,
+    borderWidth: 1,
+    borderColor: "rgba(0,255,204,0.28)",
+    backgroundColor: "rgba(0,255,204,0.1)",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  stationSceneChipText: {
+    color: C.accent,
+    fontSize: 11,
+    fontWeight: "700",
+  },
   stationLinksRow: {
     flexDirection: "row",
     gap: 10,
@@ -429,9 +479,43 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     gap: 12,
     paddingHorizontal: 16,
     paddingBottom: 12,
+  },
+  stationStrip: {
+    paddingHorizontal: 16,
+    gap: 10,
+    paddingBottom: 4,
+  },
+  stationMiniCard: {
+    width: 112,
+    borderRadius: 10,
+    overflow: "hidden",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  stationMiniThumb: {
+    width: "100%",
+    height: 64,
+    backgroundColor: C.surface,
+  },
+  stationMiniName: {
+    color: C.text,
+    fontSize: 11,
+    fontWeight: "700",
+    paddingHorizontal: 8,
+    paddingTop: 6,
+    minHeight: 32,
+  },
+  stationMiniMeta: {
+    color: C.textMuted,
+    fontSize: 10,
+    fontWeight: "600",
+    paddingHorizontal: 8,
+    paddingBottom: 8,
   },
   createBtn: {
     flexDirection: "row",
@@ -443,7 +527,7 @@ const styles = StyleSheet.create({
     height: 42,
   },
   createBtnText: {
-    color: "#fff",
+    color: "#050505",
     fontSize: 14,
     fontWeight: "700",
   },

@@ -15,6 +15,20 @@ function isLikelyLocalHostname(host: string): boolean {
   );
 }
 
+/** True when API base URL points at a machine-local host (baked .env must not win on production web). */
+function apiBaseHostIsLocal(apiOriginWithSlash: string): boolean {
+  try {
+    return isLikelyLocalHostname(new URL(apiOriginWithSlash).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function webHostnameIsDeployed(): boolean {
+  if (typeof window === "undefined" || !window.location?.hostname) return false;
+  return !isLikelyLocalHostname(window.location.hostname);
+}
+
 /** Metro web dev server runs API on another port — do not treat window.origin as the API */
 function isMetroBundlerOrigin(url: URL): boolean {
   const h = url.hostname.toLowerCase();
@@ -81,9 +95,16 @@ function resolveFromWindow(): { url: string; source: string } | null {
  * When the API is on another domain, always set EXPO_PUBLIC_API_URL.
  */
 export function getApiUrl(): string {
+  const onPublicWeb = webHostnameIsDeployed();
+
   const explicit = process.env.EXPO_PUBLIC_API_URL?.trim();
   if (explicit) {
-    return normalizeExplicitApiBase(explicit);
+    const normalized = normalizeExplicitApiBase(explicit);
+    // Production sites often bake EXPO_PUBLIC_API_URL from .env (localhost). That breaks the browser (CORS / unreachable).
+    if (!onPublicWeb || !apiBaseHostIsLocal(normalized)) {
+      return normalized;
+    }
+    // Intentionally ignore local explicit URL when the page is served from a real host (e.g. rawstock.live).
   }
 
   const fromWindow = resolveFromWindow();
@@ -92,7 +113,11 @@ export function getApiUrl(): string {
   }
 
   const fromDomain = resolveFromExpoPublicDomain();
-  if (fromDomain) return fromDomain.url;
+  if (fromDomain) {
+    if (!onPublicWeb || !apiBaseHostIsLocal(fromDomain.url)) {
+      return fromDomain.url;
+    }
+  }
 
   if (fromWindow) return fromWindow.url;
 

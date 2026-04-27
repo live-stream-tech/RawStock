@@ -467,6 +467,8 @@ var liveStreamChat = pgTable("live_stream_chat", {
 var dmConversationMessages = pgTable("dm_conversation_messages", {
   id: serial("id").primaryKey(),
   dmId: integer("dm_id").notNull(),
+  /** Legacy DM rows need per-user scoping to avoid cross-account leakage. */
+  userId: integer("user_id"),
   sender: text("sender").notNull(),
   text: text("text").notNull(),
   isRead: boolean("is_read").default(false),
@@ -3361,6 +3363,7 @@ async function ensureOperationsDmRow() {
     if (created) {
       await db.insert(dmConversationMessages).values({
         dmId: created.id,
+        userId: null,
         sender: "them",
         text: WELCOME_DM_TEXT,
         isRead: false
@@ -3414,6 +3417,7 @@ async function sendWelcomeDmIfNeeded(userId) {
       }
       await tx.insert(dmConversationMessages).values({
         dmId: operationsDm.id,
+        userId: null,
         sender: "them",
         text: WELCOME_DM_TEXT,
         isRead: false
@@ -5827,6 +5831,20 @@ async function registerRoutes(app2) {
     );
     res.json({ available: conflicts.length === 0, conflicts });
   });
+  app2.get("/api/communities/:id/ads/active", async (req, res) => {
+    const communityId = paramNum(req, "id");
+    if (!communityId) return res.status(400).json({ error: "Invalid community id" });
+    const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const rows = await db.select().from(communityAds).where(
+      and5(
+        eq6(communityAds.communityId, communityId),
+        eq6(communityAds.status, "approved"),
+        lte2(communityAds.startDate, today),
+        gte2(communityAds.endDate, today)
+      )
+    ).orderBy(desc2(communityAds.createdAt));
+    res.json(rows);
+  });
   app2.post("/api/community-ads", async (req, res) => {
     const { communityId: bodyCommunityId, companyName, contactName, email, bannerUrl, linkUrl, startDate, endDate, agreedToTerms } = req.body;
     const cid = Number(bodyCommunityId) || 0;
@@ -6611,6 +6629,8 @@ async function registerRoutes(app2) {
       return res.status(400).json({ error: "Unsupported content type for this upload" });
     }
     const buf = req.body;
+    fetch("http://127.0.0.1:7652/ingest/22e351bd-1e97-4a00-ab87-c9defd35899c", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1296ac" }, body: JSON.stringify({ sessionId: "1296ac", runId: "run1", hypothesisId: "H2", location: "server/routes.ts:/api/upload-file:validatedInput", message: "upload-file request validated", data: { contentType, bufLen: Buffer.isBuffer(buf) ? buf.length : -1, fileNameLen: fileName.length, hasR2Endpoint: Boolean(process.env.R2_ENDPOINT), hasR2Bucket: Boolean(process.env.R2_BUCKET_NAME), hasR2Key: Boolean(process.env.R2_ACCESS_KEY_ID), hasR2Secret: Boolean(process.env.R2_SECRET_ACCESS_KEY) }, timestamp: Date.now() }) }).catch(() => {
+    });
     if (!Buffer.isBuffer(buf) || buf.length === 0) {
       return res.status(400).json({ error: "Empty upload body" });
     }
@@ -6623,6 +6643,8 @@ async function registerRoutes(app2) {
       await putR2ObjectBuffer(key, contentType, buf);
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : String(e);
+      fetch("http://127.0.0.1:7652/ingest/22e351bd-1e97-4a00-ab87-c9defd35899c", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1296ac" }, body: JSON.stringify({ sessionId: "1296ac", runId: "run1", hypothesisId: "H2", location: "server/routes.ts:/api/upload-file:r2PutCatch", message: "upload-file putR2ObjectBuffer failed", data: { errorName: e instanceof Error ? e.name : "unknown", errorMessage: errMsg.slice(0, 220) }, timestamp: Date.now() }) }).catch(() => {
+      });
       const notConfigured = errMsg.includes("R2 is not configured") || /not\s+configured|correctly\s+configured/i.test(errMsg);
       console.error("[upload-file] r2_put_failed", { err: e, userId: user.id });
       return res.status(notConfigured ? 503 : 500).json({
@@ -6634,11 +6656,15 @@ async function registerRoutes(app2) {
     try {
       filePublicUrl = resolveUploadPublicUrlForKey(req, key);
     } catch {
+      fetch("http://127.0.0.1:7652/ingest/22e351bd-1e97-4a00-ab87-c9defd35899c", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1296ac" }, body: JSON.stringify({ sessionId: "1296ac", runId: "run1", hypothesisId: "H3", location: "server/routes.ts:/api/upload-file:publicUrlCatch", message: "upload-file failed to resolve public URL", data: { host: req.get("host") ?? "", xfHost: req.get("x-forwarded-host") ?? "", xfProto: req.get("x-forwarded-proto") ?? "" }, timestamp: Date.now() }) }).catch(() => {
+      });
       return res.status(500).json({
         error: "Cannot build a browser-loadable file URL. Set R2_PUBLIC_BASE_URL or ensure reverse-proxy forwards Host / X-Forwarded-* headers.",
         code: "R2_PUBLIC_URL_UNAVAILABLE"
       });
     }
+    fetch("http://127.0.0.1:7652/ingest/22e351bd-1e97-4a00-ab87-c9defd35899c", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1296ac" }, body: JSON.stringify({ sessionId: "1296ac", runId: "run1", hypothesisId: "H2", location: "server/routes.ts:/api/upload-file:success", message: "upload-file success", data: { keyPrefix: key.slice(0, 20), contentType, bufLen: buf.length }, timestamp: Date.now() }) }).catch(() => {
+    });
     res.json({ key, url: filePublicUrl, fileUrl: filePublicUrl });
   });
   app2.get("/api/videos", async (req, res) => {
@@ -7113,7 +7139,12 @@ async function registerRoutes(app2) {
         );
       }
     }
-    const msgs = await db.select().from(dmConversationMessages).where(eq6(dmConversationMessages.dmId, legacyDmId)).orderBy(asc3(dmConversationMessages.createdAt));
+    const msgs = await db.select().from(dmConversationMessages).where(
+      and5(
+        eq6(dmConversationMessages.dmId, legacyDmId),
+        or(eq6(dmConversationMessages.sender, "them"), eq6(dmConversationMessages.userId, me.id))
+      )
+    ).orderBy(asc3(dmConversationMessages.createdAt));
     res.json(
       msgs.map((m) => {
         const raw = String(m.text ?? "");
@@ -7170,6 +7201,7 @@ ${text2}` : ""}` : text2;
     }
     const [msg] = await db.insert(dmConversationMessages).values({
       dmId: legacyDmId,
+      userId: me.id,
       sender: "me",
       text: combinedText,
       isRead: true
@@ -9903,10 +9935,10 @@ import { createProxyMiddleware } from "http-proxy-middleware";
 // lib/brand.ts
 var DEFAULT_RAWSTOCK_LOGO_URL = "https://d2xsxph8kpxj0f.cloudfront.net/310519663449879480/M2pBP9b9EdXaS65j3mPhNW/RawStock_logo_3fd8a263.webp";
 var DEFAULT_HERO_VIDEO_URL = "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
-var DEFAULT_HERO_POSTER_URL = "https://d2xsxph8kpxj0f.cloudfront.net/310519663449879480/Y3Yn5f8wK9BzVPCXiSHai5/hero-bg-2AFwCiErEpzEQtgr4Vk2Df.webp";
+var DEFAULT_HERO_POSTER_URL = "/dnb-hero.jpg";
 var RAWSTOCK_LOGO_URL = typeof process !== "undefined" && process.env.PUBLIC_LOGO_URL?.trim() || DEFAULT_RAWSTOCK_LOGO_URL;
 var RAWSTOCK_HERO_VIDEO_URL = typeof process !== "undefined" && process.env.PUBLIC_HERO_VIDEO_URL?.trim() || DEFAULT_HERO_VIDEO_URL;
-var RAWSTOCK_HERO_POSTER_URL = typeof process !== "undefined" && process.env.PUBLIC_HERO_POSTER_URL?.trim() || DEFAULT_HERO_POSTER_URL;
+var RAWSTOCK_HERO_POSTER_URL = DEFAULT_HERO_POSTER_URL;
 var RAWSTOCK_LP_STEP_IMG_SHOOT = process.env.PUBLIC_LP_STEP_SHOOT_IMG?.trim() || "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800&q=80";
 var RAWSTOCK_LP_STEP_IMG_EDIT = process.env.PUBLIC_LP_STEP_EDIT_IMG?.trim() || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&q=80";
 var RAWSTOCK_LP_STEP_IMG_SELL = process.env.PUBLIC_LP_STEP_SELL_IMG?.trim() || "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=800&q=80";

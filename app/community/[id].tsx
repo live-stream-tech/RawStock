@@ -24,7 +24,6 @@ import { formatEditorRevenueShareLabel, formatEditorTicketsPerMinute, PRICE_PER_
 import { AppLogo } from "@/components/AppLogo";
 import { EventFlyerImage } from "@/components/EventFlyerImage";
 import { AnnouncementBodyView } from "@/components/AnnouncementBodyView";
-import { CreatorPromoBanner } from "@/components/CreatorPromoBanner";
 import { apiRequest, formatUserFacingApiError, uploadUserMediaBlobToR2 } from "@/lib/query-client";
 import { navigateToUserOrLiverProfile, navigateFromVideoCreatorRow } from "@/lib/navigate-profile";
 import { useAuth } from "@/lib/auth";
@@ -1417,7 +1416,6 @@ export default function CommunityDetailScreen() {
 
         {(activeTab === "Latest" || activeTab === "Ranking") && (
           <View>
-            <CreatorPromoBanner />
             {(activeTab === "Ranking" ? communityRankedVideos : timelineVideos).map((video: any, idx: number) => (
               <Pressable
                 key={video.id}

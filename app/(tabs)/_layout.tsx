@@ -83,7 +83,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="live"
         options={{
-          title: "Live Cast",
+          title: "Live",
           tabBarIcon: ({ color, size, focused }: TabBarIconProps) => (
             <Ionicons name={focused ? "headset" : "headset-outline"} size={size} color={color} />
           ),
@@ -98,7 +98,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="profile"
         options={{
-          title: "Mypage",
+          title: "Profile",
           tabBarIcon: ({ color, size }: TabBarIconProps) => (
             <Ionicons name="finger-print" size={size} color={color} />
           ),

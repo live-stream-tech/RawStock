@@ -7,7 +7,7 @@ const DEFAULT_HERO_VIDEO_URL =
   "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
 
 const DEFAULT_HERO_POSTER_URL =
-  "https://d2xsxph8kpxj0f.cloudfront.net/310519663449879480/Y3Yn5f8wK9BzVPCXiSHai5/hero-bg-2AFwCiErEpzEQtgr4Vk2Df.webp";
+  "/dnb-hero.jpg";
 
 export const RAWSTOCK_LOGO_URL =
   (typeof process !== "undefined" && process.env.PUBLIC_LOGO_URL?.trim()) ||
@@ -18,7 +18,6 @@ export const RAWSTOCK_HERO_VIDEO_URL =
   DEFAULT_HERO_VIDEO_URL;
 
 export const RAWSTOCK_HERO_POSTER_URL =
-  (typeof process !== "undefined" && process.env.PUBLIC_HERO_POSTER_URL?.trim()) ||
   DEFAULT_HERO_POSTER_URL;
 
 /** How it works — optional imagery (Unsplash). */

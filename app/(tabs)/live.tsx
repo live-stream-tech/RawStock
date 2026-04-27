@@ -119,7 +119,7 @@ function BookingCard({ session }: { session: BookingSession }) {
             style={[styles.bookingActionBtn, { backgroundColor: categoryColor }]}
             onPress={() => router.push(`/mentor-booking/${session.id}`)}
           >
-            <Text style={styles.bookingBtnText}>Book</Text>
+            <Text style={styles.bookingBtnText}>予約する</Text>
           </Pressable>
         </View>
       </View>
@@ -184,7 +184,7 @@ function CreatorRankCard({ item }: { item: any }) {
       </View>
       <View style={crStyles.heatRow}>
         <Ionicons name="flame" size={12} color={C.orange} />
-        <Text style={crStyles.heatLabel}>Heat Score</Text>
+        <Text style={crStyles.heatLabel}>ヒートスコア</Text>
         <Text style={crStyles.heatValue}>{item.heatScore.toLocaleString()}B</Text>
         <View style={crStyles.payoutBadge}>
           <Text style={crStyles.payoutBadgeText}>{item.payoutRate ?? 70}%</Text>
@@ -192,9 +192,9 @@ function CreatorRankCard({ item }: { item: any }) {
       </View>
       <View style={crStyles.creatorStats}>
         {[
-          { icon: "eye-outline", label: "Total Views", value: formatNumber(item.totalViews) },
-          { icon: "cash-outline", label: "Revenue", value: `🎟${item.revenue.toLocaleString()}` },
-          { icon: "people-outline", label: "Followers", value: formatNumber(item.followers) },
+          { icon: "eye-outline", label: "総再生数", value: formatNumber(item.totalViews) },
+          { icon: "cash-outline", label: "売上", value: `🎟${item.revenue.toLocaleString()}` },
+          { icon: "people-outline", label: "フォロワー", value: formatNumber(item.followers) },
         ].map((r) => (
           <View key={r.label} style={crStyles.statRow}>
             <Ionicons name={r.icon as any} size={11} color={C.textSec} />
@@ -280,8 +280,8 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
 
           <View style={styles.modalHeader}>
             <View>
-              <Text style={styles.modalTitle}>Start Show</Text>
-              <Text style={styles.modalSub}>Configure your show</Text>
+              <Text style={styles.modalTitle}>配信を開始</Text>
+              <Text style={styles.modalSub}>配信設定を行ってください</Text>
             </View>
             <Pressable onPress={onClose} style={styles.closeBtn}>
               <Ionicons name="close" size={20} color={C.textSec} />
@@ -289,7 +289,7 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
           </View>
 
           <ScrollView style={webScrollStyle(undefined)} showsVerticalScrollIndicator={scrollShowsVertical}>
-            <Text style={styles.settingLabel}>Visibility</Text>
+            <Text style={styles.settingLabel}>公開範囲</Text>
             <View style={styles.scopeOptions}>
               <Pressable
                 style={[styles.scopeOption, scope === "public" && styles.scopeOptionActive]}
@@ -298,7 +298,7 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
                 <Ionicons name="globe-outline" size={22} color={scope === "public" ? C.accent : C.textSec} />
                 <View style={styles.scopeText}>
                   <Text style={[styles.scopeTitle, scope === "public" && styles.scopeTitleActive]}>Public</Text>
-                  <Text style={styles.scopeDesc}>Anyone can watch</Text>
+                  <Text style={styles.scopeDesc}>誰でも視聴できます</Text>
                 </View>
               </Pressable>
               <Pressable
@@ -308,9 +308,9 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
                 <Ionicons name="heart-outline" size={22} color={scope === "followers" ? C.accent : C.textSec} />
                 <View style={styles.scopeText}>
                   <Text style={[styles.scopeTitle, scope === "followers" && styles.scopeTitleActive]}>
-                    Followers only
+                    フォロワー限定
                   </Text>
-                  <Text style={styles.scopeDesc}>Only your followers can watch</Text>
+                  <Text style={styles.scopeDesc}>フォロワーのみ視聴できます</Text>
                 </View>
               </Pressable>
               <Pressable
@@ -320,7 +320,7 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
                 <Ionicons name="albums-outline" size={22} color={scope === "community" ? C.accent : C.textSec} />
                 <View style={styles.scopeText}>
                   <Text style={[styles.scopeTitle, scope === "community" && styles.scopeTitleActive]}>
-                    Community only
+                    コミュニティ限定
                   </Text>
                   <Text style={styles.scopeDesc}>Only members of communities you&apos;ve joined</Text>
                 </View>
@@ -331,15 +331,15 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
               >
                 <Ionicons name="people-outline" size={22} color={scope === "mentor" ? C.accent : C.textSec} />
                 <View style={styles.scopeText}>
-                  <Text style={[styles.scopeTitle, scope === "mentor" && styles.scopeTitleActive]}>Mentor Session</Text>
-                  <Text style={styles.scopeDesc}>Private 1-on-1 session</Text>
+                  <Text style={[styles.scopeTitle, scope === "mentor" && styles.scopeTitleActive]}>メンターセッション</Text>
+                  <Text style={styles.scopeDesc}>1対1の非公開セッション</Text>
                 </View>
               </Pressable>
             </View>
 
             {scope === "community" && (
               <>
-                <Text style={[styles.settingLabel, { marginTop: 16 }]}>Community</Text>
+                <Text style={[styles.settingLabel, { marginTop: 16 }]}>コミュニティ</Text>
                 <Text style={[styles.scopeDesc, { marginBottom: 8 }]}>
                   Choose which community can watch
                 </Text>
@@ -384,25 +384,25 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
               </>
             )}
 
-            <Text style={[styles.settingLabel, { marginTop: 16 }]}>Pricing</Text>
+            <Text style={[styles.settingLabel, { marginTop: 16 }]}>料金設定</Text>
             <View style={styles.feeRow}>
               <Pressable
                 style={[styles.feePill, fee === "free" && styles.feePillActive]}
                 onPress={() => setFee("free")}
               >
-                <Text style={[styles.feePillText, fee === "free" && styles.feePillTextActive]}>Free</Text>
+                <Text style={[styles.feePillText, fee === "free" && styles.feePillTextActive]}>無料</Text>
               </Pressable>
               <Pressable
                 style={[styles.feePill, fee === "paid" && styles.feePillActive]}
                 onPress={() => setFee("paid")}
               >
-                <Text style={[styles.feePillText, fee === "paid" && styles.feePillTextActive]}>Paid</Text>
+                <Text style={[styles.feePillText, fee === "paid" && styles.feePillTextActive]}>有料</Text>
               </Pressable>
             </View>
 
             {fee === "paid" && (
               <>
-                <Text style={[styles.settingLabel, { marginTop: 16 }]}>Ticket Price</Text>
+                <Text style={[styles.settingLabel, { marginTop: 16 }]}>チケット価格</Text>
                 <View style={styles.priceOptions}>
                   {prices.map((p) => (
                     <Pressable
@@ -421,7 +421,7 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
                   <Text style={styles.priceDisplayValue}>{price.toLocaleString()}</Text>
                 </View>
                 <View style={styles.revenueRow}>
-                  <Text style={styles.revenueLabel}>Your share (90%)</Text>
+                  <Text style={styles.revenueLabel}>あなたの取り分（90%）</Text>
                   <Text style={styles.revenueValue}>🎟{(price * 0.9).toLocaleString()}</Text>
                 </View>
               </>
@@ -435,14 +435,14 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
               <View style={styles.previewStats}>
                 <View style={styles.previewStat}>
                   <Ionicons name="people-outline" size={16} color={C.textSec} />
-                  <Text style={styles.previewStatLabel}>Viewers</Text>
+                  <Text style={styles.previewStatLabel}>視聴者</Text>
                 </View>
                 <Text style={styles.previewStatValue}>—</Text>
                 <View style={[styles.previewStat, { marginTop: 8 }]}>
                   <Ionicons name="time-outline" size={16} color={C.textSec} />
-                  <Text style={styles.previewStatLabel}>Duration</Text>
+                  <Text style={styles.previewStatLabel}>配信時間</Text>
                 </View>
-                <Text style={styles.previewStatValue}>Unlimited</Text>
+                <Text style={styles.previewStatValue}>制限なし</Text>
               </View>
             </View>
 
@@ -452,11 +452,11 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
                 if (creating) return;
                 if (scope === "community") {
                   if (myCommunities.length === 0) {
-                    Alert.alert("Community", "No communities available to select.");
+                    Alert.alert("コミュニティ", "選択できるコミュニティがありません。");
                     return;
                   }
                   if (selectedCommunityId == null) {
-                    Alert.alert("Community", "Please select a community that may watch.");
+                    Alert.alert("コミュニティ", "視聴可能なコミュニティを選択してください。");
                     return;
                   }
                 }
@@ -479,7 +479,7 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
                         : { visibility, communityId: "", ticketPrice: String(price) },
                   });
                 } catch (e: any) {
-                  Alert.alert("Error", e?.message ?? "Could not open broadcast.");
+                  Alert.alert("エラー", e?.message ?? "配信を開始できませんでした。");
                 } finally {
                   setCreating(false);
                 }
@@ -487,7 +487,7 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
             >
               <View style={styles.startDot} />
               <Text style={styles.startBtnText}>
-                {creating ? "Starting..." : "Go Live"}
+                {creating ? "開始中..." : "配信開始"}
               </Text>
             </Pressable>
           </ScrollView>
@@ -541,10 +541,10 @@ export default function LiveScreen() {
         <Pressable style={styles.backBtn} onPress={() => router.push("/livers")}>
           <Ionicons name="search-outline" size={18} color={C.text} />
         </Pressable>
-        <Text style={styles.headerTitle}>LIVE & RESERVE</Text>
+        <Text style={styles.headerTitle}>ライブ・予約</Text>
         <Pressable style={styles.startFabSmall} onPress={() => setModalVisible(true)}>
           <Ionicons name="radio" size={14} color="#fff" />
-          <Text style={styles.startFabSmallText}>START</Text>
+          <Text style={styles.startFabSmallText}>開始</Text>
         </Pressable>
       </View>
       <MetallicLine thickness={1} style={{ marginHorizontal: 16 }} />
@@ -573,14 +573,14 @@ export default function LiveScreen() {
           onPress={() => setActiveTab("now")}
         >
           <Ionicons name="radio-outline" size={13} color={activeTab === "now" ? C.accent : C.textMuted} />
-          <Text style={[styles.tabText, activeTab === "now" && styles.tabTextActive]}>Open Free Live</Text>
+          <Text style={[styles.tabText, activeTab === "now" && styles.tabTextActive]}>無料ライブ</Text>
         </Pressable>
         <Pressable
           style={[styles.tabItem, activeTab === "booking" && styles.tabItemActive]}
           onPress={() => setActiveTab("booking")}
         >
           <Ionicons name="lock-closed-outline" size={13} color={activeTab === "booking" ? C.accent : C.textMuted} />
-          <Text style={[styles.tabText, activeTab === "booking" && styles.tabTextActive]}>Paid Sessions</Text>
+          <Text style={[styles.tabText, activeTab === "booking" && styles.tabTextActive]}>有料セッション</Text>
         </Pressable>
       </View>
 
@@ -699,7 +699,7 @@ export default function LiveScreen() {
               </View>
             </View>
             <Text style={{ color: C.textMuted, fontSize: 10, fontFamily: F.mono, paddingHorizontal: 16, marginBottom: 12 }}>
-              Book a private 1-on-1 session
+              1対1のセッションを予約
             </Text>
             <HorizontalScroll contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4, gap: 12 }}>
               {filteredBookings.map((session: any) => (
