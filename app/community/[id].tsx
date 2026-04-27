@@ -39,6 +39,7 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import type { ImagePickerAsset } from "expo-image-picker";
 import { useDemoMode } from "@/lib/demo-mode";
+import { TEMP_BANNER_TARGET_URL } from "@/constants/bannerLinks";
 
 const MAX_ANNOUNCEMENT_SCREENSHOT_BYTES = 15 * 1024 * 1024;
 
@@ -47,6 +48,12 @@ async function uploadImageBlobToR2(blob: Blob, fileName: string, mime: string): 
 }
 
 type AdData = { title: string; sub: string; cta: string; bg: string; accent: string; thumb: string };
+type ActiveCommunityAd = {
+  id: number;
+  bannerUrl: string;
+  linkUrl: string | null;
+  companyName: string;
+};
 
 const COMMUNITY_ADS: Record<string, AdData> = {
   "idol": {
@@ -863,6 +870,10 @@ export default function CommunityDetailScreen() {
     queryKey: ["/api/videos/ranked", communityId],
     enabled: communityId > 0,
   });
+  const { data: activeAds = [] } = useQuery<ActiveCommunityAd[]>({
+    queryKey: [`/api/communities/${communityId}/ads/active`],
+    enabled: communityId > 0,
+  });
 
   const { data: threads = [], refetch: refetchThreads } = useQuery<ThreadItem[]>({
     queryKey: [`/api/communities/${communityId}/threads`],
@@ -1228,6 +1239,7 @@ export default function CommunityDetailScreen() {
 
   const community = apiCommunity;
   const ad = getAd(community.name ?? "");
+  const activeAd = activeAds[0] ?? null;
   const compactOfficialBoard = isOfficialCommunity && activeTab === "Board";
 
   return (
@@ -1246,17 +1258,23 @@ export default function CommunityDetailScreen() {
 
         {!compactOfficialBoard && (
         <View style={styles.promoRow}>
-          <Pressable style={[styles.adBanner, styles.adBannerFlex, { backgroundColor: ad.bg }]}>
+          <Pressable
+            style={[styles.adBanner, styles.adBannerFlex, { backgroundColor: activeAd ? C.surface : ad.bg }]}
+            onPress={() => {
+              const target = activeAd?.linkUrl?.trim() || TEMP_BANNER_TARGET_URL;
+              if (/^https?:\/\//i.test(target)) void Linking.openURL(target);
+            }}
+          >
             <View style={styles.adPrBadge}>
               <Text style={styles.adPrText}>PR</Text>
             </View>
-            <Image source={{ uri: ad.thumb }} style={styles.adThumb} contentFit="cover" />
+            <Image source={{ uri: activeAd?.bannerUrl?.trim() || ad.thumb }} style={styles.adThumb} contentFit="cover" />
             <View style={styles.adBody}>
-              <Text style={styles.adTitle} numberOfLines={1}>{ad.title}</Text>
-              <Text style={styles.adSub} numberOfLines={1}>{ad.sub}</Text>
+              <Text style={styles.adTitle} numberOfLines={1}>{activeAd?.companyName?.trim() || ad.title}</Text>
+              <Text style={styles.adSub} numberOfLines={1}>{activeAd ? "Sponsored" : ad.sub}</Text>
             </View>
-            <View style={[styles.adCtaBtn, { backgroundColor: ad.accent }]}>
-              <Text style={styles.adCtaText}>{ad.cta}</Text>
+            <View style={[styles.adCtaBtn, { backgroundColor: activeAd ? C.accent : ad.accent }]}>
+              <Text style={styles.adCtaText}>{activeAd ? "Visit" : ad.cta}</Text>
             </View>
           </Pressable>
           <Pressable

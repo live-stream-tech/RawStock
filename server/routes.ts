@@ -3711,6 +3711,26 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json({ available: conflicts.length === 0, conflicts });
   });
 
+  /** Public: active approved community ad banners for a community. */
+  app.get("/api/communities/:id/ads/active", async (req: Request, res: Response) => {
+    const communityId = paramNum(req, "id");
+    if (!communityId) return res.status(400).json({ error: "Invalid community id" });
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const rows = await db
+      .select()
+      .from(communityAds)
+      .where(
+        and(
+          eq(communityAds.communityId, communityId),
+          eq(communityAds.status, "approved"),
+          lte(communityAds.startDate, today),
+          gte(communityAds.endDate, today),
+        ),
+      )
+      .orderBy(desc(communityAds.createdAt));
+    res.json(rows);
+  });
+
   app.post("/api/community-ads", async (req: Request, res: Response) => {
     const { communityId: bodyCommunityId, companyName, contactName, email, bannerUrl, linkUrl, startDate, endDate, agreedToTerms } = req.body as {
       communityId?: number;
