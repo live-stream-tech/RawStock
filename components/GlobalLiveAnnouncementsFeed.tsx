@@ -132,7 +132,7 @@ export function GlobalLiveAnnouncementsFeed({ searchQuery = "", onSearchQueryCha
             <View key={`${item.communityId}-${item.id}`} style={[styles.card, item.pinned && styles.cardPinned]}>
               <Pressable
                 onPress={() => {
-                  router.push("/community");
+                  router.push("/stations");
                 }}
               >
                 <View style={styles.cardTop}>
@@ -195,7 +195,7 @@ export function GlobalLiveAnnouncementsFeed({ searchQuery = "", onSearchQueryCha
               {parsed.text ? <TranslateButton text={parsed.text} dstLang="en" compact /> : null}
               <Pressable
                 onPress={() => {
-                  router.push("/community");
+                  router.push("/stations");
                 }}
               >
                 <View style={styles.footer}>

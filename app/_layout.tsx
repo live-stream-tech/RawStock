@@ -83,6 +83,7 @@ function isPublicPath(rawPathname: string): boolean {
 
   const exact = new Set([
     "/community",
+    "/stations",
     "/auth/login",
     "/auth/register",
     "/auth/callback",

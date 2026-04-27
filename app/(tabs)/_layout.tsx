@@ -66,12 +66,18 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="community"
+        name="stations"
         options={{
           title: "Stations",
           tabBarIcon: ({ color, size, focused }: TabBarIconProps) => (
             <Ionicons name={focused ? "map" : "map-outline"} size={size} color={color} />
           ),
+        }}
+      />
+      <Tabs.Screen
+        name="community"
+        options={{
+          href: null,
         }}
       />
       <Tabs.Screen

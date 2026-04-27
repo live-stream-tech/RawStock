@@ -238,7 +238,7 @@ function AnnouncementCard({ item, cardWidth }: { item: any; cardWidth: number })
   return (
     <Pressable
       style={[styles.announceCard, { width: cardWidth }]}
-      onPress={() => router.push("/community")}
+      onPress={() => router.push("/stations")}
     >
       <View style={styles.announceThumbWrap}>
         {primaryUri ? (
@@ -562,7 +562,7 @@ export default function HomeScreen() {
             } else if (firstCommunityId) {
               router.push(`/jukebox/${firstCommunityId}` as any);
             } else {
-              router.push("/community" as any);
+              router.push("/stations" as any);
             }
           }}
         >

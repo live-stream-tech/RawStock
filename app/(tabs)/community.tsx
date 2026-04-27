@@ -240,7 +240,7 @@ export default function CommunityScreen() {
                   <Pressable
                     key={`station-${item.id}`}
                     style={styles.announcementMiniCard}
-                    onPress={() => router.push("/community")}
+                    onPress={() => router.push("/stations")}
                   >
                     <Text style={styles.announcementMiniTitle} numberOfLines={2}>{item.title}</Text>
                     <Text style={styles.announcementMiniMeta} numberOfLines={1}>{item.communityName}</Text>
