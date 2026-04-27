@@ -124,9 +124,10 @@ export default function CommunityScreen() {
   const stationCommunityMap = useMemo(() => {
     const normalize = (v: string) => v.trim().toLowerCase();
     const m = new Map<number, CommunityRow[]>();
+    const usedCommunityIds = new Set<number>();
     for (const s of topStations) {
       const cat = normalize(String(s.category ?? ""));
-      const matched = communities
+      const matchedAll = communities
         .filter((c) => {
           const ccat = normalize(String(c.category ?? ""));
           if (!cat || !ccat) return false;
@@ -137,9 +138,19 @@ export default function CommunityScreen() {
           if (cat === "rnb") return /r&b|neo soul|soul/i.test(ccat);
           return false;
         })
-        .sort((a, b) => Number(b.members ?? 0) - Number(a.members ?? 0))
-        .slice(0, 6);
-      m.set(s.id, matched);
+        .sort((a, b) => Number(b.members ?? 0) - Number(a.members ?? 0));
+      const matched = matchedAll.filter((c) => !usedCommunityIds.has(c.id)).slice(0, 6);
+      // Fallback: if category match is thin, fill from any unused community.
+      const fallback =
+        matched.length < 6
+          ? communities
+              .filter((c) => !usedCommunityIds.has(c.id) && !matched.some((x) => x.id === c.id))
+              .sort((a, b) => Number(b.members ?? 0) - Number(a.members ?? 0))
+              .slice(0, 6 - matched.length)
+          : [];
+      const finalRows = [...matched, ...fallback];
+      finalRows.forEach((c) => usedCommunityIds.add(c.id));
+      m.set(s.id, finalRows);
     }
     return m;
   }, [topStations, communities]);
