@@ -35,36 +35,37 @@ function parseRouteVisibility(v: string | undefined): LiveStreamVisibility {
   return "public";
 }
 
-/** Plain camera preview when Jeeliz face filter is skipped (web only). */
+/**
+ * Plain camera preview when Jeeliz face filter is skipped (web only).
+ * Mount `<video>` imperatively so SSR/hydration HTML matches (avoids React #418 from raw `<video>` in RN tree).
+ */
 function WebBroadcastCameraPreview({ stream }: { stream: MediaStream }) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const hostRef = useRef<View | null>(null);
   useEffect(() => {
-    const el = videoRef.current;
-    if (!el) return;
-    el.srcObject = stream;
-    void el.play().catch(() => undefined);
+    if (typeof document === "undefined") return;
+    const host = hostRef.current as unknown as HTMLDivElement | null;
+    if (!host) return;
+    const v = document.createElement("video");
+    v.autoplay = true;
+    v.muted = true;
+    v.playsInline = true;
+    v.setAttribute("playsinline", "true");
+    v.style.cssText =
+      "width:100%;height:100%;object-fit:cover;transform:scaleX(-1);background:#000;display:block;";
+    v.srcObject = stream;
+    void v.play().catch(() => undefined);
+    host.appendChild(v);
     return () => {
-      el.srcObject = null;
+      try {
+        v.pause();
+        v.srcObject = null;
+      } catch {
+        /* ignore */
+      }
+      v.remove();
     };
   }, [stream]);
-  return (
-    <View style={styles.cameraPreviewHost} pointerEvents="none">
-      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-      <video
-        ref={videoRef as any}
-        autoPlay
-        muted
-        playsInline
-        style={{
-          width: "100%",
-          height: "100%",
-          objectFit: "cover" as const,
-          transform: "scaleX(-1)",
-          backgroundColor: "#000",
-        }}
-      />
-    </View>
-  );
+  return <View ref={hostRef} style={styles.cameraPreviewHost} pointerEvents="none" collapsable={false} />;
 }
 
 /** Production broadcasting is Web/PWA-only; show fallback on other platforms. */
