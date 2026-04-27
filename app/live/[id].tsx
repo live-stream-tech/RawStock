@@ -26,6 +26,34 @@ import { saveLoginReturn } from "@/lib/login-return";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/lib/auth";
 
+/**
+ * Imperatively mounts a <video> element to avoid React #418 hydration mismatch.
+ * Exposes the underlying HTMLVideoElement via videoRef so WHEP can set srcObject.
+ */
+function WhepVideoPlayer({ videoRef }: { videoRef: React.MutableRefObject<HTMLVideoElement | null> }) {
+  const hostRef = useRef<View | null>(null);
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const host = hostRef.current as unknown as HTMLDivElement | null;
+    if (!host) return;
+    const v = document.createElement("video");
+    v.autoplay = true;
+    v.muted = true;
+    v.playsInline = true;
+    v.setAttribute("playsinline", "true");
+    v.style.cssText =
+      "position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;display:block;";
+    host.appendChild(v);
+    videoRef.current = v;
+    return () => {
+      try { v.pause(); v.srcObject = null; } catch { /* ignore */ }
+      v.remove();
+      videoRef.current = null;
+    };
+  }, [videoRef]);
+  return <View ref={hostRef} style={StyleSheet.absoluteFill} collapsable={false} pointerEvents="none" />;
+}
+
 async function viewerApiFetch(path: string, init?: RequestInit): Promise<Response> {
   const headers: Record<string, string> = {
     ...((init?.headers as Record<string, string>) ?? {}),
@@ -130,7 +158,7 @@ export default function LiveStreamScreen() {
   const notifAnim = useRef(new Animated.Value(0)).current;
 
   // WHEP WebRTC viewer
-  const videoRef = useRef<any>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const trackAttachedRef = useRef(false);
   const [whepError, setWhepError] = useState(false);
@@ -437,18 +465,10 @@ export default function LiveStreamScreen() {
       <View style={styles.container}>
         {/* Stream Thumbnail / Player */}
         <View style={[styles.player, { paddingTop: topInset }]}>
-          {/* WHEP WebRTC Player (web only, when live) */}
-          {Platform.OS === "web" && (stream as LiveStream).isActive && (stream as LiveStream).whepUrl ? (
-            <video
-              ref={videoRef}
-              autoPlay
-              muted
-              playsInline
-              style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-            />
-          ) : (
-            <Image source={{ uri: stream.thumbnail }} style={StyleSheet.absoluteFill} contentFit="cover" />
-          )}
+          {/* Thumbnail — always shown as fallback behind the video */}
+          <Image source={{ uri: stream.thumbnail }} style={StyleSheet.absoluteFill} contentFit="cover" />
+          {/* WHEP video player — imperatively mounted to avoid React #418 hydration mismatch */}
+          {Platform.OS === "web" && <WhepVideoPlayer videoRef={videoRef} />}
           {whepError && (
             <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.6)" }}>
               <Ionicons name="wifi-outline" size={40} color="#ffffff88" />

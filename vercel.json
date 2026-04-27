@@ -1,6 +1,6 @@
 {
   "framework": null,
-  "buildCommand": "npx expo export --platform web && node scripts/inject-sw-version.js && cp public/favi.png dist/favi.png && cp public/teamz.html dist/teamz.html",
+  "buildCommand": "npx expo export --platform web && node scripts/inject-sw-version.js && cp public/favi.png dist/favi.png && cp public/teamz.html dist/teamz.html && cp -r public/jeeliz dist/jeeliz",
   "outputDirectory": "dist",
   "headers": [
     {
