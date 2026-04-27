@@ -6,6 +6,8 @@ import {
   StyleSheet,
   Pressable,
   ActivityIndicator,
+  useWindowDimensions,
+  Linking,
 } from "react-native";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
@@ -19,6 +21,7 @@ import { MetallicLine } from "@/components/MetallicLine";
 import { AppLogo } from "@/components/AppLogo";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { useQuery } from "@tanstack/react-query";
+import { TEMP_BANNER_IMAGE_PATH, TEMP_BANNER_TARGET_URL } from "@/constants/bannerLinks";
 
 type StationRow = {
   id: number;
@@ -88,6 +91,7 @@ function PurchaseRankCard({ item, rank }: { item: any; rank: number }) {
 }
 
 export default function CommunityScreen() {
+  const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const topInset = getTabTopInset(insets);
   const bottomInset = getTabBottomInset(insets);
@@ -163,6 +167,13 @@ export default function CommunityScreen() {
 
   const stationLead = stationRows[0] ?? null;
   const stationMembers = stationStats?.memberSum ?? stationRows.reduce((sum, s) => sum + Number(s.members ?? 0), 0);
+  const AD_BASE_W = 728;
+  const AD_BASE_H = 90;
+  const adHorizontalPadding = 32; // section margin (16 * 2)
+  const adAvailableWidth = Math.max(0, windowWidth - adHorizontalPadding);
+  const adScale = Math.min(1, adAvailableWidth / AD_BASE_W);
+  const adBoxWidth = Math.round(AD_BASE_W * adScale);
+  const adBoxHeight = Math.round(AD_BASE_H * adScale);
   const sortedRankingVideos = useMemo(() => {
     const arr = [...purchaseData];
     const ts = (v: any) => (v.createdAt ? new Date(v.createdAt).getTime() : 0);
@@ -203,8 +214,24 @@ export default function CommunityScreen() {
             <Text style={styles.sectionTitle}>STATION</Text>
           </View>
 
-          <View style={styles.adBannerSlot}>
-            <Text style={styles.adBannerText}>Ad Banner Space</Text>
+          <View style={[styles.adBannerSlot, { height: adBoxHeight }]}>
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel="Sponsored banner"
+              onPress={() => {
+                void Linking.openURL(TEMP_BANNER_TARGET_URL);
+              }}
+              style={[
+                styles.adBannerFixedFrame,
+                {
+                  width: AD_BASE_W,
+                  height: AD_BASE_H,
+                  transform: [{ scale: adScale }],
+                },
+              ]}
+            >
+              <Image source={{ uri: TEMP_BANNER_IMAGE_PATH }} style={styles.adBannerImage} contentFit="cover" />
+            </Pressable>
           </View>
 
           <View style={styles.stationCoreBox}>
@@ -364,17 +391,27 @@ const styles = StyleSheet.create({
   adBannerSlot: {
     marginHorizontal: 16,
     marginBottom: 10,
-    height: 72,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  adBannerFixedFrame: {
     borderRadius: 12,
     backgroundColor: "rgba(255,255,255,0.04)",
     alignItems: "center",
     justifyContent: "center",
+    transformOrigin: "center" as any,
   },
   adBannerText: {
     color: C.textMuted,
     fontSize: 12,
     fontWeight: "700",
     letterSpacing: 0.2,
+  },
+  adBannerImage: {
+    width: "100%",
+    height: "100%",
   },
   stationCoreBox: {
     marginHorizontal: 16,
