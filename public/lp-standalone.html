@@ -21,7 +21,7 @@ a{text-decoration:none;color:inherit}
 .nav{position:fixed;top:0;left:0;right:0;height:58px;z-index:60;background:rgba(5,5,5,.9);border-bottom:1px solid var(--line);backdrop-filter:blur(8px)}
 .nav-in{height:100%;display:flex;align-items:center;justify-content:space-between}
 .nav-right{display:flex;gap:18px;align-items:center}
-.nav-link{font:700 12px/1 "Courier Prime",monospace;letter-spacing:.12em;color:var(--muted);text-transform:uppercase}
+.nav-link{font:700 12px/1 "Courier Prime",monospace;letter-spacing:.12em;color:var(--muted)}
 .nav-link:hover{color:var(--neon)}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 20px;border:1px solid var(--neon);font:800 14px/1 "Barlow Condensed",sans-serif;letter-spacing:.06em;min-height:44px}
 .btn.primary{background:var(--neon);color:#000}
@@ -32,9 +32,9 @@ a{text-decoration:none;color:inherit}
 .hero-in{position:relative;z-index:3}
 .badge{display:inline-flex;gap:8px;align-items:center;border:1px solid rgba(255,77,0,.6);padding:6px 12px;font:700 11px/1 "Courier Prime",monospace;color:var(--orange);letter-spacing:.12em;text-transform:uppercase}
 .badge-dot{width:7px;height:7px;border-radius:50%;background:var(--orange)}
-.hero-kicker{margin:18px 0 8px;color:rgba(232,228,220,.58);font:700 clamp(18px,2.5vw,30px)/1.2 "Barlow Condensed",sans-serif;letter-spacing:.01em}
-.hero-main{margin:0 0 8px;color:var(--neon);text-shadow:0 0 24px rgba(0,255,204,.45);font:800 clamp(46px,8vw,102px)/1.02 "Barlow Condensed",sans-serif;letter-spacing:-.02em}
-.hero-subtitle{margin:0 0 16px;color:#fff;font:700 clamp(26px,4vw,46px)/1.12 "Barlow Condensed",sans-serif;letter-spacing:-.01em}
+.hero-kicker{margin:18px 0 8px;color:rgba(232,228,220,.58);font:700 clamp(16px,2.2vw,24px)/1.2 "Barlow Condensed",sans-serif;letter-spacing:.01em}
+.hero-main{margin:0 0 8px;color:var(--neon);text-shadow:0 0 24px rgba(0,255,204,.45);font:800 clamp(52px,8.8vw,118px)/1.01 "Barlow Condensed",sans-serif;letter-spacing:-.02em}
+.hero-subtitle{margin:0 0 18px;color:#fff;font:700 clamp(24px,3.6vw,44px)/1.12 "Barlow Condensed",sans-serif;letter-spacing:-.01em}
 .lead{max-width:860px;border-left:2px solid var(--neon);padding-left:16px;color:var(--muted);font-size:15px;line-height:1.9}
 .sub{margin-top:14px;color:var(--text);font-size:15px;line-height:1.9}
 .cta{margin-top:24px;display:flex;gap:12px;flex-wrap:wrap}
@@ -65,6 +65,19 @@ a{text-decoration:none;color:inherit}
 .lead-status.ok{color:var(--neon)}
 .lead-status.err{color:#ff8f8f}
 .footer{padding:26px 0;border-top:1px solid var(--line);text-align:center;color:var(--muted);font-size:12px}
+.hero-main,.btn.primary,.section-title{animation:neonPulse 3.2s ease-in-out infinite}
+.badge-dot{animation:badgePulse 1.8s ease-in-out infinite}
+.card,.promise .row{transition:transform .25s ease, box-shadow .25s ease, border-color .25s ease}
+.card:hover,.promise .row:hover{transform:translateY(-3px);border-color:rgba(0,255,204,.55);box-shadow:0 0 22px rgba(0,255,204,.18)}
+.scanline-overlay::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.12) 2px,rgba(0,0,0,.12) 4px);pointer-events:none}
+.reveal{opacity:0;transform:translateY(26px);transition:opacity .7s ease, transform .7s ease}
+.reveal.in{opacity:1;transform:translateY(0)}
+@keyframes badgePulse{0%,100%{opacity:1;box-shadow:0 0 0 rgba(255,77,0,0)}50%{opacity:.5;box-shadow:0 0 12px rgba(255,77,0,.7)}}
+@keyframes neonPulse{0%,100%{text-shadow:0 0 20px rgba(0,255,204,.28)}50%{text-shadow:0 0 34px rgba(0,255,204,.55)}}
+@media (prefers-reduced-motion: reduce){
+  .hero-main,.btn.primary,.section-title,.badge-dot{animation:none !important}
+  .reveal{opacity:1;transform:none;transition:none}
+}
 @media (max-width: 900px){.cards,.flow,.promise{grid-template-columns:1fr}.nav-right{display:none}}
 </style>
 </head>
@@ -73,14 +86,14 @@ a{text-decoration:none;color:inherit}
   <div class="wrap nav-in">
     <img src="RAWSTOCK_LOGO_URL_PLACEHOLDER" alt="RawStock" style="height:34px;width:auto" />
     <div class="nav-right">
-      <a class="nav-link" href="#structure">Structure</a>
-      <a class="nav-link" href="#promise">Promise</a>
+      <a class="nav-link" href="#structure">仕組み</a>
+      <a class="nav-link" href="#promise">3つの約束</a>
       <a class="btn ghost" href="#early-access">LINE / Gmail</a>
     </div>
   </div>
 </header>
 
-<section class="hero">
+<section class="hero scanline-overlay">
   <div class="wrap hero-in">
     <div class="badge"><span class="badge-dot"></span>国産ライブプラットフォーム</div>
     <p class="hero-kicker">脱中央集権。</p>
@@ -92,14 +105,14 @@ a{text-decoration:none;color:inherit}
       でも、どうしても諦めきれない想いがあり、一人ClaudeCodeと向き合い、最低限の機能が動くところまで来ました。でも、一人で考えた仕様には限界があります。本物の「現場の武器」にするためには、私一人の力では足りません。
     </div>
     <p class="sub">本当は自分が前に出たい訳ではない。でも想いに共感するあなたの目線で、このプロダクトを一緒に叩き直してください。</p>
-    <div class="cta">
+    <div class="cta reveal">
       <a href="#early-access" class="btn primary">意見を送る（LINE/Gmail）</a>
       <a href="LP_APP_ORIGIN_PLACEHOLDER/stations" class="btn ghost">実体を確認する（見てみる）</a>
     </div>
   </div>
 </section>
 
-<section id="structure" class="sec mid-bg">
+<section id="structure" class="sec mid-bg reveal">
   <div class="wrap">
     <div class="label"><span>Current Structure</span><i></i></div>
     <h2 class="section-title">今構成はこうなっています</h2>
@@ -124,7 +137,7 @@ a{text-decoration:none;color:inherit}
   </div>
 </section>
 
-<section id="promise" class="sec mid-bg">
+<section id="promise" class="sec mid-bg reveal">
   <div class="wrap">
     <div class="label"><span>3 Promises</span><i></i></div>
     <h2 class="section-title">RawStockが死守する「3つの約束」</h2>
@@ -146,7 +159,7 @@ a{text-decoration:none;color:inherit}
   </div>
 </section>
 
-<section class="sec footer-hero">
+<section class="sec footer-hero reveal">
   <div class="wrap" style="text-align:center">
     <h2 class="section-title" style="margin-bottom:18px">あなたの声が、RawStockを完成させます</h2>
     <p class="section-desc" style="margin:0 auto 10px">アドバイス、批判、紹介、あるいは「子育てと仕事」の悔しさでも。</p>
@@ -177,6 +190,21 @@ a{text-decoration:none;color:inherit}
 
 <script>
 (function () {
+  var revealNodes = document.querySelectorAll(".reveal");
+  if ("IntersectionObserver" in window) {
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(entry){
+        if (entry.isIntersecting) {
+          entry.target.classList.add("in");
+          io.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.16 });
+    revealNodes.forEach(function (n) { io.observe(n); });
+  } else {
+    revealNodes.forEach(function (n) { n.classList.add("in"); });
+  }
+
   var leadForm = document.getElementById("lead-form");
   var leadEmail = document.getElementById("lead-email");
   var leadSubmit = document.getElementById("lead-submit");
