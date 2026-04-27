@@ -181,6 +181,212 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+function assertR2PresignBrowserCompatible(presign: string): void {
+  if (
+    /x-amz-sdk-checksum-algorithm=/i.test(presign) ||
+    /x-amz-checksum-/i.test(presign) ||
+    /[?&]x-amz-checksum-crc32=/i.test(presign) ||
+    /_cksum-crc32/i.test(presign)
+  ) {
+    throw new Error(
+      "The upload URL from the server includes SDK checksum parameters, which browsers cannot send on a simple PUT. " +
+        "Redeploy the API with the latest server (R2 client uses requestChecksumCalculation WHEN_REQUIRED), " +
+        "or unset AWS_REQUEST_CHECKSUM_CALCULATION on the server if it is set to WHEN_SUPPORTED.",
+    );
+  }
+}
+
+/** Stay under Vercel's ~4.5MB serverless request body cap; same-origin upload avoids R2 CORS in the browser. */
+export const R2_SAME_ORIGIN_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
+const IMAGE_RESIZE_MIN_EDGE = 320;
+const IMAGE_RESIZE_START_MAX_EDGE = 2048;
+const IMAGE_RESIZE_MAX_STEPS = 12;
+
+function isImageContentType(contentType: string): boolean {
+  return /^image\/(jpeg|png|webp|gif)$/i.test(contentType);
+}
+
+async function readImageBitmapFromBlob(blob: Blob): Promise<ImageBitmap> {
+  if (typeof createImageBitmap === "function") {
+    return await createImageBitmap(blob);
+  }
+  if (typeof document === "undefined") {
+    throw new Error("Image compression is not supported on this platform.");
+  }
+  return await new Promise<ImageBitmap>((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("Could not create image context.");
+        ctx.drawImage(img, 0, 0);
+        canvas.toBlob((b) => {
+          URL.revokeObjectURL(url);
+          if (!b) return reject(new Error("Could not read image."));
+          createImageBitmap(b).then(resolve).catch(reject);
+        }, "image/png");
+      } catch (e) {
+        URL.revokeObjectURL(url);
+        reject(e instanceof Error ? e : new Error(String(e)));
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Could not decode image for compression."));
+    };
+    img.src = url;
+  });
+}
+
+async function compressImageBlobForUpload(blob: Blob, contentType: string): Promise<Blob> {
+  if (typeof document === "undefined" || typeof OffscreenCanvas === "undefined") {
+    return blob;
+  }
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await readImageBitmapFromBlob(blob);
+  } catch {
+    return blob;
+  }
+  try {
+    const originalMaxEdge = Math.max(bitmap.width, bitmap.height);
+    const startMaxEdge = Math.min(originalMaxEdge, IMAGE_RESIZE_START_MAX_EDGE);
+    // Always convert to JPEG for predictable size reduction and to stay under proxy limit.
+    const targetType = "image/jpeg";
+    let quality = 0.86;
+    let maxEdge = startMaxEdge;
+    let best: Blob | null = null;
+
+    for (let i = 0; i < IMAGE_RESIZE_MAX_STEPS; i += 1) {
+      const scale = Math.min(1, maxEdge / originalMaxEdge);
+      const width = Math.max(1, Math.round(bitmap.width * scale));
+      const height = Math.max(1, Math.round(bitmap.height * scale));
+      const canvas = new OffscreenCanvas(width, height);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) break;
+      ctx.drawImage(bitmap, 0, 0, width, height);
+      const candidate = await canvas
+        .convertToBlob({
+          type: targetType,
+          quality,
+        })
+        .catch(() => null);
+      if (!candidate) break;
+      best = candidate;
+      if (candidate.size <= R2_SAME_ORIGIN_UPLOAD_MAX_BYTES) {
+        return candidate;
+      }
+
+      if (targetType === "image/jpeg" && typeof quality === "number" && quality > 0.35) {
+        quality -= 0.08;
+      } else {
+        maxEdge = Math.max(IMAGE_RESIZE_MIN_EDGE, Math.round(maxEdge * 0.8));
+      }
+      if (maxEdge <= IMAGE_RESIZE_MIN_EDGE && quality <= 0.35) break;
+    }
+    return best ?? blob;
+  } finally {
+    if (typeof bitmap.close === "function") {
+      bitmap.close();
+    }
+  }
+}
+
+async function uploadBlobViaR2SameOriginProxy(
+  blob: Blob,
+  fileName: string,
+  contentType: string,
+): Promise<string> {
+  const baseUrl = getApiUrl();
+  const url = new URL("/api/upload-file", baseUrl);
+  const token = await readAuthToken();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/octet-stream",
+    "X-Upload-File-Name": encodeURIComponent(fileName),
+    "X-Upload-Content-Type": contentType.split(";")[0].trim(),
+  };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(url.toString(), {
+    method: "POST",
+    headers,
+    body: blob,
+    credentials: "include",
+  });
+  await throwIfResNotOk(res);
+  const data = (await res.json()) as { url?: string; fileUrl?: string };
+  const publicUrl = data.url ?? data.fileUrl;
+  if (!publicUrl) throw new Error("Upload response did not include a public URL");
+  return publicUrl;
+}
+
+/**
+ * Upload user media to R2. Small files use `POST /api/upload-file` (no cross-origin PUT).
+ * Larger files use a presigned URL (requires R2 CORS for browser PUT).
+ */
+export async function uploadUserMediaBlobToR2(
+  blob: Blob,
+  fileName: string,
+  contentType: string,
+): Promise<string> {
+  const ct = contentType.split(";")[0].trim();
+  const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+  let uploadBlob = blob;
+  const isImage = isImageContentType(ct);
+
+  if (blob.size > R2_SAME_ORIGIN_UPLOAD_MAX_BYTES && isImage) {
+    uploadBlob = await compressImageBlobForUpload(blob, ct);
+  }
+
+  if (uploadBlob.size <= R2_SAME_ORIGIN_UPLOAD_MAX_BYTES) {
+    return uploadBlobViaR2SameOriginProxy(uploadBlob, safeName, ct);
+  }
+
+  if (isImage) {
+    throw new Error(
+      "Image is still too large after compression. Please choose a smaller image or crop tighter and try again.",
+    );
+  }
+
+  const resp = await apiRequest("POST", "/api/upload-url", {
+    fileName: safeName,
+    contentType: ct,
+  });
+  const data = (await resp.json()) as { uploadUrl: string; url?: string; fileUrl?: string };
+  if (!data.uploadUrl) throw new Error("Could not start upload (invalid response from server).");
+  assertR2PresignBrowserCompatible(data.uploadUrl);
+
+  let putRes: Response;
+  try {
+    putRes = await fetch(data.uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": ct },
+      body: uploadBlob,
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Could not upload to storage: ${msg}. On the web, configure R2 CORS for your app origin or use a file under ${Math.floor(R2_SAME_ORIGIN_UPLOAD_MAX_BYTES / 1024 / 1024)}MB.`,
+    );
+  }
+
+  if (!putRes.ok) {
+    const hint = (await putRes.text().catch(() => "")).trim().replace(/\s+/g, " ");
+    throw new Error(
+      hint
+        ? `Storage upload failed (HTTP ${putRes.status}): ${hint.slice(0, 220)}${hint.length > 220 ? "…" : ""}`
+        : `Storage upload failed (HTTP ${putRes.status}). On the web, configure R2 CORS for your domain.`,
+    );
+  }
+
+  const publicUrl = data.url ?? data.fileUrl;
+  if (!publicUrl) throw new Error("Upload URL response did not include a public URL");
+  return publicUrl;
+}
+
 export async function apiRequest(
   method: string,
   route: string,

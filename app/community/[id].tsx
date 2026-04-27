@@ -25,7 +25,7 @@ import { AppLogo } from "@/components/AppLogo";
 import { EventFlyerImage } from "@/components/EventFlyerImage";
 import { AnnouncementBodyView } from "@/components/AnnouncementBodyView";
 import { CreatorPromoBanner } from "@/components/CreatorPromoBanner";
-import { apiRequest, formatUserFacingApiError } from "@/lib/query-client";
+import { apiRequest, formatUserFacingApiError, uploadUserMediaBlobToR2 } from "@/lib/query-client";
 import { navigateToUserOrLiverProfile, navigateFromVideoCreatorRow } from "@/lib/navigate-profile";
 import { useAuth } from "@/lib/auth";
 import { webScrollStyle } from "@/constants/layout";
@@ -43,21 +43,7 @@ import { useDemoMode } from "@/lib/demo-mode";
 const MAX_ANNOUNCEMENT_SCREENSHOT_BYTES = 15 * 1024 * 1024;
 
 async function uploadImageBlobToR2(blob: Blob, fileName: string, mime: string): Promise<string> {
-  const resp = await apiRequest("POST", "/api/upload-url", {
-    fileName,
-    contentType: mime,
-  });
-  const { uploadUrl, url } = (await resp.json()) as { uploadUrl: string; url: string };
-  const putRes = await fetch(uploadUrl, {
-    method: "PUT",
-    headers: { "Content-Type": mime },
-    body: blob,
-  });
-  if (!putRes.ok) {
-    const hint = await putRes.text().catch(() => "");
-    throw new Error(`Storage upload failed (${putRes.status})${hint ? `: ${hint.slice(0, 160)}` : ""}`);
-  }
-  return url;
+  return uploadUserMediaBlobToR2(blob, fileName, mime);
 }
 
 type AdData = { title: string; sub: string; cta: string; bg: string; accent: string; thumb: string };

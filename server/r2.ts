@@ -1,6 +1,6 @@
 import { GetObjectCommand, S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import type { Response } from "express";
+import type { Request, Response } from "express";
 
 const endpoint = process.env.R2_ENDPOINT;
 const bucket = process.env.R2_BUCKET_NAME;
@@ -55,6 +55,45 @@ export async function createSignedUploadUrl(key: string, contentType: string) {
   const publicUrl = publicBase ? `${publicBase.replace(/\/$/, "")}/${key}` : null;
 
   return { uploadUrl, publicUrl };
+}
+
+/**
+ * Browser-readable URL for an uploaded object key (same logic as `POST /api/upload-url`).
+ * Throws if a same-origin `/api/r2-public/...` URL cannot be built.
+ */
+export function resolveUploadPublicUrlForKey(req: Pick<Request, "get" | "protocol">, key: string): string {
+  const publicBase = process.env.R2_PUBLIC_BASE_URL?.trim();
+  if (publicBase) return `${publicBase.replace(/\/$/, "")}/${key}`;
+
+  const host = String(req.get("x-forwarded-host") ?? req.get("host") ?? "").trim();
+  const xfProto = String(req.get("x-forwarded-proto") ?? "").split(",")[0]?.trim();
+  const proto =
+    xfProto === "http" || xfProto === "https"
+      ? xfProto
+      : req.protocol === "https"
+        ? "https"
+        : "http";
+  if (!host) {
+    throw new Error("MISSING_HOST_FOR_PUBLIC_URL");
+  }
+  return `${proto}://${host}/api/r2-public/${encodeURIComponent(key)}`;
+}
+
+export async function putR2ObjectBuffer(key: string, contentType: string, body: Buffer): Promise<void> {
+  if (!r2Client || !bucket) {
+    throw new Error(
+      "R2 is not configured. Set R2_ENDPOINT, R2_BUCKET_NAME, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY.",
+    );
+  }
+  const ct = contentType.split(";")[0]?.trim() || "application/octet-stream";
+  await r2Client.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: body,
+      ContentType: ct,
+    }),
+  );
 }
 
 /** Keys issued by `/api/upload-url` (no slashes) — safe to expose via anonymous GET proxy. */

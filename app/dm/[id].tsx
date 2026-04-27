@@ -18,7 +18,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { C } from "@/constants/colors";
 import { DM_USAGE_GUIDE_BODY, DM_USAGE_GUIDE_TITLE } from "@/constants/dmUsageGuide";
-import { apiRequest, getApiUrl, readAuthToken } from "@/lib/query-client";
+import { apiRequest, getApiUrl, readAuthToken, uploadUserMediaBlobToR2 } from "@/lib/query-client";
 import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { useAuth } from "@/lib/auth";
 import { saveLoginReturn } from "@/lib/login-return";
@@ -127,27 +127,11 @@ export default function DMChatScreen() {
     },
   });
 
-  const uploadImageBlobToR2 = useCallback(async (blob: Blob, fileName: string, mime: string): Promise<string> => {
-    const resp = await apiRequest("POST", "/api/upload-url", {
-      fileName,
-      contentType: mime,
-    });
-    const data = (await resp.json()) as { uploadUrl: string; url?: string; fileUrl?: string };
-    const { uploadUrl } = data;
-    const publicUrl = data.url ?? data.fileUrl;
-    if (!uploadUrl || !publicUrl) {
-      throw new Error("Upload response missing public URL");
-    }
-    const putRes = await fetch(uploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": mime },
-      body: blob,
-    });
-    if (!putRes.ok) {
-      throw new Error(`Storage upload failed (${putRes.status})`);
-    }
-    return publicUrl;
-  }, []);
+  const uploadImageBlobToR2 = useCallback(
+    (blob: Blob, fileName: string, mime: string): Promise<string> =>
+      uploadUserMediaBlobToR2(blob, fileName, mime),
+    [],
+  );
 
   const pickImage = useCallback(async () => {
     try {

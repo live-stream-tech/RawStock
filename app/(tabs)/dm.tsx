@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Pressable,
   Platform,
+  Alert,
 } from "react-native";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
@@ -51,11 +52,19 @@ export default function DMScreen() {
     queryKey: ["/api/dm-messages"],
   });
 
+  function handleComposePress() {
+    Alert.alert(
+      "Start a new DM",
+      "Open a user's profile and tap Message to start a new conversation.",
+    );
+    router.push("/community");
+  }
+
   return (
     <View style={[styles.container, { paddingBottom: bottomInset }]}>
       <View style={[styles.header, { paddingTop: topInset + 12 }]}>
         <Text style={styles.headerTitle}>Messages</Text>
-        <Pressable>
+        <Pressable onPress={handleComposePress} hitSlop={8}>
           <Ionicons name="create-outline" size={22} color={C.text} />
         </Pressable>
       </View>

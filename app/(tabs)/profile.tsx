@@ -25,7 +25,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
 import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/layout";
-import { apiRequest, getApiUrl, readAuthToken } from "@/lib/query-client";
+import { apiRequest, getApiUrl, readAuthToken, uploadUserMediaBlobToR2 } from "@/lib/query-client";
 import { AppLogo } from "@/components/AppLogo";
 import { MetallicLine } from "@/components/MetallicLine";
 import { CreatorPromoBanner } from "@/components/CreatorPromoBanner";
@@ -357,20 +357,7 @@ export default function ProfileScreen() {
   }
 
   async function uploadAvatarBlob(blob: Blob, fileName: string, mimeType: string): Promise<string> {
-    const resp = await apiRequest("POST", "/api/upload-url", {
-      fileName,
-      contentType: mimeType,
-    });
-    const { uploadUrl, url, fileUrl } = (await resp.json()) as { uploadUrl: string; url?: string; fileUrl?: string };
-    const putRes = await fetch(uploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": mimeType },
-      body: blob,
-    });
-    if (!putRes.ok) throw new Error("Failed to upload avatar");
-    const publicUrl = url ?? fileUrl;
-    if (!publicUrl) throw new Error("Upload URL response did not include a public URL");
-    return publicUrl;
+    return uploadUserMediaBlobToR2(blob, fileName, mimeType);
   }
 
   /** Returns public URL after upload, or null if user cancelled / no file */
@@ -380,9 +367,14 @@ export default function ProfileScreen() {
         const input = document.createElement("input");
         input.type = "file";
         input.accept = "image/jpeg,image/png,image/webp,image/gif";
+        input.oncancel = () => {
+          input.remove();
+          resolve(null);
+        };
         input.onchange = async (e: Event) => {
           const file = (e.target as HTMLInputElement).files?.[0];
           if (!file) {
+            input.remove();
             resolve(null);
             return;
           }

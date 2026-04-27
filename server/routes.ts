@@ -1,4 +1,4 @@
-import type { Express, Request, Response } from "express";
+import express, { type Express, type Request, type Response } from "express";
 import { db, type DbOrTx } from "./db";
 import {
   communities,
@@ -102,7 +102,12 @@ import { creditTicketsFromTicketCheckoutSession } from "./lib/stripeTicketPurcha
 import { computeWithdrawalFeeBreakdown, getWithdrawalFeePolicy } from "./lib/withdrawalFees";
 import { dslToTemplated } from "./lib/dslToTemplated";
 import { createTemplatedRender } from "./lib/templatedClient";
-import { createSignedUploadUrl, pipeR2PublicObjectToResponse } from "./r2";
+import {
+  createSignedUploadUrl,
+  pipeR2PublicObjectToResponse,
+  putR2ObjectBuffer,
+  resolveUploadPublicUrlForKey,
+} from "./r2";
 import { moderateContent } from "./moderation";
 import { detectContentLang } from "./langFromText";
 import { translateText } from "./lib/translate";
@@ -4713,24 +4718,19 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     try {
       const { uploadUrl, publicUrl } = await createSignedUploadUrl(key, contentType);
-      const host = String(req.get("x-forwarded-host") ?? req.get("host") ?? "").trim();
-      const xfProto = String(req.get("x-forwarded-proto") ?? "").split(",")[0]?.trim();
-      const proto =
-        xfProto === "http" || xfProto === "https"
-          ? xfProto
-          : req.protocol === "https"
-            ? "https"
-            : "http";
-      let filePublicUrl = publicUrl;
-      if (!filePublicUrl) {
-        if (!host) {
+      let filePublicUrl: string;
+      if (publicUrl) {
+        filePublicUrl = publicUrl;
+      } else {
+        try {
+          filePublicUrl = resolveUploadPublicUrlForKey(req, key);
+        } catch {
           return res.status(500).json({
             error:
               "Cannot build a browser-loadable file URL. Set R2_PUBLIC_BASE_URL or ensure reverse-proxy forwards Host / X-Forwarded-* headers.",
             code: "R2_PUBLIC_URL_UNAVAILABLE",
           });
         }
-        filePublicUrl = `${proto}://${host}/api/r2-public/${encodeURIComponent(key)}`;
       }
       console.log("[upload-url] presign_ok", {
         keyLen: key.length,
@@ -4757,6 +4757,75 @@ export async function registerRoutes(app: Express): Promise<void> {
         code: notConfigured ? "R2_NOT_CONFIGURED" : "R2_PRESIGN_FAILED",
       });
     }
+  });
+
+  /**
+   * Same-origin upload for small files (bypasses R2 CORS on browsers).
+   * Vercel caps request bodies (~4.5MB); keep limit below that.
+   */
+  const R2_PROXY_MAX_BYTES = 4 * 1024 * 1024;
+  const uploadFileBodyParser = express.raw({
+    limit: R2_PROXY_MAX_BYTES,
+    type: "application/octet-stream",
+  });
+
+  app.post("/api/upload-file", uploadFileBodyParser, async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+
+    const rawName = req.header("x-upload-file-name");
+    const fileName = rawName ? decodeURIComponent(rawName) : `upload_${Date.now()}.bin`;
+    if (fileName.length > 240) return res.status(400).json({ error: "fileName is too long" });
+
+    const rawCt = req.header("x-upload-content-type") || "application/octet-stream";
+    const contentType = rawCt.split(";")[0].trim();
+    const ctLower = contentType.toLowerCase();
+    const allowed =
+      /^image\/(jpeg|png|webp|gif)$/i.test(contentType) ||
+      /^video\//i.test(contentType) ||
+      ctLower === "application/octet-stream";
+    if (!allowed) {
+      return res.status(400).json({ error: "Unsupported content type for this upload" });
+    }
+
+    const buf = req.body as Buffer;
+    if (!Buffer.isBuffer(buf) || buf.length === 0) {
+      return res.status(400).json({ error: "Empty upload body" });
+    }
+    if (buf.length > R2_PROXY_MAX_BYTES) {
+      return res.status(413).json({ error: "File too large for direct upload; use presigned URL flow" });
+    }
+
+    const safeName = String(fileName).replace(/[^a-zA-Z0-9_.-]/g, "_");
+    const key = `rawstock_${Date.now()}_${safeName}`;
+
+    try {
+      await putR2ObjectBuffer(key, contentType, buf);
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      const notConfigured =
+        errMsg.includes("R2 is not configured") || /not\s+configured|correctly\s+configured/i.test(errMsg);
+      console.error("[upload-file] r2_put_failed", { err: e, userId: user.id });
+      return res.status(notConfigured ? 503 : 500).json({
+        error: notConfigured
+          ? "File storage is not configured. Set R2_* variables on the server."
+          : "Failed to store file",
+        code: notConfigured ? "R2_NOT_CONFIGURED" : "R2_PUT_FAILED",
+      });
+    }
+
+    let filePublicUrl: string;
+    try {
+      filePublicUrl = resolveUploadPublicUrlForKey(req, key);
+    } catch {
+      return res.status(500).json({
+        error:
+          "Cannot build a browser-loadable file URL. Set R2_PUBLIC_BASE_URL or ensure reverse-proxy forwards Host / X-Forwarded-* headers.",
+        code: "R2_PUBLIC_URL_UNAVAILABLE",
+      });
+    }
+
+    res.json({ key, url: filePublicUrl, fileUrl: filePublicUrl });
   });
 
   // ── Videos ───────────────────────────────────────────────────────

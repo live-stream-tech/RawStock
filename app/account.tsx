@@ -19,26 +19,13 @@ import { router } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { AuthGuard, useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
-import { apiRequest, formatUserFacingApiError } from "@/lib/query-client";
+import { apiRequest, formatUserFacingApiError, uploadUserMediaBlobToR2 } from "@/lib/query-client";
 import * as ImagePicker from "expo-image-picker";
 
 const MAX_AVATAR_BYTES = 8 * 1024 * 1024;
 
 async function uploadImageBlobToR2(blob: Blob, fileName: string, mime: string): Promise<string> {
-  const resp = await apiRequest("POST", "/api/upload-url", {
-    fileName,
-    contentType: mime,
-  });
-  const data = (await resp.json()) as { uploadUrl: string; fileUrl?: string; url?: string };
-  const put = await fetch(data.uploadUrl, {
-    method: "PUT",
-    headers: { "Content-Type": mime },
-    body: blob,
-  });
-  if (!put.ok) throw new Error("Upload failed");
-  const publicUrl = data.fileUrl ?? data.url;
-  if (!publicUrl) throw new Error("Upload URL response did not include a public URL");
-  return publicUrl;
+  return uploadUserMediaBlobToR2(blob, fileName, mime);
 }
 export default function AccountEditScreen() {
   const insets = useSafeAreaInsets();
@@ -97,11 +84,18 @@ export default function AccountEditScreen() {
         const input = document.createElement("input");
         input.type = "file";
         input.accept = "image/jpeg,image/png,image/webp,image/gif";
+        input.oncancel = () => {
+          input.remove();
+        };
         input.onchange = async (e: Event) => {
           const file = (e.target as HTMLInputElement).files?.[0];
-          if (!file) return;
+          if (!file) {
+            input.remove();
+            return;
+          }
           if (file.size > MAX_AVATAR_BYTES) {
             Alert.alert("", "Image must be under 8MB");
+            input.remove();
             return;
           }
           try {
@@ -114,11 +108,11 @@ export default function AccountEditScreen() {
             Alert.alert("Upload failed", formatUserFacingApiError(err));
           } finally {
             setUploadingAvatar(false);
+            input.remove();
           }
         };
         document.body.appendChild(input);
         input.click();
-        document.body.removeChild(input);
         return;
       }
 

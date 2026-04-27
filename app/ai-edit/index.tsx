@@ -19,7 +19,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { useQuery } from "@tanstack/react-query";
-import { apiRequest, formatUserFacingApiError } from "@/lib/query-client";
+import { apiRequest, formatUserFacingApiError, uploadUserMediaBlobToR2 } from "@/lib/query-client";
 import { buildOrderVideoSpec, formatFromTone, styleFromTone } from "@/lib/ai-edit/buildOrderVideoSpec";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
@@ -157,15 +157,6 @@ async function getVideoDurationFromRemoteUrl(url: string): Promise<number> {
   });
 }
 
-function isLikelyBrowserNetworkBlock(err: unknown): boolean {
-  if (err instanceof TypeError) return true;
-  if (err instanceof Error) {
-    const m = err.message;
-    return /Failed to fetch|NetworkError|Load failed|network error/i.test(m);
-  }
-  return false;
-}
-
 /** Align presigned PUT Content-Type with headers (some iPhone exports ship empty `type`). */
 function resolveUploadContentType(file: File): string {
   const t = file.type?.trim();
@@ -189,69 +180,12 @@ function resolveUploadContentTypeFromName(fileName: string, mimeHint?: string | 
   return "application/octet-stream";
 }
 
-function assertR2PresignBrowserCompatible(presign: string): void {
-  if (
-    /x-amz-sdk-checksum-algorithm=/i.test(presign) ||
-    /x-amz-checksum-/i.test(presign) ||
-    /[?&]x-amz-checksum-crc32=/i.test(presign) ||
-    /_cksum-crc32/i.test(presign)
-  ) {
-    throw new Error(
-      "The upload URL from the server includes SDK checksum parameters, which browsers cannot send on a simple PUT. " +
-        "Redeploy the API with the latest server (R2 client uses requestChecksumCalculation WHEN_REQUIRED), " +
-        "or unset AWS_REQUEST_CHECKSUM_CALCULATION on the server if it is set to WHEN_SUPPORTED.",
-    );
-  }
-}
-
-async function putBodyToR2SignedUrl(
-  uploadUrl: string,
-  body: BodyInit,
-  contentType: string,
-  networkErrorHint: string,
-): Promise<void> {
-  let put: Response;
-  try {
-    put = await fetch(uploadUrl, {
-      method: "PUT",
-      body,
-      headers: { "Content-Type": contentType },
-    });
-  } catch (err: unknown) {
-    console.error("[ai-edit] R2 PUT failed:", err);
-    if (isLikelyBrowserNetworkBlock(err)) {
-      throw new Error(networkErrorHint);
-    }
-    throw err instanceof Error ? err : new Error(String(err));
-  }
-  if (!put.ok) {
-    const detail = (await put.text().catch(() => "")).trim().replace(/\s+/g, " ");
-    throw new Error(
-      detail
-        ? `Upload to storage failed (HTTP ${put.status}): ${detail.slice(0, 220)}${detail.length > 220 ? "…" : ""}`
-        : `Upload to storage failed (HTTP ${put.status})`,
-    );
-  }
-}
-
 async function presignAndUploadToR2(fileName: string, contentType: string, body: BodyInit): Promise<string> {
   const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const res = await apiRequest("POST", "/api/upload-url", {
-    fileName: safeName,
-    contentType,
-  });
-  const json = (await res.json()) as { uploadUrl?: string; url?: string };
-  if (!json.uploadUrl || !json.url) {
-    throw new Error("Could not start upload (invalid response from server).");
-  }
-  assertR2PresignBrowserCompatible(json.uploadUrl);
-  const networkHint =
-    Platform.OS === "web"
-      ? "Browser could not upload the file to storage (often CORS or a blocked cross-origin request). " +
-          "In Cloudflare R2, allow PUT from https://rawstock.live with header Content-Type, or try another browser."
-      : "Could not upload the file to storage (network or storage error). Check your connection and try again.";
-  await putBodyToR2SignedUrl(json.uploadUrl, body, contentType, networkHint);
-  return json.url;
+  const ct = contentType.split(";")[0].trim();
+  const blob =
+    typeof Blob !== "undefined" && body instanceof Blob ? body : await new Response(body).blob();
+  return uploadUserMediaBlobToR2(blob, safeName, ct);
 }
 
 async function uploadToR2(file: File): Promise<string> {

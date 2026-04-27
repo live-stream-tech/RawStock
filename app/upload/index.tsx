@@ -19,7 +19,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiRequest, ApiError, getApiUrl } from "@/lib/query-client";
+import { apiRequest, ApiError, uploadUserMediaBlobToR2 } from "@/lib/query-client";
 import { C } from "@/constants/colors";
 import { useAuth } from "@/lib/auth";
 import { DAILY_POST_LIMITS } from "@/constants/upload-limits";
@@ -89,32 +89,16 @@ export default function DailyUploadScreen() {
 
 
   async function uploadFileToR2Native(uri: string, name: string, mime: string) {
-    console.log(`${UPLOAD_LOG} step:daily_native_presign_request`, { name, mime });
-    const resp = await apiRequest("POST", "/api/upload-url", {
-      fileName: name,
-      contentType: mime,
-    });
-    const { uploadUrl, url } = await resp.json();
-    console.log(`${UPLOAD_LOG} step:daily_native_presign_ok`);
-    console.log(`${UPLOAD_LOG} step:daily_native_blob_fetch_start`);
+    console.log(`${UPLOAD_LOG} step:daily_native_blob_fetch_start`, { name, mime });
     const blob = await (await fetch(uri)).blob();
     console.log(`${UPLOAD_LOG} step:daily_native_blob_fetch_ok`, { size: blob.size });
     if (blob.size > DAILY_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
       throw new Error(`File must be under ${DAILY_POST_LIMITS.maxFileSizeMB}MB`);
     }
-    console.log(`${UPLOAD_LOG} step:daily_native_r2_put_start`);
-    const putRes = await fetch(uploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": mime },
-      body: blob,
-    });
-    if (!putRes.ok) {
-      const hint = await putRes.text().catch(() => "");
-      console.error(`${UPLOAD_LOG} step:daily_native_r2_put_failed`, putRes.status, hint.slice(0, 300));
-      throw new Error(`Storage upload failed (${putRes.status})`);
-    }
-    console.log(`${UPLOAD_LOG} step:daily_native_r2_put_ok`);
-    return url as string;
+    console.log(`${UPLOAD_LOG} step:daily_native_r2_upload_start`);
+    const url = await uploadUserMediaBlobToR2(blob, name, mime);
+    console.log(`${UPLOAD_LOG} step:daily_native_r2_upload_ok`);
+    return url;
   }
 
   async function pickPhoto() {
@@ -250,37 +234,15 @@ export default function DailyUploadScreen() {
     }
     const contentType = res.headers.get("content-type") || (type === "image" ? "image/jpeg" : "video/mp4");
     const ext = type === "image" ? "jpg" : "mp4";
-    // Use native fetch + localStorage token directly to avoid expo/fetch header issues on web
-    let authToken: string | null = null;
-    if (typeof window !== "undefined") {
-      try { authToken = window.localStorage?.getItem("auth_token") ?? null; } catch {}
+    console.log(`${UPLOAD_LOG} step:daily_submit_r2_upload_start`, { type });
+    try {
+      const url = await uploadUserMediaBlobToR2(blob, `upload.${ext}`, contentType);
+      console.log(`${UPLOAD_LOG} step:daily_submit_r2_upload_ok`, { type });
+      return url;
+    } catch (e: unknown) {
+      if (e instanceof ApiError) throw e;
+      throw e instanceof Error ? e : new Error(String(e));
     }
-    const presignHeaders: Record<string, string> = { "Content-Type": "application/json" };
-    if (authToken) presignHeaders["Authorization"] = `Bearer ${authToken}`;
-    const presignRes = await fetch(new URL("/api/upload-url", getApiUrl()).toString(), {
-      method: "POST",
-      headers: presignHeaders,
-      body: JSON.stringify({ fileName: `upload.${ext}`, contentType }),
-    });
-    if (!presignRes.ok) {
-      const errText = await presignRes.text().catch(() => "");
-      console.error(`${UPLOAD_LOG} step:daily_submit_presign_failed`, presignRes.status, errText.slice(0, 200));
-      throw new ApiError(presignRes.status, errText || `Upload URL failed (${presignRes.status})`);
-    }
-    const { uploadUrl, url } = await presignRes.json();
-    console.log(`${UPLOAD_LOG} step:daily_submit_r2_put_start`, { type });
-    const putRes = await fetch(uploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": contentType },
-      body: blob,
-    });
-    if (!putRes.ok) {
-      const hint = await putRes.text().catch(() => "");
-      console.error(`${UPLOAD_LOG} step:daily_submit_r2_put_failed`, type, putRes.status, hint.slice(0, 300));
-      throw new Error(`Storage upload failed (${putRes.status})`);
-    }
-    console.log(`${UPLOAD_LOG} step:daily_submit_r2_put_ok`, { type });
-    return url as string;
   }
 
   async function handlePublishFromExisting(videoId: number) {
