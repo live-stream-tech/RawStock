@@ -17,7 +17,8 @@
       "Bash(curl -s https://rawstock.live/api/auth/status)",
       "Bash(curl -sv https://rawstock.live/api/auth/status)",
       "Bash(curl:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(npx tsc *)"
     ]
   }
 }
