@@ -87,6 +87,25 @@ export type FaceFilterWebHandle = {
   destroy: () => Promise<void>;
 };
 
+function removeJeelizCanvasFromDom(): void {
+  if (typeof document === "undefined") return;
+  document.getElementById(RAWSTOCK_JEELIZ_CANVAS_ID)?.remove();
+}
+
+/** Create Jeeliz GL canvas outside the React tree to avoid SSR/client hydration mismatch (React #418). */
+function mountJeelizCanvasIntoHost(host: HTMLDivElement): HTMLCanvasElement {
+  removeJeelizCanvasFromDom();
+  const c = document.createElement("canvas");
+  c.id = RAWSTOCK_JEELIZ_CANVAS_ID;
+  c.width = 1280;
+  c.height = 720;
+  c.style.cssText =
+    "width:100%;height:100%;object-fit:cover;transform:scaleX(-1);display:block;background:#000;";
+  // Keep canvas behind RN overlay children (e.g. "Loading face filter...").
+  host.insertBefore(c, host.firstChild);
+  return c;
+}
+
 function waitVideoReady(video: HTMLVideoElement, timeoutMs: number): Promise<void> {
   return new Promise((resolve, reject) => {
     let timer: number | undefined;
@@ -154,6 +173,7 @@ export const FaceFilterWeb = forwardRef<FaceFilterWebHandle, FaceFilterWebProps>
         /* ignore */
       }
     }
+    removeJeelizCanvasFromDom();
     onOutputStream(null);
   }, [onOutputStream]);
 
@@ -214,6 +234,16 @@ export const FaceFilterWeb = forwardRef<FaceFilterWebHandle, FaceFilterWebProps>
       if (cancelled) return;
 
       await teardown();
+
+      const hostNode = hostRef.current as unknown as HTMLDivElement | null;
+      if (!hostNode) {
+        if (!cancelled) {
+          setStatusText(null);
+          onError("Face filter host is not ready.");
+        }
+        return;
+      }
+      mountJeelizCanvasIntoHost(hostNode);
 
       const hiddenVideo = document.createElement("video");
       hiddenVideo.muted = true;
@@ -358,21 +388,6 @@ export const FaceFilterWeb = forwardRef<FaceFilterWebHandle, FaceFilterWebProps>
 
   return (
     <View ref={hostRef} style={styles.host} collapsable={false}>
-      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-      <canvas
-        id={RAWSTOCK_JEELIZ_CANVAS_ID}
-        width={1280}
-        height={720}
-        style={{
-          width: "100%",
-          height: "100%",
-          objectFit: "cover" as const,
-          transform: "scaleX(-1)",
-          display: "block",
-          backgroundColor: "#000",
-        }}
-        {...({} as any)}
-      />
       {statusText ? (
         <View style={styles.statusOverlay} pointerEvents="none">
           <Text style={styles.statusText}>{statusText}</Text>
