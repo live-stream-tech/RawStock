@@ -6,7 +6,6 @@ import {
   StyleSheet,
   Pressable,
   ActivityIndicator,
-  useWindowDimensions,
   Linking,
 } from "react-native";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
@@ -21,7 +20,11 @@ import { MetallicLine } from "@/components/MetallicLine";
 import { AppLogo } from "@/components/AppLogo";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { useQuery } from "@tanstack/react-query";
-import { TEMP_BANNER_IMAGE_PATH, TEMP_BANNER_TARGET_URL } from "@/constants/bannerLinks";
+import {
+  TEMP_BANNER_ASPECT,
+  TEMP_BANNER_IMAGE_PATH,
+  TEMP_BANNER_TARGET_URL,
+} from "@/constants/bannerLinks";
 
 type StationRow = {
   id: number;
@@ -96,7 +99,6 @@ function PurchaseRankCard({ item, rank }: { item: any; rank: number }) {
 }
 
 export default function CommunityScreen() {
-  const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const topInset = getTabTopInset(insets);
   const bottomInset = getTabBottomInset(insets);
@@ -134,8 +136,6 @@ export default function CommunityScreen() {
   const purchaseData = rankedApiVideos;
 
   const stationMembers = stationStats?.memberSum ?? stationRows.reduce((sum, s) => sum + Number(s.members ?? 0), 0);
-  const adSlotMaxW = Math.min(728, Math.max(0, windowWidth - 32));
-  const adSlotH = 90;
   const sortedRankingVideos = useMemo(() => {
     const arr = [...purchaseData];
     const ts = (v: any) => (v.createdAt ? new Date(v.createdAt).getTime() : 0);
@@ -185,16 +185,21 @@ export default function CommunityScreen() {
             <Text style={styles.sectionTitle}>ステーション</Text>
           </View>
 
-          <View style={[styles.adBannerSlot, { height: adSlotH }]}>
+          <View style={styles.adBannerSlot}>
             <Pressable
               accessibilityRole="link"
               accessibilityLabel="Sponsored banner"
               onPress={() => {
                 void Linking.openURL(TEMP_BANNER_TARGET_URL);
               }}
-              style={[styles.adBannerFixedFrame, { width: adSlotMaxW, height: adSlotH }]}
+              style={[styles.adBannerFrame, { aspectRatio: TEMP_BANNER_ASPECT }]}
             >
-              <Image source={{ uri: TEMP_BANNER_IMAGE_PATH }} style={styles.adBannerImage} contentFit="cover" />
+              <Image
+                source={{ uri: TEMP_BANNER_IMAGE_PATH }}
+                style={styles.adBannerImage}
+                contentFit="contain"
+                contentPosition="center"
+              />
             </Pressable>
           </View>
 
@@ -332,16 +337,16 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginBottom: 10,
     borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
     overflow: "hidden",
+    backgroundColor: "#0a0a0a",
+    borderWidth: 1,
+    borderColor: C.border,
   },
-  adBannerFixedFrame: {
+  adBannerFrame: {
+    width: "100%",
     borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.04)",
-    alignItems: "center",
-    justifyContent: "center",
-    transformOrigin: "center" as any,
+    backgroundColor: "#0a0a0a",
+    overflow: "hidden",
   },
   adBannerText: {
     color: C.textMuted,
@@ -352,6 +357,7 @@ const styles = StyleSheet.create({
   adBannerImage: {
     width: "100%",
     height: "100%",
+    backgroundColor: "#0a0a0a",
   },
   stationCoreBox: {
     marginHorizontal: 16,
@@ -482,12 +488,12 @@ const styles = StyleSheet.create({
   },
   stationStrip: {
     paddingHorizontal: 16,
-    gap: 10,
+    gap: 12,
     paddingBottom: 4,
   },
   stationMiniCard: {
-    width: 112,
-    borderRadius: 10,
+    width: 156,
+    borderRadius: 12,
     overflow: "hidden",
     backgroundColor: "rgba(255,255,255,0.06)",
     borderWidth: 1,
@@ -495,23 +501,23 @@ const styles = StyleSheet.create({
   },
   stationMiniThumb: {
     width: "100%",
-    height: 64,
+    height: 104,
     backgroundColor: C.surface,
   },
   stationMiniName: {
     color: C.text,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "700",
-    paddingHorizontal: 8,
-    paddingTop: 6,
-    minHeight: 32,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    minHeight: 36,
   },
   stationMiniMeta: {
     color: C.textMuted,
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: "600",
-    paddingHorizontal: 8,
-    paddingBottom: 8,
+    paddingHorizontal: 10,
+    paddingBottom: 10,
   },
   createBtn: {
     flexDirection: "row",

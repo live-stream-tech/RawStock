@@ -10,7 +10,11 @@ import {
 } from "react-native";
 import { Image } from "expo-image";
 import { C } from "@/constants/colors";
-import { TEMP_BANNER_IMAGE_PATH, TEMP_BANNER_TARGET_URL } from "@/constants/bannerLinks";
+import {
+  TEMP_BANNER_ASPECT,
+  TEMP_BANNER_IMAGE_PATH,
+  TEMP_BANNER_TARGET_URL,
+} from "@/constants/bannerLinks";
 
 type Props = {
   /** Optional outer spacing (profile vs home use different margins) */
@@ -34,7 +38,12 @@ export function CreatorPromoBanner({ style }: Props) {
       style={({ pressed }) => [styles.creatorBanner, style, (pressed || hovered) && styles.creatorBannerActive]}
       onPress={openBannerLink}
     >
-      <Image source={{ uri: TEMP_BANNER_IMAGE_PATH }} style={styles.bannerImage} contentFit="cover" />
+      <Image
+        source={{ uri: TEMP_BANNER_IMAGE_PATH }}
+        style={styles.bannerImage}
+        contentFit="contain"
+        contentPosition="center"
+      />
     </Pressable>
   );
 }
@@ -48,18 +57,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.border,
     overflow: "hidden",
-    backgroundColor: C.surface,
-    alignItems: "center",
-    justifyContent: "center",
+    backgroundColor: "#0a0a0a",
+    width: "100%",
+    aspectRatio: TEMP_BANNER_ASPECT,
+    alignSelf: "stretch",
   },
   creatorBannerActive: {
     opacity: 0.92,
   },
   bannerImage: {
     width: "100%",
-    height: 90,
-    maxWidth: 728,
-    alignSelf: "center",
+    height: "100%",
     backgroundColor: "#0a0a0a",
   },
 });

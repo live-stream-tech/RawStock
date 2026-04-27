@@ -4826,9 +4826,6 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
 
     const buf = req.body as Buffer;
-    // #region agent log
-    fetch("http://127.0.0.1:7652/ingest/22e351bd-1e97-4a00-ab87-c9defd35899c",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"1296ac"},body:JSON.stringify({sessionId:"1296ac",runId:"run1",hypothesisId:"H2",location:"server/routes.ts:/api/upload-file:validatedInput",message:"upload-file request validated",data:{contentType,bufLen:Buffer.isBuffer(buf)?buf.length:-1,fileNameLen:fileName.length,hasR2Endpoint:Boolean(process.env.R2_ENDPOINT),hasR2Bucket:Boolean(process.env.R2_BUCKET_NAME),hasR2Key:Boolean(process.env.R2_ACCESS_KEY_ID),hasR2Secret:Boolean(process.env.R2_SECRET_ACCESS_KEY)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     if (!Buffer.isBuffer(buf) || buf.length === 0) {
       return res.status(400).json({ error: "Empty upload body" });
     }
@@ -4843,9 +4840,6 @@ export async function registerRoutes(app: Express): Promise<void> {
       await putR2ObjectBuffer(key, contentType, buf);
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : String(e);
-      // #region agent log
-      fetch("http://127.0.0.1:7652/ingest/22e351bd-1e97-4a00-ab87-c9defd35899c",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"1296ac"},body:JSON.stringify({sessionId:"1296ac",runId:"run1",hypothesisId:"H2",location:"server/routes.ts:/api/upload-file:r2PutCatch",message:"upload-file putR2ObjectBuffer failed",data:{errorName:e instanceof Error?e.name:"unknown",errorMessage:errMsg.slice(0,220)},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       const notConfigured =
         errMsg.includes("R2 is not configured") || /not\s+configured|correctly\s+configured/i.test(errMsg);
       console.error("[upload-file] r2_put_failed", { err: e, userId: user.id });
@@ -4861,9 +4855,6 @@ export async function registerRoutes(app: Express): Promise<void> {
     try {
       filePublicUrl = resolveUploadPublicUrlForKey(req, key);
     } catch {
-      // #region agent log
-      fetch("http://127.0.0.1:7652/ingest/22e351bd-1e97-4a00-ab87-c9defd35899c",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"1296ac"},body:JSON.stringify({sessionId:"1296ac",runId:"run1",hypothesisId:"H3",location:"server/routes.ts:/api/upload-file:publicUrlCatch",message:"upload-file failed to resolve public URL",data:{host:req.get("host") ?? "",xfHost:req.get("x-forwarded-host") ?? "",xfProto:req.get("x-forwarded-proto") ?? ""},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       return res.status(500).json({
         error:
           "Cannot build a browser-loadable file URL. Set R2_PUBLIC_BASE_URL or ensure reverse-proxy forwards Host / X-Forwarded-* headers.",
@@ -4871,9 +4862,6 @@ export async function registerRoutes(app: Express): Promise<void> {
       });
     }
 
-    // #region agent log
-    fetch("http://127.0.0.1:7652/ingest/22e351bd-1e97-4a00-ab87-c9defd35899c",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"1296ac"},body:JSON.stringify({sessionId:"1296ac",runId:"run1",hypothesisId:"H2",location:"server/routes.ts:/api/upload-file:success",message:"upload-file success",data:{keyPrefix:key.slice(0,20),contentType,bufLen:buf.length},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     res.json({ key, url: filePublicUrl, fileUrl: filePublicUrl });
   });
 

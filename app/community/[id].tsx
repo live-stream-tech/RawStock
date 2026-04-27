@@ -38,7 +38,7 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import type { ImagePickerAsset } from "expo-image-picker";
 import { useDemoMode } from "@/lib/demo-mode";
-import { TEMP_BANNER_TARGET_URL } from "@/constants/bannerLinks";
+import { TEMP_BANNER_IMAGE_PATH, TEMP_BANNER_TARGET_URL } from "@/constants/bannerLinks";
 
 const MAX_ANNOUNCEMENT_SCREENSHOT_BYTES = 15 * 1024 * 1024;
 
@@ -61,7 +61,7 @@ const COMMUNITY_ADS: Record<string, AdData> = {
     cta: "Reserve",
     bg: "#2a0a18",
     accent: "#FF4081",
-    thumb: "https://images.unsplash.com/photo-1524503033411-c9566986fc8f?w=120&h=80&fit=crop",
+    thumb: TEMP_BANNER_IMAGE_PATH,
   },
   "cabaret": {
     title: "VIP Night Event",
@@ -69,7 +69,7 @@ const COMMUNITY_ADS: Record<string, AdData> = {
     cta: "Details",
     bg: "#1a0830",
     accent: "#CE93D8",
-    thumb: "https://images.unsplash.com/photo-1566737236500-c8ac43014a67?w=120&h=80&fit=crop",
+    thumb: TEMP_BANNER_IMAGE_PATH,
   },
   "vtuber": {
     title: "3D Live Stream Tickets",
@@ -77,7 +77,7 @@ const COMMUNITY_ADS: Record<string, AdData> = {
     cta: "Buy",
     bg: "#08122a",
     accent: "#00ffcc",
-    thumb: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=120&h=80&fit=crop",
+    thumb: TEMP_BANNER_IMAGE_PATH,
   },
   "influencer": {
     title: "Collab Limited Merch",
@@ -85,7 +85,7 @@ const COMMUNITY_ADS: Record<string, AdData> = {
     cta: "Shop",
     bg: "#0a1f10",
     accent: "#69F0AE",
-    thumb: "https://images.unsplash.com/photo-1522682078546-47888fe04e81?w=120&h=80&fit=crop",
+    thumb: TEMP_BANNER_IMAGE_PATH,
   },
   "anisong": {
     title: "Anisong Fest 2026",
@@ -93,7 +93,7 @@ const COMMUNITY_ADS: Record<string, AdData> = {
     cta: "Tickets",
     bg: "#1a0828",
     accent: "#E040FB",
-    thumb: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=120&h=80&fit=crop",
+    thumb: TEMP_BANNER_IMAGE_PATH,
   },
 };
 
@@ -103,7 +103,7 @@ const DEFAULT_AD: AdData = {
   cta: "Buy",
   bg: "#0a1520",
   accent: C.accent,
-  thumb: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=120&h=80&fit=crop",
+  thumb: TEMP_BANNER_IMAGE_PATH,
 };
 
 function getAd(name: string): AdData {
