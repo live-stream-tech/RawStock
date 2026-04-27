@@ -403,6 +403,8 @@ export const liveStreamChat = pgTable("live_stream_chat", {
 export const dmConversationMessages = pgTable("dm_conversation_messages", {
   id: serial("id").primaryKey(),
   dmId: integer("dm_id").notNull(),
+  /** Legacy DM rows need per-user scoping to avoid cross-account leakage. */
+  userId: integer("user_id"),
   sender: text("sender").notNull(),
   text: text("text").notNull(),
   isRead: boolean("is_read").default(false),

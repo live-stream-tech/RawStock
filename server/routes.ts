@@ -492,6 +492,7 @@ async function ensureOperationsDmRow() {
     if (created) {
       await db.insert(dmConversationMessages).values({
         dmId: created.id,
+        userId: null,
         sender: "them",
         text: WELCOME_DM_TEXT,
         isRead: false,
@@ -565,6 +566,7 @@ async function sendWelcomeDmIfNeeded(userId: number): Promise<void> {
 
       await tx.insert(dmConversationMessages).values({
         dmId: operationsDm.id,
+        userId: null,
         sender: "them",
         text: WELCOME_DM_TEXT,
         isRead: false,
@@ -5548,7 +5550,12 @@ export async function registerRoutes(app: Express): Promise<void> {
     const msgs = await db
       .select()
       .from(dmConversationMessages)
-      .where(eq(dmConversationMessages.dmId, legacyDmId))
+      .where(
+        and(
+          eq(dmConversationMessages.dmId, legacyDmId),
+          or(eq(dmConversationMessages.sender, "them"), eq(dmConversationMessages.userId, me.id)),
+        ),
+      )
       .orderBy(asc(dmConversationMessages.createdAt));
     res.json(
       msgs.map((m) => {
@@ -5623,6 +5630,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       .insert(dmConversationMessages)
       .values({
         dmId: legacyDmId,
+        userId: me.id,
         sender: "me",
         text: combinedText,
         isRead: true,

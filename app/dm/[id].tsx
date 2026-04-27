@@ -98,6 +98,7 @@ export default function DMChatScreen() {
   const headerName = dmInfo?.name ?? peerMeta?.name ?? "";
   const headerAvatar = dmInfo?.avatar ?? peerMeta?.avatar ?? null;
   const headerPeerUserId = dmInfo?.otherUserId ?? peerMeta?.otherUserId ?? 0;
+  const myAvatar = user?.avatar ?? user?.profileImageUrl ?? null;
 
   const { data: messages = [] } = useQuery<ConvMsg[]>({
     queryKey: [`/api/dm-messages/${dmId}/conversation`],
@@ -279,6 +280,7 @@ export default function DMChatScreen() {
           renderItem={({ item, index }) => {
             const prevMsg = index > 0 ? messages[index - 1] : null;
             const showAvatar = item.sender === "them" && (prevMsg?.sender !== "them");
+            const showMyAvatar = item.sender === "me" && (prevMsg?.sender !== "me");
             return (
               <View style={[
                 styles.msgRow,
@@ -323,6 +325,13 @@ export default function DMChatScreen() {
                     {formatTime(item.createdAt)}
                   </Text>
                 </View>
+                {item.sender === "me" && (
+                  <View style={[styles.avatarSpacer, styles.avatarSpacerMe]}>
+                    {showMyAvatar && myAvatar ? (
+                      <Image source={{ uri: myAvatar }} style={styles.msgAvatar} contentFit="cover" />
+                    ) : null}
+                  </View>
+                )}
               </View>
             );
           }}
@@ -446,6 +455,7 @@ const styles = StyleSheet.create({
   msgRowMe: { justifyContent: "flex-end" },
   msgRowThem: { justifyContent: "flex-start" },
   avatarSpacer: { width: 30, flexShrink: 0 },
+  avatarSpacerMe: { alignItems: "flex-end" },
   msgAvatar: { width: 28, height: 28, borderRadius: 14 },
   msgGroup: { maxWidth: "72%", gap: 2 },
 
