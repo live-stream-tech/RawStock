@@ -35,6 +35,38 @@ function parseRouteVisibility(v: string | undefined): LiveStreamVisibility {
   return "public";
 }
 
+/** Plain camera preview when Jeeliz face filter is skipped (web only). */
+function WebBroadcastCameraPreview({ stream }: { stream: MediaStream }) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    el.srcObject = stream;
+    void el.play().catch(() => undefined);
+    return () => {
+      el.srcObject = null;
+    };
+  }, [stream]);
+  return (
+    <View style={styles.cameraPreviewHost} pointerEvents="none">
+      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      <video
+        ref={videoRef as any}
+        autoPlay
+        muted
+        playsInline
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover" as const,
+          transform: "scaleX(-1)",
+          backgroundColor: "#000",
+        }}
+      />
+    </View>
+  );
+}
+
 /** Production broadcasting is Web/PWA-only; show fallback on other platforms. */
 function BroadcastNativePlaceholder() {
   const insets = useSafeAreaInsets();
@@ -90,6 +122,8 @@ function BroadcastWeb() {
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   /** Raw getUserMedia stream passed into FaceFilter. */
   const [jeelizSourceStream, setJeelizSourceStream] = useState<MediaStream | null>(null);
+  /** When true, unmount Jeeliz and show raw camera in a `<video>` (filter hung or failed). */
+  const [skipFaceFilter, setSkipFaceFilter] = useState(false);
   const [lastLiveError, setLastLiveError] = useState<string | null>(null);
   const blinkAnim = useRef(new Animated.Value(1)).current;
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -103,6 +137,7 @@ function BroadcastWeb() {
       setCameraStream(stream);
       setCameraError(false);
       setPhase("ready");
+      setLastLiveError(null);
     } else {
       localStreamRef.current = null;
       setCameraStream(null);
@@ -110,15 +145,23 @@ function BroadcastWeb() {
   }, []);
 
   const onJeelizError = useCallback((message: string) => {
-    // Fallback: keep broadcast usable even when face filter initialization fails.
     const raw = rawStreamRef.current;
     if (raw) {
-      localStreamRef.current = raw;
-      setCameraStream(raw);
-      setCameraError(false);
-      setPhase("ready");
-      setLastLiveError(`Face filter is unavailable, so live uses normal camera. ${message}`);
-      setWebPreviewLoading(false);
+      void (async () => {
+        try {
+          await faceFilterRef.current?.destroy?.();
+        } catch {
+          /* ignore */
+        }
+        setSkipFaceFilter(true);
+        setJeelizSourceStream(null);
+        localStreamRef.current = raw;
+        setCameraStream(raw);
+        setCameraError(false);
+        setPhase("ready");
+        setLastLiveError(`Face filter is unavailable, so live uses normal camera. ${message}`);
+        setWebPreviewLoading(false);
+      })();
       return;
     }
     setCameraError(true);
@@ -129,23 +172,31 @@ function BroadcastWeb() {
   /** If Jeeliz never calls back (CDN hang, WebGL stall), do not block Go live forever. */
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!jeelizSourceStream) return;
+    if (!jeelizSourceStream || skipFaceFilter) return;
     const raw = rawStreamRef.current;
     if (!raw) return;
     const tid = window.setTimeout(() => {
       if (localStreamRef.current) return;
-      void faceFilterRef.current?.destroy?.().catch(() => undefined);
-      localStreamRef.current = raw;
-      setCameraStream(raw);
-      setCameraError(false);
-      setPhase("ready");
-      setLastLiveError(
-        "Face filter took too long to start; using normal camera. Try reloading if this keeps happening.",
-      );
-      setWebPreviewLoading(false);
+      void (async () => {
+        try {
+          await faceFilterRef.current?.destroy?.();
+        } catch {
+          /* ignore */
+        }
+        setSkipFaceFilter(true);
+        setJeelizSourceStream(null);
+        localStreamRef.current = raw;
+        setCameraStream(raw);
+        setCameraError(false);
+        setPhase("ready");
+        setLastLiveError(
+          "Face filter took too long to start; using normal camera. Try reloading if this keeps happening.",
+        );
+        setWebPreviewLoading(false);
+      })();
     }, 22000);
     return () => window.clearTimeout(tid);
-  }, [jeelizSourceStream]);
+  }, [jeelizSourceStream, skipFaceFilter]);
 
   useEffect(() => {
     if (!webNeedsCameraTap) void startWebCamera();
@@ -201,6 +252,7 @@ function BroadcastWeb() {
     setWebPreviewLoading(true);
     setCameraError(false);
     setLastLiveError(null);
+    setSkipFaceFilter(false);
     try {
       const raw = await acquireBroadcastMediaStream();
       rawStreamRef.current = raw;
@@ -234,6 +286,7 @@ function BroadcastWeb() {
       rawStreamRef.current = null;
     }
     setCameraStream(null);
+    setSkipFaceFilter(false);
   };
 
   const handleGoLive = async () => {
@@ -355,12 +408,16 @@ function BroadcastWeb() {
   return (
     <View style={styles.container}>
       <View style={styles.cameraArea}>
-        <FaceFilterWeb
-          ref={faceFilterRef}
-          sourceStream={jeelizSourceStream}
-          onOutputStream={onJeelizOutputStream}
-          onError={onJeelizError}
-        />
+        {skipFaceFilter && cameraStream ? (
+          <WebBroadcastCameraPreview stream={cameraStream} />
+        ) : (
+          <FaceFilterWeb
+            ref={faceFilterRef}
+            sourceStream={jeelizSourceStream}
+            onOutputStream={onJeelizOutputStream}
+            onError={onJeelizError}
+          />
+        )}
 
         {cameraError && (
           <View style={styles.cameraErrorOverlay}>
@@ -524,6 +581,7 @@ const styles = StyleSheet.create({
   nonWebBtnText: { color: "#000", fontSize: 16, fontWeight: "800" },
   container: { flex: 1, backgroundColor: "#000" },
   cameraArea: { flex: 1, backgroundColor: "#000", overflow: "hidden" },
+  cameraPreviewHost: { flex: 1, width: "100%", height: "100%", backgroundColor: "#000" },
   pwaCameraGate: {
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
