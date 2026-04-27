@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useLayoutEffect, useState } from "react";
 import {
   View,
   Text,
@@ -25,7 +25,13 @@ import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
 import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/layout";
-import { apiRequest, getApiUrl, readAuthToken, uploadUserMediaBlobToR2 } from "@/lib/query-client";
+import {
+  apiRequest,
+  compressImageBlobForUpload,
+  getApiUrl,
+  readAuthToken,
+  uploadUserMediaBlobToR2,
+} from "@/lib/query-client";
 import { AppLogo } from "@/components/AppLogo";
 import { MetallicLine } from "@/components/MetallicLine";
 import { CreatorPromoBanner } from "@/components/CreatorPromoBanner";
@@ -206,6 +212,11 @@ function usePwaInstallBanner() {
 
 export default function ProfileScreen() {
   const { width: windowWidth } = useWindowDimensions();
+  /** Avoid SSR vs client width mismatch (React hydration #418). */
+  const [layoutMetricsReady, setLayoutMetricsReady] = useState(false);
+  useLayoutEffect(() => {
+    setLayoutMetricsReady(true);
+  }, []);
   const insets = useSafeAreaInsets();
   const topInset = getTabTopInset(insets);
   const bottomInset = getTabBottomInset(insets);
@@ -297,7 +308,7 @@ export default function ProfileScreen() {
   const ticketBalance = ticketData?.balance ?? 0;
 
   const pwaBanner = usePwaInstallBanner();
-  const compactProfileHeader = windowWidth <= 390;
+  const compactProfileHeader = layoutMetricsReady && windowWidth <= 390;
 
   // Search state
   const [searchText, setSearchText] = useState("");
@@ -366,7 +377,7 @@ export default function ProfileScreen() {
       return await new Promise((resolve, reject) => {
         const input = document.createElement("input");
         input.type = "file";
-        input.accept = "image/jpeg,image/png,image/webp,image/gif";
+        input.accept = "image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif";
         input.oncancel = () => {
           input.remove();
           resolve(null);
@@ -379,9 +390,31 @@ export default function ProfileScreen() {
             return;
           }
           try {
-            const mime = file.type && /^image\/(jpeg|png|webp|gif)$/i.test(file.type) ? file.type : "image/jpeg";
-            const safeName = (file.name || `avatar_${Date.now()}.jpg`).replace(/[^\w.-]/g, "_");
-            resolve(await uploadAvatarBlob(file, safeName, mime));
+            let mime =
+              file.type && /^image\/(jpeg|png|webp|gif|heic|heif)$/i.test(file.type) ? file.type : "image/jpeg";
+            let safeName = (file.name || `avatar_${Date.now()}.jpg`).replace(/[^\w.-]/g, "_");
+            let body: Blob = file;
+            const looksHeic = /\.hei[cf]$/i.test(file.name) || /^image\/hei[cf]$/i.test(file.type);
+            const needsCoerce =
+              looksHeic ||
+              !file.type ||
+              !/^image\/(jpeg|png|webp|gif)$/i.test(file.type);
+            if (needsCoerce) {
+              if (typeof createImageBitmap === "function") {
+                try {
+                  const probe = await createImageBitmap(file);
+                  probe.close();
+                } catch {
+                  throw new Error(
+                    "Could not read this image in the browser. Try JPEG or PNG, or pick a different photo.",
+                  );
+                }
+              }
+              body = await compressImageBlobForUpload(file, looksHeic || /^image\/hei/.test(file.type) ? "image/jpeg" : mime);
+              mime = "image/jpeg";
+              safeName = safeName.replace(/\.[^.]+$/, "") + ".jpg";
+            }
+            resolve(await uploadAvatarBlob(body, safeName, mime));
           } catch (err) {
             reject(err);
           } finally {
@@ -654,6 +687,7 @@ export default function ProfileScreen() {
             >
               {(user?.avatar ?? user?.profileImageUrl) ? (
                 <Image
+                  key={user.avatar ?? user.profileImageUrl ?? ""}
                   source={{ uri: (user.avatar ?? user.profileImageUrl) ?? "" }}
                   style={styles.avatar}
                   contentFit="cover"

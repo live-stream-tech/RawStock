@@ -242,7 +242,8 @@ async function readImageBitmapFromBlob(blob: Blob): Promise<ImageBitmap> {
   });
 }
 
-async function compressImageBlobForUpload(blob: Blob, contentType: string): Promise<Blob> {
+/** Resize / re-encode toward JPEG for reliable `POST /api/upload-file` (HEIC, odd MIME, etc.). */
+export async function compressImageBlobForUpload(blob: Blob, contentType: string): Promise<Blob> {
   if (typeof document === "undefined" || typeof OffscreenCanvas === "undefined") {
     return blob;
   }

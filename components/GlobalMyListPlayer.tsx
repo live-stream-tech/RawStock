@@ -19,6 +19,7 @@ export function GlobalMyListPlayer() {
   const youtubePlayerRef = useRef<any | null>(null);
   const containerIdRef = useRef<string>(`global-ml-${Math.random().toString(36).slice(2)}`).current;
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const videoHostRef = useRef<View | null>(null);
 
   const isOnVideoPage = pathname?.match(/\/video\/(\d+)/) != null;
   const match = pathname?.match(/\/video\/(\d+)/);
@@ -115,23 +116,44 @@ export function GlobalMyListPlayer() {
     };
   }, [playing?.youtubeId, containerIdRef]);
 
-  // HTML5 video（videoUrl）
+  // HTML5 video (imperative DOM — avoids hydration #418 from raw `<video>` in RN web tree)
   useEffect(() => {
     if (Platform.OS !== "web" || !playing?.videoUrl) return;
-    const el = document.getElementById(`ml-video-${containerIdRef}`) as HTMLVideoElement | null;
-    if (el) {
-      videoRef.current = el;
-      el.src = playing.videoUrl;
-      el.play().catch(() => {});
-    }
+    const host = videoHostRef.current as unknown as HTMLDivElement | null;
+    if (!host) return;
+    const v = document.createElement("video");
+    v.playsInline = true;
+    v.setAttribute("playsinline", "true");
+    v.muted = false;
+    v.src = playing.videoUrl;
+    const hiddenCss = "position:absolute;left:-9999px;width:1px;height:1px;opacity:0;display:block;";
+    const fullCss = "width:100%;height:100%;object-fit:contain;display:block;";
+    v.style.cssText = isCurrentVideo ? fullCss : hiddenCss;
+    v.controls = Boolean(isCurrentVideo);
+    host.appendChild(v);
+    videoRef.current = v;
+    void v.play().catch(() => undefined);
     return () => {
-      if (videoRef.current) {
-        videoRef.current.pause();
-        videoRef.current.src = "";
-        videoRef.current = null;
+      try {
+        v.pause();
+        v.src = "";
+        v.remove();
+      } catch {
+        /* ignore */
       }
+      videoRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fullscreen vs mini-bar is synced below; avoid tearing down `<video>` on every route toggle.
   }, [playing?.videoUrl, containerIdRef]);
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (Platform.OS !== "web" || !v || !playing?.videoUrl) return;
+    const hiddenCss = "position:absolute;left:-9999px;width:1px;height:1px;opacity:0;display:block;";
+    const fullCss = "width:100%;height:100%;object-fit:contain;display:block;";
+    v.style.cssText = isCurrentVideo ? fullCss : hiddenCss;
+    v.controls = Boolean(isCurrentVideo);
+  }, [isCurrentVideo, playing?.videoUrl]);
 
   if (!playing) return null;
   if (!playing.youtubeId && !playing.videoUrl) return null;
@@ -155,14 +177,7 @@ export function GlobalMyListPlayer() {
           <View style={styles.ytWrap} nativeID={containerIdRef} />
         ) : null}
         {Platform.OS === "web" && playing.videoUrl ? (
-          <video
-            id={`ml-video-${containerIdRef}`}
-            src={playing.videoUrl}
-            style={isCurrentVideo ? styles.fullVideoEl : styles.hiddenVideo}
-            playsInline
-            muted={false}
-            controls={isCurrentVideo ?? false}
-          />
+          <View ref={videoHostRef} style={{ width: "100%", height: "100%" }} collapsable={false} />
         ) : null}
       </View>
 
@@ -263,8 +278,6 @@ const styles = StyleSheet.create({
     opacity: 0,
   },
   ytWrap: { width: "100%", height: "100%" },
-  hiddenVideo: { position: "absolute", left: -9999, width: 1, height: 1, opacity: 0 },
-  fullVideoEl: { width: "100%", height: "100%", objectFit: "contain" },
   fullOverlay: {
     position: "absolute",
     backgroundColor: "rgba(0,0,0,0.5)",
