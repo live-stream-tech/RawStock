@@ -163,6 +163,11 @@
   .font-mono-body {
     font-family: 'Courier Prime', monospace;
   }
+  /* Long-form Japanese (hero lead, etc.) — avoid monospace for readability */
+  .font-prose-ja {
+    font-family: "Noto Sans JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", sans-serif;
+    font-weight: 400;
+  }
   .font-bebas {
     font-family: 'Bebas Neue', sans-serif;
     letter-spacing: 0.05em;

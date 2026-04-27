@@ -32,11 +32,13 @@ a{text-decoration:none;color:inherit}
 .hero-in{position:relative;z-index:3}
 .badge{display:inline-flex;gap:8px;align-items:center;border:1px solid rgba(255,77,0,.6);padding:6px 12px;font:700 11px/1 "Courier Prime",monospace;color:var(--orange);letter-spacing:.12em;text-transform:uppercase}
 .badge-dot{width:7px;height:7px;border-radius:50%;background:var(--orange)}
-.hero-kicker{margin:18px 0 8px;color:rgba(232,228,220,.58);font:700 clamp(16px,2.2vw,24px)/1.2 "Barlow Condensed",sans-serif;letter-spacing:.01em}
-.hero-main{margin:0 0 8px;color:var(--neon);text-shadow:0 0 24px rgba(0,255,204,.45);font:800 clamp(52px,8.8vw,118px)/1.01 "Barlow Condensed",sans-serif;letter-spacing:-.02em}
+.hero-main{margin:18px 0 8px;color:var(--neon);text-shadow:0 0 24px rgba(0,255,204,.45);font:800 clamp(36px,7.2vw,96px)/1.06 "Barlow Condensed",sans-serif;letter-spacing:-.02em}
 .hero-subtitle{margin:0 0 18px;color:#fff;font:700 clamp(24px,3.6vw,44px)/1.12 "Barlow Condensed",sans-serif;letter-spacing:-.01em}
-.lead{max-width:860px;border-left:2px solid var(--neon);padding-left:16px;color:var(--muted);font-size:15px;line-height:1.9}
-.sub{margin-top:14px;color:var(--text);font-size:15px;line-height:1.9}
+.lead{max-width:860px;border-left:2px solid var(--neon);padding-left:20px}
+@media (min-width:768px){.lead{padding-left:24px}}
+.lead>p:first-of-type{color:rgba(232,228,220,.92);font-size:clamp(18px,1.45vw,21px);line-height:1.88;font-weight:500;margin:0 0 1.35em}
+.lead>p+p{color:rgba(232,228,220,.82);font-size:clamp(16px,1.15vw,18px);line-height:1.92;margin:0}
+.sub{margin-top:16px;color:var(--text);font-size:16px;line-height:1.9}
 .cta{margin-top:24px;display:flex;gap:12px;flex-wrap:wrap}
 .cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
 .card{background:var(--card);border:1px solid var(--line);padding:24px}
@@ -97,13 +99,11 @@ a{text-decoration:none;color:inherit}
 <section class="hero scanline-overlay">
   <div class="wrap hero-in">
     <div class="badge"><span class="badge-dot"></span>国産ライブプラットフォーム</div>
-    <p class="hero-kicker">脱中央集権。</p>
-    <h1 class="hero-main">価値を生む人へ90%還元。</h1>
+    <h1 class="hero-main">脱中央集権。価値を生む人へ90%還元。</h1>
     <p class="hero-subtitle">国産プラットフォーム RawStock</p>
     <div class="lead">
-      「子育てをしながらなんて、甘い。全てを注ぎ込めないなら無理だ」 あの日、溝口さんにそう言われて、私の挑戦は終わるはずでした。<br>
-      私は「NexTV」という構想を掲げ、「REAL CAREER」の門を叩きました。結果は「最初に敗退」。子育てをしながらの挑戦は「遊び」だと揶揄され、プロの世界の厳しさを突きつけられました。<br>
-      でも、どうしても諦めきれない想いがあり、一人ClaudeCodeと向き合い、最低限の機能が動くところまで来ました。でも、一人で考えた仕様には限界があります。本物の「現場の武器」にするためには、私一人の力では足りません。
+      <p>「子育てをしながらなんて、甘い。全てを注ぎ込めないなら無理だ」 あの日、溝口さんにそう言われて、私の挑戦は終わるはずでした。</p>
+      <p>私は「NexTV」という構想を掲げ、「REAL CAREER」の門を叩きました。結果は「最初に敗退」。子育てをしながらの挑戦は「遊び」だと揶揄され、プロの世界の厳しさを突きつけられました。<br><br>でも、どうしても諦めきれない想いがあり、一人ClaudeCodeと向き合い、最低限の機能が動くところまで来ました。でも、一人で考えた仕様には限界があります。本物の「現場の武器」にするためには、私一人の力では足りません。</p>
     </div>
     <p class="sub">本当は自分が前に出たい訳ではない。でも想いに共感するあなたの目線で、このプロダクトを一緒に叩き直してください。</p>
     <div class="cta reveal">

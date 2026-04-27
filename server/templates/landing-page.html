@@ -57,7 +57,25 @@
     html[lang="ja"] h3 { font-family: "Noto Sans JP", sans-serif; letter-spacing: 0.02em; }
     html[lang="ja"] .btn { letter-spacing: 0.04em; text-transform: none; font-family: "Noto Sans JP", sans-serif; }
     html[lang="ja"] nav a { letter-spacing: 0; text-transform: none; font-size: 13px; }
-    html[lang="ja"] .hero-sub { font-size: 16px; }
+    html[lang="ja"] .hero-sub {
+      font-size: 16px;
+      max-width: 42rem;
+      line-height: 1.75;
+    }
+    html[lang="ja"] .hero-sub-ja-lead {
+      display: block;
+      font-size: clamp(18px, 2.2vw, 22px);
+      line-height: 1.85;
+      font-weight: 500;
+      color: var(--text);
+      margin-bottom: 1.2em;
+    }
+    html[lang="ja"] .hero-sub-ja-body {
+      display: block;
+      font-size: clamp(16px, 1.6vw, 18px);
+      line-height: 1.92;
+      color: rgba(242, 242, 242, 0.82);
+    }
     html[lang="ja"] .feature-label { text-transform: none; letter-spacing: 0; }
     html[lang="ja"] .step-title { text-transform: none; letter-spacing: 0; }
     html[lang="ja"] .stat-label { text-transform: none; letter-spacing: 0; font-size: 12px; }
@@ -905,7 +923,7 @@
       </h1>
       <p class="hero-sub">
         <span class="only-en">You already have the footage. Upload it once, share it with fans anywhere, and grow your next show through community and live streaming.</span>
-        <span class="only-ja">「子育てをしながらなんて、甘い。全てを注ぎ込めないなら無理だ」 あの日、溝口さんにそう言われて、私の挑戦は終わるはずでした。私は「NexTV」という構想を掲げ、「REAL CAREER」の門を叩きました。結果は「最初に敗退」。子育てをしながらの挑戦は「遊び」だと揶揄され、プロの世界の厳しさを突きつけられました。<br><br>でも、どうしても諦めきれない想いがあり、一人ClaudeCodeと向き合い、最低限の機能が動くところまで来ました。でも、一人で考えた仕様には限界があります。本物の「現場の武器」にするためには、私一人の力では足りません。</span>
+        <span class="only-ja"><span class="hero-sub-ja-lead">「子育てをしながらなんて、甘い。全てを注ぎ込めないなら無理だ」 あの日、溝口さんにそう言われて、私の挑戦は終わるはずでした。</span><span class="hero-sub-ja-body">私は「NexTV」という構想を掲げ、「REAL CAREER」の門を叩きました。結果は「最初に敗退」。子育てをしながらの挑戦は「遊び」だと揶揄され、プロの世界の厳しさを突きつけられました。<br><br>でも、どうしても諦めきれない想いがあり、一人ClaudeCodeと向き合い、最低限の機能が動くところまで来ました。でも、一人で考えた仕様には限界があります。本物の「現場の武器」にするためには、私一人の力では足りません。</span></span>
       </p>
       <div class="hero-cta-row">
         <a href="/auth/login" class="btn btn-primary"><span class="only-en">Create free account</span><span class="only-ja">無料でアカウント作成</span></a>

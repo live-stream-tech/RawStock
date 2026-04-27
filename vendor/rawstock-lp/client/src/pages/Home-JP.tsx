@@ -59,6 +59,8 @@ export default function HomeJP() {
           </div>
           <div className="hidden md:flex items-center gap-8 ml-auto">
             <a href="#ecosystem" className="font-mono-body text-xs text-white/60 hover:text-neon transition-colors tracking-widest uppercase">仕組み</a>
+            <a href="#structure" className="font-mono-body text-xs text-white/60 hover:text-neon transition-colors tracking-widest uppercase">構成</a>
+            <a href="#promise" className="font-mono-body text-xs text-white/60 hover:text-neon transition-colors tracking-widest uppercase">3つの約束</a>
             <a href="#revenue" className="font-mono-body text-xs text-white/60 hover:text-neon transition-colors tracking-widest uppercase">収益分配</a>
             <a
               href={LP_LINK_X}
@@ -97,6 +99,8 @@ export default function HomeJP() {
         {menuOpen && (
           <div className="md:hidden border-t border-white/10 bg-black/95">
             <a href="#ecosystem" className="block px-4 py-2 text-white/60 hover:text-neon">仕組み</a>
+            <a href="#structure" className="block px-4 py-2 text-white/60 hover:text-neon">構成</a>
+            <a href="#promise" className="block px-4 py-2 text-white/60 hover:text-neon">3つの約束</a>
             <a href="#revenue" className="block px-4 py-2 text-white/60 hover:text-neon">収益分配</a>
             <a href={LP_LINK_X} target="_blank" rel="noopener noreferrer" className="block px-4 py-2 text-white/60 hover:text-neon">
               X
@@ -123,35 +127,29 @@ export default function HomeJP() {
           </div>
 
           {/* Main headline (aligned with rawstock.live marketing LP) */}
-          <h1 className="font-display leading-none mb-10">
-            <span className="block text-2xl md:text-3xl text-white/75 mb-3 tracking-wide">
-              脱中央集権。
+          <h1 className="font-display mb-10">
+            <span className="block text-5xl md:text-6xl lg:text-7xl text-neon neon-glow leading-[1.08] tracking-tight">
+              脱中央集権。価値を生む人へ90%還元。
             </span>
-            <span className="block text-5xl md:text-6xl lg:text-7xl text-neon neon-glow">
-              価値を生む人へ90%還元。
-            </span>
-            <span className="block text-2xl md:text-3xl lg:text-4xl text-white mt-4">
+            <span className="block text-2xl md:text-3xl lg:text-4xl text-white mt-4 leading-tight">
               国産プラットフォーム RawStock
             </span>
           </h1>
 
-          {/* Subheadline */}
+          {/* Subheadline — sans-serif + size/line-height tuned for long JP copy */}
           <div className="max-w-2xl mb-12">
-            <div className="border-l-2 border-neon pl-4">
-              <p className="font-mono-body text-sm text-white/70 leading-relaxed">
+            <div className="border-l-2 border-neon pl-5 md:pl-6">
+              <p className="font-prose-ja text-lg md:text-xl text-white/90 leading-[1.85] tracking-normal mb-7 font-medium">
                 「子育てをしながらなんて、甘い。全てを注ぎ込めないなら無理だ」 あの日、溝口さんにそう言われて、私の挑戦は終わるはずでした。
-                <br />
-                <br />
+              </p>
+              <p className="font-prose-ja text-base md:text-lg text-white/80 leading-[1.9] tracking-normal">
                 私は「NexTV」という構想を掲げ、「REAL CAREER」の門を叩きました。結果は「最初に敗退」。子育てをしながらの挑戦は「遊び」だと揶揄され、プロの世界の厳しさを突きつけられました。
                 <br />
                 <br />
                 でも、どうしても諦めきれない想いがあり、一人ClaudeCodeと向き合い、最低限の機能が動くところまで来ました。でも、一人で考えた仕様には限界があります。本物の「現場の武器」にするためには、私一人の力では足りません。
               </p>
-              <p className="font-mono-body text-sm text-white/80 leading-relaxed mt-6">
+              <p className="font-prose-ja text-base md:text-lg text-white/85 leading-[1.9] tracking-normal mt-7">
                 本当は自分が前に出たい訳ではない。でも想いに共感するあなたの目線で、このプロダクトを一緒に叩き直してください。
-              </p>
-              <p className="font-mono-body text-sm text-white/60 leading-relaxed mt-6">
-                生成AIで誰でも大量のコンテンツを作れる時代だから、AIには絶対に量産できない「生の熱量」にこそ本当の価値があると考えています。現場の空気感、叫び、胸が熱くなる瞬間——それをRawのまま切り取りストックし、いつか世界に届ける。まずはロンドン、日本から。そんな場所を、今、作っています。
               </p>
             </div>
           </div>
@@ -224,7 +222,7 @@ export default function HomeJP() {
             </h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-12">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {[
               { num: "01", title: "現場でスマホ撮影", desc: "その場の生の熱気と一瞬を切り取る" },
               { num: "02", title: "編集者に依頼", desc: "登録編集者に直接オーダー可能" },
@@ -238,11 +236,123 @@ export default function HomeJP() {
               </div>
             ))}
           </div>
+        </div>
+      </section>
 
-          <div className="border-t border-white/10 pt-12">
-            <p className="font-display text-2xl text-center mb-4">
-              <span className="text-white">資産がぐるぐる回り続ける</span><br />
-              <span className="text-neon neon-glow">循環型モデル</span>
+      {/* ── CURRENT STRUCTURE + 3 PROMISES（lp-standalone と同系のコピー） ── */}
+      <section
+        id="structure"
+        className="relative py-20 overflow-hidden"
+        style={{
+          backgroundImage: `url(https://d2xsxph8kpxj0f.cloudfront.net/310519663449879480/Y3Yn5f8wK9BzVPCXiSHai5/ecosystem-bg-MkdKoSdKc7CcaezdC4tTWA.webp)`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+        }}
+      >
+        <div className="absolute inset-0 bg-black/86" />
+        <div className="relative z-10 max-w-6xl mx-auto px-4">
+          <div className="flex items-end gap-4 mb-4">
+            <p className="font-mono-body text-sm text-hot-orange tracking-widest uppercase">Current Structure</p>
+            <div className="flex-1 h-px bg-white/10" />
+          </div>
+          <h2 className="font-display text-4xl md:text-5xl text-white mb-3">今構成はこうなっています</h2>
+          <p className="font-prose-ja text-base text-white/75 mb-12 max-w-3xl leading-relaxed">
+            足りない部分、危ない仕様、運用で詰まる点を、現場目線で教えてください。
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-24">
+            {[
+              {
+                num: "01",
+                title: "公式ステーション × コミュニティ",
+                body: (
+                  <>
+                    公式ステーションをHUBにして各コミュニティを作成できます。
+                    <br />
+                    コミュニティの管理者はそのコミュニティで生まれた収益を得ることができます。
+                    <br />
+                    イベント告知等掲示板、動画のアップロード（無料/有料）、好きな動画を同時視聴できるJUKEBOX
+                  </>
+                ),
+              },
+              {
+                num: "02",
+                title: "クリエイター・アーティスト",
+                body: (
+                  <>
+                    クリエイター・アーティストは幅広いマネタイズポイントがあります。
+                    <br />
+                    全て90％還元します。有料のライブセッション、投げ銭、有料動画販売。
+                    <br />
+                    Stripe Connect 搭載で投稿者は複数名に分配を直接分けることも可能です。
+                  </>
+                ),
+              },
+              {
+                num: "03",
+                title: "動画編集者",
+                body: (
+                  <>
+                    動画編集者としての登録もお待ちしています。
+                    <br />
+                    自分で編集できないことがハードルになっている人のために、編集者と繋ぐことでより多くのアーティストが作品を公開できる仕組みを作ります。
+                    <br />
+                    レベニューシェアか単価か編集者側で設定できます。
+                  </>
+                ),
+              },
+            ].map((card) => (
+              <div
+                key={card.num}
+                className="border border-white/10 bg-black/40 p-6 hover:border-neon/40 transition-colors"
+              >
+                <div className="inline-block bg-hot-orange text-black font-display text-xs font-bold px-2 py-1 mb-4">
+                  {card.num}
+                </div>
+                <h3 className="font-display text-xl text-white mb-3">{card.title}</h3>
+                <p className="font-prose-ja text-sm md:text-base text-white/80 leading-relaxed">{card.body}</p>
+              </div>
+            ))}
+          </div>
+
+          <div id="promise" className="scroll-mt-24">
+            <div className="flex items-end gap-4 mb-4">
+              <p className="font-mono-body text-sm text-hot-orange tracking-widest uppercase">3 Promises</p>
+              <div className="flex-1 h-px bg-white/10" />
+            </div>
+            <h2 className="font-display text-3xl md:text-4xl text-white mb-4">
+              RawStockが死守する<span className="text-neon neon-glow">「3つの約束」</span>
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
+              {[
+                {
+                  n: "1",
+                  title: "脱中央集権",
+                  desc: "ひとつのフィード、ひとつの運営者に現場の未来を預けない。",
+                },
+                {
+                  n: "2",
+                  title: "国内循環",
+                  desc: "日本のファンが払ったお金を、そのまま日本の現場へ戻す。",
+                },
+                {
+                  n: "3",
+                  title: "90%還元",
+                  desc: "価値を生む人へ直接届ける。",
+                },
+              ].map((row) => (
+                <div
+                  key={row.n}
+                  className="border border-neon/25 bg-neon/5 p-6 hover:border-neon/50 transition-colors"
+                >
+                  <h4 className="font-display text-2xl text-neon mb-2">
+                    {row.n}. {row.title}
+                  </h4>
+                  <p className="font-prose-ja text-sm text-white/85 leading-relaxed">{row.desc}</p>
+                </div>
+              ))}
+            </div>
+            <p className="font-prose-ja text-base md:text-lg text-white/90 leading-relaxed max-w-3xl">
+              想いに共感してくれる、エンジニア、アーティスト、動画クリエイター、コミュニティ管理者、ライバーと一緒に作り上げませんか？
             </p>
           </div>
         </div>
