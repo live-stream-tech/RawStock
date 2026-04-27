@@ -32,14 +32,6 @@ type StationRow = {
   category?: string;
 };
 
-type CommunityRow = {
-  id: number;
-  name: string;
-  category?: string | null;
-  thumbnail?: string | null;
-  members?: number;
-};
-
 function formatNum(n: number): string {
   if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
   if (n >= 1000) return (n / 1000).toFixed(1) + "K";
@@ -116,54 +108,11 @@ export default function CommunityScreen() {
       return (await res.json()) as any[];
     },
   });
-  const { data: communities = [] } = useQuery<CommunityRow[]>({
-    queryKey: ["/api/communities"],
-  });
 
   const stationRows = useMemo(
     () => [...stations].sort((a, b) => (b.members ?? 0) - (a.members ?? 0)),
     [stations],
   );
-  const topStations = useMemo(() => stationRows.slice(0, 10), [stationRows]);
-  const stationCommunityMap = useMemo(() => {
-    const normalize = (v: string) => v.trim().toLowerCase();
-    const m = new Map<number, CommunityRow[]>();
-    const usedCommunityIds = new Set<number>();
-    for (const s of topStations) {
-      const cat = normalize(String(s.category ?? ""));
-      const matchedAll = communities
-        .filter((c) => {
-          const ccat = normalize(String(c.category ?? ""));
-          if (!cat || !ccat) return false;
-          if (ccat.includes(cat)) return true;
-          if (/hip|rap|trap/.test(cat)) return /hip-?hop|rap|trap/i.test(ccat);
-          if (/reggae|dub/.test(cat)) return /reggae|dub|dancehall/i.test(ccat);
-          if (/rnb|neo|soul/.test(cat)) return /r&b|neo soul|soul|rnb/i.test(ccat);
-          if (/punk|hardcore/.test(cat)) return /punk|hardcore|emo/i.test(ccat);
-          if (/metal|loud/.test(cat)) return /metal|heavy|loud|hard rock/i.test(ccat);
-          if (/classical/.test(cat)) return /classical|orchestra|instrumental|piano/i.test(ccat);
-          if (cat === "edm") return /edm|electronic|house|techno|dance|dnb|drum/i.test(ccat);
-          if (cat === "indie") return /indie|alternative/i.test(ccat);
-          if (cat === "hiphop") return /hip-?hop|rap|trap/i.test(ccat);
-          if (cat === "rnb") return /r&b|neo soul|soul/i.test(ccat);
-          return false;
-        })
-        .sort((a, b) => Number(b.members ?? 0) - Number(a.members ?? 0));
-      const matched = matchedAll.filter((c) => !usedCommunityIds.has(c.id)).slice(0, 6);
-      // Fallback: if category match is thin, fill from any unused community.
-      const fallback =
-        matched.length < 6
-          ? communities
-              .filter((c) => !usedCommunityIds.has(c.id) && !matched.some((x) => x.id === c.id))
-              .sort((a, b) => Number(b.members ?? 0) - Number(a.members ?? 0))
-              .slice(0, 6 - matched.length)
-          : [];
-      const finalRows = [...matched, ...fallback];
-      finalRows.forEach((c) => usedCommunityIds.add(c.id));
-      m.set(s.id, finalRows);
-    }
-    return m;
-  }, [topStations, communities]);
 
   const { data: rankedApiVideos = [], isLoading: rankedLoading } = useQuery<any[]>({
     queryKey: ["/api/videos/ranked"],
@@ -177,9 +126,7 @@ export default function CommunityScreen() {
   const AD_BASE_H = 90;
   const adHorizontalPadding = 32; // section margin (16 * 2)
   const adAvailableWidth = Math.max(0, windowWidth - adHorizontalPadding);
-  const adScale = Math.min(1, adAvailableWidth / AD_BASE_W);
-  const adBoxWidth = Math.round(AD_BASE_W * adScale);
-  const adBoxHeight = Math.round(AD_BASE_H * adScale);
+  const adBoxHeight = Math.round(adAvailableWidth * (AD_BASE_H / AD_BASE_W));
   const sortedRankingVideos = useMemo(() => {
     const arr = [...purchaseData];
     const ts = (v: any) => (v.createdAt ? new Date(v.createdAt).getTime() : 0);
@@ -227,16 +174,9 @@ export default function CommunityScreen() {
               onPress={() => {
                 void Linking.openURL(TEMP_BANNER_TARGET_URL);
               }}
-              style={[
-                styles.adBannerFixedFrame,
-                {
-                  width: AD_BASE_W,
-                  height: AD_BASE_H,
-                  transform: [{ scale: adScale }],
-                },
-              ]}
+              style={[styles.adBannerFixedFrame, { width: adAvailableWidth, height: adBoxHeight }]}
             >
-              <Image source={{ uri: TEMP_BANNER_IMAGE_PATH }} style={styles.adBannerImage} contentFit="cover" />
+              <Image source={{ uri: TEMP_BANNER_IMAGE_PATH }} style={styles.adBannerImage} contentFit="contain" />
             </Pressable>
           </View>
 
@@ -256,51 +196,6 @@ export default function CommunityScreen() {
                 <Text style={styles.stationPitchSub}>Run a community — keep the upside.</Text>
               </View>
             </View>
-          </View>
-
-          <View style={styles.stationsListWrap}>
-            <Text style={styles.stationsListTitle}>Top 10 Stations</Text>
-            {topStations.map((s, idx) => {
-              const linked = stationCommunityMap.get(s.id) ?? [];
-              return (
-                <View key={s.id} style={styles.stationListCard}>
-                  <Pressable
-                    style={styles.stationListRow}
-                    onPress={() => router.push(`/station/${s.id}` as any)}
-                  >
-                    <View style={styles.stationListRank}>
-                      <Text style={styles.stationListRankText}>{idx + 1}</Text>
-                    </View>
-                    <Image source={{ uri: s.thumbnail }} style={styles.stationListThumb} contentFit="cover" />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.stationListName} numberOfLines={1}>{s.name}</Text>
-                      <Text style={styles.stationListMeta}>{formatNum(s.members)} members</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
-                  </Pressable>
-
-                  <View style={styles.stationCommunityWrap}>
-                    <Text style={styles.stationCommunityTitle}>Communities</Text>
-                    {linked.length === 0 ? (
-                      <Text style={styles.stationCommunityEmpty}>No linked communities yet</Text>
-                    ) : (
-                      <HorizontalScroll contentContainerStyle={styles.stationCommunityRow} showArrows={false}>
-                        {linked.map((c) => (
-                          <Pressable key={c.id} style={styles.stationCommunityChip} onPress={() => router.push(`/community/${c.id}`)}>
-                            <Image
-                              source={{ uri: c.thumbnail || "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=128&h=128&fit=crop" }}
-                              style={styles.stationCommunityThumb}
-                              contentFit="cover"
-                            />
-                            <Text style={styles.stationCommunityName} numberOfLines={1}>{c.name}</Text>
-                          </Pressable>
-                        ))}
-                      </HorizontalScroll>
-                    )}
-                  </View>
-                </View>
-              );
-            })}
           </View>
 
           <View style={styles.tabSwitchRow}>
@@ -479,92 +374,6 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.06)",
   },
   stationLinkText: { color: C.textSec, fontSize: 12, fontWeight: "600" },
-  stationsListWrap: {
-    marginHorizontal: 16,
-    marginBottom: 12,
-    gap: 10,
-  },
-  stationsListTitle: {
-    color: C.text,
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  stationListCard: {
-    borderWidth: 1,
-    borderColor: C.border,
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderRadius: 12,
-    padding: 10,
-    gap: 8,
-  },
-  stationListRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  stationListRank: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: C.accent + "22",
-  },
-  stationListRankText: {
-    color: C.accent,
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  stationListThumb: {
-    width: 34,
-    height: 34,
-    borderRadius: 6,
-  },
-  stationListName: {
-    color: C.text,
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  stationListMeta: {
-    color: C.textMuted,
-    fontSize: 11,
-    marginTop: 2,
-  },
-  stationCommunityWrap: {
-    gap: 6,
-  },
-  stationCommunityTitle: {
-    color: C.textSec,
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  stationCommunityEmpty: {
-    color: C.textMuted,
-    fontSize: 11,
-  },
-  stationCommunityRow: {
-    gap: 8,
-  },
-  stationCommunityChip: {
-    minWidth: 110,
-    maxWidth: 130,
-    borderRadius: 10,
-    backgroundColor: C.surface,
-    borderWidth: 1,
-    borderColor: C.border,
-    padding: 6,
-    gap: 6,
-  },
-  stationCommunityThumb: {
-    width: "100%",
-    height: 54,
-    borderRadius: 6,
-  },
-  stationCommunityName: {
-    color: C.text,
-    fontSize: 11,
-    fontWeight: "700",
-  },
   tabSwitchRow: {
     flexDirection: "row",
     gap: 8,

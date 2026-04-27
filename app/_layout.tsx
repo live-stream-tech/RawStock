@@ -111,7 +111,6 @@ function isPublicPath(rawPathname: string): boolean {
   if (/^\/community\/\d+$/.test(pathname)) return true;
   if (/^\/community\/members\/\d+$/.test(pathname)) return true;
   if (/^\/community\/genre\/[^/]+$/.test(pathname)) return true;
-  if (/^\/station\/\d+$/.test(pathname)) return true;
 
   if (/^\/user\/\d+$/.test(pathname)) return true;
   if (/^\/user\/\d+\/(followers|following)$/.test(pathname)) return true;
@@ -219,7 +218,6 @@ function RootLayoutNav() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="community/[id]" options={{ headerShown: false }} />
-      <Stack.Screen name="station/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="community/members/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="livers/index" options={{ headerShown: false }} />
       <Stack.Screen name="livers/[id]" options={{ headerShown: false }} />
