@@ -22,7 +22,6 @@ import { AppLogo } from "@/components/AppLogo";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { useQuery } from "@tanstack/react-query";
 import { TEMP_BANNER_IMAGE_PATH, TEMP_BANNER_TARGET_URL } from "@/constants/bannerLinks";
-import { alertMessage } from "@/lib/alertCompat";
 
 type StationRow = {
   id: number;
@@ -261,14 +260,7 @@ export default function CommunityScreen() {
                 <View key={s.id} style={styles.stationListCard}>
                   <Pressable
                     style={styles.stationListRow}
-                    onPress={() => {
-                      const firstCommunityId = linked[0]?.id;
-                      if (firstCommunityId) {
-                        router.push(`/community/${firstCommunityId}` as any);
-                        return;
-                      }
-                      alertMessage("No community yet", "This station does not have a linked community yet.");
-                    }}
+                    onPress={() => router.push(`/station/${s.id}` as any)}
                   >
                     <View style={styles.stationListRank}>
                       <Text style={styles.stationListRankText}>{idx + 1}</Text>

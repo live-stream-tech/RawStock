@@ -218,6 +218,7 @@ function RootLayoutNav() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="community/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="station/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="community/members/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="livers/index" options={{ headerShown: false }} />
       <Stack.Screen name="livers/[id]" options={{ headerShown: false }} />
