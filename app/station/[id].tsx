@@ -31,6 +31,12 @@ function matchesStationCategory(stationCategory: string, communityCategory: stri
   const cc = communityCategory.trim().toLowerCase();
   if (!sc || !cc) return false;
   if (cc.includes(sc)) return true;
+  if (/hip|rap|trap/.test(sc)) return /hip-?hop|rap|trap/i.test(cc);
+  if (/reggae|dub/.test(sc)) return /reggae|dub|dancehall/i.test(cc);
+  if (/rnb|neo|soul/.test(sc)) return /r&b|neo soul|soul|rnb/i.test(cc);
+  if (/punk|hardcore/.test(sc)) return /punk|hardcore|emo/i.test(cc);
+  if (/metal|loud/.test(sc)) return /metal|heavy|loud|hard rock/i.test(cc);
+  if (/classical/.test(sc)) return /classical|orchestra|instrumental|piano/i.test(cc);
   if (sc === "edm") return /edm|electronic|house|techno|dance|dnb|drum/i.test(cc);
   if (sc === "indie") return /indie|alternative/i.test(cc);
   if (sc === "hiphop") return /hip-?hop|rap|trap/i.test(cc);
@@ -54,9 +60,14 @@ export default function StationDetailScreen() {
   const station = useMemo(() => stations.find((s) => s.id === stationId) ?? null, [stations, stationId]);
   const linkedCommunities = useMemo(() => {
     if (!station) return [];
-    return communities
+    const matched = communities
       .filter((c) => matchesStationCategory(station.category ?? "", String(c.category ?? "")))
       .sort((a, b) => Number(b.members ?? 0) - Number(a.members ?? 0));
+    if (matched.length > 0) return matched;
+    // Fallback so station pages are never dead-end.
+    return [...communities]
+      .sort((a, b) => Number(b.members ?? 0) - Number(a.members ?? 0))
+      .slice(0, 12);
   }, [station, communities]);
 
   if (!station) {

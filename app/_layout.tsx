@@ -111,6 +111,7 @@ function isPublicPath(rawPathname: string): boolean {
   if (/^\/community\/\d+$/.test(pathname)) return true;
   if (/^\/community\/members\/\d+$/.test(pathname)) return true;
   if (/^\/community\/genre\/[^/]+$/.test(pathname)) return true;
+  if (/^\/station\/\d+$/.test(pathname)) return true;
 
   if (/^\/user\/\d+$/.test(pathname)) return true;
   if (/^\/user\/\d+\/(followers|following)$/.test(pathname)) return true;

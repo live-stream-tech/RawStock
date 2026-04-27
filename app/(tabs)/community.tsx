@@ -136,6 +136,12 @@ export default function CommunityScreen() {
           const ccat = normalize(String(c.category ?? ""));
           if (!cat || !ccat) return false;
           if (ccat.includes(cat)) return true;
+          if (/hip|rap|trap/.test(cat)) return /hip-?hop|rap|trap/i.test(ccat);
+          if (/reggae|dub/.test(cat)) return /reggae|dub|dancehall/i.test(ccat);
+          if (/rnb|neo|soul/.test(cat)) return /r&b|neo soul|soul|rnb/i.test(ccat);
+          if (/punk|hardcore/.test(cat)) return /punk|hardcore|emo/i.test(ccat);
+          if (/metal|loud/.test(cat)) return /metal|heavy|loud|hard rock/i.test(ccat);
+          if (/classical/.test(cat)) return /classical|orchestra|instrumental|piano/i.test(ccat);
           if (cat === "edm") return /edm|electronic|house|techno|dance|dnb|drum/i.test(ccat);
           if (cat === "indie") return /indie|alternative/i.test(ccat);
           if (cat === "hiphop") return /hip-?hop|rap|trap/i.test(ccat);
