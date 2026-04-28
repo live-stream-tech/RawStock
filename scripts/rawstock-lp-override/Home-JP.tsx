@@ -149,7 +149,7 @@ export default function HomeJP() {
                 でも、どうしても諦めきれない想いがあり、一人ClaudeCodeと向き合い、最低限の機能が動くところまで来ました。でも、一人で考えた仕様には限界があります。本物の「現場の武器」にするためには、私一人の力では足りません。
               </p>
               <p className="font-prose-ja text-base md:text-lg text-white/85 leading-[1.9] tracking-normal mt-7">
-                本当は自分が前に出たい訳ではない。でも想いに共感するあなたの目線で、このプロダクトを一緒に叩き直してください。
+                本当は自分が前に出たい訳ではない。でも想いに共感するあなたの目線でこのプロダクトを一緒に叩き直してください。
               </p>
             </div>
           </div>
@@ -352,7 +352,9 @@ export default function HomeJP() {
               ))}
             </div>
             <p className="font-prose-ja text-base md:text-lg text-white/90 leading-relaxed max-w-3xl">
-              想いに共感してくれる、エンジニア、アーティスト、動画クリエイター、コミュニティ管理者、ライバーと一緒に作り上げませんか？
+              想いに共感してくれる、エンジニア、アーティスト、動画クリエイター、コミュニティ管理者、ライバー
+              <br />
+              と一緒に作り上げませんか？
             </p>
           </div>
         </div>
@@ -608,13 +610,16 @@ export default function HomeJP() {
               </h2>
             </div>
             <p className="font-mono-body text-base text-white/60 leading-relaxed max-w-2xl mx-auto mb-4">
-              今は小さい。でも最初からグローバルを考えてる。インフラが整ったら、UK地下シーン——Hackney の地下室から Sheffield の倉庫まで——は Berlin、Seoul、New York の耳に届く。
+              日本から、国境を超えて世界中へ届けたい。
             </p>
             <p className="font-mono-body text-base text-white/60 leading-relaxed max-w-2xl mx-auto mb-4">
-              言葉は人を繋ぐ。でも、ライブで胸が熱くなる瞬間——それは AI には絶対に再現できない。
+              言葉の壁はAIで超えられる今、同じ趣味を通して世界中と繋がり交流が持てる。
+            </p>
+            <p className="font-mono-body text-base text-white/60 leading-relaxed max-w-2xl mx-auto mb-4">
+              日本の誇れる文化を届けられる。ロンドン、NY、ベルリンの...アンダーグラウンドのシーンを自宅のベッドで気軽に覗ける。そんな未来を描きたい。
             </p>
             <p className="font-mono-body text-base text-white/70 leading-relaxed max-w-2xl mx-auto mb-10">
-              <span className="text-neon">Raw Stock</span> はそれを、Raw のまま届ける場所。アーティスト、ライバー、編集者、コミュニティマネージャー——一緒にこれを作ってくれる人を探してる。
+              RawStock は、世界中のアーティストやクリエイターが公平に稼げるための「箱」と「分配」の実験です。まだ途中で、荒削りです。一緒に未来を描きませんか。
             </p>
             <div className="flex flex-wrap gap-4 justify-center">
               <a
