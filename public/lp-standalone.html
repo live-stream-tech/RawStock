@@ -39,6 +39,9 @@ a{text-decoration:none;color:inherit}
 .lead>p:first-of-type{color:rgba(232,228,220,.92);font-size:clamp(18px,1.45vw,21px);line-height:1.88;font-weight:500;margin:0 0 1.35em}
 .lead>p+p{color:rgba(232,228,220,.82);font-size:clamp(16px,1.15vw,18px);line-height:1.92;margin:0}
 .sub{margin-top:16px;color:var(--text);font-size:16px;line-height:1.9}
+.hero-embed{margin-top:20px;max-width:900px}
+.hero-embed-frame{position:relative;width:100%;padding-top:56.25%;border:1px solid rgba(0,255,204,.35);background:rgba(0,0,0,.45);border-radius:10px;overflow:hidden}
+.hero-embed-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
 .cta{margin-top:24px;display:flex;gap:12px;flex-wrap:wrap}
 .cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
 .card{background:var(--card);border:1px solid var(--line);padding:24px}
@@ -105,7 +108,18 @@ a{text-decoration:none;color:inherit}
       <p>「子育てをしながらなんて、甘い。全てを注ぎ込めないなら無理だ」 あの日、溝口さんにそう言われて、私の挑戦は終わるはずでした。</p>
       <p>私は「NexTV」という構想を掲げ、「REAL CAREER」の門を叩きました。結果は「最初に敗退」。子育てをしながらの挑戦は「遊び」だと揶揄され、プロの世界の厳しさを突きつけられました。<br><br>でも、どうしても諦めきれない想いがあり、一人ClaudeCodeと向き合い、最低限の機能が動くところまで来ました。でも、一人で考えた仕様には限界があります。本物の「現場の武器」にするためには、私一人の力では足りません。</p>
     </div>
-    <p class="sub">本当は自分が前に出たい訳ではない。でも想いに共感するあなたの目線で、このプロダクトを一緒に叩き直してください。</p>
+    <p class="sub">本当は自分が前に出たい訳ではない。でも想いに共感するあなたの目線でこのプロダクトを一緒に叩き直してください。</p>
+    <div class="hero-embed reveal">
+      <div class="hero-embed-frame">
+        <iframe
+          src="https://www.youtube.com/embed/DANWox4tTO4"
+          title="RawStock Hero Video"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          referrerpolicy="strict-origin-when-cross-origin"
+          allowfullscreen
+        ></iframe>
+      </div>
+    </div>
     <div class="cta reveal">
       <a href="https://x.com/ndjtpamwu" class="btn primary" target="_blank" rel="noopener noreferrer">Follow on X</a>
       <a href="https://camp-fire.jp/projects/937352/preview?token=33fzs9q3&amp;utm_campaign=cp_po_share_c_msg_projects_show" class="btn ghost" target="_blank" rel="noopener noreferrer">CAMPFIRE (crowdfunding)</a>
@@ -123,7 +137,7 @@ a{text-decoration:none;color:inherit}
       <article class="card">
         <span class="num">01</span>
         <h3>公式ステーション × コミュニティ</h3>
-        <p>公式ステーションをHUBにして各コミュニティを作成できます。コミュニティ管理者はそのコミュニティで生まれた収益を得ることができます。イベント告知等掲示板、動画のアップロード（無料/有料）、好きな動画を同時視聴できるJUKEBOXを提供。</p>
+        <p>ジャンル別のステーションをハブに、コミュニティを作成可能。1: 歌手アイドル / 2: クラブミュージック / 3: インディーズバンド / 4: AIミュージック・ボカロ / 5: Classic/World / 6: インフルエンサー / 7: アニメ / 8: AI動画 / 9: コメディアン / 10: 演劇。コミュニティ管理者はそのコミュニティで生まれた収益を得ることができます。イベント告知等掲示板、動画のアップロード（無料/有料）、好きな動画を同時視聴できるJUKEBOXを提供。</p>
       </article>
       <article class="card">
         <span class="num">02</span>
@@ -143,7 +157,7 @@ a{text-decoration:none;color:inherit}
   <div class="wrap">
     <div class="label"><span>3 Promises</span><i></i></div>
     <h2 class="section-title">RawStockが死守する「3つの約束」</h2>
-    <p class="section-desc">想いに共感してくれるエンジニア、アーティスト、動画クリエイター、コミュニティ管理者、ライバー。一緒に作り上げませんか？</p>
+    <p class="section-desc">想いに共感してくれるエンジニア、アーティスト、動画クリエイター、コミュニティ管理者、ライバー<br>と一緒に作り上げませんか？</p>
     <div class="promise">
       <div class="row">
         <h4>1. 脱中央集権</h4>
@@ -163,9 +177,11 @@ a{text-decoration:none;color:inherit}
 
 <section class="sec footer-hero reveal">
   <div class="wrap" style="text-align:center">
-    <h2 class="section-title" style="margin-bottom:18px">あなたの声が、RawStockを完成させます</h2>
-    <p class="section-desc" style="margin:0 auto 10px">アドバイス、批判、紹介、あるいは「子育てと仕事」の悔しさでも。</p>
-    <p class="section-desc" style="margin:0 auto 10px">SNSや動画の経済圏が海外に吸い上げられる現状を打破し、国内で回せるようにしたい。次の世代へ、未来に希望がある状態でバトンを渡したい。その一念で、誰にも言わず一人で数年間練り上げてきました。</p>
+    <h2 class="section-title" style="margin-bottom:18px">どこかでこの音を待ってる人がいる。</h2>
+    <p class="section-desc" style="margin:0 auto 10px">日本から、国境を超えて世界中へ届けたい。</p>
+    <p class="section-desc" style="margin:0 auto 10px">言葉の壁はAIで超えられる今、同じ趣味を通して世界中と繋がり交流が持てる。</p>
+    <p class="section-desc" style="margin:0 auto 10px">日本の誇れる文化を届けられる。ロンドン、NY、ベルリンの...アンダーグラウンドのシーンを自宅のベッドで気軽に覗ける。そんな未来を描きたい。</p>
+    <p class="section-desc" style="margin:0 auto 10px">RawStock は、世界中のアーティストやクリエイターが公平に稼げるための「箱」と「分配」の実験です。まだ途中で、荒削りです。一緒に未来を描きませんか。</p>
     <div class="cta" style="justify-content:center">
       <a href="https://x.com/ndjtpamwu" class="btn primary" target="_blank" rel="noopener noreferrer">Follow on X</a>
       <a href="https://camp-fire.jp/projects/937352/preview?token=33fzs9q3&amp;utm_campaign=cp_po_share_c_msg_projects_show" class="btn ghost" target="_blank" rel="noopener noreferrer">CAMPFIRE (crowdfunding)</a>
