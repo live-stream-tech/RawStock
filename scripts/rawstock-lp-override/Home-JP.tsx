@@ -154,6 +154,19 @@ export default function HomeJP() {
             </div>
           </div>
 
+          <div className="mb-10 max-w-3xl">
+            <div className="relative w-full overflow-hidden rounded-xl border border-neon/40 bg-black/40" style={{ paddingTop: "56.25%" }}>
+              <iframe
+                src="https://www.youtube.com/embed/DANWox4tTO4"
+                title="RawStock Hero Video"
+                className="absolute inset-0 h-full w-full"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                referrerPolicy="strict-origin-when-cross-origin"
+                allowFullScreen
+              />
+            </div>
+          </div>
+
           {/* CTAs */}
           <div className="flex flex-wrap gap-4 mb-16 justify-center">
             <a
