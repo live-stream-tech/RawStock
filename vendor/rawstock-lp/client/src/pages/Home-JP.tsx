@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight } from "lucide-react";
 
+const LP_LINK_X = "https://x.com/ndjtpamwu";
+const LP_LINK_CAMPFIRE =
+  "https://camp-fire.jp/projects/937352/preview?token=33fzs9q3&utm_campaign=cp_po_share_c_msg_projects_show";
+
 // ─── Intersection observer hook ──────────────────────────────
 function useInView(threshold = 0.15) {
   const ref = useRef<HTMLDivElement>(null);
@@ -55,13 +59,32 @@ export default function HomeJP() {
           </div>
           <div className="hidden md:flex items-center gap-8 ml-auto">
             <a href="#ecosystem" className="font-mono-body text-xs text-white/60 hover:text-neon transition-colors tracking-widest uppercase">仕組み</a>
+            <a href="#structure" className="font-mono-body text-xs text-white/60 hover:text-neon transition-colors tracking-widest uppercase">構成</a>
+            <a href="#promise" className="font-mono-body text-xs text-white/60 hover:text-neon transition-colors tracking-widest uppercase">3つの約束</a>
             <a href="#revenue" className="font-mono-body text-xs text-white/60 hover:text-neon transition-colors tracking-widest uppercase">収益分配</a>
-            <a href="#scene" className="font-mono-body text-xs text-white/60 hover:text-neon transition-colors tracking-widest uppercase">コミュニティ</a>
             <a
-              href="mailto:rawstock.infomation@gmail.com"
+              href={LP_LINK_X}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-mono-body text-xs text-white/60 hover:text-neon transition-colors tracking-widest uppercase"
+            >
+              X
+            </a>
+            <a
+              href={LP_LINK_CAMPFIRE}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-mono-body text-xs text-white/60 hover:text-neon transition-colors tracking-widest uppercase"
+            >
+              CAMPFIRE
+            </a>
+            <a
+              href={LP_LINK_CAMPFIRE}
+              target="_blank"
+              rel="noopener noreferrer"
               className="font-display text-sm px-5 py-2 border border-neon text-neon hover:bg-neon hover:text-black transition-all duration-200"
             >
-              JOIN THE PROJECT
+              CAMPFIRE (preview)
             </a>
           </div>
           <button
@@ -76,9 +99,15 @@ export default function HomeJP() {
         {menuOpen && (
           <div className="md:hidden border-t border-white/10 bg-black/95">
             <a href="#ecosystem" className="block px-4 py-2 text-white/60 hover:text-neon">仕組み</a>
+            <a href="#structure" className="block px-4 py-2 text-white/60 hover:text-neon">構成</a>
+            <a href="#promise" className="block px-4 py-2 text-white/60 hover:text-neon">3つの約束</a>
             <a href="#revenue" className="block px-4 py-2 text-white/60 hover:text-neon">収益分配</a>
-            <a href="#scene" className="block px-4 py-2 text-white/60 hover:text-neon">コミュニティ</a>
-            <a href="mailto:rawstock.infomation@gmail.com" className="block px-4 py-2 text-neon">JOIN THE PROJECT</a>
+            <a href={LP_LINK_X} target="_blank" rel="noopener noreferrer" className="block px-4 py-2 text-white/60 hover:text-neon">
+              X
+            </a>
+            <a href={LP_LINK_CAMPFIRE} target="_blank" rel="noopener noreferrer" className="block px-4 py-2 text-neon">
+              CAMPFIRE (preview)
+            </a>
           </div>
         )}
       </nav>
@@ -93,51 +122,74 @@ export default function HomeJP() {
           <div className="inline-flex items-center gap-2 border border-hot-orange/60 px-3 py-1 mb-8 flex-wrap">
             <span className="w-1.5 h-1.5 rounded-full bg-hot-orange animate-pulse flex-shrink-0" />
             <span className="font-mono-body text-xs text-hot-orange tracking-widest uppercase">
-              ライブ動画販売 ❌ ライブ配信プラットフォーム
+              国産ライブプラットフォーム
             </span>
           </div>
 
-          {/* Main headline */}
-          <h1 className="font-display leading-none mb-12">
-            <span className="block text-5xl md:text-6xl lg:text-7xl text-white">
-              ライブレポートの
+          {/* Main headline (aligned with rawstock.live marketing LP) */}
+          <h1 className="font-display mb-10">
+            <span className="block text-5xl md:text-6xl lg:text-7xl text-neon neon-glow leading-[1.08] tracking-tight">
+              脱中央集権。価値を生む人へ90%還元。
             </span>
-            <span className="block text-5xl md:text-6xl lg:text-7xl text-neon neon-glow">
-              動画販売
-            </span>
-            <span className="block text-5xl md:text-6xl lg:text-7xl text-white">
-              しませんか？
+            <span className="block text-2xl md:text-3xl lg:text-4xl text-white mt-4 leading-tight">
+              国産プラットフォーム RawStock
             </span>
           </h1>
 
-          {/* Subheadline */}
-          <div className="max-w-xl mb-12">
-            <div className="border-l-2 border-neon pl-4">
-              <p className="font-mono-body text-base text-white/70 leading-relaxed">
-                個人開発で<span className="text-xl font-bold">90</span>%還元を実現しました
+          {/* Subheadline — sans-serif + size/line-height tuned for long JP copy */}
+          <div className="max-w-2xl mb-12">
+            <div className="border-l-2 border-neon pl-5 md:pl-6">
+              <p className="font-prose-ja text-lg md:text-xl text-white/90 leading-[1.85] tracking-normal mb-7 font-medium">
+                「子育てをしながらなんて、甘い。全てを注ぎ込めないなら無理だ」 あの日、溝口さんにそう言われて、私の挑戦は終わるはずでした。
               </p>
-              <p className="font-mono-body text-sm text-white/60 leading-relaxed mt-4 mb-4">
-                生成AIで誰でも大量のコンテンツを作れる時代だから。<br />
-                AIには絶対に量産できない「生の熱量」にこそ、<br />
-                本当の価値があると考えています。
+              <p className="font-prose-ja text-base md:text-lg text-white/80 leading-[1.9] tracking-normal">
+                私は「NexTV」という構想を掲げ、「REAL CAREER」の門を叩きました。結果は「最初に敗退」。子育てをしながらの挑戦は「遊び」だと揶揄され、プロの世界の厳しさを突きつけられました。
+                <br />
+                <br />
+                でも、どうしても諦めきれない想いがあり、一人ClaudeCodeと向き合い、最低限の機能が動くところまで来ました。でも、一人で考えた仕様には限界があります。本物の「現場の武器」にするためには、私一人の力では足りません。
               </p>
-              <p className="font-mono-body text-sm text-white/60 leading-relaxed">
-                現場の空気感、叫び、胸が熱くなる瞬間——<br />
-                それをRawのまま切り取りストックし、<br />
-                いつか世界に届ける。<br />
-                まずはロンドン、日本から。<br />
-                そんな場所を、今、作っています。
+              <p className="font-prose-ja text-base md:text-lg text-white/85 leading-[1.9] tracking-normal mt-7">
+                本当は自分が前に出たい訳ではない。でも想いに共感するあなたの目線でこのプロダクトを一緒に叩き直してください。
               </p>
             </div>
           </div>
 
+          <div className="mb-10 max-w-3xl">
+            <div className="relative w-full overflow-hidden rounded-xl border border-neon/40 bg-black/40" style={{ paddingTop: "56.25%" }}>
+              <iframe
+                src="https://www.youtube.com/embed/DANWox4tTO4"
+                title="RawStock Hero Video"
+                className="absolute inset-0 h-full w-full"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                referrerPolicy="strict-origin-when-cross-origin"
+                allowFullScreen
+              />
+            </div>
+          </div>
+
           {/* CTAs */}
-          <div className="flex flex-wrap gap-4 mb-16">
+          <div className="flex flex-wrap gap-4 mb-16 justify-center">
             <a
-              href="mailto:rawstock.infomation@gmail.com"
+              href={LP_LINK_X}
+              target="_blank"
+              rel="noopener noreferrer"
               className="group inline-flex items-center gap-2 font-display text-lg px-8 py-4 bg-neon text-black hover:bg-white transition-all duration-200"
             >
-              JOIN THE PROJECT
+              Follow on X
+            </a>
+            <a
+              href={LP_LINK_CAMPFIRE}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group inline-flex items-center gap-2 font-display text-lg px-8 py-4 border border-neon text-neon hover:bg-neon/10 transition-all duration-200"
+            >
+              CAMPFIRE (crowdfunding)
+            </a>
+            <a
+              href="/stations"
+              className="group inline-flex items-center gap-2 font-display text-lg px-8 py-4 border border-neon text-neon hover:bg-neon/10 transition-all duration-200"
+            >
+              Open the app (stations)
             </a>
           </div>
         </div>
@@ -183,7 +235,7 @@ export default function HomeJP() {
             </h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-12">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {[
               { num: "01", title: "現場でスマホ撮影", desc: "その場の生の熱気と一瞬を切り取る" },
               { num: "02", title: "編集者に依頼", desc: "登録編集者に直接オーダー可能" },
@@ -197,11 +249,129 @@ export default function HomeJP() {
               </div>
             ))}
           </div>
+        </div>
+      </section>
 
-          <div className="border-t border-white/10 pt-12">
-            <p className="font-display text-2xl text-center mb-4">
-              <span className="text-white">資産がぐるぐる回り続ける</span><br />
-              <span className="text-neon neon-glow">循環型モデル</span>
+      {/* ── CURRENT STRUCTURE + 3 PROMISES（lp-standalone と同系のコピー） ── */}
+      <section
+        id="structure"
+        className="relative py-20 overflow-hidden"
+        style={{
+          backgroundImage: `url(https://d2xsxph8kpxj0f.cloudfront.net/310519663449879480/Y3Yn5f8wK9BzVPCXiSHai5/ecosystem-bg-MkdKoSdKc7CcaezdC4tTWA.webp)`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+        }}
+      >
+        <div className="absolute inset-0 bg-black/86" />
+        <div className="relative z-10 max-w-6xl mx-auto px-4">
+          <div className="flex items-end gap-4 mb-4">
+            <p className="font-mono-body text-sm text-hot-orange tracking-widest uppercase">Current Structure</p>
+            <div className="flex-1 h-px bg-white/10" />
+          </div>
+          <h2 className="font-display text-4xl md:text-5xl text-white mb-3">今構成はこうなっています</h2>
+          <p className="font-prose-ja text-base text-white/75 mb-12 max-w-3xl leading-relaxed">
+            足りない部分、危ない仕様、運用で詰まる点を、現場目線で教えてください。
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-24">
+            {[
+              {
+                num: "01",
+                title: "公式ステーション × コミュニティ",
+                body: (
+                  <>
+                    ジャンル別のステーションをハブに、コミュニティを作成可能。
+                    <br />
+                    1: 歌手アイドル / 2: クラブミュージック / 3: インディーズバンド / 4: AIミュージック・ボカロ / 5: Classic/World
+                    <br />
+                    6: インフルエンサー / 7: アニメ / 8: AI動画 / 9: コメディアン / 10: 演劇
+                    <br />
+                    コミュニティの管理者はそのコミュニティで生まれた収益を得ることができます。
+                    <br />
+                    イベント告知等掲示板、動画のアップロード（無料/有料）、好きな動画を同時視聴できるJUKEBOX
+                  </>
+                ),
+              },
+              {
+                num: "02",
+                title: "クリエイター・アーティスト",
+                body: (
+                  <>
+                    クリエイター・アーティストは幅広いマネタイズポイントがあります。
+                    <br />
+                    全て90％還元します。有料のライブセッション、投げ銭、有料動画販売。
+                    <br />
+                    Stripe Connect 搭載で投稿者は複数名に分配を直接分けることも可能です。
+                  </>
+                ),
+              },
+              {
+                num: "03",
+                title: "動画編集者",
+                body: (
+                  <>
+                    動画編集者としての登録もお待ちしています。
+                    <br />
+                    自分で編集できないことがハードルになっている人のために、編集者と繋ぐことでより多くのアーティストが作品を公開できる仕組みを作ります。
+                    <br />
+                    レベニューシェアか単価か編集者側で設定できます。
+                  </>
+                ),
+              },
+            ].map((card) => (
+              <div
+                key={card.num}
+                className="border border-white/10 bg-black/40 p-6 hover:border-neon/40 transition-colors"
+              >
+                <div className="inline-block bg-hot-orange text-black font-display text-xs font-bold px-2 py-1 mb-4">
+                  {card.num}
+                </div>
+                <h3 className="font-display text-xl text-white mb-3">{card.title}</h3>
+                <p className="font-prose-ja text-sm md:text-base text-white/80 leading-relaxed">{card.body}</p>
+              </div>
+            ))}
+          </div>
+
+          <div id="promise" className="scroll-mt-24">
+            <div className="flex items-end gap-4 mb-4">
+              <p className="font-mono-body text-sm text-hot-orange tracking-widest uppercase">3 Promises</p>
+              <div className="flex-1 h-px bg-white/10" />
+            </div>
+            <h2 className="font-display text-3xl md:text-4xl text-white mb-4">
+              RawStockが死守する<span className="text-neon neon-glow">「3つの約束」</span>
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
+              {[
+                {
+                  n: "1",
+                  title: "脱中央集権",
+                  desc: "ひとつのフィード、ひとつの運営者に現場の未来を預けない。",
+                },
+                {
+                  n: "2",
+                  title: "国内循環",
+                  desc: "日本のファンが払ったお金を、そのまま日本の現場へ戻す。",
+                },
+                {
+                  n: "3",
+                  title: "90%還元",
+                  desc: "価値を生む人へ直接届ける。",
+                },
+              ].map((row) => (
+                <div
+                  key={row.n}
+                  className="border border-neon/25 bg-neon/5 p-6 hover:border-neon/50 transition-colors"
+                >
+                  <h4 className="font-display text-2xl text-neon mb-2">
+                    {row.n}. {row.title}
+                  </h4>
+                  <p className="font-prose-ja text-sm text-white/85 leading-relaxed">{row.desc}</p>
+                </div>
+              ))}
+            </div>
+            <p className="font-prose-ja text-base md:text-lg text-white/90 leading-relaxed max-w-3xl">
+              想いに共感してくれる、エンジニア、アーティスト、動画クリエイター、コミュニティ管理者、ライバー
+              <br />
+              と一緒に作り上げませんか？
             </p>
           </div>
         </div>
@@ -358,7 +528,7 @@ export default function HomeJP() {
 
       {/* ── ECOSYSTEM FLOW ──────────────────────────────────── */}
       <section
-        id="ecosystem"
+        id="how-it-works"
         className="relative py-24 px-4 overflow-hidden"
         style={{
           backgroundImage: `url(https://d2xsxph8kpxj0f.cloudfront.net/310519663449879480/Y3Yn5f8wK9BzVPCXiSHai5/ecosystem-bg-MkdKoSdKc7CcaezdC4tTWA.webp)`,
@@ -415,12 +585,22 @@ export default function HomeJP() {
             <p className="font-mono-body text-white/60">一緒に設計してくれるライバーやコミュニティマネージャーを募集しています。</p>
           </div>
 
-          <div className="text-center">
+          <div className="text-center flex flex-wrap gap-4 justify-center">
             <a
-              href="mailto:rawstock.infomation@gmail.com"
+              href={LP_LINK_X}
+              target="_blank"
+              rel="noopener noreferrer"
               className="group inline-flex items-center gap-2 font-display text-lg px-8 py-4 bg-neon text-black hover:bg-white transition-all duration-200"
             >
-              JOIN THE PROJECT
+              Follow on X
+            </a>
+            <a
+              href={LP_LINK_CAMPFIRE}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group inline-flex items-center gap-2 font-display text-lg px-8 py-4 border border-neon text-neon hover:bg-neon/10 transition-all duration-200"
+            >
+              Open CAMPFIRE
             </a>
           </div>
         </div>
@@ -447,21 +627,37 @@ export default function HomeJP() {
               </h2>
             </div>
             <p className="font-mono-body text-base text-white/60 leading-relaxed max-w-2xl mx-auto mb-4">
-              今は小さい。でも最初からグローバルを考えてる。インフラが整ったら、UK地下シーン——Hackney の地下室から Sheffield の倉庫まで——は Berlin、Seoul、New York の耳に届く。
+              日本から、国境を超えて世界中へ届けたい。
             </p>
             <p className="font-mono-body text-base text-white/60 leading-relaxed max-w-2xl mx-auto mb-4">
-              言葉は人を繋ぐ。でも、ライブで胸が熱くなる瞬間——それは AI には絶対に再現できない。
+              言葉の壁はAIで超えられる今、同じ趣味を通して世界中と繋がり交流が持てる。
+            </p>
+            <p className="font-mono-body text-base text-white/60 leading-relaxed max-w-2xl mx-auto mb-4">
+              日本の誇れる文化を届けられる。ロンドン、NY、ベルリンの...アンダーグラウンドのシーンを自宅のベッドで気軽に覗ける。そんな未来を描きたい。
             </p>
             <p className="font-mono-body text-base text-white/70 leading-relaxed max-w-2xl mx-auto mb-10">
-              <span className="text-neon">Raw Stock</span> はそれを、Raw のまま届ける場所。アーティスト、ライバー、編集者、コミュニティマネージャー——一緒にこれを作ってくれる人を探してる。
+              RawStock は、世界中のアーティストやクリエイターが公平に稼げるための「箱」と「分配」の実験です。まだ途中で、荒削りです。一緒に未来を描きませんか。
             </p>
-            <a
-              href="mailto:rawstock.infomation@gmail.com"
-              className="group inline-flex items-center gap-3 font-display text-2xl px-12 py-5 border-2 border-neon text-neon hover:bg-neon hover:text-black transition-all duration-300 neon-border-glow"
-            >
-              プロジェクトに参加する
-              <ArrowRight size={22} className="group-hover:translate-x-2 transition-transform" />
-            </a>
+            <div className="flex flex-wrap gap-4 justify-center">
+              <a
+                href={LP_LINK_X}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group inline-flex items-center gap-3 font-display text-2xl px-12 py-5 border-2 border-neon text-neon hover:bg-neon hover:text-black transition-all duration-300 neon-border-glow"
+              >
+                Follow on X
+                <ArrowRight size={22} className="group-hover:translate-x-2 transition-transform" />
+              </a>
+              <a
+                href={LP_LINK_CAMPFIRE}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group inline-flex items-center gap-3 font-display text-2xl px-12 py-5 bg-neon text-black hover:bg-white transition-all duration-300"
+              >
+                CAMPFIRE (preview)
+                <ArrowRight size={22} className="group-hover:translate-x-2 transition-transform" />
+              </a>
+            </div>
           </FadeIn>
         </div>
       </section>
