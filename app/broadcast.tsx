@@ -12,6 +12,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { C } from "@/constants/colors";
 import { connectWHIP } from "@/lib/live/whip";
 import {
@@ -94,6 +95,7 @@ export default function BroadcastScreen() {
 function BroadcastWeb() {
   const t = getBroadcastStrings(isBroadcastJapaneseUi());
   const { user, requireAuth } = useAuth();
+  const qc = useQueryClient();
   const params = useLocalSearchParams<{ visibility?: string; communityId?: string; ticketPrice?: string }>();
   const routeVisibility = parseRouteVisibility(
     typeof params.visibility === "string" ? params.visibility : undefined,
@@ -347,6 +349,7 @@ function BroadcastWeb() {
       const pc = await connectWHIP(wUrl, localStreamRef.current);
       pcRef.current = pc;
       await apiStartLiveStream(id);
+      void qc.invalidateQueries({ queryKey: ["/api/live-streams"] });
       setPhase("live");
       setLastLiveError(null);
     } catch (e: any) {
@@ -378,6 +381,7 @@ function BroadcastWeb() {
         setPhase("stopping");
         try {
           if (streamId) await apiEndLiveStream(streamId);
+          void qc.invalidateQueries({ queryKey: ["/api/live-streams"] });
         } catch {
           /* ignore */
         }
