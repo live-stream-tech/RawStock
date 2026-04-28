@@ -6,8 +6,8 @@ const LP_LINK_CAMPFIRE =
   "https://camp-fire.jp/projects/937352/preview?token=33fzs9q3&utm_campaign=cp_po_share_c_msg_projects_show";
 const LP_LINK_APP = "/stations";
 
-/** Text & inline images: centered column, max 750px. */
-const LP_COL = "w-full max-w-[750px] mx-auto px-4";
+/** Text & inline images: centered column, max 1000px. */
+const LP_COL = "w-full max-w-[1000px] mx-auto px-4";
 const CTA_GREEN_3D =
   "flex w-full sm:flex-1 min-h-[3rem] sm:min-h-[3.25rem] justify-center items-center gap-2 font-display text-base sm:text-lg px-4 py-3.5 text-[#04210f] bg-[#58d67c] border border-[#2e9e54] rounded-[4px] shadow-[0_5px_0_#1f7a3f,0_8px_14px_rgba(0,0,0,0.45)] hover:bg-[#6ae28c] hover:translate-y-[1px] hover:shadow-[0_4px_0_#1f7a3f,0_7px_12px_rgba(0,0,0,0.4)] active:translate-y-[3px] active:shadow-[0_2px_0_#1f7a3f,0_3px_8px_rgba(0,0,0,0.35)] transition-all duration-150 text-center";
 
@@ -186,23 +186,14 @@ export default function HomeJP() {
           </p>
 
           <header className="mb-8 md:mb-10">
-            <h1 className="font-display font-black tracking-tight text-neon leading-[1.08] text-4xl sm:text-5xl md:text-6xl lg:text-7xl">
+            <h1 className="font-display font-black tracking-tight text-neon leading-[1.08] text-3xl sm:text-4xl md:text-5xl lg:text-6xl">
               <span className="block">自分たちで育てる</span>
               <span className="block mt-1 sm:mt-2">国産プラットフォーム</span>
             </h1>
             <p className="mt-10 sm:mt-11 md:mt-14 text-base sm:text-lg md:text-xl text-white/88 font-prose-ja leading-[1.85] md:leading-relaxed">
-              動画の販売を中心に、ライブ配信、<br />個別セッション配信、<br />同じ趣味のコミュニティで同時視聴パーティー、<br />動画編集者とのマッチング、動画コンテスト等を行う<br />「活動」「交流」「成長」の場です。
+              動画コンテンツを中心に、ライブ配信、個別セッション配信、<br />同じ趣味のコミュニティで同時視聴パーティー、<br />動画クリエイターとアーティストのマッチング、<br />動画コンテスト等を行う「活動」「交流」「成長」の場です。
             </p>
           </header>
-
-          <div className="border border-white/15 bg-black/45 rounded-[6px] p-4 sm:p-5 mb-6">
-            <p className="font-mono-body text-[11px] tracking-widest text-neon mb-3">NOW / STATUS</p>
-            <ul className="space-y-2 font-prose-ja text-sm sm:text-base text-white/82 leading-relaxed">
-              <li><span className="text-white">使える:</span> ステーション閲覧・モック導線の体験</li>
-              <li><span className="text-white">モック中:</span> 活動カード / 投稿・公開・収益化フロー</li>
-              <li><span className="text-white">次予定:</span> 決済導線・編集マッチング・参加導線の実装</li>
-            </ul>
-          </div>
 
           <div className="w-full flex flex-col sm:flex-row gap-3 mb-6">
             <a
@@ -211,7 +202,7 @@ export default function HomeJP() {
               rel="noopener noreferrer"
               className={CTA_GREEN_3D}
             >
-              Xでつながる（参加）
+              Xでつながる
             </a>
             <a
               href={LP_LINK_CAMPFIRE}
@@ -219,18 +210,18 @@ export default function HomeJP() {
               rel="noopener noreferrer"
               className={CTA_GREEN_3D}
             >
-              CAMPFIREで応援（資金）
+              CAMPFIREで応援
             </a>
             <a
               href={LP_LINK_APP}
               className={CTA_GREEN_3D}
             >
-              アプリを触る（体験）
+              アプリを触る
             </a>
           </div>
 
           <div className="mb-8 border-l-4 border-neon/80 pl-5 sm:pl-6">
-            <p className="font-prose-ja text-base sm:text-lg md:text-xl text-white/92 leading-relaxed font-medium">
+            <p className="font-prose-ja text-lg sm:text-xl md:text-2xl text-white/92 leading-relaxed font-medium">
               「子育てをしながらなんて、甘い。99％失敗する」
             </p>
             <p className="font-prose-ja text-sm sm:text-base text-white/78 mt-3 leading-relaxed">
@@ -244,16 +235,16 @@ export default function HomeJP() {
             </p>
 
             {/* YouTube Embed */}
-            <div className="my-8 aspect-video w-full border border-white/10 bg-black/40 overflow-hidden rounded-sm shadow-2xl">
+            <div className="my-8 w-full max-w-[1000px] mx-auto border border-white/10 bg-black/40 overflow-hidden rounded-sm shadow-2xl">
               <iframe
-                width="100%"
-                height="100%"
+                width="1000"
+                height="563"
                 src="https://www.youtube.com/embed/DANWox4tTO4"
                 title="RawStock Background Story"
                 frameBorder="0"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                 allowFullScreen
-                className="opacity-90 hover:opacity-100 transition-opacity"
+                className="w-full h-auto aspect-video opacity-90 hover:opacity-100 transition-opacity"
               ></iframe>
             </div>
 
@@ -356,7 +347,7 @@ export default function HomeJP() {
               rel="noopener noreferrer"
               className={CTA_GREEN_3D}
             >
-              Xでつながる（参加）
+              Xでつながる
             </a>
             <a
               href={LP_LINK_CAMPFIRE}
@@ -364,13 +355,13 @@ export default function HomeJP() {
               rel="noopener noreferrer"
               className={CTA_GREEN_3D}
             >
-              CAMPFIREで応援（資金）
+              CAMPFIREで応援
             </a>
             <a
               href={LP_LINK_APP}
               className={CTA_GREEN_3D}
             >
-              アプリを触る（体験）
+              アプリを触る
             </a>
           </div>
 
@@ -692,17 +683,16 @@ export default function HomeJP() {
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-black/55" />
         <div className={`relative z-10 ${LP_COL} text-center`}>
           <FadeIn>
-            <p className="font-mono-body text-xs text-neon tracking-widest uppercase mb-6">Closing</p>
-            <h2 className="font-display text-3xl sm:text-4xl md:text-5xl text-white mb-8 leading-tight">
-              どこかで、この音を
-              <span className="text-neon neon-glow"> 待っている人</span>がいる。
-            </h2>
+            <p className="font-mono-body text-xs text-neon tracking-widest uppercase mb-6">CLOSING</p>
             <div className="font-prose-ja text-base md:text-lg text-white/70 leading-[1.85] space-y-5 text-left md:text-center mb-12">
               <p>
-                言葉と配信だけでは届かない熱量が、ライブハウスの床で起きています。AI が真似できないのは、その一瞬の空気です。
+                日本から、国境を超えて世界中へ届けたい。言葉の壁はAIで超えられる今、同じ趣味を通して世界中と繋がり交流が持てる。
               </p>
               <p>
-                RawStock は、その熱を削がずに届けるための「箱」と「分配」の実験です。まだ途中で、荒削りです。それでも現場側のあなたと一緒に、筋の良い形にしたいと考えています。
+                日本の誇れる文化を届けられる。ロンドン、NY、ベルリンの…アンダーグラウンドのシーンを自宅のベッドで気軽に覗ける。そんな未来を描きたい。
+              </p>
+              <p>
+                RawStock は、世界中のアーティストやクリエイターが公平に稼げるための「箱」と「分配」の実験です。まだ途中で、荒削りです。一緒に未来を描きませんか。
               </p>
             </div>
             <div className="flex flex-wrap gap-4 justify-center">
@@ -712,7 +702,7 @@ export default function HomeJP() {
                 rel="noopener noreferrer"
                 className="group inline-flex items-center gap-2 font-display text-lg md:text-xl px-10 py-4 border-2 border-neon text-neon hover:bg-neon hover:text-black transition-colors"
               >
-                Xでつながる（参加）
+                Xでつながる
                 <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
               </a>
               <a
@@ -721,7 +711,7 @@ export default function HomeJP() {
                 rel="noopener noreferrer"
                 className="group inline-flex items-center gap-2 font-display text-lg md:text-xl px-10 py-4 border-2 border-neon text-neon hover:bg-neon hover:text-black transition-colors"
               >
-                CAMPFIREで応援（資金）
+                CAMPFIREで応援
                 <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
               </a>
             </div>
