@@ -172,8 +172,9 @@ export default function HomeJP() {
           className="relative w-full max-w-[1000px] min-h-[88svh] mx-auto flex flex-col justify-center overflow-hidden"
           style={{
             backgroundImage: `url(https://d2xsxph8kpxj0f.cloudfront.net/310519663449879480/Y3Yn5f8wK9BzVPCXiSHai5/hero-bg-2AFwCiErEpzEQtgr4Vk2Df.webp)`,
-            backgroundSize: "cover",
-            backgroundPosition: "center",
+            backgroundSize: "92% auto",
+            backgroundRepeat: "no-repeat",
+            backgroundPosition: "center top",
           }}
         >
           <div className="absolute inset-0 bg-gradient-to-b from-black/68 via-black/48 to-[#050505]/92" />
@@ -223,7 +224,10 @@ export default function HomeJP() {
               アプリを触る
             </a>
           </div>
+          </div>
+        </div>
 
+        <div className={`${LP_COL} pt-2 pb-24 md:pb-28`}>
           <div className="mb-8 border-l-4 border-neon/80 pl-5 sm:pl-6">
             <p className="font-prose-ja text-lg sm:text-xl md:text-2xl text-white/92 leading-relaxed font-medium">
               「子育てをしながらなんて、甘い。99％失敗する」
@@ -263,7 +267,6 @@ export default function HomeJP() {
           <p className="font-prose-ja text-base sm:text-lg text-white/86 mt-8 leading-relaxed">
             このプロダクトを一緒に叩き直してほしい——それがこのページを書いた理由です。
           </p>
-          </div>
         </div>
       </section>
 
