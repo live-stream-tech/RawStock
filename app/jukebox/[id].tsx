@@ -652,12 +652,18 @@ function QueueRow({
         <ScrollView
           style={webScrollStyle(styles.queueVerticalScroll)}
           showsVerticalScrollIndicator={scrollShowsVertical}
+          keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.queueVerticalContent}
         >
           {itemNodes}
         </ScrollView>
       ) : (
-        <ScrollView horizontal showsHorizontalScrollIndicator={scrollShowsHorizontal} contentContainerStyle={styles.queueScroll}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={scrollShowsHorizontal}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={styles.queueScroll}
+        >
           {itemNodes}
           <Pressable style={styles.addQueueBtn} onPress={onAdd} hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}>
             <Ionicons name="add" size={24} color={C.accent} />
@@ -1625,6 +1631,7 @@ export default function JukeboxScreen() {
                 onChangeText={setChatInput}
                 onSubmitEditing={sendChat}
                 returnKeyType="send"
+                blurOnSubmit={false}
                 editable={!chatMutation.isPending}
                 showSoftInputOnFocus
               />
@@ -1762,6 +1769,7 @@ export default function JukeboxScreen() {
                     onChangeText={setChatInput}
                     onSubmitEditing={sendChat}
                     returnKeyType="send"
+                    blurOnSubmit={false}
                     editable={!chatMutation.isPending}
                     showSoftInputOnFocus
                   />
