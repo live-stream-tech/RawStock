@@ -7,16 +7,16 @@ export type StationRow = {
   online?: boolean;
 };
 
-/** Ten official hub labels (Japan-first scenes, not music-only). Same member baseline so no single row dominates sorting. */
+/** Ten official station themes. Same member baseline so no single row dominates sorting. */
 export const STATIONS: StationRow[] = [
-  { id: 1, name: "祭礼・まつり（神輿・屋台）", category: "matsuri", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1027/800/800" },
-  { id: 2, name: "神社仏閣・年中行事", category: "shrine", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1015/800/800" },
-  { id: 3, name: "学校文化（演劇・部活・文化祭）", category: "school", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1025/800/800" },
-  { id: 4, name: "落語・講談・寄席", category: "yose", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1031/800/800" },
-  { id: 5, name: "ライブハウス・アイドル現場", category: "livehouse", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1040/800/800" },
-  { id: 6, name: "茶道・武道・伝統芸能", category: "dougei", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1050/800/800" },
-  { id: 7, name: "同人・コミケ・創作即売", category: "doujin", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1060/800/800" },
-  { id: 8, name: "野球・スポーツ観戦・応援", category: "sports", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1033/800/800" },
-  { id: 9, name: "マルシェ・地方創生・町おこし", category: "machi", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1043/800/800" },
-  { id: 10, name: "美術・展示・ギャラリー", category: "gallery", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1047/800/800" },
+  { id: 1, name: "歌手アイドル", category: "idol_singer", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1027/800/800" },
+  { id: 2, name: "クラブミュージック", category: "club_music", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1015/800/800" },
+  { id: 3, name: "インディーズバンド", category: "indie_band", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1025/800/800" },
+  { id: 4, name: "AIミュージック・ボカロ", category: "ai_music_vocaloid", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1031/800/800" },
+  { id: 5, name: "Classic/World", category: "classic_world", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1040/800/800" },
+  { id: 6, name: "インフルエンサー", category: "influencer", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1050/800/800" },
+  { id: 7, name: "アニメ", category: "anime", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1060/800/800" },
+  { id: 8, name: "AI動画", category: "ai_video", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1033/800/800" },
+  { id: 9, name: "コメディアン", category: "comedian", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1043/800/800" },
+  { id: 10, name: "演劇", category: "theater", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1047/800/800" },
 ];

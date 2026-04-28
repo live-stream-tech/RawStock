@@ -36,16 +36,16 @@ type StationRow = {
 };
 
 const STATION_CATEGORY_LABEL: Record<string, string> = {
-  matsuri: "祭礼",
-  shrine: "寺社",
-  school: "学校",
-  yose: "寄席",
-  livehouse: "ライブ",
-  dougei: "伝統芸能",
-  doujin: "同人",
-  sports: "スポーツ",
-  machi: "マルシェ",
-  gallery: "美術",
+  idol_singer: "歌手アイドル",
+  club_music: "クラブミュージック",
+  indie_band: "インディーズバンド",
+  ai_music_vocaloid: "AIミュージック・ボカロ",
+  classic_world: "Classic/World",
+  influencer: "インフルエンサー",
+  anime: "アニメ",
+  ai_video: "AI動画",
+  comedian: "コメディアン",
+  theater: "演劇",
 };
 
 function formatNum(n: number): string {
