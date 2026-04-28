@@ -20,6 +20,7 @@ import { C } from "@/constants/colors";
 import type { RawStockVideoSpec } from "../../shared/rawstock-video-spec";
 import type { AIEditAnalysis, EditPlan } from "../../shared/ai-edit";
 import { webScrollStyle } from "@/constants/layout";
+import { AIEditHeaderTitle } from "@/components/AIEditHeaderTitle";
 
 type Job = {
   id: number;
@@ -233,7 +234,7 @@ export default function AIEditJobScreen() {
           <Pressable style={styles.backBtn} onPress={() => router.back()}>
             <Ionicons name="chevron-back" size={22} color={C.text} />
           </Pressable>
-          <Text style={styles.headerTitle}>AI Edit Assistant</Text>
+          <AIEditHeaderTitle />
           <View style={{ width: 40 }} />
         </View>
         <View style={styles.centered}>
@@ -250,7 +251,7 @@ export default function AIEditJobScreen() {
           <Pressable style={styles.backBtn} onPress={() => router.back()}>
             <Ionicons name="chevron-back" size={22} color={C.text} />
           </Pressable>
-          <Text style={styles.headerTitle}>AI Edit Assistant</Text>
+          <AIEditHeaderTitle />
           <View style={{ width: 40 }} />
         </View>
         <View style={styles.centered}>
@@ -272,7 +273,7 @@ export default function AIEditJobScreen() {
           <Pressable style={styles.backBtn} onPress={() => router.back()}>
             <Ionicons name="chevron-back" size={22} color={C.text} />
           </Pressable>
-          <Text style={styles.headerTitle}>AI Edit Assistant</Text>
+          <AIEditHeaderTitle />
           <View style={{ width: 40 }} />
         </View>
         <View style={styles.centered}>
@@ -297,7 +298,7 @@ export default function AIEditJobScreen() {
         <Pressable style={styles.backBtn} onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={22} color={C.text} />
         </Pressable>
-        <Text style={styles.headerTitle}>AI Edit Assistant</Text>
+        <AIEditHeaderTitle />
         <View style={{ width: 40 }} />
       </View>
 
@@ -649,7 +650,6 @@ const styles = StyleSheet.create({
     borderBottomColor: C.border,
   },
   backBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
-  headerTitle: { flex: 1, textAlign: "center", color: C.text, fontSize: 16, fontWeight: "700" },
   scroll: { flex: 1 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 },
   errorText: { color: C.textSec, fontSize: 15, textAlign: "center" },

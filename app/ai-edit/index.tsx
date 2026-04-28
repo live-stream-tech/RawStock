@@ -24,6 +24,7 @@ import { buildOrderVideoSpec, formatFromTone, styleFromTone } from "@/lib/ai-edi
 import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
 import { webScrollStyle } from "@/constants/layout";
+import { AIEditHeaderTitle } from "@/components/AIEditHeaderTitle";
 // ─── Plan definitions ────────────────────────────────────────────────────────
 
 const PLANS = [
@@ -619,7 +620,7 @@ export default function AIEditIndexScreen() {
         >
           <Ionicons name="chevron-back" size={22} color={blockingInteraction ? C.textMuted : C.text} />
         </Pressable>
-        <Text style={styles.headerTitle}>AI Edit Assistant</Text>
+        <AIEditHeaderTitle />
         <View style={{ width: 40 }} />
       </View>
 
@@ -978,13 +979,6 @@ const styles = StyleSheet.create({
   },
   backBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
   backBtnDisabled: { opacity: 0.45 },
-  headerTitle: {
-    flex: 1,
-    textAlign: "center",
-    color: C.text,
-    fontSize: 16,
-    fontWeight: "700",
-  },
   scroll: { flex: 1 },
 
   // Hero
