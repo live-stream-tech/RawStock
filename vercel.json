@@ -70,6 +70,7 @@
   ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/[...path]" },
+    { "source": "/lp", "destination": "/api/[...path]" },
     { "source": "/lp-standalone.html", "destination": "/api/[...path]" },
     { "source": "/lp-static", "destination": "/api/[...path]" },
     { "source": "/teamz", "destination": "/api/[...path]" },
