@@ -23,6 +23,7 @@ import { AppLogo } from "@/components/AppLogo";
 import { MetallicLine } from "@/components/MetallicLine";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { STATIONS, STATION_CATEGORY_LABEL } from "@/constants/stations";
+import { STATION_JUKEBOX_IDS } from "@/constants/stationJukebox";
 import { TEMP_BANNER_IMAGE_PATH, TEMP_BANNER_TARGET_URL } from "@/constants/bannerLinks";
 import { resolvePublicMediaUri } from "@/lib/resolve-public-media-uri";
 
@@ -227,7 +228,7 @@ export default function StationScreen() {
     return communities.filter((c) => String(c.name ?? "").toLowerCase().includes(q));
   }, [communities, query]);
 
-  const firstRealCommunityId = communities.find((c) => !String(c.id).startsWith("seed-"))?.id ?? null;
+  const stationJukeboxId = station ? (STATION_JUKEBOX_IDS[station.category] ?? null) : null;
 
   if (!station) {
     return (
@@ -299,9 +300,9 @@ export default function StationScreen() {
         <Pressable
           style={styles.jukebox}
           onPress={() =>
-            firstRealCommunityId
-              ? router.push(`/jukebox/${firstRealCommunityId}` as any)
-              : router.push("/community" as any)
+            stationJukeboxId
+              ? router.push(`/jukebox/${stationJukeboxId}?stationLabel=${encodeURIComponent(station.name)}` as any)
+              : undefined
           }
         >
           <LinearGradient

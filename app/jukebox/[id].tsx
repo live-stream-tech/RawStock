@@ -674,7 +674,7 @@ function QueueRow({
 }
 
 export default function JukeboxScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, stationLabel } = useLocalSearchParams<{ id: string; stationLabel?: string }>();
   const communityId = parseInt(id ?? "1");
   const insets = useSafeAreaInsets();
   const qc = useQueryClient();
@@ -735,7 +735,9 @@ export default function JukeboxScreen() {
   });
 
   const communityDisplayName =
-    (communityRow?.name && String(communityRow.name).trim()) || `Community #${communityId}`;
+    (stationLabel && String(stationLabel).trim()) ||
+    (communityRow?.name && String(communityRow.name).trim()) ||
+    `Community #${communityId}`;
 
   // Always fetch fresh data on visit; avoid stale cache.
   const { data } = useQuery<JukeboxData>({
@@ -1385,7 +1387,7 @@ export default function JukeboxScreen() {
                 <Text style={styles.jukeboxBadgeText}>JUKEBOX</Text>
               </View>
               <Pressable
-                onPress={() => router.push(`/community/${communityId}`)}
+                onPress={() => !stationLabel && router.push(`/community/${communityId}`)}
                 style={styles.headerCommunityNamePressable}
                 hitSlop={6}
               >
@@ -1526,7 +1528,7 @@ export default function JukeboxScreen() {
                 <Text style={styles.jukeboxBadgeText}>JUKEBOX</Text>
               </View>
               <Pressable
-                onPress={() => router.push(`/community/${communityId}`)}
+                onPress={() => !stationLabel && router.push(`/community/${communityId}`)}
                 style={styles.headerCommunityNamePressable}
                 hitSlop={6}
               >
