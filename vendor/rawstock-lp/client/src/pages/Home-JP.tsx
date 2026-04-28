@@ -129,10 +129,10 @@ export default function HomeJP() {
           {/* Main headline (aligned with rawstock.live marketing LP) */}
           <h1 className="font-display mb-10">
             <span className="block text-5xl md:text-6xl lg:text-7xl text-neon neon-glow leading-[1.08] tracking-tight">
-              クリエイター・アーティストへ、90%還元。
+              脱中央集権。価値を生む人へ90%還元。
             </span>
             <span className="block text-2xl md:text-3xl lg:text-4xl text-white mt-4 leading-tight">
-              自分たちで育てる国産プラットフォーム
+              国産プラットフォーム RawStock
             </span>
           </h1>
 
@@ -140,11 +140,30 @@ export default function HomeJP() {
           <div className="max-w-2xl mb-12">
             <div className="border-l-2 border-neon pl-5 md:pl-6">
               <p className="font-prose-ja text-lg md:text-xl text-white/90 leading-[1.85] tracking-normal mb-7 font-medium">
-                動画の販売を中心に、ライブ配信、個別セッション配信、同じ趣味のコミュニティで同時視聴パーティー、動画編集者とのマッチング、動画コンテスト等を行う「活動」「交流」「成長」の場です。
+                「子育てをしながらなんて、甘い。全てを注ぎ込めないなら無理だ」 あの日、溝口さんにそう言われて、私の挑戦は終わるはずでした。
               </p>
               <p className="font-prose-ja text-base md:text-lg text-white/80 leading-[1.9] tracking-normal">
-                ここから始まる、あなたの次の挑戦をRawStockが支えます。
+                私は「NexTV」という構想を掲げ、「REAL CAREER」の門を叩きました。結果は「最初に敗退」。子育てをしながらの挑戦は「遊び」だと揶揄され、プロの世界の厳しさを突きつけられました。
+                <br />
+                <br />
+                でも、どうしても諦めきれない想いがあり、一人ClaudeCodeと向き合い、最低限の機能が動くところまで来ました。でも、一人で考えた仕様には限界があります。本物の「現場の武器」にするためには、私一人の力では足りません。
               </p>
+              <p className="font-prose-ja text-base md:text-lg text-white/85 leading-[1.9] tracking-normal mt-7">
+                本当は自分が前に出たい訳ではない。でも想いに共感するあなたの目線でこのプロダクトを一緒に叩き直してください。
+              </p>
+            </div>
+          </div>
+
+          <div className="mb-10 max-w-3xl">
+            <div className="relative w-full overflow-hidden rounded-xl border border-neon/40 bg-black/40" style={{ paddingTop: "56.25%" }}>
+              <iframe
+                src="https://www.youtube.com/embed/DANWox4tTO4"
+                title="RawStock Hero Video"
+                className="absolute inset-0 h-full w-full"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                referrerPolicy="strict-origin-when-cross-origin"
+                allowFullScreen
+              />
             </div>
           </div>
 
