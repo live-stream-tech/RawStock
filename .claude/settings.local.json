@@ -18,7 +18,10 @@
       "Bash(curl -sv https://rawstock.live/api/auth/status)",
       "Bash(curl:*)",
       "Bash(ls:*)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(git -C /Users/user/Desktop/RawStock status)",
+      "Bash(git -C /Users/user/Desktop/RawStock diff --stat)",
+      "Bash(git *)"
     ]
   }
 }
