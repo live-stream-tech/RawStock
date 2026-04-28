@@ -3,26 +3,19 @@ import { View, Text, ScrollView, StyleSheet, Pressable, Linking } from "react-na
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
-import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
+import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { webScrollStyle, getTabTopInset, getTabBottomInset } from "@/constants/layout";
 import { C } from "@/constants/colors";
 import { AppLogo } from "@/components/AppLogo";
 import { MetallicLine } from "@/components/MetallicLine";
 import { STATIONS } from "@/constants/stations";
 import { TEMP_BANNER_IMAGE_PATH, TEMP_BANNER_TARGET_URL } from "@/constants/bannerLinks";
-import { HorizontalScroll } from "@/components/HorizontalScroll";
 
 const STATION_SHORT_DESC: Record<string, string> = {
-  band_club_rave: "Band, club, and rave creators.",
-  streamer: "Live streamers and daily broadcasters.",
-  ai_video_creator: "AI-native video creators and editors.",
-  visual_performer: "Visual storytellers and performance artists.",
-  mentor_expert: "Mentors, teachers, and specialists.",
-  v_liver_avatar: "Virtual livers and avatar performers.",
-  voice_artist: "Singers, voice talents, and narrators.",
-  lifestyle_influencer: "Lifestyle creators and community hosts.",
-  singer_idol: "Singers and idol-style performers.",
-  dance_performer: "Dance creators and stage performers.",
+  music: "Bands, DJs, clubs, and live music creators.",
+  ai_video: "AI-native video creators and editors.",
+  idol_influencer: "Idols, streamers, and social creators.",
+  entertainment: "General entertainment, shows, and performers.",
 };
 
 export default function StationsScreen() {
@@ -52,11 +45,7 @@ export default function StationsScreen() {
           <Text style={styles.sectionTitle}>Official Stations</Text>
         </View>
 
-        <HorizontalScroll
-          contentContainerStyle={styles.rail}
-          showsHorizontalScrollIndicator={scrollShowsHorizontal}
-          showArrows
-        >
+        <View style={styles.stack}>
           {STATIONS.map((s) => (
             <Pressable
               key={s.id}
@@ -74,7 +63,7 @@ export default function StationsScreen() {
               </View>
             </Pressable>
           ))}
-        </HorizontalScroll>
+        </View>
 
         <View style={{ height: 24 }} />
       </ScrollView>
@@ -127,26 +116,28 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     textTransform: "uppercase",
   },
-  rail: {
-    flexDirection: "row",
-    gap: 12,
+  stack: {
+    gap: 10,
     paddingHorizontal: 16,
   },
   card: {
-    width: 230,
+    width: "100%",
+    flexDirection: "row",
     backgroundColor: "rgba(255,255,255,0.04)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.14)",
   },
   icon: {
-    width: "100%",
-    aspectRatio: 1,
+    width: 88,
+    height: 88,
     backgroundColor: C.surface,
   },
   cardBody: {
+    flex: 1,
     paddingHorizontal: 10,
     paddingTop: 8,
     paddingBottom: 6,
+    justifyContent: "center",
   },
   name: {
     color: C.text,

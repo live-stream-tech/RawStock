@@ -17,16 +17,10 @@ function formatNum(n: number): string {
 }
 
 const STATION_CATEGORY_TERMS: Record<string, string[]> = {
-  band_club_rave: ["band", "rock", "club", "rave", "dj", "music", "バンド", "クラブ", "レイヴ", "音楽"],
-  streamer: ["streamer", "liver", "live", "creator", "配信", "ライバー", "ライブ"],
-  ai_video_creator: ["ai", "video", "edit", "generative", "ai映像", "ai動画", "編集"],
-  visual_performer: ["visual", "art", "photo", "design", "ビジュアル", "映像", "写真"],
-  mentor_expert: ["mentor", "coach", "expert", "session", "メンター", "専門家", "コーチ"],
-  v_liver_avatar: ["v", "avatar", "virtual", "vtuber", "vライバー", "アバター", "バーチャル"],
-  voice_artist: ["voice", "vocal", "singer", "podcast", "ボイス", "ボーカル", "歌"],
-  lifestyle_influencer: ["lifestyle", "influencer", "daily", "ライフ", "暮らし", "インフルエンサー"],
-  singer_idol: ["singer", "idol", "vocal", "歌手", "アイドル", "音楽"],
-  dance_performer: ["dance", "performer", "choreo", "ダンス", "パフォーマー"],
+  music: ["music", "band", "rock", "club", "rave", "dj", "live", "singer"],
+  ai_video: ["ai", "video", "edit", "generative", "visual"],
+  idol_influencer: ["idol", "influencer", "streamer", "liver", "creator", "social"],
+  entertainment: ["entertainment", "show", "performance", "performer", "stage", "talent"],
 };
 
 export default function StationScreen() {
