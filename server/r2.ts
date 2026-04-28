@@ -52,7 +52,8 @@ export async function createSignedUploadUrl(key: string, contentType: string) {
    * (see `pipeR2PublicObjectToResponse`) — never return the private R2 S3 API host as a "public" URL.
    */
   const publicBase = process.env.R2_PUBLIC_BASE_URL?.trim();
-  const publicUrl = publicBase ? `${publicBase.replace(/\/$/, "")}/${key}` : null;
+  const useUnsafeR2DevBase = !!publicBase && /\.r2\.dev$/i.test(publicBase.replace(/^https?:\/\//i, "").replace(/\/.*$/, ""));
+  const publicUrl = publicBase && !useUnsafeR2DevBase ? `${publicBase.replace(/\/$/, "")}/${key}` : null;
 
   return { uploadUrl, publicUrl };
 }
@@ -63,9 +64,25 @@ export async function createSignedUploadUrl(key: string, contentType: string) {
  */
 export function resolveUploadPublicUrlForKey(req: Pick<Request, "get" | "protocol">, key: string): string {
   const publicBase = process.env.R2_PUBLIC_BASE_URL?.trim();
-  if (publicBase) return `${publicBase.replace(/\/$/, "")}/${key}`;
+  if (publicBase) {
+    const hostOnly = publicBase.replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+    // Avoid direct r2.dev public URLs (can fail SSL / cipher on custom subdomains).
+    if (!/\.r2\.dev$/i.test(hostOnly)) {
+      return `${publicBase.replace(/\/$/, "")}/${key}`;
+    }
+  }
 
-  const host = String(req.get("x-forwarded-host") ?? req.get("host") ?? "").trim();
+  const forwardedOrHost = String(req.get("x-forwarded-host") ?? req.get("host") ?? "").trim();
+  // Some proxies can pass malformed hosts (e.g. typos like "rub-rawstock.live").
+  // Keep public media URLs stable on the canonical production host.
+  const host =
+    !forwardedOrHost
+      ? ""
+      : forwardedOrHost === "rawstock.live"
+        ? forwardedOrHost
+        : forwardedOrHost.endsWith("rawstock.live")
+          ? "rawstock.live"
+          : forwardedOrHost;
   const xfProto = String(req.get("x-forwarded-proto") ?? "").split(",")[0]?.trim();
   const proto =
     xfProto === "http" || xfProto === "https"

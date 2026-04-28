@@ -24,10 +24,18 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   if (event.request.url.includes("/api/")) return;
+  const reqUrl = new URL(event.request.url);
+  const isRuntimeCodeAsset =
+    event.request.destination === "script" ||
+    event.request.destination === "style" ||
+    event.request.destination === "worker" ||
+    reqUrl.pathname.includes("/_expo/") ||
+    reqUrl.pathname.endsWith(".js") ||
+    reqUrl.pathname.endsWith(".css");
 
   // Navigation requests (HTML): network-first to fetch latest pages.
   const isNav = event.request.mode === "navigate";
-  if (isNav) {
+  if (isNav || isRuntimeCodeAsset) {
     event.respondWith(
       fetch(event.request)
         .then((response) => {

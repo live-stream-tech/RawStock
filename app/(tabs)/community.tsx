@@ -7,24 +7,23 @@ import {
   Pressable,
   ActivityIndicator,
   Linking,
+  Modal,
 } from "react-native";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { navigateFromVideoCreatorRow } from "@/lib/navigate-profile";
 import { C } from "@/constants/colors";
 import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/layout";
 import { MetallicLine } from "@/components/MetallicLine";
 import { AppLogo } from "@/components/AppLogo";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { useQuery } from "@tanstack/react-query";
-import {
-  TEMP_BANNER_ASPECT,
-  TEMP_BANNER_IMAGE_PATH,
-  TEMP_BANNER_TARGET_URL,
-} from "@/constants/bannerLinks";
+import { TEMP_BANNER_IMAGE_PATH, TEMP_BANNER_TARGET_URL } from "@/constants/bannerLinks";
+import { STATION_CATEGORY_LABEL } from "@/constants/stations";
+
+const COMMUNITY_X_LINK = "https://x.com/ndjtpamwu";
 
 type StationRow = {
   id: number;
@@ -35,211 +34,89 @@ type StationRow = {
   category?: string;
 };
 
-const STATION_CATEGORY_LABEL: Record<string, string> = {
-  idol_singer: "歌手アイドル",
-  club_music: "クラブミュージック",
-  indie_band: "インディーズバンド",
-  ai_music_vocaloid: "AIミュージック・ボカロ",
-  classic_world: "Classic/World",
-  influencer: "インフルエンサー",
-  anime: "アニメ",
-  ai_video: "AI動画",
-  comedian: "コメディアン",
-  theater: "演劇",
-};
+const MOCK_ACTIVITY_SEEDS = [
+  {
+    title: "Creator Onboarding",
+    thumb: "https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=1280&h=720&q=80",
+    status: "Now: UI draft",
+    next: "Next: signup form",
+    href: "/community/create" as const,
+  },
+  {
+    title: "Sales Page",
+    thumb: "https://images.unsplash.com/photo-1556740749-887f6717d7e4?auto=format&fit=crop&w=1280&h=720&q=80",
+    status: "Now: visual mock",
+    next: "Next: payment flow",
+    href: "/upload/work" as const,
+  },
+  {
+    title: "Watch Party",
+    thumb: "https://images.unsplash.com/photo-1529333166437-7750a6dd5a70?auto=format&fit=crop&w=1280&h=720&q=80",
+    status: "Now: concept card",
+    next: "Next: reservation flow",
+    href: "/stations" as const,
+  },
+  {
+    title: "Editor Match",
+    thumb: "https://images.unsplash.com/photo-1574717024453-3540569c3f7b?auto=format&fit=crop&w=1280&h=720&q=80",
+    status: "Now: dummy list",
+    next: "Next: request form",
+    href: "/find-editor" as const,
+  },
+  {
+    title: "Contest Form",
+    thumb: "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?auto=format&fit=crop&w=1280&h=720&q=80",
+    status: "Now: requirements",
+    next: "Next: posting flow",
+    href: "/upload" as const,
+  },
+];
 
-function formatNum(n: number): string {
-  if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
-  if (n >= 1000) return (n / 1000).toFixed(1) + "K";
-  return n.toLocaleString();
-}
-
-function RankBadge({ rank }: { rank: number }) {
-  const colors: Record<number, string> = { 1: "#FFD700", 2: "#C0C0C0", 3: "#CD7F32" };
-  const bg = colors[rank] ?? C.surface3;
-  const textColor = rank <= 3 ? "#000" : C.textSec;
-  return (
-    <View style={[styles.rankBadge, { backgroundColor: bg }]}>
-      <Text style={[styles.rankBadgeText, { color: textColor }]}>{rank}</Text>
-    </View>
-  );
-}
-
-function PurchaseRankCard({ item, rank }: { item: any; rank: number }) {
-  return (
-    <Pressable
-      style={styles.purchaseCard}
-      onPress={() => router.push(`/video/${item.id}` as any)}
-    >
-      <Image source={{ uri: item.thumbnail }} style={styles.purchaseCardImage} contentFit="cover" />
-      <View style={styles.purchaseCardOverlay} />
-      <RankBadge rank={rank} />
-      {item.price && (
-        <View style={styles.priceChip}>
-          <Text style={styles.priceChipText}>🎟{item.price.toLocaleString()}</Text>
-        </View>
-      )}
-      <View style={styles.purchaseCardBottom}>
-        <Text style={styles.purchaseCardTitle} numberOfLines={2}>{item.title}</Text>
-        <View style={styles.purchaseCardMeta}>
-          <Pressable
-            onPress={(e) => {
-              (e as any).stopPropagation?.();
-              navigateFromVideoCreatorRow(item);
-            }}
-            hitSlop={4}
-          >
-            <Image source={{ uri: item.avatar }} style={styles.purchaseCardAvatar} contentFit="cover" />
-          </Pressable>
-          <Text style={styles.purchaseCardCreator} numberOfLines={1}>{item.creator}</Text>
-        </View>
-      </View>
-    </Pressable>
-  );
-}
 
 export default function CommunityScreen() {
   const insets = useSafeAreaInsets();
   const topInset = getTabTopInset(insets);
   const bottomInset = getTabBottomInset(insets);
-  const [contentTab, setContentTab] = useState<"announcements" | "ranking">("announcements");
-  const [videoSort, setVideoSort] = useState<"sales" | "newest" | "views">("sales");
+  const [selectedMock, setSelectedMock] = useState<null | (typeof MOCK_ACTIVITY_SEEDS)[number]>(null);
 
   const { data: stations = [], isLoading: stationsLoading } = useQuery<StationRow[]>({
     queryKey: ["/api/stations"],
   });
-  const { data: stationStats } = useQuery<{
-    stationCount: number;
-    memberSum: number;
-  }>({
-    queryKey: ["/api/stations/stats"],
-  });
-  const { data: stationAnnouncements = [] } = useQuery<any[]>({
-    queryKey: ["/api/station/live-announcements", "station"],
-    queryFn: async () => {
-      const qs = new URLSearchParams({ limit: "20", liveOnly: "1" });
-      const res = await fetch(`/api/station/live-announcements?${qs.toString()}`, { credentials: "include" });
-      if (!res.ok) return [];
-      return (await res.json()) as any[];
-    },
-  });
-
   const stationRows = useMemo(
     () => [...stations].sort((a, b) => (b.members ?? 0) - (a.members ?? 0)),
     [stations],
   );
 
-  const { data: rankedApiVideos = [], isLoading: rankedLoading } = useQuery<any[]>({
-    queryKey: ["/api/videos/ranked"],
-  });
-
-  const purchaseData = rankedApiVideos;
-
-  const stationMembers = stationStats?.memberSum ?? stationRows.reduce((sum, s) => sum + Number(s.members ?? 0), 0);
-  const sortedRankingVideos = useMemo(() => {
-    const arr = [...purchaseData];
-    const ts = (v: any) => (v.createdAt ? new Date(v.createdAt).getTime() : 0);
-    if (videoSort === "views") {
-      return arr.sort((a, b) => {
-        const d = (b.views ?? 0) - (a.views ?? 0);
-        if (d !== 0) return d;
-        return ts(b) - ts(a);
-      });
-    }
-    if (videoSort === "newest") {
-      return arr.sort((a, b) => {
-        const d = ts(b) - ts(a);
-        if (d !== 0) return d;
-        return (b.id ?? 0) - (a.id ?? 0);
-      });
-    }
-    return arr.sort((a, b) => {
-      const d = (b.price ?? 0) - (a.price ?? 0);
-      if (d !== 0) return d;
-      const vd = (b.views ?? 0) - (a.views ?? 0);
-      if (vd !== 0) return vd;
-      return ts(b) - ts(a);
-    });
-  }, [purchaseData, videoSort]);
-
   return (
     <View style={[styles.container, { paddingBottom: bottomInset }]}>
       <View style={[styles.header, { paddingTop: topInset + 12 }]}>
         <AppLogo height={36} />
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Create community"
-          style={styles.createBtn}
-          onPress={() => router.push("/community/create" as any)}
-        >
-          <Ionicons name="add" size={18} color="#050505" />
-          <Text style={styles.createBtnText}>Create community</Text>
-        </Pressable>
       </View>
       <MetallicLine thickness={1} style={{ marginHorizontal: 16 }} />
 
       <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
+        <View style={styles.adBannerSlot}>
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel="Sponsor banner"
+            onPress={() => {
+              void Linking.openURL(TEMP_BANNER_TARGET_URL);
+            }}
+            style={styles.adBannerFrame}
+          >
+            <Image
+              source={{ uri: TEMP_BANNER_IMAGE_PATH }}
+              style={styles.adBannerImage}
+              contentFit="contain"
+              contentPosition="center"
+            />
+          </Pressable>
+        </View>
+
         <View style={styles.section}>
           <View style={[styles.sectionHeader, styles.sectionHeaderFirst]}>
             <View style={styles.sectionAccent} />
-            <Text style={styles.sectionTitle}>ステーション</Text>
-          </View>
-
-          <View style={styles.adBannerSlot}>
-            <Pressable
-              accessibilityRole="link"
-              accessibilityLabel="Sponsored banner"
-              onPress={() => {
-                void Linking.openURL(TEMP_BANNER_TARGET_URL);
-              }}
-              style={[styles.adBannerFrame, { aspectRatio: TEMP_BANNER_ASPECT }]}
-            >
-              <Image
-                source={{ uri: TEMP_BANNER_IMAGE_PATH }}
-                style={styles.adBannerImage}
-                contentFit="contain"
-                contentPosition="center"
-              />
-            </Pressable>
-          </View>
-
-          <View style={styles.stationCoreBox}>
-            <Text style={styles.stationCoreTitle}>公式ステーション（10の扉）</Text>
-            <Text style={styles.stationMembersText}>
-              想定参加者（参考・合算）: {formatNum(stationMembers)}　／　扉: {stationRows.length > 0 ? `${stationRows.length}件` : "—"}
-            </Text>
-            <Text style={styles.stationPitchStrong}>
-              祭礼・寺社・学校・寄席・スポーツ・同人・マルシェ・美術など、音楽だけに偏らない国内の現場文化のための公式扉です。
-            </Text>
-            <Text style={styles.stationPitchSub}>
-              告知・配信・編集・コミュニティ運営を、国内の現場文化に合わせてひとつの循環に。
-            </Text>
-            <View style={styles.stationSceneRow}>
-              {["祭礼", "寺社", "学校", "寄席", "スポーツ", "同人", "マルシェ", "美術"].map((label) => (
-                <View key={label} style={styles.stationSceneChip}>
-                  <Text style={styles.stationSceneChipText}>{label}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          <View style={styles.tabSwitchRow}>
-            <Pressable
-              style={[styles.tabSwitchBtn, contentTab === "announcements" && styles.tabSwitchBtnActive]}
-              onPress={() => setContentTab("announcements")}
-            >
-              <Text style={[styles.tabSwitchText, contentTab === "announcements" && styles.tabSwitchTextActive]}>
-                Live announcements
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[styles.tabSwitchBtn, contentTab === "ranking" && styles.tabSwitchBtnActive]}
-              onPress={() => setContentTab("ranking")}
-            >
-              <Text style={[styles.tabSwitchText, contentTab === "ranking" && styles.tabSwitchTextActive]}>
-                Video ranking
-              </Text>
-            </Pressable>
+            <Text style={styles.sectionTitle}>Stations</Text>
           </View>
 
           {stationsLoading ? (
@@ -252,14 +129,23 @@ export default function CommunityScreen() {
                 <Pressable
                   key={s.id}
                   style={styles.stationMiniCard}
-                  onPress={() => router.push("/stations" as any)}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/community/create",
+                      params: {
+                        stationId: String(s.id),
+                        stationName: s.name,
+                        stationCategory: s.category ?? "",
+                      },
+                    } as any)
+                  }
                 >
                   <Image source={{ uri: s.thumbnail }} style={styles.stationMiniThumb} contentFit="cover" />
                   <Text style={styles.stationMiniName} numberOfLines={2}>
                     {s.name}
                   </Text>
                   <Text style={styles.stationMiniMeta}>
-                    {(s.category && STATION_CATEGORY_LABEL[s.category]) || "公式"}
+                    {(s.category && STATION_CATEGORY_LABEL[s.category]) || "Official"}
                   </Text>
                 </Pressable>
               ))}
@@ -267,63 +153,58 @@ export default function CommunityScreen() {
           )}
         </View>
 
-        {contentTab === "announcements" ? (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionAccent} />
-              <Text style={styles.sectionTitle}>Live announcements</Text>
-            </View>
-            {stationAnnouncements.length === 0 ? (
-              <Text style={styles.emptyInline}>No live announcements yet.</Text>
-            ) : (
-              <HorizontalScroll contentContainerStyle={styles.hList}>
-                {stationAnnouncements.slice(0, 20).map((item: any) => (
-                  <Pressable
-                    key={`station-${item.id}`}
-                    style={styles.announcementMiniCard}
-                    onPress={() => router.push("/stations")}
-                  >
-                    <Text style={styles.announcementMiniTitle} numberOfLines={2}>{item.title}</Text>
-                    <Text style={styles.announcementMiniMeta} numberOfLines={1}>{item.communityName}</Text>
-                  </Pressable>
-                ))}
-              </HorizontalScroll>
-            )}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionAccent} />
+            <Text style={styles.sectionTitle}>Activity</Text>
           </View>
-        ) : (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionAccent} />
-              <Text style={styles.sectionTitle}>Video ranking</Text>
+          <HorizontalScroll contentContainerStyle={styles.hList}>
+            {MOCK_ACTIVITY_SEEDS.map((row) => (
+              <Pressable
+                key={row.title}
+                style={styles.mockCard}
+                onPress={() => {
+                  if (row.href) {
+                    router.push(row.href as any);
+                    return;
+                  }
+                  setSelectedMock(row);
+                }}
+              >
+                <Image source={{ uri: row.thumb }} style={styles.mockCardThumb} contentFit="cover" />
+                <View style={styles.mockCardBody}>
+                  <Text style={styles.mockBadge}>DUMMY</Text>
+                  <Text style={styles.mockCardTitle} numberOfLines={2}>{row.title}</Text>
+                  <Text style={styles.mockCardMeta}>Preview</Text>
+                  <Text style={styles.mockCardState}>{row.status}</Text>
+                  <Text style={styles.mockCardState}>{row.next}</Text>
+                </View>
+              </Pressable>
+            ))}
+          </HorizontalScroll>
+          <Pressable
+            style={styles.mockActionBtn}
+            onPress={() => {
+              void Linking.openURL(COMMUNITY_X_LINK);
+            }}
+          >
+            <Text style={styles.mockActionBtnText}>Feedback</Text>
+          </Pressable>
+        </View>
+
+        <Modal visible={!!selectedMock} transparent animationType="fade" onRequestClose={() => setSelectedMock(null)}>
+          <View style={styles.modalScrim}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalBadge}>DUMMY DETAIL</Text>
+              <Text style={styles.modalTitle}>{selectedMock?.title}</Text>
+              <Text style={styles.modalBody}>{selectedMock?.status}</Text>
+              <Text style={styles.modalBody}>{selectedMock?.next}</Text>
+              <Pressable style={styles.modalCloseBtn} onPress={() => setSelectedMock(null)}>
+              <Text style={styles.modalCloseBtnText}>Close</Text>
+              </Pressable>
             </View>
-            <View style={styles.sortRow}>
-              {([
-                ["sales", "Sales"],
-                ["newest", "Newest"],
-                ["views", "Views"],
-              ] as const).map(([key, label]) => (
-                <Pressable
-                  key={key}
-                  style={[styles.sortPill, videoSort === key && styles.sortPillActive]}
-                  onPress={() => setVideoSort(key)}
-                >
-                  <Text style={[styles.sortPillText, videoSort === key && styles.sortPillTextActive]}>{label}</Text>
-                </Pressable>
-              ))}
-            </View>
-            {rankedLoading ? (
-              <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
-            ) : sortedRankingVideos.length === 0 ? (
-              <Text style={styles.emptyInline}>No ranked videos yet.</Text>
-            ) : (
-              <HorizontalScroll contentContainerStyle={styles.hList}>
-                {sortedRankingVideos.map((item, index) => (
-                  <PurchaseRankCard key={item.id} item={item} rank={index + 1} />
-                ))}
-              </HorizontalScroll>
-            )}
           </View>
-        )}
+        </Modal>
 
         <View style={{ height: 100 }} />
       </ScrollView>
@@ -335,18 +216,18 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   adBannerSlot: {
     marginHorizontal: 16,
+    marginTop: 6,
     marginBottom: 10,
-    borderRadius: 12,
     overflow: "hidden",
     backgroundColor: "#0a0a0a",
-    borderWidth: 1,
-    borderColor: C.border,
   },
   adBannerFrame: {
     width: "100%",
-    borderRadius: 12,
+    height: 48,
     backgroundColor: "#0a0a0a",
     overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
   },
   adBannerText: {
     color: C.textMuted,
@@ -482,9 +363,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
+    gap: 10,
     paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingBottom: 10,
   },
   stationStrip: {
     paddingHorizontal: 16,
@@ -492,68 +373,54 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   stationMiniCard: {
-    width: 156,
-    borderRadius: 12,
+    width: 184,
+    borderRadius: 14,
     overflow: "hidden",
-    backgroundColor: "rgba(255,255,255,0.06)",
+    backgroundColor: "rgba(255,255,255,0.045)",
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: "rgba(255,255,255,0.14)",
   },
   stationMiniThumb: {
     width: "100%",
-    height: 104,
+    height: 132,
     backgroundColor: C.surface,
   },
   stationMiniName: {
     color: C.text,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "700",
     paddingHorizontal: 10,
     paddingTop: 8,
-    minHeight: 36,
+    minHeight: 42,
   },
   stationMiniMeta: {
-    color: C.textMuted,
-    fontSize: 11,
-    fontWeight: "600",
+    color: "rgba(255,255,255,0.58)",
+    fontSize: 10,
+    fontWeight: "700",
     paddingHorizontal: 10,
     paddingBottom: 10,
   },
-  createBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: C.accent,
-    borderRadius: 3,
-    paddingHorizontal: 14,
-    height: 42,
-  },
-  createBtnText: {
-    color: "#050505",
-    fontSize: 14,
-    fontWeight: "700",
-  },
   scroll: { flex: 1 },
-  section: { marginBottom: 20 },
+  section: { marginBottom: 24 },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     paddingHorizontal: 16,
-    marginBottom: 8,
-    marginTop: 20,
+    marginBottom: 10,
+    marginTop: 18,
   },
   sectionAccent: {
-    width: 3,
-    height: 16,
+    width: 2,
+    height: 14,
     backgroundColor: C.accent,
     borderRadius: 2,
   },
-  sectionTitle: { color: C.text, fontSize: 15, fontWeight: "700" },
+  sectionTitle: { color: C.text, fontSize: 13, fontWeight: "800", letterSpacing: 0.8, textTransform: "uppercase" },
   sectionHeaderFirst: { marginTop: 12 },
   hList: {
     paddingHorizontal: 16,
-    gap: 10,
+    gap: 12,
   },
   rankBadge: {
     position: "absolute",
@@ -653,5 +520,131 @@ const styles = StyleSheet.create({
   announcementMiniMeta: {
     color: C.textMuted,
     fontSize: 11,
+  },
+  mockCaption: {
+    color: C.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    paddingHorizontal: 16,
+    marginBottom: 8,
+  },
+  mockCard: {
+    width: 250,
+    minHeight: 222,
+    borderRadius: 14,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(255,255,255,0.035)",
+  },
+  mockCardThumb: {
+    width: "100%",
+    height: 136,
+    backgroundColor: C.surface,
+  },
+  mockCardBody: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 5,
+  },
+  mockBadge: {
+    alignSelf: "flex-start",
+    color: "#050505",
+    backgroundColor: C.accent,
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  mockCardTitle: {
+    color: C.text,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "700",
+  },
+  mockCardMeta: {
+    color: C.textMuted,
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+  },
+  mockCardState: {
+    color: "rgba(255,255,255,0.72)",
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  mockActionBtn: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(0,255,204,0.35)",
+    backgroundColor: "rgba(0,255,204,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+  },
+  mockActionBtnText: {
+    color: C.accent,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  modalScrim: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 20,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface,
+    padding: 14,
+    gap: 8,
+  },
+  modalBadge: {
+    alignSelf: "flex-start",
+    color: "#050505",
+    backgroundColor: C.accent,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 2,
+  },
+  modalTitle: {
+    color: C.text,
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 20,
+  },
+  modalBody: {
+    color: C.textSec,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  modalCloseBtn: {
+    marginTop: 6,
+    borderRadius: 8,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+  },
+  modalCloseBtnText: {
+    color: C.text,
+    fontSize: 12,
+    fontWeight: "700",
   },
 });

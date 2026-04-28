@@ -19,12 +19,13 @@ import { C } from "@/constants/colors";
 import { F } from "@/constants/fonts";
 import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/layout";
 import { AppLogo } from "@/components/AppLogo";
-import { EventFlyerImage } from "@/components/EventFlyerImage";
 import { usePlayingVideo } from "@/lib/playing-video-context";
 import { useJukeboxPulse } from "@/lib/useJukeboxPulse";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
+import { CreatorPromoBanner } from "@/components/CreatorPromoBanner";
 import { parseThreadBody } from "@/lib/parse-thread-body";
 import { resolvePublicMediaUri as resolveVideoMediaUri } from "@/lib/resolve-public-media-uri";
+
 const MENTOR_W = 200;
 
 function useUnreadCount() {
@@ -225,31 +226,41 @@ function LiveCard({ item }: { item: any }) {
 }
 
 /**
- * Live announcement card: event screenshot (stored as flyer URL), 16:9-style frame, `cover` + top anchor.
+ * Live announcement flyer: 16:9 (same as live cards), `cover` + top anchor so the top
+ * of the poster is never cropped; bottom is clipped by the frame and read via gradient + overlay.
  */
 function AnnouncementCard({ item, cardWidth }: { item: any; cardWidth: number }) {
   const flyer = parseThreadBody(item.body).flyerImageUrl;
-  const thumbRaw = typeof item.communityThumbnail === "string" ? item.communityThumbnail.trim() : "";
-  const primaryUri = (flyer?.trim() || thumbRaw || undefined) as string | undefined;
-  const fallbackOnly = flyer?.trim() ? thumbRaw || undefined : undefined;
+  const fallbackThumb = item.communityThumbnail ? resolveVideoMediaUri(item.communityThumbnail) : null;
+  const [imageUri, setImageUri] = React.useState<string | null>(flyer ? resolveVideoMediaUri(flyer) : fallbackThumb);
+  React.useEffect(() => {
+    setImageUri(flyer ? resolveVideoMediaUri(flyer) : fallbackThumb);
+  }, [flyer, fallbackThumb, item.id]);
   return (
     <Pressable
       style={[styles.announceCard, { width: cardWidth }]}
-      onPress={() => router.push("/stations")}
+      onPress={() => router.push(`/community/${item.communityId}?tab=Board&openThread=${item.id}` as any)}
     >
       <View style={styles.announceThumbWrap}>
-        {primaryUri ? (
-          <EventFlyerImage
-            uri={primaryUri}
-            fallbackUri={fallbackOnly}
-            recyclingKey={`announce-${item.id}`}
+        {imageUri ? (
+          <Image
+            recyclingKey={`announce-flyer-${item.id}-${imageUri}`}
+            source={{ uri: imageUri }}
             style={styles.announceThumb}
             contentFit="cover"
             contentPosition="top"
+            cachePolicy="memory-disk"
+            onError={() => {
+              if (fallbackThumb && imageUri !== fallbackThumb) {
+                setImageUri(fallbackThumb);
+              } else {
+                setImageUri(null);
+              }
+            }}
           />
         ) : (
           <View style={styles.announceThumbPlaceholder}>
-            <Ionicons name="megaphone-outline" size={18} color={C.textMuted} />
+            <Text style={styles.announceThumbPlaceholderText}>No flyer image</Text>
           </View>
         )}
         <LinearGradient
@@ -324,6 +335,61 @@ function SessionCard({ item }: { item: any }) {
   );
 }
 
+// ─── Dummy Data ───────────────────────────────────────────────────────────────
+/** Placeholder paid hero cards when there are no paid uploads — thumbnails/titles only; stats are honest zeros. */
+const DUMMY_PAID = [
+  {
+    id: 1,
+    thumbnail: "https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=800&h=520&fit=crop",
+    avatar: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=40&h=40&fit=crop",
+    community: "Shimokitazawa Livehouses",
+    title: "Basement Gig Archive — 4/20 Shimokitazawa 3-venue digest",
+    views: 0,
+    price: 1000,
+  },
+  {
+    id: 2,
+    thumbnail: "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=800&h=520&fit=crop",
+    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=40&h=40&fit=crop",
+    community: "Tokyo Club Circuit",
+    title: "Warehouse Rave Recap — Peak Time Set + Crowd Cam",
+    views: 0,
+    price: 800,
+  },
+  {
+    id: 3,
+    thumbnail: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=800&h=520&fit=crop",
+    avatar: "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=40&h=40&fit=crop",
+    community: "Japan Indie Livehouses",
+    title: "Indie tour finale — full set through encore (no cuts)",
+    views: 0,
+    price: 600,
+  },
+];
+
+/** Placeholder live tiles when no streams — not on air; viewer count is zero. */
+const DUMMY_LIVE = [
+  {
+    id: 1,
+    thumbnail: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&h=225&fit=crop",
+    avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=40&h=40&fit=crop",
+    community: "Underground Scene",
+    title: "Studio Practice — unfiltered stream",
+    viewers: 0,
+    isDemo: true,
+  },
+  {
+    id: 2,
+    thumbnail: "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=400&h=225&fit=crop",
+    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=40&h=40&fit=crop",
+    community: "D&B Scene",
+    title: "JAM Session LIVE",
+    viewers: 0,
+    isDemo: true,
+  },
+];
+
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function HomeScreen() {
   const { width: windowWidth } = useWindowDimensions();
@@ -336,48 +402,20 @@ export default function HomeScreen() {
   const unreadCount = useUnreadCount();
   const { jukeboxIsActive, jukeboxCommunityId } = usePlayingVideo();
   const { pulse: jukePulse } = useJukeboxPulse();
-  const [isPwaStandalone, setIsPwaStandalone] = React.useState(false);
-
-  React.useEffect(() => {
-    if (Platform.OS !== "web" || typeof window === "undefined") return;
-    const mediaQuery = window.matchMedia("(display-mode: standalone)");
-    const updateStandaloneState = () => {
-      const iosStandalone = typeof (window.navigator as any).standalone === "boolean"
-        ? Boolean((window.navigator as any).standalone)
-        : false;
-      setIsPwaStandalone(mediaQuery.matches || iosStandalone);
-    };
-    updateStandaloneState();
-    mediaQuery.addEventListener("change", updateStandaloneState);
-    return () => {
-      mediaQuery.removeEventListener("change", updateStandaloneState);
-    };
-  }, []);
 
   const { data: apiVideos = [] } = useQuery<any[]>({ queryKey: ["/api/videos"] });
-  const { data: apiLive = [] } = useQuery<any[]>({
-    queryKey: ["/api/live-streams"],
-    refetchInterval: 5000,
-  });
+  const { data: apiLive = [] } = useQuery<any[]>({ queryKey: ["/api/live-streams"] });
   const { data: communities = [] } = useQuery<any[]>({ queryKey: ["/api/communities"] });
   const { data: liveAnnouncements = [] } = useQuery<any[]>({
-    queryKey: ["/api/station/live-announcements", "top"],
+    queryKey: ["/api/community-announcements/feed", "top"],
     queryFn: async () => {
       const qs = new URLSearchParams({ limit: "12", liveOnly: "1" });
-      const res = await fetch(`/api/station/live-announcements?${qs.toString()}`, { credentials: "include" });
+      const res = await fetch(`/api/community-announcements/feed?${qs.toString()}`, { credentials: "include" });
       if (!res.ok) return [];
       return (await res.json()) as any[];
     },
     staleTime: 60_000,
   });
-  const liveAnnouncementsWithImage = React.useMemo(
-    () =>
-      liveAnnouncements.filter((item: any) => {
-        const flyer = parseThreadBody(item.body).flyerImageUrl;
-        return Boolean(flyer || item.communityThumbnail);
-      }),
-    [liveAnnouncements]
-  );
   const { data: announcementRows = [] } = useQuery<
     { id: number; title: string; isPinned: boolean; createdAt: string | null }[]
   >({
@@ -392,13 +430,16 @@ export default function HomeScreen() {
   };
   const { data: mentorSessions = [] } = useQuery<BookingSession[]>({ queryKey: ["/api/booking-sessions"] });
 
-  const paidVideos = apiVideos
-    .filter((v: any) => v.price != null && v.price > 0)
-    .sort((a: any, b: any) => (b.views ?? 0) - (a.views ?? 0))
-    .slice(0, 5);
-  const usingDemoPaid = false;
+  const paidVideos = (() => {
+    const paid = apiVideos
+      .filter((v: any) => v.price != null && v.price > 0)
+      .sort((a: any, b: any) => (b.views ?? 0) - (a.views ?? 0))
+      .slice(0, 5);
+    return paid.length > 0 ? paid : DUMMY_PAID;
+  })();
+  const usingDemoPaid = apiVideos.filter((v: any) => v.price != null && v.price > 0).length === 0;
 
-  const allLiveStreams = apiLive;
+  const allLiveStreams = apiLive.length > 0 ? apiLive : DUMMY_LIVE;
   const sessions = mentorSessions;
 
   const announcementTeaserTitle = (() => {
@@ -409,7 +450,7 @@ export default function HomeScreen() {
   })();
 
   const topInset = getTabTopInset(insets);
-  const bottomInset = getTabBottomInset(insets);
+  const bottomInset = getTabBottomInset();
 
   return (
     <View style={[styles.container, { paddingBottom: bottomInset }]}>
@@ -417,18 +458,6 @@ export default function HomeScreen() {
       <View style={[styles.header, { paddingTop: topInset + 8 }]}>
         <AppLogo height={32} />
         <View style={styles.headerRight}>
-          {isPwaStandalone && (
-            <Pressable
-              style={styles.iconBtn}
-              onPress={() => {
-                if (typeof window !== "undefined") window.location.reload();
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Reload app"
-            >
-              <Ionicons name="refresh-outline" size={21} color={C.text} />
-            </Pressable>
-          )}
           <Pressable style={styles.iconBtn} onPress={() => router.push("/notifications?filter=purchase")}>
             <Ionicons name="notifications-outline" size={22} color={C.text} />
             {unreadCount > 0 && (
@@ -463,17 +492,17 @@ export default function HomeScreen() {
         {/* ── Live Announcements First ── */}
         <View style={styles.sectionGap} />
         <SectionHeader
-          title="Live announcements"
+          title="LIVE ANNOUNCEMENTS"
           accent
           right={
             <Pressable onPress={() => router.push("/live-announcements" as any)}>
-              <Text style={styles.viewAllText}>View all</Text>
+              <Text style={styles.viewAllText}>VIEW ALL</Text>
             </Pressable>
           }
         />
         <HorizontalScroll contentContainerStyle={styles.hScroll}>
-          {liveAnnouncementsWithImage.length > 0 ? (
-            liveAnnouncementsWithImage.slice(0, 8).map((item: any) => (
+          {liveAnnouncements.length > 0 ? (
+            liveAnnouncements.slice(0, 8).map((item: any) => (
               <AnnouncementCard
                 key={`a-${item.communityId}-${item.id}`}
                 item={item}
@@ -483,7 +512,7 @@ export default function HomeScreen() {
           ) : (
             <View style={[styles.announceEmptyCard, { width: announceInnerW }]}>
               <Ionicons name="megaphone-outline" size={18} color={C.textMuted} />
-              <Text style={styles.announceEmptyText}>No live announcements yet.</Text>
+              <Text style={styles.announceEmptyText}>Live announcements coming soon.</Text>
             </View>
           )}
         </HorizontalScroll>
@@ -499,7 +528,7 @@ export default function HomeScreen() {
             } else if (firstCommunityId) {
               router.push(`/jukebox/${firstCommunityId}` as any);
             } else {
-              router.push("/stations" as any);
+              router.push("/community" as any);
             }
           }}
         >
@@ -561,35 +590,25 @@ export default function HomeScreen() {
 
         {/* ── Paid Hero ── */}
         <View style={styles.sectionGap} />
-        {paidVideos.length > 0 ? (
-          <PaidHeroSection videos={paidVideos} isDemo={usingDemoPaid} heroCardWidth={heroCardW} />
-        ) : (
-          <View style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
-            <Text style={{ color: C.textMuted, fontSize: 12, fontFamily: F.mono }}>No paid uploads yet.</Text>
-          </View>
-        )}
+        <PaidHeroSection videos={paidVideos} isDemo={usingDemoPaid} heroCardWidth={heroCardW} />
+
+        <CreatorPromoBanner />
 
         {/* ── Now Live ── */}
         <View style={styles.sectionGap} />
         <SectionHeader
-          title="On air now"
+          title="NOW LIVE"
           accent
           right={
             <Pressable onPress={() => router.push("/live" as any)}>
-              <Text style={styles.viewAllText}>View all</Text>
+              <Text style={styles.viewAllText}>VIEW ALL</Text>
             </Pressable>
           }
         />
         <HorizontalScroll contentContainerStyle={styles.hScroll}>
-          {allLiveStreams.length === 0 ? (
-            <View style={{ paddingHorizontal: 16, paddingVertical: 10, minWidth: 220 }}>
-              <Text style={{ color: C.textMuted, fontSize: 12, fontFamily: F.mono }}>
-                No channels on air right now.
-              </Text>
-            </View>
-          ) : (
-            allLiveStreams.map((s) => <LiveCard key={s.id} item={s} />)
-          )}
+          {allLiveStreams.map((s) => (
+            <LiveCard key={s.id} item={s} />
+          ))}
         </HorizontalScroll>
 
         {/* ── Sessions ── */}
@@ -597,10 +616,10 @@ export default function HomeScreen() {
         <View style={styles.sectionDivider} />
         <View style={styles.sectionGap} />
         <SectionHeader
-          title="Sessions"
+          title="SESSIONS"
           right={
             <Pressable onPress={() => router.push("/mentor-sessions" as any)}>
-              <Text style={styles.viewAllText}>View all</Text>
+              <Text style={styles.viewAllText}>VIEW ALL</Text>
             </Pressable>
           }
         />
@@ -608,7 +627,7 @@ export default function HomeScreen() {
           {sessions.length === 0 ? (
             <View style={{ paddingHorizontal: 16, paddingVertical: 12, minWidth: Math.min(heroCardW, 320) }}>
               <Text style={{ color: C.textMuted, fontSize: 12, fontFamily: F.mono }}>
-                No bookable sessions yet.
+                No mentor sessions available to book yet.
               </Text>
             </View>
           ) : (
@@ -619,26 +638,22 @@ export default function HomeScreen() {
         <View style={styles.footerLinks}>
           {Platform.OS === "web" ? (
             <>
-              <Link href="/">
-                <Text style={styles.footerLinkText}>Top</Text>
-              </Link>
-              <Text style={styles.footerLinkSeparator}> | </Text>
               <Link href="/privacy">
-                <Text style={styles.footerLinkText}>Privacy</Text>
+                <Text style={styles.footerLinkText}>Privacy Policy</Text>
               </Link>
               <Text style={styles.footerLinkSeparator}> | </Text>
               <Pressable onPress={() => router.push("/legal" as any)}>
-                <Text style={styles.footerLinkText}>Legal</Text>
+                <Text style={styles.footerLinkText}>Legal & Policies</Text>
               </Pressable>
             </>
           ) : (
             <Pressable onPress={() => router.push("/legal" as any)}>
-              <Text style={styles.footerLinkText}>Legal</Text>
+              <Text style={styles.footerLinkText}>Legal & Policies</Text>
             </Pressable>
           )}
         </View>
 
-        <View style={{ height: 12 }} />
+        <View style={{ height: 80 }} />
       </ScrollView>
     </View>
   );
@@ -693,6 +708,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     minWidth: 0,
   },
+
   scroll: { flex: 1 },
 
   // Jukebox Banner
@@ -894,6 +910,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: C.surface2,
   },
+  announceThumbPlaceholderText: { color: C.textMuted, fontSize: 11, fontFamily: F.mono },
   /** Match live card thumb gradient zone (~60%) for a soft bottom “cut”. */
   announceThumbGradient: { position: "absolute", left: 0, right: 0, bottom: 0, height: "58%" },
   announceTextOverlay: { position: "absolute", left: 10, right: 10, bottom: 10, gap: 2 },

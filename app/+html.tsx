@@ -66,30 +66,32 @@ export default function Root({ children }: PropsWithChildren) {
               min-height: -webkit-fill-available;
             }
           }
-          /* Desktop web: force slim cyan scrollbars.
-             Increase selector specificity under #root to override RN Web defaults. */
-          @media (min-width: 768px) and (pointer: fine) {
-            #root * {
-              scrollbar-width: thin !important;
-              scrollbar-color: rgba(0, 255, 204, 0.45) rgba(5, 5, 5, 0.8) !important;
-            }
-            #root *::-webkit-scrollbar {
-              display: block !important;
-              width: 10px !important;
-              height: 10px !important;
-            }
-            #root *::-webkit-scrollbar-track {
-              background: rgba(5, 5, 5, 0.75) !important;
-              border-radius: 8px;
-            }
-            #root *::-webkit-scrollbar-thumb {
-              background: rgba(0, 255, 204, 0.32) !important;
-              border-radius: 8px;
-              border: 2px solid rgba(5, 5, 5, 0.85);
-            }
-            #root *::-webkit-scrollbar-thumb:hover {
-              background: rgba(0, 255, 204, 0.55) !important;
-            }
+          /* Web: force visible, grabbable scrollbars across RN ScrollViews. */
+          #root, #root * {
+            scrollbar-width: auto !important;
+            scrollbar-color: rgba(0, 255, 204, 0.78) rgba(5, 5, 5, 0.92) !important;
+          }
+          #root::-webkit-scrollbar,
+          #root *::-webkit-scrollbar {
+            display: block !important;
+            width: 16px !important;
+            height: 16px !important;
+          }
+          #root::-webkit-scrollbar-track,
+          #root *::-webkit-scrollbar-track {
+            background: rgba(5, 5, 5, 0.9) !important;
+            border-radius: 10px;
+          }
+          #root::-webkit-scrollbar-thumb,
+          #root *::-webkit-scrollbar-thumb {
+            background: rgba(0, 255, 204, 0.7) !important;
+            border-radius: 10px;
+            border: 3px solid rgba(5, 5, 5, 0.95);
+            min-height: 48px;
+          }
+          #root::-webkit-scrollbar-thumb:hover,
+          #root *::-webkit-scrollbar-thumb:hover {
+            background: rgba(0, 255, 204, 0.9) !important;
           }
           * { font-family: 'Courier Prime', monospace; }
           h1, h2, h3, h4, h5, h6, .display { font-family: 'Barlow Condensed', sans-serif !important; }

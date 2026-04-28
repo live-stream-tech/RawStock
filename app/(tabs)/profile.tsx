@@ -28,6 +28,7 @@ import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/l
 import {
   apiRequest,
   compressImageBlobForUpload,
+  formatUserFacingApiError,
   getApiUrl,
   readAuthToken,
   uploadUserMediaBlobToR2,
@@ -452,13 +453,11 @@ export default function ProfileScreen() {
       setHeaderAvatarUploading(true);
       const url = await pickAndUploadAvatarUrl();
       if (!url) return;
-      await updateProfile({
-        name: user.name ?? user.displayName ?? "",
-        bio: user.bio ?? "",
-        avatar: url,
-      });
+      // Avatar-only update avoids accidental overwrite of other profile fields.
+      await updateProfile({ avatar: url });
+      await queryClient.invalidateQueries();
     } catch (e: any) {
-      Alert.alert("Update failed", e?.message ?? "Could not save the photo.");
+      Alert.alert("Update failed", formatUserFacingApiError(e));
     } finally {
       setHeaderAvatarUploading(false);
     }

@@ -104,6 +104,7 @@ export default function AccountEditScreen() {
             const name = (file.name || "avatar.jpg").replace(/[^\w.-]/g, "_");
             const url = await uploadImageBlobToR2(file, name, mime);
             setAvatar(url);
+            await updateProfile({ avatar: url });
           } catch (err: unknown) {
             Alert.alert("Upload failed", formatUserFacingApiError(err));
           } finally {
@@ -140,6 +141,7 @@ export default function AccountEditScreen() {
         const name = (asset.fileName ?? "avatar.jpg").replace(/[^\w.-]/g, "_");
         const url = await uploadImageBlobToR2(blob, name, mime);
         setAvatar(url);
+        await updateProfile({ avatar: url });
       } catch (err: unknown) {
         Alert.alert("Upload failed", formatUserFacingApiError(err));
       } finally {

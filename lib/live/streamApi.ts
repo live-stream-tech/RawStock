@@ -1,19 +1,13 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getApiUrl } from "@/lib/query-client";
-
-const AUTH_TOKEN_KEY = "auth_token";
+import { getApiUrl, readAuthToken } from "@/lib/query-client";
 
 /** Express `getAuthUser` only reads Bearer JWT — cookies alone stay anonymous */
 export async function liveAuthHeaders(
   base?: Record<string, string>,
 ): Promise<Record<string, string>> {
   const h = { ...(base ?? {}) };
-  try {
-    const token = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
-    if (token) h.Authorization = `Bearer ${token}`;
-  } catch {
-    /* ignore */
-  }
+  // Use the same resolver as the rest of the app (AsyncStorage + localStorage fallback on web).
+  const token = await readAuthToken();
+  if (token) h.Authorization = `Bearer ${token}`;
   return h;
 }
 

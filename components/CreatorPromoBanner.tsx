@@ -10,11 +10,7 @@ import {
 } from "react-native";
 import { Image } from "expo-image";
 import { C } from "@/constants/colors";
-import {
-  TEMP_BANNER_ASPECT,
-  TEMP_BANNER_IMAGE_PATH,
-  TEMP_BANNER_TARGET_URL,
-} from "@/constants/bannerLinks";
+import { TEMP_BANNER_IMAGE_PATH, TEMP_BANNER_TARGET_URL } from "@/constants/bannerLinks";
 
 type Props = {
   /** Optional outer spacing (profile vs home use different margins) */
@@ -59,8 +55,11 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: "#0a0a0a",
     width: "100%",
-    aspectRatio: TEMP_BANNER_ASPECT,
+    height: 72,
+    maxHeight: 76,
     alignSelf: "stretch",
+    alignItems: "center",
+    justifyContent: "center",
   },
   creatorBannerActive: {
     opacity: 0.92,

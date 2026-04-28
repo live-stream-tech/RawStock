@@ -123,8 +123,8 @@ function BroadcastWeb() {
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   /** Raw getUserMedia stream passed into FaceFilter. */
   const [jeelizSourceStream, setJeelizSourceStream] = useState<MediaStream | null>(null);
-  /** When true, unmount Jeeliz and show raw camera in a `<video>` (filter hung or failed). */
-  const [skipFaceFilter, setSkipFaceFilter] = useState(false);
+  /** Default to raw camera on web for stable startup; face filter can be re-enabled later. */
+  const [skipFaceFilter, setSkipFaceFilter] = useState(true);
   const [lastLiveError, setLastLiveError] = useState<string | null>(null);
   const blinkAnim = useRef(new Animated.Value(1)).current;
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -253,11 +253,15 @@ function BroadcastWeb() {
     setWebPreviewLoading(true);
     setCameraError(false);
     setLastLiveError(null);
-    setSkipFaceFilter(false);
+    setSkipFaceFilter(true);
     try {
       const raw = await acquireBroadcastMediaStream();
       rawStreamRef.current = raw;
-      setJeelizSourceStream(raw);
+      // Stable default path: avoid filter init stalls and go live immediately.
+      localStreamRef.current = raw;
+      setCameraStream(raw);
+      setPhase("ready");
+      setJeelizSourceStream(null);
     } catch {
       setCameraError(true);
     } finally {

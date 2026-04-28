@@ -19,7 +19,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiRequest, ApiError, uploadUserMediaBlobToR2 } from "@/lib/query-client";
+import { apiRequest, ApiError, formatUserFacingApiError, uploadUserMediaBlobToR2 } from "@/lib/query-client";
 import { C } from "@/constants/colors";
 import { useAuth } from "@/lib/auth";
 import { DAILY_POST_LIMITS } from "@/constants/upload-limits";
@@ -259,7 +259,7 @@ export default function DailyUploadScreen() {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       queryClient.invalidateQueries({ queryKey: ["/api/videos/my"] });
     } catch (err: any) {
-      Alert.alert("Error", err?.message ?? "Failed to publish");
+      Alert.alert("Error", formatUserFacingApiError(err));
     } finally {
       setUploading(false);
     }
@@ -346,13 +346,11 @@ export default function DailyUploadScreen() {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       queryClient.invalidateQueries({ queryKey: ["/api/videos/my"] });
     } catch (err: any) {
-      if (err instanceof ApiError) {
-        if (err.status === 401) Alert.alert("Sign in required", "Please sign in to post.");
-        else if (err.status === 400) Alert.alert("Invalid content", err.message ?? "Please check your input.");
-        else Alert.alert("Error", "Failed to post.");
-      } else {
-        Alert.alert("Error", err?.message ?? "Failed to post.");
+      if (err instanceof ApiError && err.status === 401) {
+        Alert.alert("Sign in required", "Please sign in to post.");
+        return;
       }
+      Alert.alert("Error", formatUserFacingApiError(err));
     } finally {
       setUploading(false);
     }

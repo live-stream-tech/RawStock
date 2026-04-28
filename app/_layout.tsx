@@ -19,7 +19,10 @@ SplashScreen.preventAutoHideAsync();
 
 if (Platform.OS === "web" && typeof window !== "undefined" && "serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
+    navigator.serviceWorker
+      .register("/sw.js", { updateViaCache: "none" })
+      .then((reg) => reg.update().catch(() => {}))
+      .catch(() => {});
   });
 }
 
@@ -111,7 +114,7 @@ function isPublicPath(rawPathname: string): boolean {
 
   if (/^\/community\/\d+$/.test(pathname)) return true;
   if (/^\/community\/members\/\d+$/.test(pathname)) return true;
-  if (/^\/community\/genre\/[^/]+$/.test(pathname)) return true;
+  if (/^\/station\/[^/]+$/.test(pathname)) return true;
 
   if (/^\/user\/\d+$/.test(pathname)) return true;
   if (/^\/user\/\d+\/(followers|following)$/.test(pathname)) return true;
@@ -225,6 +228,7 @@ function RootLayoutNav() {
       <Stack.Screen name="user/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="community/ad-apply" options={{ headerShown: false }} />
       <Stack.Screen name="community/ad-review" options={{ headerShown: false }} />
+      <Stack.Screen name="station/[stationId]" options={{ headerShown: false }} />
       <Stack.Screen name="video/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="upload" options={{ headerShown: false }} />
       <Stack.Screen name="notifications" options={{ headerShown: false }} />
@@ -252,7 +256,6 @@ function RootLayoutNav() {
       <Stack.Screen name="lp" options={{ headerShown: false }} />
       <Stack.Screen name="teamz" options={{ headerShown: false }} />
       <Stack.Screen name="rawstock-lp/index" options={{ headerShown: false }} />
-      <Stack.Screen name="community/genre-ad-apply" options={{ headerShown: false }} />
       <Stack.Screen name="admin/index" options={{ headerShown: false }} />
       <Stack.Screen name="admin/users" options={{ headerShown: false }} />
       <Stack.Screen name="admin/content" options={{ headerShown: false }} />
