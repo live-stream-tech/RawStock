@@ -217,15 +217,12 @@ function configureExpoAndLanding(app: express.Application) {
     });
   }
 
-  // 互換パス（内容は同一）
+  // Canonicalize legacy LP paths to `/lp` so only one source is visible.
   app.get("/lp-standalone.html", (req: Request, res: Response) => {
-    return serveLpStandalone(req, res, "/lp");
+    return res.redirect(302, "/lp");
   });
   app.get("/lp-static", (req: Request, res: Response) => {
-    if (hasLpViteApp) {
-      return res.redirect(302, "/lp");
-    }
-    return serveLpStandalone(req, res, "/lp");
+    return res.redirect(302, "/lp");
   });
 
   const teamzPath = path.resolve(process.cwd(), "public/teamz.html");
