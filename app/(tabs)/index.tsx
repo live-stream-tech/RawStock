@@ -23,7 +23,6 @@ import { usePlayingVideo } from "@/lib/playing-video-context";
 import { useJukeboxPulse } from "@/lib/useJukeboxPulse";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { CreatorPromoBanner } from "@/components/CreatorPromoBanner";
-import { parseThreadBody } from "@/lib/parse-thread-body";
 import { resolvePublicMediaUri as resolveVideoMediaUri } from "@/lib/resolve-public-media-uri";
 
 const MENTOR_W = 200;
@@ -225,58 +224,6 @@ function LiveCard({ item }: { item: any }) {
   );
 }
 
-/**
- * Live announcement flyer: 16:9 (same as live cards), `cover` + top anchor so the top
- * of the poster is never cropped; bottom is clipped by the frame and read via gradient + overlay.
- */
-function AnnouncementCard({ item, cardWidth }: { item: any; cardWidth: number }) {
-  const flyer = parseThreadBody(item.body).flyerImageUrl;
-  const fallbackThumb = item.communityThumbnail ? resolveVideoMediaUri(item.communityThumbnail) : null;
-  const [imageUri, setImageUri] = React.useState<string | null>(flyer ? resolveVideoMediaUri(flyer) : fallbackThumb);
-  React.useEffect(() => {
-    setImageUri(flyer ? resolveVideoMediaUri(flyer) : fallbackThumb);
-  }, [flyer, fallbackThumb, item.id]);
-  return (
-    <Pressable
-      style={[styles.announceCard, { width: cardWidth }]}
-      onPress={() => router.push(`/community/${item.communityId}?tab=Board&openThread=${item.id}` as any)}
-    >
-      <View style={styles.announceThumbWrap}>
-        {imageUri ? (
-          <Image
-            recyclingKey={`announce-flyer-${item.id}-${imageUri}`}
-            source={{ uri: imageUri }}
-            style={styles.announceThumb}
-            contentFit="cover"
-            contentPosition="top"
-            cachePolicy="memory-disk"
-            onError={() => {
-              if (fallbackThumb && imageUri !== fallbackThumb) {
-                setImageUri(fallbackThumb);
-              } else {
-                setImageUri(null);
-              }
-            }}
-          />
-        ) : (
-          <View style={styles.announceThumbPlaceholder}>
-            <Text style={styles.announceThumbPlaceholderText}>No flyer image</Text>
-          </View>
-        )}
-        <LinearGradient
-          colors={["rgba(0,0,0,0)", "rgba(0,0,0,0.22)", "rgba(0,0,0,0.82)"]}
-          locations={[0, 0.42, 1]}
-          style={styles.announceThumbGradient}
-        />
-        <View style={styles.announceTextOverlay}>
-          <Text style={styles.announceTitle} numberOfLines={2}>{item.title}</Text>
-          <Text style={styles.announceCommunityMini} numberOfLines={1}>{item.communityName}</Text>
-        </View>
-      </View>
-    </Pressable>
-  );
-}
-
 // ─── Session Card ─────────────────────────────────────────────────────────────
 function SessionCard({ item }: { item: any }) {
   return (
@@ -394,9 +341,6 @@ const DUMMY_LIVE = [
 export default function HomeScreen() {
   const { width: windowWidth } = useWindowDimensions();
   const heroCardW = Platform.OS === "web" ? Math.min(windowWidth, 500) : windowWidth;
-  /** Match jukebox banner: column minus horizontal padding (16 + 16). */
-  const announceInnerW =
-    Platform.OS === "web" ? heroCardW - 32 : Math.max(windowWidth - 32, 300);
 
   const insets = useSafeAreaInsets();
   const unreadCount = useUnreadCount();
@@ -406,22 +350,6 @@ export default function HomeScreen() {
   const { data: apiVideos = [] } = useQuery<any[]>({ queryKey: ["/api/videos"] });
   const { data: apiLive = [] } = useQuery<any[]>({ queryKey: ["/api/live-streams"], refetchInterval: 30_000 });
   const { data: communities = [] } = useQuery<any[]>({ queryKey: ["/api/communities"] });
-  const { data: liveAnnouncements = [] } = useQuery<any[]>({
-    queryKey: ["/api/community-announcements/feed", "top"],
-    queryFn: async () => {
-      const qs = new URLSearchParams({ limit: "12", liveOnly: "1" });
-      const res = await fetch(`/api/community-announcements/feed?${qs.toString()}`, { credentials: "include" });
-      if (!res.ok) return [];
-      return (await res.json()) as any[];
-    },
-    staleTime: 60_000,
-  });
-  const { data: announcementRows = [] } = useQuery<
-    { id: number; title: string; isPinned: boolean; createdAt: string | null }[]
-  >({
-    queryKey: ["/api/announcements"],
-    throwOnError: false,
-  });
   const firstCommunityId: number | null = (communities[0]?.id as number) ?? null;
   type BookingSession = {
     id: number; creator: string; category: string; categoryLabel: string; title: string;
@@ -441,13 +369,6 @@ export default function HomeScreen() {
 
   const allLiveStreams = apiLive.length > 0 ? apiLive : DUMMY_LIVE;
   const sessions = mentorSessions;
-
-  const announcementTeaserTitle = (() => {
-    if (!announcementRows.length) return null;
-    const pinned = announcementRows.filter((a) => a.isPinned);
-    const pick = pinned.length > 0 ? pinned[0] : announcementRows[0];
-    return pick?.title?.trim() || null;
-  })();
 
   const topInset = getTabTopInset(insets);
   const bottomInset = getTabBottomInset();
@@ -472,50 +393,8 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {announcementTeaserTitle ? (
-        <Pressable
-          style={styles.announcementBar}
-          onPress={() => router.push("/announcements" as any)}
-          accessibilityRole="button"
-          accessibilityLabel="Open announcements"
-        >
-          <Ionicons name="megaphone-outline" size={16} color={C.accent} style={{ marginRight: 8 }} />
-          <Text style={styles.announcementBarText} numberOfLines={1}>
-            {announcementTeaserTitle}
-          </Text>
-          <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
-        </Pressable>
-      ) : null}
-
       <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
-
-        {/* ── Live Announcements First ── */}
         <View style={styles.sectionGap} />
-        <SectionHeader
-          title="LIVE ANNOUNCEMENTS"
-          accent
-          right={
-            <Pressable onPress={() => router.push("/live-announcements" as any)}>
-              <Text style={styles.viewAllText}>VIEW ALL</Text>
-            </Pressable>
-          }
-        />
-        <HorizontalScroll contentContainerStyle={styles.hScroll}>
-          {liveAnnouncements.length > 0 ? (
-            liveAnnouncements.slice(0, 8).map((item: any) => (
-              <AnnouncementCard
-                key={`a-${item.communityId}-${item.id}`}
-                item={item}
-                cardWidth={announceInnerW}
-              />
-            ))
-          ) : (
-            <View style={[styles.announceEmptyCard, { width: announceInnerW }]}>
-              <Ionicons name="megaphone-outline" size={18} color={C.textMuted} />
-              <Text style={styles.announceEmptyText}>Live announcements coming soon.</Text>
-            </View>
-          )}
-        </HorizontalScroll>
 
         {/* ── Jukebox Banner ── */}
         <Pressable
@@ -687,27 +566,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   notifBadgeText: { color: "#fff", fontSize: 8, fontWeight: "700" },
-
-  announcementBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginHorizontal: 16,
-    marginTop: 4,
-    marginBottom: 2,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: C.surface,
-    borderRadius: 2,
-    borderWidth: 1,
-    borderColor: C.border,
-  },
-  announcementBarText: {
-    flex: 1,
-    color: C.text,
-    fontSize: 12,
-    fontWeight: "600",
-    minWidth: 0,
-  },
 
   scroll: { flex: 1 },
 
@@ -900,33 +758,6 @@ const styles = StyleSheet.create({
   },
   viewerText: { color: "#fff", fontSize: 10, fontFamily: F.mono },
   liveInfo: { paddingHorizontal: 10, paddingVertical: 8, gap: 4, backgroundColor: C.surface },
-  announceCard: { overflow: "hidden", backgroundColor: C.surface },
-  announceThumbWrap: { position: "relative", overflow: "hidden", aspectRatio: 16 / 9, backgroundColor: C.surface2 },
-  announceThumb: { width: "100%", height: "100%", backgroundColor: "transparent" },
-  announceThumbPlaceholder: {
-    width: "100%",
-    height: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: C.surface2,
-  },
-  announceThumbPlaceholderText: { color: C.textMuted, fontSize: 11, fontFamily: F.mono },
-  /** Match live card thumb gradient zone (~60%) for a soft bottom “cut”. */
-  announceThumbGradient: { position: "absolute", left: 0, right: 0, bottom: 0, height: "58%" },
-  announceTextOverlay: { position: "absolute", left: 10, right: 10, bottom: 10, gap: 2 },
-  announceTitle: { color: "#fff", fontSize: 12, fontWeight: "700", lineHeight: 16 },
-  announceCommunityMini: { color: "rgba(255,255,255,0.82)", fontSize: 10, fontFamily: F.mono },
-  announceEmptyCard: {
-    height: 160,
-    borderRadius: 2,
-    borderWidth: 1,
-    borderColor: C.border,
-    backgroundColor: C.surface,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  announceEmptyText: { color: C.textMuted, fontSize: 12, fontWeight: "600" },
 
   // Session Card
   sessionCard: { width: MENTOR_W, overflow: "hidden", backgroundColor: C.surface },
