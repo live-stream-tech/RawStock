@@ -115,6 +115,7 @@ import { debugIngestServer } from "./debugIngest";
 import { LEGAL_PRIVACY_VERSION, LEGAL_TERMS_VERSION } from "../constants/legalVersions";
 import { parseThreadBody } from "../lib/parse-thread-body";
 import { STATIONS } from "../constants/stations";
+import { STATION_JUKEBOX_IDS } from "../constants/stationJukebox";
 import { diversifyAnnouncementRowsByCommunity } from "./lib/diversifyAnnouncementFeed";
 import {
   fetchCommunitiesForIds,
@@ -339,6 +340,44 @@ async function getAuthUser(req: Request): Promise<SessionUser | null> {
     return sessionUserFromRow(user);
   } catch {
     return null;
+  }
+}
+
+const STATION_JUKEBOX_BY_ID = new Map<number, { category: string; name: string }>(
+  STATIONS.map((s) => {
+    const mappedId = STATION_JUKEBOX_IDS[s.category];
+    return [mappedId, { category: s.category, name: s.name }] as const;
+  }).filter((entry) => Number.isFinite(entry[0])),
+);
+
+async function ensureStationJukeboxCommunity(communityId: number): Promise<void> {
+  const station = STATION_JUKEBOX_BY_ID.get(communityId);
+  if (!station) return;
+
+  const [existing] = await db
+    .select({ id: communities.id })
+    .from(communities)
+    .where(eq(communities.id, communityId))
+    .limit(1);
+  if (existing) return;
+
+  await db.insert(communities).values({
+    id: communityId,
+    name: `${station.name} JUKEBOX`,
+    members: 0,
+    thumbnail: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=800&h=800&q=80",
+    online: true,
+    category: station.category,
+    isOfficial: true,
+  } as typeof communities.$inferInsert);
+
+  // Explicit ids do not advance PostgreSQL serial sequences; keep inserts safe.
+  try {
+    await db.execute(
+      sql`SELECT setval(pg_get_serial_sequence('communities', 'id'), (SELECT COALESCE(MAX(id), 1) FROM communities))`,
+    );
+  } catch (e) {
+    console.warn("[jukebox] communities id sequence sync skipped:", e);
   }
 }
 
@@ -2446,6 +2485,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.get("/api/communities/:id", async (req: Request, res: Response) => {
     const id = paramNum(req, "id");
+    await ensureStationJukeboxCommunity(id);
     const row = await fetchCommunityById(id);
     if (!row) return res.status(404).json({ message: "Not found" });
     res.json(normalizeCommunityRow(row));
@@ -5698,6 +5738,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.get("/api/jukebox/:communityId", async (req: Request, res: Response) => {
     const communityId = paramNum(req, "communityId");
+    await ensureStationJukeboxCommunity(communityId);
     const now = new Date();
 
     const [stateRaw] = await db
@@ -5837,6 +5878,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   // In-memory event bus for real-time SSE with initial snapshot from PostgreSQL
   app.get("/api/jukebox/:communityId/stream", async (req: Request, res: Response) => {
     const communityId = paramNum(req, "communityId");
+    await ensureStationJukeboxCommunity(communityId);
 
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache, no-transform");
@@ -6465,6 +6507,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.post("/api/jukebox/:communityId/add", async (req: Request, res: Response) => {
     const communityId = paramNum(req, "communityId");
+    await ensureStationJukeboxCommunity(communityId);
     const { videoId, videoTitle, videoThumbnail, videoDurationSecs, addedBy, addedByAvatar, youtubeId } = req.body;
     const authUser = await getAuthUser(req);
     const existing = await db.select().from(jukeboxQueue)
@@ -6544,6 +6587,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.post("/api/jukebox/:communityId/next", async (req: Request, res: Response) => {
     const communityId = paramNum(req, "communityId");
+    await ensureStationJukeboxCommunity(communityId);
     const [stateRaw] = await db.select().from(jukeboxState).where(eq(jukeboxState.communityId, communityId));
     const queue = await db.select().from(jukeboxQueue)
       .where(and(eq(jukeboxQueue.communityId, communityId), eq(jukeboxQueue.isPlayed, false)))
@@ -6630,6 +6674,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   // Only when videoDurationSecs is 0/unset (avoid duplicate client updates)
   app.patch("/api/jukebox/:communityId/duration", async (req: Request, res: Response) => {
     const communityId = paramNum(req, "communityId");
+    await ensureStationJukeboxCommunity(communityId);
     const { durationSecs } = req.body;
     if (!durationSecs || typeof durationSecs !== "number" || durationSecs <= 0) {
       return res.status(400).json({ error: "durationSecs must be a positive number" });
@@ -6653,6 +6698,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.post("/api/jukebox/:communityId/chat", async (req: Request, res: Response) => {
     const communityId = paramNum(req, "communityId");
+    await ensureStationJukeboxCommunity(communityId);
     const { username, avatar, message } = req.body;
     if (!message || !message.trim()) return res.status(400).json({ error: "Please enter a message" });
     // Content moderation
@@ -6676,6 +6722,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   // --- Jukebox: delete own request ---
   app.delete("/api/jukebox/:communityId/queue/:itemId", async (req: Request, res: Response) => {
     const communityId = paramNum(req, "communityId");
+    await ensureStationJukeboxCommunity(communityId);
     const itemId = paramNum(req, "itemId");
     const addedBy = (req.query.addedBy as string) || (req.body?.addedBy as string) || null;
 
