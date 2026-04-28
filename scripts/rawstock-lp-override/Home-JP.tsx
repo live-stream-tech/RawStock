@@ -165,15 +165,19 @@ export default function HomeJP() {
       {/* ── HERO：一言で伝わる → 行動 ───────────────────── */}
       <section
         id="top"
-        className="relative min-h-[88svh] flex flex-col justify-center overflow-hidden"
-        style={{
-          backgroundImage: `url(https://d2xsxph8kpxj0f.cloudfront.net/310519663449879480/Y3Yn5f8wK9BzVPCXiSHai5/hero-bg-2AFwCiErEpzEQtgr4Vk2Df.webp)`,
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-        }}
+        className="relative overflow-hidden"
+        style={{ backgroundColor: "#050505" }}
       >
-        <div className="absolute inset-0 bg-gradient-to-b from-black/68 via-black/48 to-[#050505]/92" />
-        <div className={`relative z-10 ${LP_COL} pt-24 pb-24 md:pb-28`}>
+        <div
+          className="relative w-full max-w-[1000px] min-h-[88svh] mx-auto flex flex-col justify-center overflow-hidden"
+          style={{
+            backgroundImage: `url(https://d2xsxph8kpxj0f.cloudfront.net/310519663449879480/Y3Yn5f8wK9BzVPCXiSHai5/hero-bg-2AFwCiErEpzEQtgr4Vk2Df.webp)`,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+          }}
+        >
+          <div className="absolute inset-0 bg-gradient-to-b from-black/68 via-black/48 to-[#050505]/92" />
+          <div className="relative z-10 w-full px-4 pt-24 pb-24 md:pb-28">
           <p className="inline-flex flex-wrap items-center gap-2 border border-hot-orange/50 px-3 py-2 sm:px-4 sm:py-2.5 mb-6 text-hot-orange max-w-full">
             <span className="w-1.5 h-1.5 rounded-full bg-hot-orange animate-pulse shrink-0" />
             <span className="font-prose-ja text-sm sm:text-base leading-snug">
@@ -259,6 +263,7 @@ export default function HomeJP() {
           <p className="font-prose-ja text-base sm:text-lg text-white/86 mt-8 leading-relaxed">
             このプロダクトを一緒に叩き直してほしい——それがこのページを書いた理由です。
           </p>
+          </div>
         </div>
       </section>
 
