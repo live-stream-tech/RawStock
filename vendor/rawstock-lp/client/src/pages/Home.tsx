@@ -144,7 +144,7 @@ export default function Home() {
           </div>
 
           {/* CTAs */}
-          <div className="flex flex-wrap gap-4 mb-16">
+          <div className="flex flex-wrap gap-4 mb-16 justify-center">
             <a
               href="mailto:rawstock.infomation@gmail.com"
               className="group inline-flex items-center gap-2 font-display text-lg px-8 py-4 bg-neon text-black hover:bg-white transition-all duration-200"

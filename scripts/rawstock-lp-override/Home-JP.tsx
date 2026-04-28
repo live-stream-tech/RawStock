@@ -155,7 +155,7 @@ export default function HomeJP() {
           </div>
 
           {/* CTAs */}
-          <div className="flex flex-wrap gap-4 mb-16">
+          <div className="flex flex-wrap gap-4 mb-16 justify-center">
             <a
               href={LP_LINK_X}
               target="_blank"
