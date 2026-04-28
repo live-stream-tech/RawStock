@@ -190,12 +190,12 @@ export default function HomeJP() {
             </span>
           </p>
 
-          <header className="mb-8 md:mb-10">
+          <header className="mb-10 md:mb-12">
             <h1 className="font-display font-black tracking-tight text-neon leading-[1.08] text-3xl sm:text-4xl md:text-5xl lg:text-6xl">
               <span className="block">自分たちで育てる</span>
               <span className="block mt-1 sm:mt-2">国産プラットフォーム</span>
             </h1>
-            <p className="mt-10 sm:mt-11 md:mt-14 text-base sm:text-lg md:text-xl text-white/88 font-prose-ja leading-[1.85] md:leading-relaxed">
+            <p className="mt-14 sm:mt-16 md:mt-20 text-base sm:text-lg md:text-xl text-white/88 font-prose-ja leading-[1.85] md:leading-relaxed">
               動画コンテンツを中心に、ライブ配信、個別セッション配信、<br />同じ趣味のコミュニティで同時視聴パーティー、<br />動画クリエイターとアーティストのマッチング、<br />動画コンテスト等を行う「活動」「交流」「成長」の場です。
             </p>
           </header>
@@ -379,8 +379,8 @@ export default function HomeJP() {
         </div>
       </section>
 
-      {/* ── ECOSYSTEM ───────────────────────────────────── */}
-      <section id="ecosystem" className="scroll-mt-20 relative py-20 md:py-24 overflow-hidden" style={{ backgroundColor: "#050505" }}>
+      {/* ── REVENUE ───────────────────────────────────────── */}
+      <section id="revenue" className="scroll-mt-20 relative py-20 md:py-24 overflow-hidden" style={{ backgroundColor: "#050505" }}>
         <div
           className="absolute inset-0 opacity-[0.04]"
           style={{
@@ -389,80 +389,6 @@ export default function HomeJP() {
           }}
         />
         <div className={`relative z-10 ${LP_COL}`}>
-          <SectionLabel en="Ecosystem" ja="誰のための仕組みか" />
-          <h2 className="font-display text-3xl sm:text-4xl md:text-5xl font-bold text-white mb-4">
-            共同で回す<span className="text-neon neon-glow"> 経済圏</span>
-          </h2>
-          <p className="font-prose-ja text-white/70 text-base md:text-lg mb-14 leading-relaxed">
-            公式の10ステーションはジャンルごとの柱です。名前のあとに、発信者・クリエイターのイメージを並べています。
-          </p>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            {[
-              {
-                num: "01",
-                title: "バンド・クラブレイヴ系",
-                desc: "バンド、DJ、クラブレイヴ系アーティスト。音と現場の熱量で世界観を構築する表現者。",
-              },
-              {
-                num: "02",
-                title: "ライバー / ストリーマー",
-                desc: "雑談、実況、企画配信。リアルタイムのコミュニケーションで熱狂を作るタレント。",
-              },
-              {
-                num: "03",
-                title: "AI動画クリエイター",
-                desc: "AI技術を駆使して、現実を超えた映像美や物語を生成・発信する新世代の表現者。",
-              },
-              {
-                num: "04",
-                title: "ビジュアル・パフォーマー",
-                desc: "ダンサー、コスプレイヤー、モデル。自らの身体をメディアとして表現するスター。",
-              },
-              {
-                num: "05",
-                title: "メンター / 専門家",
-                desc: "コンサル、コーチ、講師。動画を通じて知識や経験を「価値」として届ける発信者。",
-              },
-              {
-                num: "06",
-                title: "Vライバー / アバター",
-                desc: "仮想の肉体を持ち、性別や姿を超えて「個」の魅力を発信するデジタル表現者。",
-              },
-              {
-                num: "07",
-                title: "ボイス・アーティスト",
-                desc: "声優、朗読、ASMR。声の力だけで視聴者の感情を揺さぶる「音」の表現者。",
-              },
-              {
-                num: "08",
-                title: "ライフスタイル・インフルエンサー",
-                desc: "旅、食、日常。自身の生き方そのものをコンテンツ化し、共感を集める発信者。",
-              },
-              {
-                num: "09",
-                title: "歌手・アイドル系",
-                desc: "シンガー、アイドル、ボーカル中心の表現者。歌とキャラクターでファン体験を作る存在。",
-              },
-              {
-                num: "10",
-                title: "ダンス・パフォーマー",
-                desc: "ダンサー、振付師、パフォーマー。身体表現で観客の感情を直接動かすライブ表現者。",
-              },
-            ].map((item) => (
-              <div key={item.num} className="border border-white/10 bg-black/30 p-6 hover:border-neon/40 transition-colors">
-                <div className="inline-block bg-hot-orange text-black font-display text-xs font-bold px-2 py-1 mb-3">{item.num}</div>
-                <h3 className="font-display text-lg text-white mb-2 normal-case tracking-normal">{item.title}</h3>
-                <p className="font-prose-ja text-sm text-white/68 leading-relaxed">{item.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── REVENUE ───────────────────────────────────────── */}
-      <section id="revenue" className="scroll-mt-20 relative py-20 md:py-24" style={{ backgroundColor: "#050505" }}>
-        <div className={LP_COL}>
           <SectionLabel en="Revenue" ja="お金の流れ" />
           <h2 className="font-display text-3xl sm:text-4xl md:text-5xl font-bold text-white mb-4">
             収益化の<span className="text-neon neon-glow">考え方</span>
