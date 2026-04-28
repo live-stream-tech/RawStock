@@ -1791,12 +1791,13 @@ export default function JukeboxScreen() {
           keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
           enabled={!kavDisabledOnIosWeb}
         >
-        <Pressable style={styles.modalBg} onPress={() => setShowAddModal(false)}>
-          <Pressable style={styles.modalSheet} onPress={() => {}}>
+        <View style={styles.modalBg}>
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setShowAddModal(false)} />
+          <View style={styles.modalSheet}>
             <View style={styles.modalHandle} />
             {jukeboxAddPanelCore}
-          </Pressable>
-        </Pressable>
+          </View>
+        </View>
         </KeyboardAvoidingView>
       </Modal>
 
