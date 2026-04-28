@@ -6,6 +6,11 @@ const LP_LINK_CAMPFIRE =
   "https://camp-fire.jp/projects/937352/preview?token=33fzs9q3&utm_campaign=cp_po_share_c_msg_projects_show";
 const LP_LINK_APP = "/stations";
 
+/** Default community for LP “book ad” link; override at build time if needed. */
+const LP_AD_BOOKING_COMMUNITY_ID =
+  (import.meta.env.VITE_LP_AD_BOOKING_COMMUNITY_ID as string | undefined)?.trim() || "1";
+const LP_AD_BOOKING_HREF = `/community/ad-apply?communityId=${encodeURIComponent(LP_AD_BOOKING_COMMUNITY_ID)}`;
+
 /** Text & inline images: centered column, max 1000px. */
 const LP_COL = "w-full max-w-[1000px] mx-auto px-4";
 const CTA_GREEN_3D =
@@ -502,11 +507,28 @@ export default function HomeJP() {
                 管理人とモデレーターによる目利きで質を担保し、アルゴリズム一辺倒ではなく、人による推薦で良いコンテンツが届く流れを重視します。
               </p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="border border-white/10 p-5 bg-black/30">
-                  <p className="font-display text-white mb-2 normal-case text-lg">広告単価の目安</p>
-                  <p className="font-prose-ja text-white/65 text-sm">メンバー数 × 7円/日（例）</p>
-                  <p className="font-prose-ja text-white/65 text-sm">最低保証 10,000円/月〜 などの設計</p>
-                </div>
+                <a
+                  href={LP_AD_BOOKING_HREF}
+                  className="group border border-neon/35 bg-black/35 p-5 md:p-6 hover:border-neon/55 hover:bg-black/45 transition-colors rounded-sm block"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                    <div className="space-y-2">
+                      <p className="font-mono-body text-[10px] tracking-widest text-neon uppercase">Community ad</p>
+                      <p className="font-display text-white normal-case text-lg">広告単価（目安）</p>
+                      <p className="font-prose-ja text-white/75 text-sm leading-relaxed">
+                        1日あたり <span className="text-white/90 font-medium">メンバー数 × 🎟10</span>
+                        <br />
+                        最低お申込（期間合計） <span className="text-white/90 font-medium">🎟10,000〜</span>
+                      </p>
+                      <p className="font-prose-ja text-neon/90 text-xs">クリックで広告の予約・申込へ</p>
+                    </div>
+                    <ArrowRight
+                      size={22}
+                      className="text-neon shrink-0 mt-1 group-hover:translate-x-0.5 transition-transform self-end sm:self-center"
+                      aria-hidden
+                    />
+                  </div>
+                </a>
                 <div className="border border-white/10 p-5 bg-black/30">
                   <p className="font-display text-white mb-3 normal-case text-lg">分配イメージ</p>
                   <ul className="font-prose-ja text-white/65 text-sm space-y-1.5">
