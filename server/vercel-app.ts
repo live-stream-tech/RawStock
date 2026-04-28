@@ -11,6 +11,7 @@ import {
   setupErrorHandler,
 } from "./middleware";
 import { registerRoutes } from "./routes";
+import { ensureJukeboxQueueSchema } from "./runtimeSchemaGuards";
 import {
   LP_CANONICAL_URL_PLACEHOLDER,
   RAWSTOCK_HERO_POSTER_URL,
@@ -159,6 +160,7 @@ export async function createApiApp(): Promise<express.Application> {
     res.status(200).send(html);
   });
 
+  await ensureJukeboxQueueSchema();
   await registerRoutes(app);
 
   setupErrorHandler(app);

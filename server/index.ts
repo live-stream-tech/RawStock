@@ -4,6 +4,7 @@ import express from "express";
 import type { Request, Response, NextFunction } from "express";
 import { createServer } from "node:http";
 import { registerRoutes } from "./routes";
+import { ensureJukeboxQueueSchema } from "./runtimeSchemaGuards";
 import {
   setupCors,
   setupBodyParsing,
@@ -338,6 +339,7 @@ function configureExpoAndLanding(app: express.Application) {
 
   configureExpoAndLanding(app);
 
+  await ensureJukeboxQueueSchema();
   await registerRoutes(app);
 
   setupErrorHandler(app);
