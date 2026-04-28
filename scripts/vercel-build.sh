@@ -24,8 +24,6 @@ cp public/teamz.html dist/teamz.html
 cp public/haikeihaikei.png dist/haikeihaikei.png
 cp -r public/jeeliz dist/jeeliz
 
-# NOTE:
-# `/lp` must be served from `public/lp-standalone.html` via the API route.
-# Do not publish vendored LP assets at `dist/lp`, otherwise static `dist/lp/index.html`
-# can shadow `/lp` and serve stale content.
 rm -rf dist/lp
+mkdir -p dist/lp
+cp -R "$VENDOR_LP/dist/public/." dist/lp/

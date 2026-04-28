@@ -179,29 +179,52 @@ function configureExpoAndLanding(app: express.Application) {
 
   log("Serving static Expo files with dynamic manifest routing");
 
-  const lpTemplatePath = path.resolve(process.cwd(), "server/templates/landing-page.html");
+  const lpStandalonePath = path.resolve(process.cwd(), "public/lp-standalone.html");
+  const lpViteRoot = path.resolve(process.cwd(), "dist", "lp");
+  const lpViteIndex = path.join(lpViteRoot, "index.html");
+  const hasLpViteApp = fs.existsSync(lpViteIndex);
 
   function serveLpStandalone(req: Request, res: Response, canonicalPath: string) {
-    if (!fs.existsSync(lpTemplatePath)) {
-      return res.status(404).send("landing-page.html not found");
+    if (!fs.existsSync(lpStandalonePath)) {
+      return res.status(404).send("lp-standalone.html not found");
     }
-    const raw = fs.readFileSync(lpTemplatePath, "utf-8");
+    const raw = fs.readFileSync(lpStandalonePath, "utf-8");
     const html = injectLpMarketingHtml(raw, canonicalPageUrlFromReq(req, canonicalPath), req);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
     return res.status(200).send(html);
   }
 
-  /** `/lp` — always serve landing page template (single source of truth). */
-  app.get("/lp", (req: Request, res: Response) => {
-    return serveLpStandalone(req, res, "/lp");
-  });
+  /** Vite ビルドの rawstock-lp 同系 LP（`scripts/vercel-build.sh` が `dist/lp` に出力） */
+  if (hasLpViteApp) {
+    app.use(
+      "/lp",
+      express.static(lpViteRoot, {
+        index: "index.html",
+        setHeaders(res, filePath) {
+          if (filePath.endsWith("index.html")) {
+            res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
+          }
+        },
+      }),
+    );
+  }
+
+  /** `/lp` — Vite ビルドが無いときのみスタンドアロン HTML（別URLへリダイレクトしない） */
+  if (!hasLpViteApp) {
+    app.get("/lp", (req: Request, res: Response) => {
+      return serveLpStandalone(req, res, "/lp");
+    });
+  }
 
   // 互換パス（内容は同一）
   app.get("/lp-standalone.html", (req: Request, res: Response) => {
     return serveLpStandalone(req, res, "/lp");
   });
   app.get("/lp-static", (req: Request, res: Response) => {
+    if (hasLpViteApp) {
+      return res.redirect(302, "/lp");
+    }
     return serveLpStandalone(req, res, "/lp");
   });
 
