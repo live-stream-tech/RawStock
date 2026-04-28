@@ -77,7 +77,10 @@ export default function TabLayout() {
       <Tabs.Screen
         name="community"
         options={{
-          href: null,
+          title: "Community",
+          tabBarIcon: ({ color, size, focused }: TabBarIconProps) => (
+            <Ionicons name={focused ? "planet" : "planet-outline"} size={size} color={color} />
+          ),
         }}
       />
       <Tabs.Screen

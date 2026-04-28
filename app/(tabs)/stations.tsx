@@ -44,6 +44,7 @@ export default function StationsScreen() {
           <View style={styles.sectionAccent} />
           <Text style={styles.sectionTitle}>Official Stations</Text>
         </View>
+        <Text style={styles.sectionDesc}>Official genre hubs. Find creators in your scene.</Text>
 
         <View style={styles.stack}>
           {STATIONS.map((s) => (
@@ -115,6 +116,14 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 0.8,
     textTransform: "uppercase",
+  },
+  sectionDesc: {
+    color: C.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    paddingHorizontal: 16,
+    marginTop: -4,
+    marginBottom: 12,
   },
   stack: {
     gap: 10,
