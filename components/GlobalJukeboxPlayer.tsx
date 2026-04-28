@@ -14,6 +14,7 @@ import { C } from "@/constants/colors";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY } from "@/lib/useJukeboxPulse";
+import { jukeboxElapsedSeconds } from "@/lib/jukeboxElapsed";
 import { usePlayingVideo } from "@/lib/playing-video-context";
 // NOTE: Audio playback is handled by the iframe API player inside NowPlaying on jukebox/[id].tsx.
 // GJP only renders the mini-player chrome.
@@ -175,11 +176,9 @@ export function GlobalJukeboxPlayer() {
   useEffect(() => {
     if (!state) return;
     const calcElapsed = () => {
-      const base =
-        !state.isPlaying && typeof state.elapsedSecs === "number"
-          ? state.elapsedSecs
-          : (Date.now() - new Date(state.startedAt).getTime()) / 1000;
-      return Math.min(base, state.currentVideoDurationSecs);
+      const base = jukeboxElapsedSeconds(state);
+      const dur = state.currentVideoDurationSecs ?? 0;
+      return dur > 0 ? Math.min(base, dur) : base;
     };
     setElapsedDisplay(calcElapsed());
     if (state.isPlaying) {
@@ -236,15 +235,12 @@ export function GlobalJukeboxPlayer() {
     return null;
   }
 
-  const fallbackElapsed =
-    typeof state.elapsedSecs === "number"
-      ? state.elapsedSecs
-      : (Date.now() - new Date(state.startedAt).getTime()) / 1000;
-  const elapsed = state.isPlaying ? (elapsedDisplay || fallbackElapsed) : fallbackElapsed;
-  const progress =
-    state.currentVideoDurationSecs > 0
-      ? Math.min(elapsed / state.currentVideoDurationSecs, 1)
-      : 0;
+  const fallbackElapsed = jukeboxElapsedSeconds(state);
+  const elapsedRaw = state.isPlaying ? (elapsedDisplay || fallbackElapsed) : fallbackElapsed;
+  const safeRaw = Number.isFinite(elapsedRaw) ? elapsedRaw : 0;
+  const dur = state.currentVideoDurationSecs ?? 0;
+  const elapsed = dur > 0 ? Math.min(safeRaw, dur) : safeRaw;
+  const progress = dur > 0 ? Math.min(elapsed / dur, 1) : 0;
 
   const nextQueueItem = queue.find((q) => !q.isPlayed);
   const addedBy = nextQueueItem?.addedBy ?? "";

@@ -39,7 +39,9 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
     try {
       // On web, hard-reload the current tab instead of spawning a new window
       if (Platform.OS === "web" && typeof window !== "undefined") {
-        window.location.reload();
+        resetError();
+        const url = window.location.href;
+        window.location.replace(url);
         return;
       }
       await reloadAppAsync();
@@ -92,21 +94,39 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
           Please reload the app to continue.
         </Text>
 
-        <Pressable
-          onPress={handleRestart}
-          style={({ pressed }) => [
-            styles.button,
-            {
-              backgroundColor: theme.link,
-              opacity: pressed ? 0.9 : 1,
-              transform: [{ scale: pressed ? 0.98 : 1 }],
-            },
-          ]}
-        >
-          <Text style={[styles.buttonText, { color: theme.buttonText }]}>
-            Try Again
-          </Text>
-        </Pressable>
+        <View style={styles.buttonRow}>
+          <Pressable
+            onPress={() => resetError()}
+            style={({ pressed }) => [
+              styles.button,
+              styles.buttonSecondary,
+              {
+                backgroundColor: theme.backgroundSecondary,
+                opacity: pressed ? 0.9 : 1,
+                transform: [{ scale: pressed ? 0.98 : 1 }],
+              },
+            ]}
+          >
+            <Text style={[styles.buttonText, { color: theme.text }]}>
+              Continue
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={handleRestart}
+            style={({ pressed }) => [
+              styles.button,
+              {
+                backgroundColor: theme.link,
+                opacity: pressed ? 0.9 : 1,
+                transform: [{ scale: pressed ? 0.98 : 1 }],
+              },
+            ]}
+          >
+            <Text style={[styles.buttonText, { color: theme.buttonText }]}>
+              Reload page
+            </Text>
+          </Pressable>
+        </View>
       </View>
 
       {__DEV__ ? (
@@ -223,11 +243,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     zIndex: 10,
   },
+  buttonRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    justifyContent: "center",
+    width: "100%",
+  },
   button: {
     paddingVertical: 16,
     borderRadius: 8,
     paddingHorizontal: 24,
-    minWidth: 200,
+    minWidth: 160,
+    flexGrow: 1,
+    maxWidth: 280,
     shadowColor: "#000",
     shadowOffset: {
       width: 0,
@@ -236,6 +265,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+  },
+  buttonSecondary: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(128,128,128,0.35)",
   },
   buttonText: {
     fontWeight: "600",

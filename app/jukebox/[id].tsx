@@ -30,6 +30,7 @@ import { saveLoginReturn } from "@/lib/login-return";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { TranslateButton } from "@/components/TranslateButton";
 import { webScrollStyle } from "@/constants/layout";
+import { jukeboxElapsedSeconds } from "@/lib/jukeboxElapsed";
 
 type JukeboxState = {
   communityId: number;
@@ -209,11 +210,9 @@ function NowPlaying({
   useEffect(() => {
     if (!state) return;
     const calcElapsed = () => {
-      const base =
-        !state.isPlaying && typeof state.elapsedSecs === "number"
-          ? state.elapsedSecs
-          : (Date.now() - new Date(state.startedAt).getTime()) / 1000;
-      return Math.min(base, state.currentVideoDurationSecs);
+      const base = jukeboxElapsedSeconds(state);
+      const dur = state.currentVideoDurationSecs ?? 0;
+      return dur > 0 ? Math.min(base, dur) : base;
     };
     setElapsedDisplay(calcElapsed());
     if (state.isPlaying) {
@@ -239,9 +238,10 @@ function NowPlaying({
     if (Platform.OS !== 'web') return;
     if (!state?.currentVideoYoutubeId) return;
 
-    const startSec = state.elapsedSecs && state.elapsedSecs > 0
-      ? state.elapsedSecs
-      : Math.max(0, (Date.now() - new Date(state.startedAt).getTime()) / 1000);
+    const startSec =
+      state.elapsedSecs && state.elapsedSecs > 0
+        ? state.elapsedSecs
+        : jukeboxElapsedSeconds(state);
 
     function ensureYouTubeApi(): Promise<any> {
       return new Promise((resolve) => {
@@ -439,26 +439,22 @@ function NowPlaying({
     );
   }
 
-  const fallbackElapsed =
-    typeof state.elapsedSecs === "number"
-      ? state.elapsedSecs
-      : (Date.now() - new Date(state.startedAt).getTime()) / 1000;
-  const elapsed = Math.min(
-    state.isPlaying ? (elapsedDisplay || fallbackElapsed) : fallbackElapsed,
-    state.currentVideoDurationSecs
-  );
+  const fallbackElapsed = jukeboxElapsedSeconds(state);
+  const elapsedRaw = state.isPlaying ? (elapsedDisplay || fallbackElapsed) : fallbackElapsed;
+  const safeRaw = Number.isFinite(elapsedRaw) ? elapsedRaw : 0;
+  const dur = state.currentVideoDurationSecs ?? 0;
+  const elapsed = dur > 0 ? Math.min(safeRaw, dur) : safeRaw;
   const progress =
-    state.currentVideoDurationSecs > 0
-      ? Math.min(elapsed / state.currentVideoDurationSecs, 1)
-      : 0;
+    dur > 0 ? Math.min(elapsed / dur, 1) : 0;
 
   return (
     <View style={[styles.nowPlaying, videoStyle]}>
       {/* YouTube IFrame API player container (audio + video) */}
-      {Platform.OS === 'web' && state?.currentVideoYoutubeId ? (
-        <div
-          id={ytContainerIdRef.current}
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' } as any}
+      {Platform.OS === "web" && state?.currentVideoYoutubeId ? (
+        <View
+          nativeID={ytContainerIdRef.current}
+          collapsable={false}
+          style={StyleSheet.absoluteFillObject}
         />
       ) : state?.currentVideoThumbnail ? (
         <Image source={{ uri: state.currentVideoThumbnail }} style={StyleSheet.absoluteFillObject} contentFit="cover" />
