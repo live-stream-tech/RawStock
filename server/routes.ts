@@ -124,6 +124,7 @@ import {
 } from "./lib/communitiesCompat";
 import { getCommunityDefaultAssets } from "../lib/community-default-assets";
 import { publishJukeboxEvent, redis, jukeboxChannel, subscribeJukeboxEvents } from "./redis";
+import { ensureJukeboxQueueSchema } from "./runtimeSchemaGuards";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import type Stripe from "stripe";
@@ -988,6 +989,12 @@ async function resolveVideoSellerUserId(executor: DbOrTx, videoId: number): Prom
 
 export async function registerRoutes(app: Express): Promise<void> {
   await promoteAdminByEmail();
+
+  /** Until DB migrations are applied everywhere, retry idempotent DDL (cheap no-op once ready). */
+  app.use(async (_req, _res, next) => {
+    await ensureJukeboxQueueSchema();
+    next();
+  });
 
   /** Anonymous read for user-upload keys when R2_PUBLIC_BASE_URL is not configured (browser cannot load *.r2.cloudflarestorage.com). */
   app.get("/api/r2-public/:key", async (req: Request, res: Response) => {
