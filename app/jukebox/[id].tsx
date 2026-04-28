@@ -22,7 +22,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { C } from "@/constants/colors";
-import { apiRequest, ApiError , getApiUrl } from "@/lib/query-client";
+import { apiRequest, ApiError, formatUserFacingApiError, getApiUrl } from "@/lib/query-client";
 import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { useAuth } from "@/lib/auth";
 import { JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY } from "@/lib/useJukeboxPulse";
@@ -31,6 +31,7 @@ import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { TranslateButton } from "@/components/TranslateButton";
 import { webScrollStyle } from "@/constants/layout";
 import { jukeboxElapsedSeconds } from "@/lib/jukeboxElapsed";
+import { fetchJukeboxJson, makeJukeboxPollViewerId } from "@/lib/jukebox-presence";
 
 type JukeboxState = {
   communityId: number;
@@ -126,7 +127,8 @@ function isIosLikeWebClient(): boolean {
  */
 function NowPlaying({
   state,
-  onNext,
+  onAdvance,
+  allowManualSkip = true,
   addModalOpen,
   embedInSidebarColumn,
   interactionResumeNonce = 0,
@@ -134,7 +136,9 @@ function NowPlaying({
   onCommunityPress,
 }: {
   state: JukeboxState | null;
-  onNext: () => void;
+  onAdvance: (source: "manual" | "ended") => void;
+  /** When false, the Skip control is disabled (only the requester may skip). */
+  allowManualSkip?: boolean;
   /** Add-video modal open — used to resume iframe after close (iOS WebKit often pauses background media). */
   addModalOpen?: boolean;
   /** Desktop 2-col: window may be "landscape" but player sits in a narrow column — use 16:9 box, not full-window fill. */
@@ -149,8 +153,8 @@ function NowPlaying({
   const [elapsedDisplay, setElapsedDisplay] = useState(0);
   const [screenW, setScreenW] = useState(() => Dimensions.get("window").width);
   const [screenH, setScreenH] = useState(() => Dimensions.get("window").height);
-  const onNextRef = useRef(onNext);
-  onNextRef.current = onNext;
+  const onAdvanceRef = useRef(onAdvance);
+  onAdvanceRef.current = onAdvance;
   // iOS Safari requires a first tap; audio then persists across track changes.
   const [needsTap, setNeedsTap] = useState(true);
   /** When server is playing but WebKit reports PAUSED/CUED/UNSTARTED. */
@@ -307,7 +311,7 @@ function NowPlaying({
                 if (!YT?.PlayerState) return;
                 const ps = event.data;
                 if (ps === YT.PlayerState.ENDED) {
-                  onNextRef.current();
+                  onAdvanceRef.current("ended");
                   setNeedsResumeTap(false);
                   return;
                 }
@@ -527,14 +531,16 @@ function NowPlaying({
 
         <View style={styles.nextRow}>
           <Pressable
-            style={styles.nextBtn}
+            style={[styles.nextBtn, !allowManualSkip && styles.nextBtnDisabled]}
             onPress={() => {
+              if (!allowManualSkip) return;
               hasUserInteractedRef.current = true;
-              onNext();
+              onAdvance("manual");
             }}
+            disabled={!allowManualSkip}
           >
             <Ionicons name="play-skip-forward" size={14} color={C.textMuted} />
-            <Text style={styles.nextBtnText}>Skip</Text>
+            <Text style={[styles.nextBtnText, !allowManualSkip && styles.nextBtnTextDisabled]}>Skip</Text>
           </Pressable>
         </View>
       </View>
@@ -730,6 +736,11 @@ export default function JukeboxScreen() {
 
   const jukeboxKey = useMemo(() => [`/api/jukebox/${communityId}`] as const, [communityId]);
 
+  const jukeboxPollViewerId = useMemo(
+    () => (Platform.OS === "web" ? null : makeJukeboxPollViewerId()),
+    []
+  );
+
   const { data: communityRow } = useQuery<{ id: number; name: string }>({
     queryKey: [`/api/communities/${communityId}`],
     enabled: Number.isFinite(communityId) && communityId > 0,
@@ -744,6 +755,7 @@ export default function JukeboxScreen() {
   // Always fetch fresh data on visit; avoid stale cache.
   const { data } = useQuery<JukeboxData>({
     queryKey: jukeboxKey,
+    queryFn: () => fetchJukeboxJson<JukeboxData>(communityId, jukeboxPollViewerId),
     refetchOnWindowFocus: false,
     staleTime: 0,
   });
@@ -767,7 +779,12 @@ export default function JukeboxScreen() {
           retryCount = 0;
           const payload = JSON.parse(e.data) as { data: JukeboxState };
           qc.setQueryData<JukeboxData>(jukeboxKey, (prev) =>
-            prev ? { ...prev, state: payload.data } : prev
+            prev
+              ? {
+                  ...prev,
+                  state: prev.state ? { ...prev.state, ...payload.data } : payload.data,
+                }
+              : prev
           );
         } catch {}
       });
@@ -842,6 +859,28 @@ export default function JukeboxScreen() {
   const queue = data?.queue ?? [];
   const chat = data?.chat ?? [];
 
+  const currentPlayingQueueItem = useMemo(() => {
+    const qList = data?.queue ?? [];
+    if (!state?.isPlaying) return null;
+    return (
+      qList.find(
+        (q) =>
+          (state.currentVideoYoutubeId != null &&
+            (q.youtubeId ?? null) === state.currentVideoYoutubeId) ||
+          (state.currentVideoId != null && q.videoId === state.currentVideoId),
+      ) ?? null
+    );
+  }, [state, data]);
+
+  const canManualSkip = useMemo(() => {
+    if (!state?.isPlaying || !user?.id) return false;
+    if (!currentPlayingQueueItem) return false;
+    return (
+      currentPlayingQueueItem.addedByUserId != null &&
+      currentPlayingQueueItem.addedByUserId === user.id
+    );
+  }, [state?.isPlaying, user?.id, currentPlayingQueueItem]);
+
   const uploadedVideos: Video[] = myVideos;
   const purchasedVideos: Video[] = (myVideos as any[]).filter((v) => v.price && v.price > 0);
 
@@ -878,7 +917,8 @@ export default function JukeboxScreen() {
   });
 
   const nextMutation = useMutation({
-    mutationFn: () => apiRequest("POST", `/api/jukebox/${communityId}/next`),
+    mutationFn: ({ source }: { source: "manual" | "ended" }) =>
+      apiRequest("POST", `/api/jukebox/${communityId}/next`, { source }),
     onSuccess: () => {
       // Refetch on web too — POST and SSE may hit different instances on Vercel, so EventEmitter misses updates
       qc.invalidateQueries({ queryKey: jukeboxKey });
@@ -1053,9 +1093,25 @@ export default function JukeboxScreen() {
     });
   }, [chatInput, user, chatMutation]);
 
-  const handleNext = useCallback(() => {
-    nextMutation.mutate();
-  }, [nextMutation]);
+  const handleAdvance = useCallback(
+    (source: "manual" | "ended") => {
+      nextMutation.mutate(
+        { source },
+        {
+          onError: (err) => {
+            if (source !== "manual") return;
+            const msg = formatUserFacingApiError(err);
+            if (Platform.OS === "web" && typeof window !== "undefined") {
+              window.alert(msg);
+            } else {
+              Alert.alert("Skip unavailable", msg);
+            }
+          },
+        },
+      );
+    },
+    [nextMutation],
+  );
 
   // Entering room can trigger playback start (logged-in users only).
   // If queue exists but isPlaying=false, call next once to kick off playback.
@@ -1067,7 +1123,7 @@ export default function JukeboxScreen() {
     const hasQueue = (data.queue ?? []).some((q) => !q.isPlayed);
     if (hasQueue && !data.state?.isPlaying) {
       autoStartedRef.current = true;
-      nextMutation.mutate();
+      nextMutation.mutate({ source: "manual" });
     } else if (data.state?.isPlaying || (data.queue ?? []).length === 0) {
       // Already playing or queue empty -> mark auto-start as done.
       autoStartedRef.current = true;
@@ -1409,7 +1465,8 @@ export default function JukeboxScreen() {
           <View style={styles.desktopPlayerWrap}>
             <NowPlaying
               state={state}
-              onNext={handleNext}
+              onAdvance={handleAdvance}
+              allowManualSkip={canManualSkip}
               addModalOpen={false}
               embedInSidebarColumn
               interactionResumeNonce={interactionResumeNonce}
@@ -1559,7 +1616,8 @@ export default function JukeboxScreen() {
         >
           <NowPlaying
             state={state}
-            onNext={handleNext}
+            onAdvance={handleAdvance}
+            allowManualSkip={canManualSkip}
             addModalOpen={showAddModal}
             interactionResumeNonce={interactionResumeNonce}
             communityLabel={communityDisplayName}
@@ -2106,6 +2164,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "flex-end",
     gap: 12,
+  },
+  nextBtnDisabled: {
+    opacity: 0.38,
+  },
+  nextBtnTextDisabled: {
+    opacity: 0.65,
   },
   nextBtn: {
     flexDirection: "row",

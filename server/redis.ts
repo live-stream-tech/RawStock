@@ -15,7 +15,11 @@ if (
   [UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN] = [UPSTASH_REDIS_REST_TOKEN, UPSTASH_REDIS_REST_URL];
 }
 
-const useRedis = !!(UPSTASH_REDIS_REST_URL && UPSTASH_REDIS_REST_TOKEN);
+export const isUpstashRedisConfigured = !!(
+  UPSTASH_REDIS_REST_URL && UPSTASH_REDIS_REST_TOKEN
+);
+
+const useRedis = isUpstashRedisConfigured;
 
 if (!useRedis) {
   console.warn("[Redis] UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN is not set. Using in-memory event bus for SSE.");

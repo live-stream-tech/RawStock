@@ -25,6 +25,7 @@ import { AppLogo } from "@/components/AppLogo";
 import { EventFlyerImage } from "@/components/EventFlyerImage";
 import { AnnouncementBodyView } from "@/components/AnnouncementBodyView";
 import { apiRequest, formatUserFacingApiError, uploadUserMediaBlobToR2 } from "@/lib/query-client";
+import { fetchJukeboxJson, makeJukeboxPollViewerId } from "@/lib/jukebox-presence";
 import { navigateToUserOrLiverProfile, navigateFromVideoCreatorRow } from "@/lib/navigate-profile";
 import { useAuth } from "@/lib/auth";
 import { webScrollStyle } from "@/constants/layout";
@@ -222,9 +223,11 @@ function EmbeddedJukebox({ communityId }: { communityId: number }) {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const [comment, setComment] = useState("");
   const [progress, setProgress] = useState(0);
+  const embeddedPollViewerId = useMemo(() => makeJukeboxPollViewerId(), []);
 
   const { data } = useQuery<JukeboxData>({
     queryKey: [`/api/jukebox/${communityId}`],
+    queryFn: () => fetchJukeboxJson<JukeboxData>(communityId, embeddedPollViewerId),
     refetchInterval: (query) =>
       (query.state.data as JukeboxData)?.state?.isPlaying ? 5000 : 10000,
   });

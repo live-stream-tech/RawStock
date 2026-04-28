@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Platform,
   Pressable,
@@ -12,6 +12,7 @@ import { Image } from "expo-image";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { C } from "@/constants/colors";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
+import { fetchJukeboxJson, makeJukeboxPollViewerId } from "@/lib/jukebox-presence";
 import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY } from "@/lib/useJukeboxPulse";
 import { jukeboxElapsedSeconds } from "@/lib/jukeboxElapsed";
@@ -118,7 +119,12 @@ export function GlobalJukeboxPlayer() {
           retryCount = 0;
           const payload = JSON.parse(e.data) as { data: JukeboxState };
           qc.setQueryData<JukeboxData>([`/api/jukebox/${communityId}`], (prev) =>
-            prev ? { ...prev, state: payload.data } : prev
+            prev
+              ? {
+                  ...prev,
+                  state: prev.state ? { ...prev.state, ...payload.data } : payload.data,
+                }
+              : prev
           );
         } catch {}
       });
@@ -149,9 +155,15 @@ export function GlobalJukeboxPlayer() {
     };
   }, [communityId, isOnJukeboxPage, qc]);
 
+  const jukeboxPollViewerId = useMemo(
+    () => (Platform.OS === "web" ? null : makeJukeboxPollViewerId()),
+    []
+  );
+
   const { data } = useQuery<JukeboxData>({
     queryKey: communityId ? [`/api/jukebox/${communityId}`] : ["jukebox:none"],
     enabled: !!communityId,
+    queryFn: () => fetchJukeboxJson<JukeboxData>(communityId!, jukeboxPollViewerId),
     staleTime: 0,
     refetchInterval: (query) =>
       (query.state.data as JukeboxData)?.state?.isPlaying ? 10000 : 30000,

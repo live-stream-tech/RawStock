@@ -199,7 +199,7 @@ export async function readAuthToken(): Promise<string | null> {
   return null;
 }
 
-async function throwIfResNotOk(res: Response) {
+export async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
     throw new ApiError(res.status, text);

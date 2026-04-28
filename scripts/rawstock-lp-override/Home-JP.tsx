@@ -4,7 +4,8 @@ import { ArrowRight } from "lucide-react";
 const LP_LINK_X = "https://x.com/ndjtpamwu";
 const LP_LINK_CAMPFIRE =
   "https://camp-fire.jp/projects/937352/preview?token=33fzs9q3&utm_campaign=cp_po_share_c_msg_projects_show";
-const LP_LINK_APP = "/stations";
+/** Opens the main app on the Top tab (see Expo `app/(tabs)/index`). */
+const LP_LINK_APP = "/";
 
 /** Default community for LP “book ad” link; override at build time if needed. */
 const LP_AD_BOOKING_COMMUNITY_ID =
@@ -448,10 +449,10 @@ export default function HomeJP() {
                       ].map((row) => (
                         <tr key={row.label} className="border-b border-white/5 hover:bg-white/[0.03]">
                           <td className="py-2.5 text-white/75">{row.label}</td>
-                          <td className="py-2.5 text-center text-white/60">{row.poster}</td>
-                          <td className="py-2.5 text-center text-white/60">{row.artist}</td>
-                          <td className="py-2.5 text-center text-white/60">{row.shooter}</td>
-                          <td className="py-2.5 text-center text-white/60">{row.editor}</td>
+                          <td className="py-2.5 text-center text-base md:text-lg font-semibold text-white/80">{row.poster}</td>
+                          <td className="py-2.5 text-center text-base md:text-lg font-semibold text-white/80">{row.artist}</td>
+                          <td className="py-2.5 text-center text-base md:text-lg font-semibold text-white/80">{row.shooter}</td>
+                          <td className="py-2.5 text-center text-base md:text-lg font-semibold text-white/80">{row.editor}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -486,8 +487,8 @@ export default function HomeJP() {
                     ].map((r) => (
                       <tr key={r.lv} className="border-b border-white/5 last:border-0">
                         <td className="py-2.5 px-3 text-white">{r.lv}</td>
-                        <td className="py-2.5 px-3 text-neon">{r.paid}</td>
-                        <td className="py-2.5 px-3 text-neon">{r.live}</td>
+                        <td className="py-2.5 px-3 text-base md:text-lg font-semibold text-neon">{r.paid}</td>
+                        <td className="py-2.5 px-3 text-base md:text-lg font-semibold text-neon">{r.live}</td>
                       </tr>
                     ))}
                   </tbody>

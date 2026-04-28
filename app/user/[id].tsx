@@ -17,7 +17,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { saveLoginReturn } from "@/lib/login-return";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
-import { apiRequest, getApiUrl } from "@/lib/query-client";
+import { ApiError, apiRequest, getApiUrl } from "@/lib/query-client";
 import { C } from "@/constants/colors";
 import { F } from "@/constants/fonts";
 import { webScrollStyle } from "@/constants/layout";
@@ -163,7 +163,7 @@ export default function UserProfileScreen() {
   }, [me, token, followMutation]);
   const topInset = Platform.OS === "web" ? 67 : insets.top;
 
-  const { data: profile, isLoading, isError } = useQuery<UserProfile>({
+  const { data: profile, isLoading, isError, error } = useQuery<UserProfile>({
     queryKey: [`/api/users/${userId}`],
     enabled: userId > 0,
   });
@@ -204,6 +204,12 @@ export default function UserProfileScreen() {
     );
   }
   if (isError || !profile) {
+    const notFound = error instanceof ApiError && error.status === 404;
+    const message = notFound
+      ? "User not found"
+      : isError
+        ? "Could not load this profile. Please try again."
+        : "User not found";
     return (
       <View style={[styles.container, { paddingTop: topInset }]}>
         <View style={styles.header}>
@@ -214,7 +220,7 @@ export default function UserProfileScreen() {
           <View style={{ width: 40 }} />
         </View>
         <View style={styles.loading}>
-          <Text style={styles.loadingText}>User not found</Text>
+          <Text style={styles.loadingText}>{message}</Text>
         </View>
       </View>
     );

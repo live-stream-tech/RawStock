@@ -981,7 +981,7 @@ import {
   asc as asc3,
   desc as desc2,
   count,
-  sql as sql4,
+  sql as sql5,
   and as and5,
   or,
   gte as gte2,
@@ -2304,13 +2304,20 @@ async function createSignedUploadUrl(key, contentType) {
   });
   const uploadUrl = await getSignedUrl(r2Client, cmd, { expiresIn: 60 * 5 });
   const publicBase = process.env.R2_PUBLIC_BASE_URL?.trim();
-  const publicUrl = publicBase ? `${publicBase.replace(/\/$/, "")}/${key}` : null;
+  const useUnsafeR2DevBase = !!publicBase && /\.r2\.dev$/i.test(publicBase.replace(/^https?:\/\//i, "").replace(/\/.*$/, ""));
+  const publicUrl = publicBase && !useUnsafeR2DevBase ? `${publicBase.replace(/\/$/, "")}/${key}` : null;
   return { uploadUrl, publicUrl };
 }
 function resolveUploadPublicUrlForKey(req, key) {
   const publicBase = process.env.R2_PUBLIC_BASE_URL?.trim();
-  if (publicBase) return `${publicBase.replace(/\/$/, "")}/${key}`;
-  const host = String(req.get("x-forwarded-host") ?? req.get("host") ?? "").trim();
+  if (publicBase) {
+    const hostOnly = publicBase.replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+    if (!/\.r2\.dev$/i.test(hostOnly)) {
+      return `${publicBase.replace(/\/$/, "")}/${key}`;
+    }
+  }
+  const forwardedOrHost = String(req.get("x-forwarded-host") ?? req.get("host") ?? "").trim();
+  const host = !forwardedOrHost ? "" : forwardedOrHost === "rawstock.live" ? forwardedOrHost : forwardedOrHost.endsWith("rawstock.live") ? "rawstock.live" : forwardedOrHost;
   const xfProto = String(req.get("x-forwarded-proto") ?? "").split(",")[0]?.trim();
   const proto = xfProto === "http" || xfProto === "https" ? xfProto : req.protocol === "https" ? "https" : "http";
   if (!host) {
@@ -2738,91 +2745,49 @@ function debugIngestServer(body, sessionId = "88cb7d") {
 var LEGAL_TERMS_VERSION = "2026-04-04";
 var LEGAL_PRIVACY_VERSION = "2026-04-04";
 
-// lib/parse-thread-body.ts
-function isNonPublicObjectStorageFlyerUrl(url) {
-  const s = typeof url === "string" ? url.trim() : "";
-  if (!s) return false;
-  try {
-    const host = new URL(s).hostname.toLowerCase();
-    return host.endsWith(".r2.cloudflarestorage.com");
-  } catch {
-    return false;
-  }
-}
-function pickDisplayFlyerUrl(primary, original) {
-  const p = primary?.trim() || null;
-  const o = original?.trim() || null;
-  if (p && !isNonPublicObjectStorageFlyerUrl(p)) return p;
-  if (o && !isNonPublicObjectStorageFlyerUrl(o)) return o;
-  return p || o;
-}
-function extractUrlFromLine(trimmed) {
-  const md = trimmed.match(/\((https?:\/\/[^)\s]+)\)/i);
-  if (md?.[1]) return md[1].replace(/[)\],。．、]+$/g, "");
-  const m = trimmed.match(/https?:\/\/\S+/i);
-  if (!m?.[0]) return null;
-  let u2 = m[0];
-  const nextHttp = u2.slice(8).search(/https?:\/\//i);
-  if (nextHttp >= 0) {
-    u2 = u2.slice(0, nextHttp + 8);
-  }
-  return u2.replace(/[)\],。．、"'<>\u3000]+$/g, "");
-}
-function parseThreadBody(raw) {
-  const body = String(raw ?? "");
-  if (!body.trim()) return { flyerImageUrl: null, shortVideoUrl: null, text: "" };
-  const lines = body.split("\n");
-  let flyerImageUrl = null;
-  let flyerImageOriginalUrl = null;
-  let shortVideoUrl = null;
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (/^FLYER_IMAGE_ORIGINAL\s*[:：]/i.test(trimmed)) {
-      const u2 = extractUrlFromLine(trimmed);
-      if (u2) flyerImageOriginalUrl = u2;
-      continue;
-    }
-    if (/^FLYER_IMAGE\s*[:：]/i.test(trimmed) || /^フライヤー画像(?:URL)?\s*[:：]/i.test(trimmed)) {
-      const u2 = extractUrlFromLine(trimmed);
-      if (u2) flyerImageUrl = u2;
-      continue;
-    }
-    if (/^SHORT_VIDEO\s*[:：]/i.test(trimmed)) {
-      const u2 = extractUrlFromLine(trimmed);
-      if (u2) shortVideoUrl = u2;
-    }
-  }
-  const kept = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (/^FLYER_IMAGE_ORIGINAL\s*[:：]/i.test(trimmed)) {
-      continue;
-    }
-    if (/^FLYER_IMAGE\s*[:：]/i.test(trimmed) || /^フライヤー画像(?:URL)?\s*[:：]/i.test(trimmed)) {
-      continue;
-    }
-    if (/^SHORT_VIDEO\s*[:：]/i.test(trimmed)) {
-      continue;
-    }
-    kept.push(line);
-  }
-  const flyer = pickDisplayFlyerUrl(flyerImageUrl, flyerImageOriginalUrl);
-  return { flyerImageUrl: flyer, shortVideoUrl, text: kept.join("\n").trim() };
-}
-
 // constants/stations.ts
 var STATIONS = [
-  { id: 1, name: "\u796D\u793C\u30FB\u307E\u3064\u308A\uFF08\u795E\u8F3F\u30FB\u5C4B\u53F0\uFF09", category: "matsuri", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1027/800/800" },
-  { id: 2, name: "\u795E\u793E\u4ECF\u95A3\u30FB\u5E74\u4E2D\u884C\u4E8B", category: "shrine", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1015/800/800" },
-  { id: 3, name: "\u5B66\u6821\u6587\u5316\uFF08\u6F14\u5287\u30FB\u90E8\u6D3B\u30FB\u6587\u5316\u796D\uFF09", category: "school", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1025/800/800" },
-  { id: 4, name: "\u843D\u8A9E\u30FB\u8B1B\u8AC7\u30FB\u5BC4\u5E2D", category: "yose", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1031/800/800" },
-  { id: 5, name: "\u30E9\u30A4\u30D6\u30CF\u30A6\u30B9\u30FB\u30A2\u30A4\u30C9\u30EB\u73FE\u5834", category: "livehouse", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1040/800/800" },
-  { id: 6, name: "\u8336\u9053\u30FB\u6B66\u9053\u30FB\u4F1D\u7D71\u82B8\u80FD", category: "dougei", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1050/800/800" },
-  { id: 7, name: "\u540C\u4EBA\u30FB\u30B3\u30DF\u30B1\u30FB\u5275\u4F5C\u5373\u58F2", category: "doujin", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1060/800/800" },
-  { id: 8, name: "\u91CE\u7403\u30FB\u30B9\u30DD\u30FC\u30C4\u89B3\u6226\u30FB\u5FDC\u63F4", category: "sports", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1033/800/800" },
-  { id: 9, name: "\u30DE\u30EB\u30B7\u30A7\u30FB\u5730\u65B9\u5275\u751F\u30FB\u753A\u304A\u3053\u3057", category: "machi", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1043/800/800" },
-  { id: 10, name: "\u7F8E\u8853\u30FB\u5C55\u793A\u30FB\u30AE\u30E3\u30E9\u30EA\u30FC", category: "gallery", members: 2400, online: true, thumbnail: "https://picsum.photos/id/1047/800/800" }
+  {
+    id: 1,
+    name: "MUSIC",
+    category: "music",
+    members: 2400,
+    online: true,
+    thumbnail: "https://images.unsplash.com/photo-1501386761578-eac5c94b800a?auto=format&fit=crop&w=800&h=800&q=80"
+  },
+  {
+    id: 2,
+    name: "AI VIDEO",
+    category: "ai_video",
+    members: 2400,
+    online: true,
+    thumbnail: "https://images.unsplash.com/photo-1676299081847-824916de030a?auto=format&fit=crop&w=800&h=800&q=80"
+  },
+  {
+    id: 3,
+    name: "IDOL / INFLUENCER",
+    category: "idol_influencer",
+    members: 2400,
+    online: true,
+    thumbnail: "https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?auto=format&fit=crop&w=800&h=800&q=80"
+  },
+  {
+    id: 4,
+    name: "ENTERTAINMENT",
+    category: "entertainment",
+    members: 2400,
+    online: true,
+    thumbnail: "https://images.unsplash.com/photo-1545239351-1141bd82e8a6?auto=format&fit=crop&w=800&h=800&q=80"
+  }
 ];
+
+// constants/stationJukebox.ts
+var STATION_JUKEBOX_IDS = {
+  music: 9001,
+  ai_video: 9002,
+  idol_influencer: 9003,
+  entertainment: 9004
+};
 
 // server/lib/diversifyAnnouncementFeed.ts
 function diversifyAnnouncementRowsByCommunity(rows, limit, maxPerCommunity) {
@@ -2997,7 +2962,8 @@ if (UPSTASH_REDIS_REST_URL && UPSTASH_REDIS_REST_TOKEN && !UPSTASH_REDIS_REST_UR
   console.log("[Redis] URL and TOKEN appear swapped \u2014 auto-correcting.");
   [UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN] = [UPSTASH_REDIS_REST_TOKEN, UPSTASH_REDIS_REST_URL];
 }
-var useRedis = !!(UPSTASH_REDIS_REST_URL && UPSTASH_REDIS_REST_TOKEN);
+var isUpstashRedisConfigured = !!(UPSTASH_REDIS_REST_URL && UPSTASH_REDIS_REST_TOKEN);
+var useRedis = isUpstashRedisConfigured;
 if (!useRedis) {
   console.warn("[Redis] UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN is not set. Using in-memory event bus for SSE.");
 }
@@ -3062,6 +3028,158 @@ function subscribeJukeboxEvents(communityId, callback) {
     eventBus.off(channel, handler);
     if (pollInterval) clearInterval(pollInterval);
   };
+}
+
+// server/jukeboxWatchers.ts
+var POLL_TTL_MS = 9e4;
+var sseRedisKey = (communityId) => `jukebox:sse:${communityId}`;
+var pollRedisKey = (communityId) => `jukebox:poll:${communityId}`;
+var localSseByCommunity = /* @__PURE__ */ new Map();
+var localPollByCommunity = /* @__PURE__ */ new Map();
+function localSseIncr(communityId) {
+  localSseByCommunity.set(communityId, (localSseByCommunity.get(communityId) ?? 0) + 1);
+}
+function localSseDecr(communityId) {
+  const next = Math.max(0, (localSseByCommunity.get(communityId) ?? 0) - 1);
+  localSseByCommunity.set(communityId, next);
+}
+function localPollPruneAndTouch(communityId, sessionId, now) {
+  let m = localPollByCommunity.get(communityId);
+  if (!m) {
+    m = /* @__PURE__ */ new Map();
+    localPollByCommunity.set(communityId, m);
+  }
+  for (const [sid, exp] of m) {
+    if (exp <= now) m.delete(sid);
+  }
+  m.set(sessionId, now + POLL_TTL_MS);
+}
+function localPollCountAfterPrune(communityId, now) {
+  const m = localPollByCommunity.get(communityId);
+  if (!m) return 0;
+  for (const [sid, exp] of m) {
+    if (exp <= now) m.delete(sid);
+  }
+  return m.size;
+}
+function isValidJukeboxPollViewerId(raw) {
+  return /^[a-zA-Z0-9_-]{8,64}$/.test(raw);
+}
+async function jukeboxSseConnect(communityId) {
+  if (isUpstashRedisConfigured) {
+    try {
+      await redis.incr(sseRedisKey(communityId));
+    } catch (e) {
+      console.error("[jukeboxWatchers] sse incr:", e);
+    }
+    return;
+  }
+  localSseIncr(communityId);
+}
+async function jukeboxSseDisconnect(communityId) {
+  if (isUpstashRedisConfigured) {
+    try {
+      const v = await redis.decr(sseRedisKey(communityId));
+      if (typeof v === "number" && v < 0) {
+        await redis.set(sseRedisKey(communityId), "0");
+      }
+    } catch (e) {
+      console.error("[jukeboxWatchers] sse decr:", e);
+    }
+    return;
+  }
+  localSseDecr(communityId);
+}
+async function jukeboxPollTouch(communityId, sessionId) {
+  if (!isValidJukeboxPollViewerId(sessionId)) return;
+  const now = Date.now();
+  const expireAt = now + POLL_TTL_MS;
+  const pollKey = pollRedisKey(communityId);
+  if (isUpstashRedisConfigured) {
+    try {
+      await redis.zremrangebyscore(pollKey, "-inf", now);
+      await redis.zadd(pollKey, { score: expireAt, member: sessionId });
+    } catch (e) {
+      console.error("[jukeboxWatchers] poll touch:", e);
+    }
+    return;
+  }
+  localPollPruneAndTouch(communityId, sessionId, now);
+}
+async function getJukeboxLiveViewerCount(communityId) {
+  const now = Date.now();
+  if (isUpstashRedisConfigured) {
+    try {
+      const sseKey = sseRedisKey(communityId);
+      const pollKey = pollRedisKey(communityId);
+      const sseRaw = await redis.get(sseKey);
+      await redis.zremrangebyscore(pollKey, "-inf", now);
+      const pollCard = await redis.zcard(pollKey);
+      const sse2 = typeof sseRaw === "string" ? Math.max(0, parseInt(sseRaw, 10) || 0) : typeof sseRaw === "number" ? Math.max(0, sseRaw) : 0;
+      const poll2 = typeof pollCard === "number" ? Math.max(0, pollCard) : 0;
+      return sse2 + poll2;
+    } catch (e) {
+      console.error("[jukeboxWatchers] get count:", e);
+      return 0;
+    }
+  }
+  const sse = Math.max(0, localSseByCommunity.get(communityId) ?? 0);
+  const poll = localPollCountAfterPrune(communityId, now);
+  return sse + poll;
+}
+
+// server/runtimeSchemaGuards.ts
+import { sql as sql4 } from "drizzle-orm";
+var jukeboxQueueUserColumnReady = false;
+var userFollowsSchemaReady = false;
+async function ensureJukeboxQueueSchema() {
+  if (jukeboxQueueUserColumnReady) return;
+  try {
+    await db.execute(
+      sql4.raw(
+        `ALTER TABLE "jukebox_queue" ADD COLUMN IF NOT EXISTS "added_by_user_id" integer`
+      )
+    );
+    jukeboxQueueUserColumnReady = true;
+  } catch (e) {
+    console.error("[runtimeSchemaGuards] jukebox_queue.added_by_user_id:", e);
+  }
+}
+async function ensureUserFollowsSchema() {
+  if (userFollowsSchemaReady) return;
+  try {
+    await db.execute(
+      sql4.raw(`CREATE TABLE IF NOT EXISTS "user_follows" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "follower_id" integer NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "following_id" integer NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "created_at" timestamp DEFAULT now(),
+  CONSTRAINT "user_follows_follower_following_unique" UNIQUE ("follower_id", "following_id"),
+  CONSTRAINT "user_follows_no_self" CHECK ("follower_id" <> "following_id")
+)`)
+    );
+    await db.execute(
+      sql4.raw(
+        `CREATE INDEX IF NOT EXISTS "user_follows_following_id_idx" ON "user_follows" ("following_id")`
+      )
+    );
+    await db.execute(
+      sql4.raw(`CREATE INDEX IF NOT EXISTS "user_follows_follower_id_idx" ON "user_follows" ("follower_id")`)
+    );
+    await db.execute(
+      sql4.raw(
+        `ALTER TABLE "streams" ADD COLUMN IF NOT EXISTS "visibility" text NOT NULL DEFAULT 'public'`
+      )
+    );
+    await db.execute(
+      sql4.raw(
+        `ALTER TABLE "streams" ADD COLUMN IF NOT EXISTS "restricted_community_id" integer REFERENCES "communities"("id")`
+      )
+    );
+    userFollowsSchemaReady = true;
+  } catch (e) {
+    console.error("[runtimeSchemaGuards] user_follows / streams visibility:", e);
+  }
 }
 
 // server/routes.ts
@@ -3247,6 +3365,34 @@ async function getAuthUser(req) {
     return null;
   }
 }
+var STATION_JUKEBOX_BY_ID = new Map(
+  STATIONS.map((s) => {
+    const mappedId = STATION_JUKEBOX_IDS[s.category];
+    return [mappedId, { category: s.category, name: s.name }];
+  }).filter((entry) => Number.isFinite(entry[0]))
+);
+async function ensureStationJukeboxCommunity(communityId) {
+  const station = STATION_JUKEBOX_BY_ID.get(communityId);
+  if (!station) return;
+  const [existing] = await db.select({ id: communities.id }).from(communities).where(eq6(communities.id, communityId)).limit(1);
+  if (existing) return;
+  await db.insert(communities).values({
+    id: communityId,
+    name: `${station.name} JUKEBOX`,
+    members: 0,
+    thumbnail: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=800&h=800&q=80",
+    online: true,
+    category: station.category,
+    isOfficial: true
+  });
+  try {
+    await db.execute(
+      sql5`SELECT setval(pg_get_serial_sequence('communities', 'id'), (SELECT COALESCE(MAX(id), 1) FROM communities))`
+    );
+  } catch (e) {
+    console.warn("[jukebox] communities id sequence sync skipped:", e);
+  }
+}
 async function syncUserLastContentLang(userId, rawText) {
   try {
     const lang = await detectContentLang(rawText);
@@ -3430,7 +3576,7 @@ async function sendWelcomeDmIfNeeded(userId) {
 var dmThreadTablesEnsured = false;
 async function ensureDmThreadTables() {
   if (dmThreadTablesEnsured) return;
-  await db.execute(sql4`
+  await db.execute(sql5`
     CREATE TABLE IF NOT EXISTS dm_threads (
       id serial PRIMARY KEY,
       user_1_id integer NOT NULL,
@@ -3440,7 +3586,7 @@ async function ensureDmThreadTables() {
       UNIQUE (user_1_id, user_2_id)
     )
   `);
-  await db.execute(sql4`
+  await db.execute(sql5`
     CREATE TABLE IF NOT EXISTS dm_thread_messages (
       id serial PRIMARY KEY,
       thread_id integer NOT NULL,
@@ -3694,6 +3840,11 @@ async function resolveVideoSellerUserId(executor, videoId) {
 }
 async function registerRoutes(app2) {
   await promoteAdminByEmail();
+  app2.use(async (_req, _res, next) => {
+    await ensureJukeboxQueueSchema();
+    await ensureUserFollowsSchema();
+    next();
+  });
   app2.get("/api/r2-public/:key", async (req, res) => {
     const raw = String(req.params.key ?? "");
     let key = raw;
@@ -4888,6 +5039,7 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/communities/:id", async (req, res) => {
     const id = paramNum(req, "id");
+    await ensureStationJukeboxCommunity(id);
     const row = await fetchCommunityById(id);
     if (!row) return res.status(404).json({ message: "Not found" });
     res.json(normalizeCommunityRow(row));
@@ -5067,9 +5219,7 @@ async function registerRoutes(app2) {
     if (liveOnly) {
       out = out.filter((r) => {
         const blob = `${r.title} ${r.body}`.toLowerCase();
-        if (!liveHints.some((h) => blob.includes(h))) return false;
-        const flyer = parseThreadBody(r.body).flyerImageUrl;
-        return !!flyer;
+        return liveHints.some((h) => blob.includes(h));
       });
     }
     const maxPerCommunity = Math.min(
@@ -5488,7 +5638,7 @@ async function registerRoutes(app2) {
     const tagList = parseTagsQueryParam(req.query.tags);
     if (tagList.length > 0) {
       const arrayLit = "ARRAY[" + tagList.map((t) => "'" + t.replace(/'/g, "''") + "'").join(",") + "]::text[]";
-      filters.push(sql4`${videoEditors.styleTags} && ${sql4.raw(arrayLit)}`);
+      filters.push(sql5`${videoEditors.styleTags} && ${sql5.raw(arrayLit)}`);
     }
     let rows = filters.length > 0 ? await db.select().from(videoEditors).where(and5(...filters)) : await db.select().from(videoEditors);
     const genreTerms = parseGenresQueryParam(req.query.genres);
@@ -5969,7 +6119,7 @@ async function registerRoutes(app2) {
   app2.post("/api/genre-owners/assign", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user || user.role !== "ADMIN") return res.status(403).json({ error: "Only admins can run this" });
-    const allCommunities = await db.select({ id: communities.id, category: communities.category, members: communities.members, adminId: communities.adminId }).from(communities).where(sql4`${communities.adminId} IS NOT NULL`);
+    const allCommunities = await db.select({ id: communities.id, category: communities.category, members: communities.members, adminId: communities.adminId }).from(communities).where(sql5`${communities.adminId} IS NOT NULL`);
     const byGenre = /* @__PURE__ */ new Map();
     for (const c of allCommunities) {
       const existing = byGenre.get(c.category);
@@ -6256,7 +6406,7 @@ async function registerRoutes(app2) {
     const communityRows = await db.select({ members: communities.members }).from(communities).where(
       or(
         ...cats.map(
-          (c) => sql4`${communities.category} ILIKE ${"%" + c + "%"}`
+          (c) => sql5`${communities.category} ILIKE ${"%" + c + "%"}`
         )
       )
     );
@@ -6316,7 +6466,7 @@ async function registerRoutes(app2) {
       const rows = await db.select({ id: communities.id, members: communities.members, adminId: communities.adminId }).from(communities).where(
         or(
           ...cats.map(
-            (c) => sql4`${communities.category} ILIKE ${"%" + c + "%"}`
+            (c) => sql5`${communities.category} ILIKE ${"%" + c + "%"}`
           )
         )
       ).orderBy(desc2(communities.members)).limit(1);
@@ -6324,7 +6474,7 @@ async function registerRoutes(app2) {
       if (!top || !top.adminId) continue;
       const existing = await db.select().from(genreOwners).where(eq6(genreOwners.genreId, gid)).limit(1);
       if (existing.length > 0) {
-        await db.update(genreOwners).set({ ownerUserId: top.adminId, updatedAt: sql4`now()` }).where(eq6(genreOwners.genreId, gid));
+        await db.update(genreOwners).set({ ownerUserId: top.adminId, updatedAt: sql5`now()` }).where(eq6(genreOwners.genreId, gid));
       } else {
         await db.insert(genreOwners).values({ genreId: gid, ownerUserId: top.adminId });
       }
@@ -6439,11 +6589,11 @@ async function registerRoutes(app2) {
   app2.get("/api/admin/stats", async (req, res) => {
     const admin = await getAdminUserOrReject(req, res);
     if (!admin) return;
-    const [{ userCount }] = await db.select({ userCount: sql4`count(*)::int` }).from(users);
-    const [{ videoCount }] = await db.select({ videoCount: sql4`count(*)::int` }).from(videos);
+    const [{ userCount }] = await db.select({ userCount: sql5`count(*)::int` }).from(users);
+    const [{ videoCount }] = await db.select({ videoCount: sql5`count(*)::int` }).from(videos);
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1e3);
     const [{ salesLast30Days }] = await db.select({
-      salesLast30Days: sql4`coalesce(sum(${earnings.amount}), 0)::int`
+      salesLast30Days: sql5`coalesce(sum(${earnings.amount}), 0)::int`
     }).from(earnings).where(gte2(earnings.createdAt, since));
     res.json({
       userCount: Number(userCount ?? 0),
@@ -6629,8 +6779,6 @@ async function registerRoutes(app2) {
       return res.status(400).json({ error: "Unsupported content type for this upload" });
     }
     const buf = req.body;
-    fetch("http://127.0.0.1:7652/ingest/22e351bd-1e97-4a00-ab87-c9defd35899c", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1296ac" }, body: JSON.stringify({ sessionId: "1296ac", runId: "run1", hypothesisId: "H2", location: "server/routes.ts:/api/upload-file:validatedInput", message: "upload-file request validated", data: { contentType, bufLen: Buffer.isBuffer(buf) ? buf.length : -1, fileNameLen: fileName.length, hasR2Endpoint: Boolean(process.env.R2_ENDPOINT), hasR2Bucket: Boolean(process.env.R2_BUCKET_NAME), hasR2Key: Boolean(process.env.R2_ACCESS_KEY_ID), hasR2Secret: Boolean(process.env.R2_SECRET_ACCESS_KEY) }, timestamp: Date.now() }) }).catch(() => {
-    });
     if (!Buffer.isBuffer(buf) || buf.length === 0) {
       return res.status(400).json({ error: "Empty upload body" });
     }
@@ -6643,8 +6791,6 @@ async function registerRoutes(app2) {
       await putR2ObjectBuffer(key, contentType, buf);
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : String(e);
-      fetch("http://127.0.0.1:7652/ingest/22e351bd-1e97-4a00-ab87-c9defd35899c", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1296ac" }, body: JSON.stringify({ sessionId: "1296ac", runId: "run1", hypothesisId: "H2", location: "server/routes.ts:/api/upload-file:r2PutCatch", message: "upload-file putR2ObjectBuffer failed", data: { errorName: e instanceof Error ? e.name : "unknown", errorMessage: errMsg.slice(0, 220) }, timestamp: Date.now() }) }).catch(() => {
-      });
       const notConfigured = errMsg.includes("R2 is not configured") || /not\s+configured|correctly\s+configured/i.test(errMsg);
       console.error("[upload-file] r2_put_failed", { err: e, userId: user.id });
       return res.status(notConfigured ? 503 : 500).json({
@@ -6656,15 +6802,11 @@ async function registerRoutes(app2) {
     try {
       filePublicUrl = resolveUploadPublicUrlForKey(req, key);
     } catch {
-      fetch("http://127.0.0.1:7652/ingest/22e351bd-1e97-4a00-ab87-c9defd35899c", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1296ac" }, body: JSON.stringify({ sessionId: "1296ac", runId: "run1", hypothesisId: "H3", location: "server/routes.ts:/api/upload-file:publicUrlCatch", message: "upload-file failed to resolve public URL", data: { host: req.get("host") ?? "", xfHost: req.get("x-forwarded-host") ?? "", xfProto: req.get("x-forwarded-proto") ?? "" }, timestamp: Date.now() }) }).catch(() => {
-      });
       return res.status(500).json({
         error: "Cannot build a browser-loadable file URL. Set R2_PUBLIC_BASE_URL or ensure reverse-proxy forwards Host / X-Forwarded-* headers.",
         code: "R2_PUBLIC_URL_UNAVAILABLE"
       });
     }
-    fetch("http://127.0.0.1:7652/ingest/22e351bd-1e97-4a00-ab87-c9defd35899c", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1296ac" }, body: JSON.stringify({ sessionId: "1296ac", runId: "run1", hypothesisId: "H2", location: "server/routes.ts:/api/upload-file:success", message: "upload-file success", data: { keyPrefix: key.slice(0, 20), contentType, bufLen: buf.length }, timestamp: Date.now() }) }).catch(() => {
-    });
     res.json({ key, url: filePublicUrl, fileUrl: filePublicUrl });
   });
   app2.get("/api/videos", async (req, res) => {
@@ -7025,7 +7167,7 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/notifications/unread-count", async (_req, res) => {
     res.setHeader("Cache-Control", "private, no-store");
-    const [{ count: count2 }] = await db.select({ count: sql4`count(*)::int` }).from(notifications).where(eq6(notifications.isRead, false));
+    const [{ count: count2 }] = await db.select({ count: sql5`count(*)::int` }).from(notifications).where(eq6(notifications.isRead, false));
     res.json({ count: count2 ?? 0 });
   });
   app2.get("/api/notifications", async (req, res) => {
@@ -7213,6 +7355,27 @@ ${text2}` : ""}` : text2;
       imageUrl: attachmentOk ? attachmentUrl : null
     });
   });
+  function jukeboxRowElapsedSecs(row) {
+    if (!row.isPlaying || !row.startedAt) return 0;
+    return Math.max(0, (Date.now() - new Date(row.startedAt).getTime()) / 1e3);
+  }
+  async function publishJukeboxStateUpdateWithLiveWatchers(communityId, row) {
+    const watchers = await getJukeboxLiveViewerCount(communityId);
+    const elapsedSecs = jukeboxRowElapsedSecs(row);
+    await publishJukeboxEvent(communityId, {
+      type: "state_update",
+      data: { ...row, watchersCount: watchers, elapsedSecs }
+    });
+  }
+  async function broadcastJukeboxWatchersState(communityId) {
+    try {
+      const [r] = await db.select().from(jukeboxState).where(eq6(jukeboxState.communityId, communityId));
+      if (!r) return;
+      await publishJukeboxStateUpdateWithLiveWatchers(communityId, r);
+    } catch (e) {
+      console.error("[jukebox] broadcast watchers state:", e);
+    }
+  }
   app2.get("/api/jukebox/active-sessions", async (_req, res) => {
     const playingRows = await db.select({
       communityId: jukeboxState.communityId,
@@ -7237,6 +7400,11 @@ ${text2}` : ""}` : text2;
   });
   app2.get("/api/jukebox/:communityId", async (req, res) => {
     const communityId = paramNum(req, "communityId");
+    await ensureStationJukeboxCommunity(communityId);
+    const rawViewer = typeof req.query.viewer === "string" ? req.query.viewer.trim() : "";
+    if (rawViewer && isValidJukeboxPollViewerId(rawViewer)) {
+      await jukeboxPollTouch(communityId, rawViewer);
+    }
     const now = /* @__PURE__ */ new Date();
     const [stateRaw] = await db.select().from(jukeboxState).where(eq6(jukeboxState.communityId, communityId));
     const queue = await db.select().from(jukeboxQueue).where(and5(eq6(jukeboxQueue.communityId, communityId), eq6(jukeboxQueue.isPlayed, false))).orderBy(asc3(jukeboxQueue.position));
@@ -7255,7 +7423,6 @@ ${text2}` : ""}` : text2;
         const next = queue.find((q) => !q.isPlayed && q.id !== currentItem?.id);
         if (next) {
           queueModified = true;
-          const watchers = Math.floor(Math.random() * 80) + 20;
           const [updated] = await db.insert(jukeboxState).values({
             communityId,
             currentVideoId: next.videoId,
@@ -7265,7 +7432,7 @@ ${text2}` : ""}` : text2;
             currentVideoYoutubeId: next.youtubeId ?? null,
             startedAt: now,
             isPlaying: true,
-            watchersCount: watchers
+            watchersCount: 0
           }).onConflictDoUpdate({
             target: jukeboxState.communityId,
             set: {
@@ -7276,7 +7443,7 @@ ${text2}` : ""}` : text2;
               currentVideoYoutubeId: next.youtubeId ?? null,
               startedAt: now,
               isPlaying: true,
-              watchersCount: watchers
+              watchersCount: 0
             }
           }).returning();
           state = updated;
@@ -7306,10 +7473,12 @@ ${text2}` : ""}` : text2;
       );
     }
     const effectiveState = state && state.isPlaying && (state.currentVideoTitle || state.currentVideoYoutubeId) ? state : null;
+    const liveWatchers = await getJukeboxLiveViewerCount(communityId);
     res.json({
       state: effectiveState ? {
         ...effectiveState,
-        elapsedSecs
+        elapsedSecs,
+        watchersCount: liveWatchers
       } : null,
       queue: queueToReturn,
       chat
@@ -7317,17 +7486,20 @@ ${text2}` : ""}` : text2;
   });
   app2.get("/api/jukebox/:communityId/stream", async (req, res) => {
     const communityId = paramNum(req, "communityId");
+    await ensureStationJukeboxCommunity(communityId);
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders();
     res.write("event: ping\ndata: {}\n\n");
+    await jukeboxSseConnect(communityId);
     try {
       const [currentState] = await db.select().from(jukeboxState).where(eq6(jukeboxState.communityId, communityId));
       if (currentState) {
         const elapsed = currentState.isPlaying && currentState.startedAt ? (Date.now() - new Date(currentState.startedAt).getTime()) / 1e3 : 0;
-        const stateData = { ...currentState, elapsedSecs: Math.max(0, elapsed) };
+        const liveWatchers = await getJukeboxLiveViewerCount(communityId);
+        const stateData = { ...currentState, elapsedSecs: Math.max(0, elapsed), watchersCount: liveWatchers };
         res.write(`event: state_update
 data: ${JSON.stringify({ type: "state_update", data: stateData, ts: Date.now() })}
 
@@ -7341,6 +7513,7 @@ data: ${JSON.stringify({ type: "queue_update", data: currentQueue, ts: Date.now(
     } catch (e) {
       console.error("[SSE] initial snapshot error:", e);
     }
+    void broadcastJukeboxWatchersState(communityId);
     const unsubscribe = subscribeJukeboxEvents(communityId, (event) => {
       try {
         const eventType = event.type ?? "message";
@@ -7361,6 +7534,7 @@ data: ${data}
     req.on("close", () => {
       unsubscribe();
       clearInterval(pingInterval);
+      void jukeboxSseDisconnect(communityId).then(() => broadcastJukeboxWatchersState(communityId));
     });
   });
   function normalizeStreamVisibility(v) {
@@ -7702,7 +7876,7 @@ data: ${data}
           code: "STREAM_ACCESS_DENIED"
         });
       }
-      const [updated] = await db.update(streams).set({ currentViewers: sql4`${streams.currentViewers} + 1` }).where(eq6(streams.id, id)).returning();
+      const [updated] = await db.update(streams).set({ currentViewers: sql5`${streams.currentViewers} + 1` }).where(eq6(streams.id, id)).returning();
       return res.json({ viewerCount: updated.currentViewers, currentViewers: updated.currentViewers });
     }
     const [live] = await db.select().from(liveStreams).where(eq6(liveStreams.id, id));
@@ -7735,7 +7909,7 @@ data: ${data}
       await db.transaction(async (tx) => {
         const existingAccess = await tx.select({ id: streamPaidAccess.id }).from(streamPaidAccess).where(and5(eq6(streamPaidAccess.streamId, id), eq6(streamPaidAccess.viewerUserId, user.id))).limit(1);
         if (existingAccess.length > 0) {
-          const [updated2] = await tx.update(streams).set({ currentViewers: sql4`${streams.currentViewers} + 1` }).where(eq6(streams.id, id)).returning();
+          const [updated2] = await tx.update(streams).set({ currentViewers: sql5`${streams.currentViewers} + 1` }).where(eq6(streams.id, id)).returning();
           currentViewers = updated2.currentViewers;
           return;
         }
@@ -7775,7 +7949,7 @@ data: ${data}
           "paid_live",
           String(spendTx.id)
         );
-        const [updated] = await tx.update(streams).set({ currentViewers: sql4`${streams.currentViewers} + 1` }).where(eq6(streams.id, id)).returning();
+        const [updated] = await tx.update(streams).set({ currentViewers: sql5`${streams.currentViewers} + 1` }).where(eq6(streams.id, id)).returning();
         currentViewers = updated.currentViewers;
       });
       return res.json({ ok: true, currentViewers });
@@ -7807,6 +7981,7 @@ data: ${data}
   });
   app2.post("/api/jukebox/:communityId/add", async (req, res) => {
     const communityId = paramNum(req, "communityId");
+    await ensureStationJukeboxCommunity(communityId);
     const { videoId, videoTitle, videoThumbnail, videoDurationSecs, addedBy, addedByAvatar, youtubeId } = req.body;
     const authUser = await getAuthUser(req);
     const existing = await db.select().from(jukeboxQueue).where(eq6(jukeboxQueue.communityId, communityId)).orderBy(desc2(jukeboxQueue.position));
@@ -7828,7 +8003,6 @@ data: ${data}
     const isCurrentlyPlaying = !!(stateRow?.isPlaying && (stateRow.currentVideoId != null || stateRow.currentVideoYoutubeId));
     const hasUnplayed = existing.some((q) => !q.isPlayed);
     if (!hasUnplayed && !isCurrentlyPlaying) {
-      const watchers = Math.floor(Math.random() * 80) + 20;
       await db.insert(jukeboxState).values({
         communityId,
         currentVideoId: item.videoId,
@@ -7838,7 +8012,7 @@ data: ${data}
         currentVideoYoutubeId: item.youtubeId ?? null,
         startedAt: /* @__PURE__ */ new Date(),
         isPlaying: true,
-        watchersCount: watchers
+        watchersCount: 0
       }).onConflictDoUpdate({
         target: jukeboxState.communityId,
         set: {
@@ -7849,7 +8023,7 @@ data: ${data}
           currentVideoYoutubeId: item.youtubeId ?? null,
           startedAt: /* @__PURE__ */ new Date(),
           isPlaying: true,
-          watchersCount: watchers
+          watchersCount: 0
         }
       });
     }
@@ -7861,18 +8035,48 @@ data: ${data}
     if (!hasUnplayed && !isCurrentlyPlaying) {
       const [newState] = await db.select().from(jukeboxState).where(eq6(jukeboxState.communityId, communityId));
       if (newState) {
-        await publishJukeboxEvent(communityId, {
-          type: "state_update",
-          data: newState
-        });
+        await publishJukeboxStateUpdateWithLiveWatchers(communityId, newState);
       }
     }
     res.json(item);
   });
   app2.post("/api/jukebox/:communityId/next", async (req, res) => {
     const communityId = paramNum(req, "communityId");
+    await ensureStationJukeboxCommunity(communityId);
+    const advanceSource = typeof req.body?.source === "string" && req.body.source === "ended" ? "ended" : "manual";
     const [stateRaw] = await db.select().from(jukeboxState).where(eq6(jukeboxState.communityId, communityId));
     const queue = await db.select().from(jukeboxQueue).where(and5(eq6(jukeboxQueue.communityId, communityId), eq6(jukeboxQueue.isPlayed, false))).orderBy(asc3(jukeboxQueue.position));
+    const isPlayingNow = !!(stateRaw?.isPlaying && (stateRaw.currentVideoYoutubeId || stateRaw.currentVideoId != null));
+    if (advanceSource === "manual") {
+      const user = await getAuthUser(req);
+      if (!user) {
+        return res.status(401).json({ error: "Please sign in to control playback." });
+      }
+      if (isPlayingNow) {
+        const currentPlayingRow = queue.find(
+          (q) => stateRaw.currentVideoYoutubeId && q.youtubeId === stateRaw.currentVideoYoutubeId || stateRaw.currentVideoId != null && q.videoId === stateRaw.currentVideoId
+        );
+        if (currentPlayingRow) {
+          const uid = currentPlayingRow.addedByUserId;
+          if (uid == null || uid !== user.id) {
+            return res.status(403).json({
+              error: "Only the person who requested the current track can skip it."
+            });
+          }
+        }
+      }
+    } else {
+      if (!isPlayingNow || !stateRaw?.startedAt) {
+        return res.status(400).json({ error: "Nothing is playing." });
+      }
+      const dur = stateRaw.currentVideoDurationSecs ?? 0;
+      if (dur > 0) {
+        const elapsed = (Date.now() - new Date(stateRaw.startedAt).getTime()) / 1e3;
+        if (elapsed < dur - 2) {
+          return res.status(403).json({ error: "The track has not finished yet." });
+        }
+      }
+    }
     let currentItemId = null;
     if (stateRaw?.currentVideoId != null || stateRaw?.currentVideoYoutubeId) {
       const currentItem = queue.find(
@@ -7885,7 +8089,6 @@ data: ${data}
     }
     const next = queue.find((q) => !q.isPlayed && q.id !== currentItemId);
     if (next) {
-      const watchers = Math.floor(Math.random() * 80) + 20;
       await db.insert(jukeboxState).values({
         communityId,
         currentVideoId: next.videoId,
@@ -7895,7 +8098,7 @@ data: ${data}
         currentVideoYoutubeId: next.youtubeId ?? null,
         startedAt: /* @__PURE__ */ new Date(),
         isPlaying: true,
-        watchersCount: watchers
+        watchersCount: 0
       }).onConflictDoUpdate({
         target: jukeboxState.communityId,
         set: {
@@ -7906,7 +8109,7 @@ data: ${data}
           currentVideoYoutubeId: next.youtubeId ?? null,
           startedAt: /* @__PURE__ */ new Date(),
           isPlaying: true,
-          watchersCount: watchers
+          watchersCount: 0
         }
       });
     } else {
@@ -7921,10 +8124,7 @@ data: ${data}
     }
     const [latestState] = await db.select().from(jukeboxState).where(eq6(jukeboxState.communityId, communityId));
     if (latestState) {
-      await publishJukeboxEvent(communityId, {
-        type: "state_update",
-        data: latestState
-      });
+      await publishJukeboxStateUpdateWithLiveWatchers(communityId, latestState);
     }
     const latestQueue = await db.select().from(jukeboxQueue).where(and5(eq6(jukeboxQueue.communityId, communityId), eq6(jukeboxQueue.isPlayed, false))).orderBy(asc3(jukeboxQueue.position));
     await publishJukeboxEvent(communityId, {
@@ -7935,6 +8135,7 @@ data: ${data}
   });
   app2.patch("/api/jukebox/:communityId/duration", async (req, res) => {
     const communityId = paramNum(req, "communityId");
+    await ensureStationJukeboxCommunity(communityId);
     const { durationSecs } = req.body;
     if (!durationSecs || typeof durationSecs !== "number" || durationSecs <= 0) {
       return res.status(400).json({ error: "durationSecs must be a positive number" });
@@ -7949,6 +8150,7 @@ data: ${data}
   });
   app2.post("/api/jukebox/:communityId/chat", async (req, res) => {
     const communityId = paramNum(req, "communityId");
+    await ensureStationJukeboxCommunity(communityId);
     const { username, avatar, message } = req.body;
     if (!message || !message.trim()) return res.status(400).json({ error: "Please enter a message" });
     const modResult = await moderateContent(message);
@@ -7969,6 +8171,7 @@ data: ${data}
   });
   app2.delete("/api/jukebox/:communityId/queue/:itemId", async (req, res) => {
     const communityId = paramNum(req, "communityId");
+    await ensureStationJukeboxCommunity(communityId);
     const itemId = paramNum(req, "itemId");
     const addedBy = req.query.addedBy || req.body?.addedBy || null;
     const [item] = await db.select().from(jukeboxQueue).where(and5(eq6(jukeboxQueue.communityId, communityId), eq6(jukeboxQueue.id, itemId)));
@@ -8035,11 +8238,11 @@ data: ${data}
           throw err;
         }
         if (parsedSlotId != null) {
-          const slotRows = await tx.update(liverAvailability).set({ bookedSlots: sql4`${liverAvailability.bookedSlots} + 1` }).where(
+          const slotRows = await tx.update(liverAvailability).set({ bookedSlots: sql5`${liverAvailability.bookedSlots} + 1` }).where(
             and5(
               eq6(liverAvailability.id, parsedSlotId),
               eq6(liverAvailability.liverId, sessionRow.creatorId),
-              sql4`${liverAvailability.bookedSlots} < ${liverAvailability.maxSlots}`
+              sql5`${liverAvailability.bookedSlots} < ${liverAvailability.maxSlots}`
             )
           ).returning({ id: liverAvailability.id });
           if (slotRows.length === 0) {
@@ -8117,7 +8320,7 @@ data: ${data}
   });
   app2.get("/api/mentor/:streamId/queue-count", async (req, res) => {
     const streamId = paramNum(req, "streamId");
-    const [{ total }] = await db.select({ total: count() }).from(mentorBookings).where(sql4`stream_id = ${streamId} AND status IN ('paid','waiting','notified')`);
+    const [{ total }] = await db.select({ total: count() }).from(mentorBookings).where(sql5`stream_id = ${streamId} AND status IN ('paid','waiting','notified')`);
     res.json({ count: Number(total) });
   });
   app2.post("/api/mentor/:streamId/checkout", async (req, res) => {
@@ -8126,7 +8329,7 @@ data: ${data}
     if (!userName) return res.status(400).json({ error: "userName required" });
     try {
       const stripe = await getUncachableStripeClient();
-      const [{ total }] = await db.select({ total: count() }).from(mentorBookings).where(sql4`stream_id = ${streamId} AND status IN ('paid','waiting','notified')`);
+      const [{ total }] = await db.select({ total: count() }).from(mentorBookings).where(sql5`stream_id = ${streamId} AND status IN ('paid','waiting','notified')`);
       const queuePos = Number(total) + 1;
       const [stream] = await db.select().from(liveStreams).where(eq6(liveStreams.id, streamId));
       const streamTitle = stream?.title ?? "Two-shot photo session";
@@ -8199,11 +8402,11 @@ data: ${data}
       if (booking.sessionId != null && Number.isFinite(slotId) && slotId > 0) {
         const creatorId = mentorSessionForBooking?.creatorId;
         if (!creatorId) return res.status(404).json({ error: "session_not_found" });
-        const updatedSlots = await db.update(liverAvailability).set({ bookedSlots: sql4`${liverAvailability.bookedSlots} + 1` }).where(
+        const updatedSlots = await db.update(liverAvailability).set({ bookedSlots: sql5`${liverAvailability.bookedSlots} + 1` }).where(
           and5(
             eq6(liverAvailability.id, slotId),
             eq6(liverAvailability.liverId, creatorId),
-            sql4`${liverAvailability.bookedSlots} < ${liverAvailability.maxSlots}`
+            sql5`${liverAvailability.bookedSlots} < ${liverAvailability.maxSlots}`
           )
         ).returning();
         if (updatedSlots.length === 0) {
@@ -8334,7 +8537,7 @@ data: ${data}
     const sessionIds = mySessions.map((s) => s.id);
     const bookingRows = await db.select().from(mentorBookings).where(and5(
       inArray2(mentorBookings.sessionId, sessionIds),
-      sql4`${mentorBookings.status} NOT IN ('cancelled')`
+      sql5`${mentorBookings.status} NOT IN ('cancelled')`
     )).orderBy(desc2(mentorBookings.createdAt));
     const sessionMap = new Map(
       (await db.select().from(mentorSessions).where(inArray2(mentorSessions.id, sessionIds))).map((s) => [s.id, s])
@@ -8564,7 +8767,7 @@ data: ${data}
   });
   app2.get("/api/announcements", async (_req, res) => {
     const rows = await db.select().from(announcements).where(
-      sql4`(start_at IS NULL OR start_at <= now()) AND (end_at IS NULL OR end_at >= now())`
+      sql5`(start_at IS NULL OR start_at <= now()) AND (end_at IS NULL OR end_at >= now())`
     ).orderBy(desc2(announcements.isPinned), desc2(announcements.createdAt));
     res.json(rows);
   });
@@ -8572,13 +8775,9 @@ data: ${data}
     const limit = Math.min(100, Math.max(1, parseInt(String(_req.query.limit ?? "20"), 10) || 20));
     const liveOnly = String(_req.query.liveOnly ?? "1") === "1" || String(_req.query.liveOnly ?? "").toLowerCase() === "true";
     const rows = await db.select().from(announcements).where(
-      sql4`(start_at IS NULL OR start_at <= now()) AND (end_at IS NULL OR end_at >= now())`
+      sql5`(start_at IS NULL OR start_at <= now()) AND (end_at IS NULL OR end_at >= now())`
     ).orderBy(desc2(announcements.isPinned), desc2(announcements.createdAt)).limit(Math.min(500, limit * 10));
-    const out = rows.filter((r) => !liveOnly || String(r.type ?? "").toLowerCase().includes("live")).filter((r) => {
-      if (!liveOnly) return true;
-      const flyer = parseThreadBody(r.body).flyerImageUrl;
-      return Boolean(flyer);
-    }).slice(0, limit).map((r) => ({
+    const out = rows.filter((r) => !liveOnly || String(r.type ?? "").toLowerCase().includes("live")).slice(0, limit).map((r) => ({
       id: r.id,
       communityId: 0,
       communityName: "Station",
@@ -10048,13 +10247,10 @@ function configureExpoAndLanding(app2) {
     });
   }
   app2.get("/lp-standalone.html", (req, res) => {
-    return serveLpStandalone(req, res, "/lp");
+    return res.redirect(302, "/lp");
   });
   app2.get("/lp-static", (req, res) => {
-    if (hasLpViteApp) {
-      return res.redirect(302, "/lp");
-    }
-    return serveLpStandalone(req, res, "/lp");
+    return res.redirect(302, "/lp");
   });
   const teamzPath = path.resolve(process.cwd(), "public/teamz.html");
   app2.get("/teamz", (req, res) => {

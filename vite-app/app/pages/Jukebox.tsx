@@ -244,7 +244,11 @@ export default function JukeboxPage() {
     const hasQueue = (data.queue ?? []).some((q) => !q.isPlayed);
     if (hasQueue && !data.state?.isPlaying) {
       autoStartedRef.current = true;
-      fetch(`/api/jukebox/${communityId}/next`, { method: "POST" })
+      fetch(`/api/jukebox/${communityId}/next`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: "manual" }),
+      })
         .then(() => refetch())
         .catch(() => {});
     } else {

@@ -124,7 +124,14 @@ import {
 } from "./lib/communitiesCompat";
 import { getCommunityDefaultAssets } from "../lib/community-default-assets";
 import { publishJukeboxEvent, redis, jukeboxChannel, subscribeJukeboxEvents } from "./redis";
-import { ensureJukeboxQueueSchema } from "./runtimeSchemaGuards";
+import {
+  getJukeboxLiveViewerCount,
+  jukeboxPollTouch,
+  jukeboxSseConnect,
+  jukeboxSseDisconnect,
+  isValidJukeboxPollViewerId,
+} from "./jukeboxWatchers";
+import { ensureJukeboxQueueSchema, ensureUserFollowsSchema } from "./runtimeSchemaGuards";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import type Stripe from "stripe";
@@ -993,6 +1000,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   /** Until DB migrations are applied everywhere, retry idempotent DDL (cheap no-op once ready). */
   app.use(async (_req, _res, next) => {
     await ensureJukeboxQueueSchema();
+    await ensureUserFollowsSchema();
     next();
   });
 
@@ -5703,6 +5711,33 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   // ── Jukebox ───────────────────────────────────────────────────────
+  function jukeboxRowElapsedSecs(row: InferSelectModel<typeof jukeboxState>): number {
+    if (!row.isPlaying || !row.startedAt) return 0;
+    return Math.max(0, (Date.now() - new Date(row.startedAt as Date).getTime()) / 1000);
+  }
+
+  async function publishJukeboxStateUpdateWithLiveWatchers(
+    communityId: number,
+    row: InferSelectModel<typeof jukeboxState>,
+  ): Promise<void> {
+    const watchers = await getJukeboxLiveViewerCount(communityId);
+    const elapsedSecs = jukeboxRowElapsedSecs(row);
+    await publishJukeboxEvent(communityId, {
+      type: "state_update",
+      data: { ...(row as unknown as Record<string, unknown>), watchersCount: watchers, elapsedSecs },
+    });
+  }
+
+  async function broadcastJukeboxWatchersState(communityId: number): Promise<void> {
+    try {
+      const [r] = await db.select().from(jukeboxState).where(eq(jukeboxState.communityId, communityId));
+      if (!r) return;
+      await publishJukeboxStateUpdateWithLiveWatchers(communityId, r);
+    } catch (e) {
+      console.error("[jukebox] broadcast watchers state:", e);
+    }
+  }
+
   /** Top banner: communities live/waiting (define before :communityId). */
   app.get("/api/jukebox/active-sessions", async (_req: Request, res: Response) => {
     const playingRows = await db
@@ -5746,6 +5781,10 @@ export async function registerRoutes(app: Express): Promise<void> {
   app.get("/api/jukebox/:communityId", async (req: Request, res: Response) => {
     const communityId = paramNum(req, "communityId");
     await ensureStationJukeboxCommunity(communityId);
+    const rawViewer = typeof req.query.viewer === "string" ? req.query.viewer.trim() : "";
+    if (rawViewer && isValidJukeboxPollViewerId(rawViewer)) {
+      await jukeboxPollTouch(communityId, rawViewer);
+    }
     const now = new Date();
 
     const [stateRaw] = await db
@@ -5787,7 +5826,6 @@ export async function registerRoutes(app: Express): Promise<void> {
           // Do not mark next as isPlayed yet (keep visible in queue UI)
           queueModified = true;
 
-          const watchers = Math.floor(Math.random() * 80) + 20;
           const [updated] = await db
             .insert(jukeboxState)
             .values({
@@ -5799,7 +5837,7 @@ export async function registerRoutes(app: Express): Promise<void> {
               currentVideoYoutubeId: (next as any).youtubeId ?? null,
               startedAt: now,
               isPlaying: true,
-              watchersCount: watchers,
+              watchersCount: 0,
             } as typeof jukeboxState.$inferInsert)
             .onConflictDoUpdate({
               target: jukeboxState.communityId,
@@ -5811,7 +5849,7 @@ export async function registerRoutes(app: Express): Promise<void> {
                 currentVideoYoutubeId: (next as any).youtubeId ?? null,
                 startedAt: now,
                 isPlaying: true,
-                watchersCount: watchers,
+                watchersCount: 0,
               } as Partial<InferSelectModel<typeof jukeboxState>>,
             })
             .returning();
@@ -5869,11 +5907,14 @@ export async function registerRoutes(app: Express): Promise<void> {
         ? state
         : null;
 
+    const liveWatchers = await getJukeboxLiveViewerCount(communityId);
+
     res.json({
       state: effectiveState
         ? {
             ...effectiveState,
             elapsedSecs,
+            watchersCount: liveWatchers,
           }
         : null,
       queue: queueToReturn,
@@ -5895,13 +5936,16 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     res.write("event: ping\ndata: {}\n\n");
 
+    await jukeboxSseConnect(communityId);
+
     try {
       const [currentState] = await db.select().from(jukeboxState).where(eq(jukeboxState.communityId, communityId));
       if (currentState) {
         const elapsed = currentState.isPlaying && currentState.startedAt
           ? (Date.now() - new Date(currentState.startedAt).getTime()) / 1000
           : 0;
-        const stateData = { ...currentState, elapsedSecs: Math.max(0, elapsed) };
+        const liveWatchers = await getJukeboxLiveViewerCount(communityId);
+        const stateData = { ...currentState, elapsedSecs: Math.max(0, elapsed), watchersCount: liveWatchers };
         res.write(`event: state_update\ndata: ${JSON.stringify({ type: "state_update", data: stateData, ts: Date.now() })}\n\n`);
       }
 
@@ -5912,6 +5956,8 @@ export async function registerRoutes(app: Express): Promise<void> {
     } catch (e) {
       console.error("[SSE] initial snapshot error:", e);
     }
+
+    void broadcastJukeboxWatchersState(communityId);
 
     const unsubscribe = subscribeJukeboxEvents(communityId, (event) => {
       try {
@@ -5930,6 +5976,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     req.on("close", () => {
       unsubscribe();
       clearInterval(pingInterval);
+      void jukeboxSseDisconnect(communityId).then(() => broadcastJukeboxWatchersState(communityId));
     });
   });
 
@@ -6541,7 +6588,6 @@ export async function registerRoutes(app: Express): Promise<void> {
     const isCurrentlyPlaying = !!(stateRow?.isPlaying && (stateRow.currentVideoId != null || stateRow.currentVideoYoutubeId));
     const hasUnplayed = existing.some((q) => !q.isPlayed);
     if (!hasUnplayed && !isCurrentlyPlaying) {
-      const watchers = Math.floor(Math.random() * 80) + 20;
       await db
         .insert(jukeboxState)
         .values({
@@ -6553,7 +6599,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           currentVideoYoutubeId: (item as any).youtubeId ?? null,
           startedAt: new Date(),
           isPlaying: true,
-          watchersCount: watchers,
+          watchersCount: 0,
         } as typeof jukeboxState.$inferInsert)
         .onConflictDoUpdate({
           target: jukeboxState.communityId,
@@ -6565,7 +6611,7 @@ export async function registerRoutes(app: Express): Promise<void> {
             currentVideoYoutubeId: (item as any).youtubeId ?? null,
             startedAt: new Date(),
             isPlaying: true,
-            watchersCount: watchers,
+            watchersCount: 0,
           } as Partial<InferSelectModel<typeof jukeboxState>>,
         });
     }
@@ -6582,10 +6628,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (!hasUnplayed && !isCurrentlyPlaying) {
       const [newState] = await db.select().from(jukeboxState).where(eq(jukeboxState.communityId, communityId));
       if (newState) {
-        await publishJukeboxEvent(communityId, {
-          type: "state_update",
-          data: newState as unknown as Record<string, unknown>,
-        });
+        await publishJukeboxStateUpdateWithLiveWatchers(communityId, newState);
       }
     }
 
@@ -6595,10 +6638,55 @@ export async function registerRoutes(app: Express): Promise<void> {
   app.post("/api/jukebox/:communityId/next", async (req: Request, res: Response) => {
     const communityId = paramNum(req, "communityId");
     await ensureStationJukeboxCommunity(communityId);
+    const advanceSource =
+      typeof (req.body as { source?: unknown } | undefined)?.source === "string" &&
+      (req.body as { source?: string }).source === "ended"
+        ? "ended"
+        : "manual";
+
     const [stateRaw] = await db.select().from(jukeboxState).where(eq(jukeboxState.communityId, communityId));
     const queue = await db.select().from(jukeboxQueue)
       .where(and(eq(jukeboxQueue.communityId, communityId), eq(jukeboxQueue.isPlayed, false)))
       .orderBy(asc(jukeboxQueue.position));
+
+    const isPlayingNow = !!(
+      stateRaw?.isPlaying &&
+      (stateRaw.currentVideoYoutubeId || stateRaw.currentVideoId != null)
+    );
+
+    if (advanceSource === "manual") {
+      const user = await getAuthUser(req);
+      if (!user) {
+        return res.status(401).json({ error: "Please sign in to control playback." });
+      }
+      if (isPlayingNow) {
+        const currentPlayingRow = queue.find(
+          (q) =>
+            (stateRaw!.currentVideoYoutubeId && (q as any).youtubeId === stateRaw!.currentVideoYoutubeId) ||
+            (stateRaw!.currentVideoId != null && q.videoId === stateRaw!.currentVideoId),
+        );
+        if (currentPlayingRow) {
+          const uid = currentPlayingRow.addedByUserId;
+          if (uid == null || uid !== user.id) {
+            return res.status(403).json({
+              error: "Only the person who requested the current track can skip it.",
+            });
+          }
+        }
+      }
+    } else {
+      if (!isPlayingNow || !stateRaw?.startedAt) {
+        return res.status(400).json({ error: "Nothing is playing." });
+      }
+      const dur = stateRaw.currentVideoDurationSecs ?? 0;
+      if (dur > 0) {
+        const elapsed =
+          (Date.now() - new Date(stateRaw.startedAt as Date).getTime()) / 1000;
+        if (elapsed < dur - 2) {
+          return res.status(403).json({ error: "The track has not finished yet." });
+        }
+      }
+    }
 
     // Find current playing item and mark isPlayed (avoid duplicate next pick)
     let currentItemId: number | null = null;
@@ -6617,7 +6705,6 @@ export async function registerRoutes(app: Express): Promise<void> {
     const next = queue.find((q) => !q.isPlayed && q.id !== currentItemId);
     if (next) {
       // Do not mark next as isPlayed until done; keep queue UI stable
-      const watchers = Math.floor(Math.random() * 80) + 20;
       await db
         .insert(jukeboxState)
         .values({
@@ -6629,7 +6716,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           currentVideoYoutubeId: (next as any).youtubeId ?? null,
           startedAt: new Date(),
           isPlaying: true,
-          watchersCount: watchers,
+          watchersCount: 0,
         } as typeof jukeboxState.$inferInsert)
         .onConflictDoUpdate({
           target: jukeboxState.communityId,
@@ -6641,7 +6728,7 @@ export async function registerRoutes(app: Express): Promise<void> {
             currentVideoYoutubeId: (next as any).youtubeId ?? null,
             startedAt: new Date(),
             isPlaying: true,
-            watchersCount: watchers,
+            watchersCount: 0,
           } as Partial<InferSelectModel<typeof jukeboxState>>,
         });
     } else {
@@ -6661,10 +6748,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     // Publish state_update + queue_update to Redis
     const [latestState] = await db.select().from(jukeboxState).where(eq(jukeboxState.communityId, communityId));
     if (latestState) {
-      await publishJukeboxEvent(communityId, {
-        type: "state_update",
-        data: latestState as unknown as Record<string, unknown>,
-      });
+      await publishJukeboxStateUpdateWithLiveWatchers(communityId, latestState);
     }
     const latestQueue = await db.select().from(jukeboxQueue)
       .where(and(eq(jukeboxQueue.communityId, communityId), eq(jukeboxQueue.isPlayed, false)))
