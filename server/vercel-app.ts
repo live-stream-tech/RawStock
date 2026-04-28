@@ -103,6 +103,9 @@ export async function createApiApp(): Promise<express.Application> {
   app.get("/healthcheck", (_req, res) => res.status(200).send("OK"));
   app.get("/api/healthcheck", (_req, res) => res.status(200).send("OK"));
   const lpStandalonePath = path.resolve(process.cwd(), "public/lp-standalone.html");
+  const lpViteRoot = path.resolve(process.cwd(), "dist", "lp");
+  const lpViteIndex = path.join(lpViteRoot, "index.html");
+  const hasLpViteApp = fs.existsSync(lpViteIndex);
 
   function serveLpStandalone(req: Request, res: Response, canonicalPath: string) {
     if (!fs.existsSync(lpStandalonePath)) {
@@ -115,16 +118,35 @@ export async function createApiApp(): Promise<express.Application> {
     return res.status(200).send(html);
   }
 
-  /** `/lp` — always serve standalone HTML (single source of truth). */
-  app.get("/lp", (req: Request, res: Response) => {
-    return serveLpStandalone(req, res, "/lp");
-  });
+  if (hasLpViteApp) {
+    app.use(
+      "/lp",
+      express.static(lpViteRoot, {
+        index: "index.html",
+        setHeaders(res, filePath) {
+          if (filePath.endsWith("index.html")) {
+            res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
+          }
+        },
+      }),
+    );
+  }
+
+  /** `/lp` — without Vite build, serve standalone HTML (no redirect). */
+  if (!hasLpViteApp) {
+    app.get("/lp", (req: Request, res: Response) => {
+      return serveLpStandalone(req, res, "/lp");
+    });
+  }
 
   // Legacy paths (same HTML)
   app.get("/lp-standalone.html", (req: Request, res: Response) => {
     return serveLpStandalone(req, res, "/lp");
   });
   app.get("/lp-static", (req: Request, res: Response) => {
+    if (hasLpViteApp) {
+      return res.redirect(302, "/lp");
+    }
     return serveLpStandalone(req, res, "/lp");
   });
 

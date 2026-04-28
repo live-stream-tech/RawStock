@@ -2711,9 +2711,8 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (liveOnly) {
       out = out.filter((r) => {
         const blob = `${r.title} ${r.body}`.toLowerCase();
-        if (!liveHints.some((h) => blob.includes(h))) return false;
-        const flyer = parseThreadBody(r.body).flyerImageUrl;
-        return !!flyer;
+        // Do not require flyer media: many valid live announcements are text-only.
+        return liveHints.some((h) => blob.includes(h));
       });
     }
     const maxPerCommunity = Math.min(
@@ -7544,11 +7543,6 @@ export async function registerRoutes(app: Express): Promise<void> {
       .limit(Math.min(500, limit * 10));
     const out = rows
       .filter((r) => !liveOnly || String(r.type ?? "").toLowerCase().includes("live"))
-      .filter((r) => {
-        if (!liveOnly) return true;
-        const flyer = parseThreadBody(r.body).flyerImageUrl;
-        return Boolean(flyer);
-      })
       .slice(0, limit)
       .map((r) => ({
         id: r.id,
