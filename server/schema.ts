@@ -816,8 +816,9 @@ export const announcements = pgTable("announcements", {
 // ─── Ticket System ────────────────────────────────────────────────────────────
 
 /**
- * Ticket packs available for purchase.
- * 1 Ticket = $0.01 USD. Packs: 100T=$1, 500T=$5, 1200T=$12, 3000T=$30.
+ * Suggested ticket purchase quantities for UI display.
+ * Actual checkout supports arbitrary quantities (minimum enforced elsewhere).
+ * 1 Ticket = $0.01 USD.
  */
 export const TICKET_PACKS = [
   { id: "pack-100",  tickets: 100,  priceUSD: 100,  label: "100 Tickets",  bonus: null },

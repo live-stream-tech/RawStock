@@ -6,7 +6,7 @@
  */
 export const PRICE_PER_TICKET_USD = 0.01;
 
-/** Minimum pack size when purchasing tickets via Stripe checkout. */
+/** Minimum ticket quantity for Stripe checkout. */
 export const MIN_PURCHASE_TICKETS = 100;
 
 export function formatUsdFromTickets(tickets: number): string {

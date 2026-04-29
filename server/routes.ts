@@ -8725,7 +8725,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
   });
 
-  /** GET /api/tickets/packs — list available ticket packs */
+  /** GET /api/tickets/packs — suggested ticket quantities (legacy endpoint name) */
   app.get("/api/tickets/packs", (_req: Request, res: Response) => {
     return res.json(TICKET_PACKS);
   });

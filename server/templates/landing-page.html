@@ -1151,7 +1151,7 @@
       <article class="flow-step-card">
         <div class="flow-step-no">1</div>
         <div class="flow-step-title"><span class="only-en">Buy tickets</span><span class="only-ja">チケット購入</span></div>
-        <div class="flow-step-desc"><span class="only-en">Fans purchase ticket packs with Stripe Checkout (USD).</span><span class="only-ja">ファンがStripe Checkout（USD）でチケットを購入。</span></div>
+        <div class="flow-step-desc"><span class="only-en">Fans purchase ticket amounts with Stripe Checkout (USD).</span><span class="only-ja">ファンがStripe Checkout（USD）でチケット数を指定して購入。</span></div>
         <span class="flow-arrow">→</span>
       </article>
       <article class="flow-step-card">
@@ -1179,7 +1179,7 @@
   <section class="section container" id="tickets">
     <div class="section-label"><span class="only-en">Tickets</span><span class="only-ja">チケット</span></div>
     <h2><span class="only-en">One ticket,<br>one simple unit.</span><span class="only-ja">1チケット = 1つの共通単位。</span></h2>
-    <p class="section-desc"><span class="only-en">1 ticket = $0.01 USD. Fans buy ticket packs with Stripe and spend them across the app.</span><span class="only-ja">1チケット = US$0.01。ファンはStripeでまとめて購入し、アプリ内の各機能で使います。</span></p>
+    <p class="section-desc"><span class="only-en">1 ticket = $0.01 USD. Fans choose any ticket amount in Stripe checkout and spend tickets across the app.</span><span class="only-ja">1チケット = US$0.01。ファンはStripeで任意のチケット数を購入し、アプリ内の各機能で使います。</span></p>
     <div class="ticket-grid">
       <div class="ticket-card">
         <div class="ticket-price">$1.00</div>
@@ -1204,8 +1204,8 @@
       </div>
     </div>
     <p style="color:var(--text3);font-size:13px;margin-top:20px;max-width:560px;line-height:1.6;">
-      <span class="only-en">Ticket packs bill in USD via Stripe. Bank statements follow your card's locale.</span>
-      <span class="only-ja">パック購入はStripe経由のUSD請求。JCB/Visa等は利用可能でも、請求通貨は円ではありません。経理処理は事業者ご自身でご判断ください。</span>
+      <span class="only-en">Ticket purchases are billed in USD via Stripe. Bank statements follow your card's locale.</span>
+      <span class="only-ja">チケット購入はStripe経由のUSD請求。JCB/Visa等は利用可能でも、請求通貨は円ではありません。経理処理は事業者ご自身でご判断ください。</span>
     </p>
   </section>
 
@@ -1221,11 +1221,11 @@
       </details>
       <details class="faq-item">
         <summary><span class="only-en">How do payouts and currencies work?</span><span class="only-ja">入金や通貨はどうなりますか？</span> <div class="faq-chevron">+</div></summary>
-        <div class="faq-body"><span class="only-en">Fans buy ticket packs in USD through Stripe. When creators withdraw, payouts go through Stripe Connect and depend on identity verification, country availability, and payout settings.</span><span class="only-ja">ファンの購入はStripeでUSD決済されます。クリエイターの出金はStripe Connect経由で行われ、本人確認、対応国、口座設定の状況に依存します。</span></div>
+        <div class="faq-body"><span class="only-en">Fans buy tickets in USD through Stripe (any amount above the minimum). When creators withdraw, payouts go through Stripe Connect and depend on identity verification, country availability, and payout settings.</span><span class="only-ja">ファンの購入はStripeでUSD決済されます（最小購入数以上で任意数量）。クリエイターの出金はStripe Connect経由で行われ、本人確認、対応国、口座設定の状況に依存します。</span></div>
       </details>
       <details class="faq-item">
         <summary><span class="only-en">What can tickets be spent on?</span><span class="only-ja">チケットは何に使えますか？</span> <div class="faq-chevron">+</div></summary>
-        <div class="faq-body"><span class="only-en">Tips, Jukebox requests after the free daily quota, AI Edit Assistant plans, and other in-app flows that debit tickets. See the Tickets section for pack sizing.</span><span class="only-ja">ギフト、無料枠を超えたジュークボックスリクエスト、AI編集アシスタントなど、アプリ内でチケット消費が発生する機能に利用できます。</span></div>
+        <div class="faq-body"><span class="only-en">Tips, Jukebox requests after the free daily quota, AI Edit Assistant plans, and other in-app flows that debit tickets. See the Tickets section for pricing examples.</span><span class="only-ja">ギフト、無料枠を超えたジュークボックスリクエスト、AI編集アシスタントなど、アプリ内でチケット消費が発生する機能に利用できます。</span></div>
       </details>
       <details class="faq-item">
         <summary><span class="only-en">How are live tips different from paid live access?</span><span class="only-ja">配信ギフトと有料ライブの収益は何が違いますか？</span> <div class="faq-chevron">+</div></summary>
