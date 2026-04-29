@@ -41,7 +41,7 @@ function toUploadErrorMessage(err: unknown, maxMb: number): string {
   if (err instanceof Error && /under\s+\d+mb/i.test(err.message)) {
     return err.message;
   }
-  return err instanceof Error ? err.message : "Upload failed. Please try a smaller file.";
+  return err instanceof Error ? err.message : "Upload に失敗しました。より小さいファイルでお試しください。";
 }
 
 async function compressImageForUpload(uri: string): Promise<string> {
@@ -92,11 +92,11 @@ export default function DailyUploadScreen() {
 
   function addMedia(id: string, uri: string, type: "image" | "video", size?: number, durationSec?: number) {
     if (mediaItems.length >= DAILY_POST_LIMITS.maxMediaCount) {
-      Alert.alert("", `Up to ${DAILY_POST_LIMITS.maxMediaCount} items per post`);
+      Alert.alert("", `1投稿あたり最大 ${DAILY_POST_LIMITS.maxMediaCount} 件までです`);
       return;
     }
     if (type === "video" && videoCount >= DAILY_POST_LIMITS.maxVideoCount) {
-      Alert.alert("", "Only 1 video allowed per post");
+      Alert.alert("", "1投稿に追加できる動画は1本までです");
       return;
     }
     setMediaItems((prev) => [...prev, { id, uri, type, size, durationSec }]);
@@ -147,7 +147,7 @@ export default function DailyUploadScreen() {
     }
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permission Required", "Allow media library access to select photos");
+      Alert.alert("Permission Required", "写真を選ぶにはメディアライブラリへのアクセスを許可してください");
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -195,7 +195,7 @@ export default function DailyUploadScreen() {
     }
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permission Required", "Allow media library access to select videos");
+      Alert.alert("Permission Required", "動画を選ぶにはメディアライブラリへのアクセスを許可してください");
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -297,16 +297,16 @@ export default function DailyUploadScreen() {
   async function handleSubmit() {
     const title = text.trim().slice(0, DAILY_POST_LIMITS.maxTextLength);
     if (!title.length) {
-      Alert.alert("", "Please enter some text");
+      Alert.alert("", "テキストを入力してください");
       return;
     }
     if (postTarget === "community" && !selectedCommunity) {
-      Alert.alert("", "Please select a community");
+      Alert.alert("", "Community を選択してください");
       return;
     }
     if (!requireAuth("post")) return;
     if (!agreeGuidelines || !agreeRights) {
-      Alert.alert("Confirmation required", "Please confirm the guidelines and rights checkboxes before posting.");
+      Alert.alert("Confirmation required", "投稿前に Guidelines と rights のチェックを確認してください。");
       return;
     }
     setUploading(true);
@@ -327,7 +327,7 @@ export default function DailyUploadScreen() {
           console.error(`${UPLOAD_LOG} step:daily_submit_thumbnail_upload_failed`, e);
           Alert.alert(
             "Upload failed",
-            e?.message ?? "Could not upload your image. Check your connection and try again.",
+            e?.message ?? "画像を Upload できませんでした。通信状況を確認して再試行してください。",
           );
           return;
         }
@@ -344,7 +344,7 @@ export default function DailyUploadScreen() {
           console.error(`${UPLOAD_LOG} step:daily_submit_video_failed`, e);
           Alert.alert(
             "Upload failed",
-            e?.message ?? "Could not upload your video. Check your connection and try again.",
+            e?.message ?? "動画を Upload できませんでした。通信状況を確認して再試行してください。",
           );
           return;
         }
@@ -376,7 +376,7 @@ export default function DailyUploadScreen() {
       queryClient.invalidateQueries({ queryKey: ["/api/videos/my"] });
     } catch (err: any) {
       if (err instanceof ApiError && err.status === 401) {
-        Alert.alert("Sign in required", "Please sign in to post.");
+        Alert.alert("Sign in required", "投稿するには Sign in が必要です。");
         return;
       }
       Alert.alert("Error", formatUserFacingApiError(err));
@@ -401,7 +401,7 @@ export default function DailyUploadScreen() {
 
       <View style={styles.limitHint}>
         <Text style={styles.limitHintText}>
-          Up to {DAILY_POST_LIMITS.maxMediaCount} items, 1 video up to {DAILY_POST_LIMITS.maxVideoDurationSec}s / {DAILY_POST_LIMITS.maxFileSizeMB}MB
+          最大 {DAILY_POST_LIMITS.maxMediaCount} 件、動画は1本まで（{DAILY_POST_LIMITS.maxVideoDurationSec}秒以内 / {DAILY_POST_LIMITS.maxFileSizeMB}MB以内）
         </Text>
       </View>
 
@@ -435,7 +435,7 @@ export default function DailyUploadScreen() {
         <View style={styles.inputWrap}>
           <TextInput
             style={styles.mainInput}
-            placeholder="What's on your mind?"
+            placeholder="いま何をシェアしますか？"
             placeholderTextColor={C.textMuted}
             value={text}
             onChangeText={setText}
@@ -481,7 +481,7 @@ export default function DailyUploadScreen() {
               {myPageOnlyVideos.length > 0 && (
                 <Pressable style={styles.publishFromBtn} onPress={() => setShowPublishFromModal(true)}>
                   <Ionicons name="document-outline" size={16} color={C.accent} />
-                  <Text style={styles.publishFromText}>Publish from my posts</Text>
+                  <Text style={styles.publishFromText}>My posts から公開</Text>
                 </Pressable>
               )}
             </>
@@ -540,7 +540,7 @@ export default function DailyUploadScreen() {
       <Modal visible={showPublishFromModal} transparent animationType="slide">
         <Pressable style={styles.menuOverlay} onPress={() => !uploading && setShowPublishFromModal(false)}>
           <Pressable style={styles.publishFromModal} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.publishFromModalTitle}>Select a post to publish</Text>
+            <Text style={styles.publishFromModalTitle}>公開する投稿を選択</Text>
             <ScrollView style={webScrollStyle(styles.publishFromList)} showsVerticalScrollIndicator={scrollShowsVertical}>
               {myPageOnlyVideos.map((v) => (
                 <Pressable

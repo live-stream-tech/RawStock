@@ -30,10 +30,10 @@ type Notif = {
 };
 
 const FILTERS = [
-  { id: "all", label: "All" },
-  { id: "purchase", label: "Purchases" },
-  { id: "follow", label: "Following" },
-  { id: "comment", label: "Comments" },
+  { id: "all", label: "すべて" },
+  { id: "purchase", label: "購入" },
+  { id: "follow", label: "フォロー" },
+  { id: "comment", label: "コメント" },
 ];
 
 const TYPE_ICON: Record<string, { name: string; color: string; bg: string }> = {
@@ -86,7 +86,7 @@ function NotifItem({ item, onRead }: { item: Notif; onRead: (id: number) => void
               <View style={styles.revenueBox}>
                 <Ionicons name="cash-outline" size={12} color={C.green} />
                 <Text style={styles.revenueAmount}>🎟{revenue.toLocaleString()}</Text>
-                <Text style={styles.revenueLabel}>received</Text>
+                <Text style={styles.revenueLabel}>受取</Text>
               </View>
             </View>
           </View>
@@ -140,10 +140,10 @@ export default function NotificationsScreen() {
         <Pressable style={styles.backBtn} onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={24} color={C.text} />
         </Pressable>
-        <Text style={styles.headerTitle}>Notifications</Text>
+        <Text style={styles.headerTitle}>通知</Text>
         {unreadCount > 0 ? (
           <Pressable style={styles.readAllBtn} onPress={() => readAllMutation.mutate()}>
-            <Text style={styles.readAllText}>Mark all read</Text>
+            <Text style={styles.readAllText}>すべて既読</Text>
           </Pressable>
         ) : (
           <View style={{ width: 64 }} />
@@ -195,7 +195,7 @@ export default function NotificationsScreen() {
         {filteredNotifs.length === 0 ? (
           <View style={styles.empty}>
             <Ionicons name="notifications-off-outline" size={40} color={C.textMuted} />
-            <Text style={styles.emptyText}>No notifications</Text>
+            <Text style={styles.emptyText}>通知はまだありません</Text>
           </View>
         ) : (
           filteredNotifs.map((item) => (

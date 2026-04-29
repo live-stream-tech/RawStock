@@ -51,7 +51,7 @@ export default function TicketsScreen() {
             "Tickets Added! 🎟",
             granted > 0
               ? `${granted.toLocaleString()} tickets have been added to your balance.`
-              : "Your tickets have been credited.",
+              : "チケットが残高に反映されました。",
             [{ text: "Great!" }]
           );
         }
@@ -76,8 +76,8 @@ export default function TicketsScreen() {
     if (!requireAuth("Ticket Shop")) return;
     if (!isValidPurchase) {
       Alert.alert(
-        "Minimum Purchase",
-        `Please purchase at least ${MIN_PURCHASE_TICKETS.toLocaleString()} tickets.`
+        "最小購入数",
+        `${MIN_PURCHASE_TICKETS.toLocaleString()} Tickets 以上を購入してください。`
       );
       return;
     }
@@ -97,7 +97,7 @@ export default function TicketsScreen() {
       }
     } catch (err) {
       console.error("[Tickets] checkout error:", err);
-      Alert.alert("Error", "Failed to start checkout. Please try again.");
+      Alert.alert("Error", "Checkout の開始に失敗しました。もう一度お試しください。");
     } finally {
       setLoadingCheckout(false);
     }
@@ -132,7 +132,7 @@ export default function TicketsScreen() {
 
         {/* What are tickets */}
         <View style={styles.infoSection}>
-          <Text style={styles.sectionTitle}>How Tickets Work</Text>
+          <Text style={styles.sectionTitle}>Tickets の使い方</Text>
           <View style={styles.infoGrid}>
             {[
               { icon: "musical-notes-outline" as const, label: "Jukebox Request", value: "10 🎟" },
@@ -148,9 +148,9 @@ export default function TicketsScreen() {
         </View>
 
         {/* Ticket amount input */}
-        <Text style={[styles.sectionTitle, { marginHorizontal: 16, marginTop: 8 }]}>Buy Tickets</Text>
+        <Text style={[styles.sectionTitle, { marginHorizontal: 16, marginTop: 8 }]}>Tickets を購入</Text>
         <View style={styles.purchaseCard}>
-          <Text style={styles.inputLabel}>Ticket Quantity</Text>
+          <Text style={styles.inputLabel}>購入する Tickets 数</Text>
           <TextInput
             style={styles.ticketInput}
             value={ticketInput}
@@ -165,7 +165,7 @@ export default function TicketsScreen() {
           <Text style={styles.totalPrice}>Total: ${totalPriceUSD.toFixed(2)} USD</Text>
           {!isValidPurchase && (
             <Text style={styles.minPurchaseError}>
-              Minimum purchase is {MIN_PURCHASE_TICKETS.toLocaleString()} tickets (${(MIN_PURCHASE_TICKETS * PRICE_PER_TICKET_USD).toFixed(2)}).
+              最小購入数は {MIN_PURCHASE_TICKETS.toLocaleString()} Tickets (${(MIN_PURCHASE_TICKETS * PRICE_PER_TICKET_USD).toFixed(2)}) です。
             </Text>
           )}
           <Pressable
@@ -176,7 +176,7 @@ export default function TicketsScreen() {
             {loadingCheckout ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : (
-              <Text style={styles.checkoutBtnText}>Proceed to Stripe Checkout</Text>
+              <Text style={styles.checkoutBtnText}>Stripe Checkout へ進む</Text>
             )}
           </Pressable>
         </View>
@@ -184,13 +184,13 @@ export default function TicketsScreen() {
         {/* Secure note */}
         <View style={styles.secureNote}>
           <Ionicons name="lock-closed-outline" size={14} color={C.textMuted} />
-          <Text style={styles.secureText}>Payments processed securely via Stripe. Card details are never stored by RawStock.</Text>
+          <Text style={styles.secureText}>決済は Stripe で安全に処理されます。カード情報は RawStock に保存されません。</Text>
         </View>
 
         {/* Creator note */}
         <View style={styles.creatorNote}>
           <Ionicons name="heart-outline" size={14} color={C.accent} />
-          <Text style={styles.creatorText}>Creators earn 90% of all ticket revenue spent on their sessions.</Text>
+          <Text style={styles.creatorText}>Creators は Session で消費された ticket 売上の 90% を受け取ります。</Text>
         </View>
       </ScrollView>
     </View>

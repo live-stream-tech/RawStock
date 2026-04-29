@@ -45,7 +45,7 @@ function toUploadErrorMessage(err: unknown, maxMb: number): string {
   if (err instanceof Error && /under\s+\d+mb/i.test(err.message)) {
     return err.message;
   }
-  return err instanceof Error ? err.message : "Upload failed. Please try a smaller file.";
+  return err instanceof Error ? err.message : "Upload に失敗しました。より小さいファイルでお試しください。";
 }
 
 async function compressImageForUpload(uri: string): Promise<string> {
@@ -143,7 +143,7 @@ export default function WorkUploadScreen() {
     }
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permission Required", "Allow media library access to select photos");
+      Alert.alert("Permission Required", "写真を選ぶにはメディアライブラリへのアクセスを許可してください");
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -199,7 +199,7 @@ export default function WorkUploadScreen() {
     }
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permission Required", "Allow media library access to select videos");
+      Alert.alert("Permission Required", "動画を選ぶにはメディアライブラリへのアクセスを許可してください");
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -295,20 +295,20 @@ export default function WorkUploadScreen() {
   async function handleSubmit() {
     const title = text.trim();
     if (!title.length) {
-      Alert.alert("", "Please write your article");
+      Alert.alert("", "記事テキストを入力してください");
       return;
     }
     if (!hasPhoto) {
-      Alert.alert("", "Please add at least one photo");
+      Alert.alert("", "写真を1枚以上追加してください");
       return;
     }
     if (postTarget === "community" && !selectedCommunity) {
-      Alert.alert("", "Please select a community");
+      Alert.alert("", "Community を選択してください");
       return;
     }
     if (!requireAuth("post")) return;
     if (!agreeGuidelines || !agreeRights) {
-      Alert.alert("Confirmation required", "Please confirm the guidelines and rights checkboxes before posting.");
+      Alert.alert("Confirmation required", "投稿前に Guidelines と rights のチェックを確認してください。");
       return;
     }
     setUploading(true);
@@ -329,7 +329,7 @@ export default function WorkUploadScreen() {
           console.error(`${UPLOAD_LOG} step:work_submit_thumbnail_upload_failed`, e);
           Alert.alert(
             "Upload failed",
-            e?.message ?? "Could not upload your image. Check your connection and try again.",
+            e?.message ?? "画像を Upload できませんでした。通信状況を確認して再試行してください。",
           );
           return;
         }
@@ -346,7 +346,7 @@ export default function WorkUploadScreen() {
           console.error(`${UPLOAD_LOG} step:work_submit_video_failed`, e);
           Alert.alert(
             "Upload failed",
-            e?.message ?? "Could not upload your video. Check your connection and try again.",
+            e?.message ?? "動画を Upload できませんでした。通信状況を確認して再試行してください。",
           );
           return;
         }
@@ -381,8 +381,8 @@ export default function WorkUploadScreen() {
       queryClient.invalidateQueries({ queryKey: ["/api/videos/ranked"] });
     } catch (err: any) {
       if (err instanceof ApiError) {
-        if (err.status === 401) Alert.alert("Sign in required", "Please sign in to post.");
-        else if (err.status === 400) Alert.alert("Invalid content", err.message ?? "Please check your input.");
+        if (err.status === 401) Alert.alert("Sign in required", "投稿するには Sign in が必要です。");
+        else if (err.status === 400) Alert.alert("Invalid content", err.message ?? "入力内容を確認してください。");
         else Alert.alert("Error", "Failed to post.");
       } else {
         Alert.alert("Error", err?.message ?? "Failed to post.");
@@ -408,8 +408,8 @@ export default function WorkUploadScreen() {
 
       <View style={styles.workHint}>
         <Text style={styles.workHintText}>
-          Articles and photos are free. At least one photo is required. Add a video continuation with optional pricing.
-          Counts toward rankings.
+          記事と写真は無料で投稿できます。写真は1枚以上必須です。動画を追加する場合は価格設定もできます。
+          投稿は ranking 対象になります。
         </Text>
       </View>
       <View style={styles.limitHint}>
@@ -448,7 +448,7 @@ export default function WorkUploadScreen() {
         <View style={styles.inputWrap}>
           <TextInput
             style={styles.mainInput}
-            placeholder="Write your article (required)"
+            placeholder="記事を書く（必須）"
             placeholderTextColor={C.textMuted}
             value={text}
             onChangeText={setText}
@@ -460,7 +460,7 @@ export default function WorkUploadScreen() {
         {!hasPhoto && (
           <Pressable style={styles.addPhotoPrompt} onPress={pickPhoto}>
             <Ionicons name="image-outline" size={32} color={C.accent} />
-            <Text style={styles.addPhotoPromptText}>Add a photo (required)</Text>
+            <Text style={styles.addPhotoPromptText}>写真を追加（必須）</Text>
           </Pressable>
         )}
 
@@ -500,7 +500,7 @@ export default function WorkUploadScreen() {
               {myPageOnlyWorks.length > 0 && (
                 <Pressable style={styles.publishFromBtn} onPress={() => setShowPublishFromModal(true)}>
                   <Ionicons name="document-outline" size={16} color={C.accent} />
-                  <Text style={styles.publishFromText}>Publish from my posts</Text>
+                  <Text style={styles.publishFromText}>My posts から公開</Text>
                 </Pressable>
               )}
             </>
@@ -586,7 +586,7 @@ export default function WorkUploadScreen() {
       <Modal visible={showPublishFromModal} transparent animationType="slide">
         <Pressable style={styles.menuOverlay} onPress={() => !uploading && setShowPublishFromModal(false)}>
           <Pressable style={styles.publishFromModal} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.publishFromModalTitle}>Select a work to publish</Text>
+            <Text style={styles.publishFromModalTitle}>公開する Work を選択</Text>
             <ScrollView style={webScrollStyle(styles.publishFromList)} showsVerticalScrollIndicator={scrollShowsVertical}>
               {myPageOnlyWorks.map((v) => (
                 <Pressable

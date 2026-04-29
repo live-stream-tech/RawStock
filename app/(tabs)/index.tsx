@@ -448,7 +448,7 @@ export default function HomeScreen() {
                   </View>
                 ) : jukePulse.mode === "request_open" ? (
                   <View style={styles.jukeOpenPill}>
-                    <Text style={styles.jukeOpenText}>Requests open</Text>
+                    <Text style={styles.jukeOpenText}>Request 受付中</Text>
                   </View>
                 ) : null}
               </View>
@@ -461,7 +461,7 @@ export default function HomeScreen() {
                 </Text>
               ) : jukePulse.mode === "fallback" ? (
                 <Text style={styles.jukeBannerSub} numberOfLines={1}>
-                  Tap to open a jukebox room
+                  タップして Jukebox room を開く
                 </Text>
               ) : null}
             </View>
@@ -510,7 +510,7 @@ export default function HomeScreen() {
           {sessions.length === 0 ? (
             <View style={{ paddingHorizontal: 16, paddingVertical: 12, minWidth: Math.min(heroCardW, 320) }}>
               <Text style={{ color: C.textMuted, fontSize: 12, fontFamily: F.mono }}>
-                No mentor sessions available to book yet.
+                予約可能な Mentor session はまだありません。
               </Text>
             </View>
           ) : (
