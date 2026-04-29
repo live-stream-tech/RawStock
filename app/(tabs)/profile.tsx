@@ -530,6 +530,31 @@ export default function ProfileScreen() {
     ]);
   }
 
+  async function runBulkDeleteAllPosts() {
+    try {
+      await apiRequest("DELETE", "/api/videos/mine?postType=all");
+      queryClient.invalidateQueries({ queryKey: ["/api/videos/my"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/videos/ranked"] });
+    } catch (e: any) {
+      Alert.alert("Delete Failed", formatUserFacingApiError(e));
+    }
+  }
+
+  function deleteAllMyPosts() {
+    const n = myVideos.length;
+    if (n === 0) return;
+    const msg = `Delete ALL ${n} post(s) (Daily and Work)? This cannot be undone.`;
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      if (window.confirm(msg)) void runBulkDeleteAllPosts();
+      return;
+    }
+    Alert.alert("Delete all posts?", msg, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete everything", style: "destructive", onPress: () => void runBulkDeleteAllPosts() },
+    ]);
+  }
+
   async function registerRole(role: "editor" | "mentor") {
     if (!user || roleLoading) return;
     setRoleLoading(role);
@@ -1218,7 +1243,18 @@ export default function ProfileScreen() {
           )}
         </View>
 
-   
+        {myVideos.length > 0 ? (
+          <View style={styles.dangerZone}>
+            <Text style={styles.dangerZoneLabel}>Data</Text>
+            <Pressable style={styles.deleteAllPostsBtn} onPress={deleteAllMyPosts}>
+              <Ionicons name="warning-outline" size={16} color={C.live} />
+              <Text style={styles.deleteAllPostsText}>Delete all my posts (Daily + Works)</Text>
+            </Pressable>
+            <Text style={styles.dangerZoneHint}>
+              Removes every post you own. Use the row above to delete only Works.
+            </Text>
+          </View>
+        ) : null}
 
         <View style={{ height: 120 }} />
       </ScrollView>
@@ -1791,6 +1827,40 @@ const styles = StyleSheet.create({
     color: C.live,
     fontSize: 12,
     fontWeight: "600",
+  },
+  dangerZone: {
+    marginHorizontal: 16,
+    marginTop: 24,
+    padding: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,77,0,0.35)",
+    backgroundColor: "rgba(255,77,0,0.06)",
+    gap: 10,
+  },
+  dangerZoneLabel: {
+    color: C.textMuted,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  deleteAllPostsBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    alignSelf: "flex-start",
+    paddingVertical: 6,
+  },
+  deleteAllPostsText: {
+    color: C.live,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  dangerZoneHint: {
+    color: C.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
   },
   timelineEmpty: { paddingHorizontal: 16, paddingVertical: 12, alignItems: "center" },
   timelineEmptyText: { color: C.textSec, fontSize: 13, fontWeight: "700" },
