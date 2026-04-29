@@ -253,7 +253,7 @@ export default function HomeJP() {
               <iframe
                 width="1000"
                 height="563"
-                src="https://www.youtube.com/embed/DANWox4tTO4"
+                src="https://www.youtube.com/embed/K97EQWghAeY"
                 title="RawStock の背景ストーリー"
                 frameBorder="0"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
