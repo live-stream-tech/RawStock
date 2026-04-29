@@ -8428,7 +8428,11 @@ export async function registerRoutes(app: Express): Promise<void> {
       let newBalance = 0;
       await db.transaction(async (tx) => {
         const [comm] = await tx.select().from(communities).where(eq(communities.id, communityId)).limit(1);
-        const creatorUserId = (comm?.ownerId ?? comm?.adminId) ?? null;
+        let creatorUserId: number | null = (comm?.ownerId ?? comm?.adminId) ?? null;
+        if (!creatorUserId) {
+          const [adminUser] = await tx.select({ id: users.id }).from(users).where(eq(users.role, "ADMIN")).limit(1);
+          creatorUserId = adminUser?.id ?? null;
+        }
 
         const balRows = await tx.select().from(ticketBalances).where(eq(ticketBalances.userId, userId)).limit(1);
         const currentBalance = balRows[0]?.balance ?? 0;
