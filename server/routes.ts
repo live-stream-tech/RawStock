@@ -8428,10 +8428,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       let newBalance = 0;
       await db.transaction(async (tx) => {
         const [comm] = await tx.select().from(communities).where(eq(communities.id, communityId)).limit(1);
-        const creatorUserId = comm?.ownerId ?? comm?.adminId;
-        if (!creatorUserId) {
-          throw new Error("COMMUNITY_NO_OWNER");
-        }
+        const creatorUserId = (comm?.ownerId ?? comm?.adminId) ?? null;
 
         const balRows = await tx.select().from(ticketBalances).where(eq(ticketBalances.userId, userId)).limit(1);
         const currentBalance = balRows[0]?.balance ?? 0;
@@ -8462,17 +8459,19 @@ export async function registerRoutes(app: Express): Promise<void> {
           })
           .returning({ id: ticketTransactions.id });
 
-        const walletId = await getOrCreateUserWallet(creatorUserId, tx);
-        const creatorRow = await creatorRowForUserId(tx, creatorUserId);
-        await recordRevenue(
-          walletId,
-          creatorUserId,
-          creatorRow?.id ?? null,
-          TICKETS_PER_JUKEBOX,
-          "paid_live",
-          String(spendTx.id),
-          tx,
-        );
+        if (creatorUserId) {
+          const walletId = await getOrCreateUserWallet(creatorUserId, tx);
+          const creatorRow = await creatorRowForUserId(tx, creatorUserId);
+          await recordRevenue(
+            walletId,
+            creatorUserId,
+            creatorRow?.id ?? null,
+            TICKETS_PER_JUKEBOX,
+            "paid_live",
+            String(spendTx.id),
+            tx,
+          );
+        }
 
         const countRows = await tx
           .select()
@@ -8503,9 +8502,6 @@ export async function registerRoutes(app: Express): Promise<void> {
           balance: meta.balance ?? 0,
           required: meta.required ?? TICKETS_PER_JUKEBOX,
         });
-      }
-      if (e?.message === "COMMUNITY_NO_OWNER") {
-        return res.status(400).json({ error: "Community has no owner for revenue" });
       }
       console.error("[tickets/spend-jukebox] failed:", e);
       return res.status(500).json({ error: "Failed to spend tickets" });
