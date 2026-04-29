@@ -153,10 +153,6 @@ export default function WorkUploadScreen() {
     });
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-      if ((asset.fileSize ?? 0) > WORK_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
-        Alert.alert("", `File must be under ${WORK_POST_LIMITS.maxFileSizeMB}MB`);
-        return;
-      }
       try {
         setUploading(true);
         const compressedUri = await compressImageForUpload(asset.uri);
@@ -411,7 +407,15 @@ export default function WorkUploadScreen() {
       </View>
 
       <View style={styles.workHint}>
-        <Text style={styles.workHintText}>Articles and photos are free. Add a video continuation with optional pricing. Counts toward rankings.</Text>
+        <Text style={styles.workHintText}>
+          Articles and photos are free. At least one photo is required. Add a video continuation with optional pricing.
+          Counts toward rankings.
+        </Text>
+      </View>
+      <View style={styles.limitHint}>
+        <Text style={styles.limitHintText}>
+          File size limit: {WORK_POST_LIMITS.maxFileSizeMB}MB per image/video.
+        </Text>
       </View>
 
       <ScrollView
@@ -642,6 +646,8 @@ const styles = StyleSheet.create({
   dailyLinkText: { color: C.textMuted, fontSize: 13, fontWeight: "600" },
   workHint: { paddingHorizontal: 16, paddingVertical: 8, backgroundColor: C.surface2 },
   workHintText: { color: C.textMuted, fontSize: 12 },
+  limitHint: { paddingHorizontal: 16, paddingVertical: 8, backgroundColor: C.surface2, borderTopWidth: 1, borderTopColor: C.border },
+  limitHintText: { color: C.textMuted, fontSize: 11 },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 24 },
   previewRow: { marginBottom: 12 },

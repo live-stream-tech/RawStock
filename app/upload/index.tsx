@@ -157,10 +157,6 @@ export default function DailyUploadScreen() {
     });
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-      if ((asset.fileSize ?? 0) > DAILY_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
-        Alert.alert("", `File must be under ${DAILY_POST_LIMITS.maxFileSizeMB}MB`);
-        return;
-      }
       try {
         setUploading(true);
         const compressedUri = await compressImageForUpload(asset.uri);
