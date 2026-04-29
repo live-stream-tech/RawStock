@@ -83,22 +83,46 @@ type Video = {
   price?: number | null;
 };
 
-function extractYouTubeId(url: string): string | null {
+/** Accepts watch/embed/shorts/live URLs, youtu.be, m.youtube.com, or a bare 11-char video id (common on mobile paste). */
+function extractYouTubeId(raw: string): string | null {
+  const input = raw.trim();
+  if (!input) return null;
+  if (/^[a-zA-Z0-9_-]{11}$/.test(input)) return input;
+
   try {
-    const u = new URL(url.trim());
-    if (u.hostname === "youtu.be") {
-      return u.pathname.slice(1) || null;
+    const u = new URL(input);
+    const host = u.hostname.replace(/^www\./, "").toLowerCase();
+
+    if (host === "youtu.be") {
+      const seg = u.pathname.replace(/^\//, "").split("/")[0];
+      return seg && /^[a-zA-Z0-9_-]{11}$/.test(seg) ? seg : null;
     }
-    if (u.hostname.endsWith("youtube.com")) {
+
+    if (host === "m.youtube.com" || host.endsWith("youtube.com")) {
       const v = u.searchParams.get("v");
-      if (v) return v;
-      const parts = u.pathname.split("/");
-      const idx = parts.indexOf("embed");
-      if (idx >= 0 && parts[idx + 1]) return parts[idx + 1];
+      if (v && /^[a-zA-Z0-9_-]{11}$/.test(v)) return v;
+
+      const parts = u.pathname.split("/").filter(Boolean);
+      const shortsIdx = parts.indexOf("shorts");
+      if (shortsIdx >= 0 && parts[shortsIdx + 1]) return parts[shortsIdx + 1];
+      const liveIdx = parts.indexOf("live");
+      if (liveIdx >= 0 && parts[liveIdx + 1] && /^[a-zA-Z0-9_-]{11}$/.test(parts[liveIdx + 1])) {
+        return parts[liveIdx + 1];
+      }
+      const embedIdx = parts.indexOf("embed");
+      if (embedIdx >= 0 && parts[embedIdx + 1]) return parts[embedIdx + 1];
     }
     return null;
   } catch {
     return null;
+  }
+}
+
+function showJukeboxAlert(title: string, message?: string) {
+  if (Platform.OS === "web" && typeof window !== "undefined") {
+    window.alert(message ? `${title}\n\n${message}` : title);
+  } else {
+    Alert.alert(title, message);
   }
 }
 
@@ -1021,7 +1045,10 @@ export default function JukeboxScreen() {
     if (!url) return;
     const idPart = extractYouTubeId(url);
     if (!idPart) {
-      alert("Please enter a valid YouTube URL");
+      showJukeboxAlert(
+        "Invalid link",
+        "Use a YouTube link or Shorts URL, or paste the 11-character video id.",
+      );
       return;
     }
     // Fetch duration from YouTube Search API (for direct URL add).
@@ -1072,7 +1099,7 @@ export default function JukeboxScreen() {
           msg = `YouTube search failed (${e.status}).`;
         }
       }
-      alert(msg);
+      showJukeboxAlert("YouTube", msg);
     } finally {
       setYtSearching(false);
       setInteractionResumeNonce((n) => n + 1);
@@ -1208,9 +1235,9 @@ export default function JukeboxScreen() {
       <Text style={styles.addPanelIntro}>
         Search YouTube, paste a link, or choose from your playlists. The room plays tracks in order until they end or someone taps Skip.
       </Text>
-      <View style={styles.ytInputSection}>
+        <View style={styles.ytInputSection}>
         <Text style={styles.ytLabel}>Search YouTube</Text>
-        <View style={styles.ytRow}>
+        <View style={[styles.ytRow, Platform.OS !== "web" && styles.ytRowNative]}>
           <TextInput
             style={styles.ytInput}
             placeholder="Search by song or channel name"
@@ -1230,9 +1257,9 @@ export default function JukeboxScreen() {
           </Pressable>
         </View>
       </View>
-      <View style={styles.ytInputSection}>
+        <View style={styles.ytInputSection}>
         <Text style={styles.ytLabel}>Add from YouTube URL</Text>
-        <View style={styles.ytRow}>
+        <View style={[styles.ytRow, Platform.OS !== "web" && styles.ytRowNative]}>
           <TextInput
             style={styles.ytInput}
             placeholder="https://www.youtube.com/watch?v=..."
@@ -1280,7 +1307,12 @@ export default function JukeboxScreen() {
                 <Ionicons name="chevron-back" size={16} color={C.accent} />
                 <Text style={styles.ytPlaylistBackText}>Back to playlists</Text>
               </Pressable>
-              <ScrollView style={webScrollStyle(styles.ytPlaylistItemsScroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
+              <ScrollView
+                style={webScrollStyle(styles.ytPlaylistItemsScroll)}
+                showsVerticalScrollIndicator={scrollShowsVertical}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
+              >
                 {ytPlaylistItems.map((item) => {
                   const video: Video & { youtubeId: string; durationSecs: number } = {
                     id: Math.floor(Math.random() * 2000000),
@@ -1339,6 +1371,8 @@ export default function JukeboxScreen() {
         style={webScrollStyle(styles.modalList)}
         showsVerticalScrollIndicator={scrollShowsVertical}
         contentContainerStyle={styles.modalListContent}
+        keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled
       >
         {ytResults.length > 0 && (
           <>
@@ -1851,10 +1885,14 @@ export default function JukeboxScreen() {
           style={{ flex: 1 }}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
-          enabled={!kavDisabledOnIosWeb}
+          /** Android + Modal often mis-measures; rely on windowSoftInputMode + scroll taps instead. */
+          enabled={Platform.OS === "android" ? false : !kavDisabledOnIosWeb}
         >
-        <View style={styles.modalBg}>
-          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setShowAddModal(false)} />
+        <View style={styles.modalBg} pointerEvents="box-none">
+          <Pressable
+            style={[StyleSheet.absoluteFillObject, styles.modalBackdrop]}
+            onPress={() => setShowAddModal(false)}
+          />
           <View style={styles.modalSheet}>
             <View style={styles.modalHandle} />
             {jukeboxAddPanelCore}
@@ -2414,6 +2452,10 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.6)",
     justifyContent: "flex-end",
   },
+  /** Keeps dim tap-to-dismiss below the sheet on native (avoid touches stuck on backdrop). */
+  modalBackdrop: {
+    zIndex: 0,
+  },
   modalSheet: {
     backgroundColor: C.surface,
     borderTopLeftRadius: 20,
@@ -2421,6 +2463,11 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingHorizontal: 16,
     maxHeight: Platform.OS === "web" ? 560 : "65%",
+    zIndex: 1,
+    ...Platform.select({
+      android: { elevation: 24 },
+      default: {},
+    }),
   },
   modalHandle: {
     width: 36,
@@ -2463,8 +2510,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
+  ytRowNative: {
+    flexDirection: "column",
+    alignItems: "stretch",
+  },
   ytInput: {
     flex: 1,
+    minWidth: 0,
     backgroundColor: C.surface2,
     borderRadius: 8,
     paddingHorizontal: 10,
@@ -2480,6 +2532,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 999,
+    flexShrink: 0,
+    ...Platform.select({ web: {}, default: { alignSelf: "stretch" as const } }),
   },
   ytAddButtonDisabled: {
     opacity: 0.4,
@@ -2497,6 +2551,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 999,
+    flexShrink: 0,
+    ...Platform.select({ web: {}, default: { alignSelf: "stretch" as const } }),
   },
   ytSearchButtonDisabled: {
     opacity: 0.4,
