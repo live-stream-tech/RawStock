@@ -146,14 +146,23 @@ export default function WorkUploadScreen() {
       const input = document.createElement("input");
       input.type = "file";
       input.accept = "video/*";
-      input.onchange = (e: any) => {
+      input.onchange = async (e: any) => {
         const file = e.target.files?.[0] as File | undefined;
         if (!file) return;
         if (file.size > 50 * 1024 * 1024) {
           Alert.alert("", "File must be under 50MB");
           return;
         }
-        addMedia(`vid-${Date.now()}`, URL.createObjectURL(file), "video");
+        try {
+          setUploading(true);
+          const ct = file.type || "video/mp4";
+          const url = await uploadUserMediaBlobToR2(file, file.name || "upload.mp4", ct);
+          addMedia(`vid-${Date.now()}`, url, "video");
+        } catch (err: any) {
+          Alert.alert("Error", err?.message ?? "Failed to upload video");
+        } finally {
+          setUploading(false);
+        }
       };
       document.body.appendChild(input);
       input.click();

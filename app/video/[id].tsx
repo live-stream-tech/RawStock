@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -21,12 +21,14 @@ import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { C } from "@/constants/colors";
 import { VIDEOS } from "@/constants/data";
 import { useAuth } from "@/lib/auth";
-import { apiRequest } from "@/lib/query-client";
+import { apiRequest, formatUserFacingApiError } from "@/lib/query-client";
 import { navigateFromVideoCreatorRow, navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { usePlayingVideo } from "@/lib/playing-video-context";
 import { webScrollStyle } from "@/constants/layout";
 import { parseDurationLabelToSec } from "@/lib/parse-duration-label";
 import { TranslateButton } from "@/components/TranslateButton";
+
+const WORK_PRICE_OPTIONS = [300, 500, 1000, 2000, 3000, 5000] as const;
 
 type VideoComment = {
   id: number;
@@ -73,6 +75,23 @@ export default function VideoDetailScreen() {
   const { playVideo, playing, stopPlaying } = usePlayingVideo();
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const isPlayingThisVideo = playing?.videoId === Number(id);
+  const [workFee, setWorkFee] = useState<"free" | "paid">("free");
+  const [workTicketPrice, setWorkTicketPrice] = useState(500);
+  const [savingWorkPrice, setSavingWorkPrice] = useState(false);
+
+  const isWorkPost = (apiVideo as any)?.postType === "work";
+  const hasWorkVideo = !!(apiVideo as any)?.videoUrl?.trim?.();
+
+  useEffect(() => {
+    if (!apiVideo) return;
+    const p = (apiVideo as any).price;
+    if (typeof p === "number" && p > 0) {
+      setWorkFee("paid");
+      setWorkTicketPrice(p);
+    } else {
+      setWorkFee("free");
+    }
+  }, [apiVideo, (apiVideo as any)?.price]);
 
   const REPORT_REASONS: { value: string; label: string }[] = [
     { value: "spam", label: "スパム" },
@@ -133,7 +152,8 @@ export default function VideoDetailScreen() {
     !!user &&
     ((typeof ownerUserId === "number" && ownerUserId === user.id) ||
       (creatorType === "user" && typeof creatorId === "number" && creatorId === user.id) ||
-      (typeof video?.creator === "string" && video.creator === user.displayName));
+      (typeof video?.creator === "string" &&
+        (video.creator === user.displayName || video.creator === user.name)));
 
   async function handleAddComment() {
     const text = commentText.trim();
@@ -191,9 +211,28 @@ export default function VideoDetailScreen() {
       await apiRequest("DELETE", `/api/videos/${id}`);
       await qc.invalidateQueries({ queryKey: ["/api/videos"] });
       await qc.invalidateQueries({ queryKey: ["/api/videos/my"] });
+      await qc.invalidateQueries({ queryKey: ["/api/videos/ranked"] });
       router.replace("/profile");
     } catch {
       Alert.alert("エラー", "投稿の削除に失敗しました。");
+    }
+  }
+
+  async function saveWorkVideoPricing() {
+    if (!apiVideo || isDemo || !isOwner) return;
+    if (!requireAuth("Edit")) return;
+    setSavingWorkPrice(true);
+    try {
+      const nextPrice = workFee === "paid" ? workTicketPrice : null;
+      await apiRequest("PATCH", `/api/videos/${id}`, { price: nextPrice });
+      await qc.invalidateQueries({ queryKey: [`/api/videos/${id}`] });
+      await qc.invalidateQueries({ queryKey: ["/api/videos/my"] });
+      await qc.invalidateQueries({ queryKey: ["/api/videos"] });
+      await qc.invalidateQueries({ queryKey: ["/api/videos/ranked"] });
+    } catch (e: unknown) {
+      Alert.alert("Error", formatUserFacingApiError(e));
+    } finally {
+      setSavingWorkPrice(false);
     }
   }
 
@@ -393,6 +432,56 @@ export default function VideoDetailScreen() {
           </View>
           {(video.description ?? video.title) ? (
             <Text style={styles.videoDesc}>{video.description ?? video.title}</Text>
+          ) : null}
+
+          {isOwner && isWorkPost && hasWorkVideo && !isDemo ? (
+            <View style={styles.ownerPricingBox}>
+              <Text style={styles.ownerPricingTitle}>Video pricing (tickets)</Text>
+              <View style={styles.ownerPricingRow}>
+                <Pressable
+                  style={[styles.ownerPricingChip, workFee === "free" && styles.ownerPricingChipOn]}
+                  onPress={() => setWorkFee("free")}
+                >
+                  <Text style={[styles.ownerPricingChipText, workFee === "free" && styles.ownerPricingChipTextOn]}>
+                    Free
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.ownerPricingChip, workFee === "paid" && styles.ownerPricingChipOn]}
+                  onPress={() => setWorkFee("paid")}
+                >
+                  <Text style={[styles.ownerPricingChipText, workFee === "paid" && styles.ownerPricingChipTextOn]}>
+                    Paid
+                  </Text>
+                </Pressable>
+              </View>
+              {workFee === "paid" ? (
+                <View style={styles.ownerPricePicker}>
+                  {WORK_PRICE_OPTIONS.map((p) => (
+                    <Pressable
+                      key={p}
+                      style={[styles.ownerPriceBtn, workTicketPrice === p && styles.ownerPriceBtnOn]}
+                      onPress={() => setWorkTicketPrice(p)}
+                    >
+                      <Text style={[styles.ownerPriceBtnText, workTicketPrice === p && styles.ownerPriceBtnTextOn]}>
+                        🎟{p}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
+              <Pressable
+                style={[styles.ownerPricingSave, savingWorkPrice && { opacity: 0.6 }]}
+                onPress={saveWorkVideoPricing}
+                disabled={savingWorkPrice}
+              >
+                {savingWorkPrice ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.ownerPricingSaveText}>Save price</Text>
+                )}
+              </Pressable>
+            </View>
           ) : null}
 
           {/* Comments Preview */}
@@ -717,6 +806,57 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 20,
   },
+  ownerPricingBox: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.bg,
+    gap: 10,
+  },
+  ownerPricingTitle: {
+    color: C.textMuted,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  ownerPricingRow: { flexDirection: "row", gap: 8 },
+  ownerPricingChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface,
+  },
+  ownerPricingChipOn: {
+    borderColor: C.accent,
+    backgroundColor: "rgba(41,182,207,0.15)",
+  },
+  ownerPricingChipText: { color: C.textSec, fontSize: 13, fontWeight: "700" },
+  ownerPricingChipTextOn: { color: C.accent },
+  ownerPricePicker: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  ownerPriceBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface,
+  },
+  ownerPriceBtnOn: { borderColor: C.accent, backgroundColor: C.accent },
+  ownerPriceBtnText: { color: C.textSec, fontSize: 12, fontWeight: "700" },
+  ownerPriceBtnTextOn: { color: "#fff" },
+  ownerPricingSave: {
+    alignSelf: "flex-start",
+    backgroundColor: C.accent,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  ownerPricingSaveText: { color: "#fff", fontSize: 13, fontWeight: "800" },
   titleRow: {
     flexDirection: "row",
     alignItems: "flex-start",

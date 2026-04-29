@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -16,12 +16,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/query-client";
+import { apiRequest, formatUserFacingApiError, getQueryFn } from "@/lib/query-client";
 import { C } from "@/constants/colors";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { webScrollStyle } from "@/constants/layout";
+import { useAuth } from "@/lib/auth";
 
-const LIVER_ID = 1;
+type LiverMe = { id: number; name: string; category: string };
 
 type Slot = {
   id: number;
@@ -60,8 +61,18 @@ export default function LiverScheduleScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+
+  const { data: liverMe, isLoading: meLoading, error: meError } = useQuery<LiverMe>({
+    queryKey: ["/api/livers/me"],
+    enabled: !!user,
+    queryFn: getQueryFn({ on401: "throw" }),
+  });
+
+  const liverId = liverMe?.id;
 
   const [showModal, setShowModal] = useState(false);
+  const [editingSlot, setEditingSlot] = useState<Slot | null>(null);
   const [newStart, setNewStart] = useState("19:00");
   const [newEnd, setNewEnd] = useState("21:00");
   const [newMaxSlots, setNewMaxSlots] = useState("3");
@@ -70,44 +81,163 @@ export default function LiverScheduleScreen() {
 
   const days = generateNextDays(14);
 
-  const { data: slots = [], isLoading } = useQuery<Slot[]>({
-    queryKey: [`/api/livers/${LIVER_ID}/availability`],
+  const { data: slots = [], isLoading: slotsLoading } = useQuery<Slot[]>({
+    queryKey: [`/api/livers/${liverId}/availability`],
+    enabled: !!liverId,
   });
 
+  useEffect(() => {
+    if (!showModal) {
+      setEditingSlot(null);
+    }
+  }, [showModal]);
+
+  function openAddModal() {
+    setEditingSlot(null);
+    setNewStart("19:00");
+    setNewEnd("21:00");
+    setNewMaxSlots("3");
+    setNewNote("");
+    setShowModal(true);
+  }
+
+  function openEditModal(slot: Slot) {
+    setEditingSlot(slot);
+    setNewStart(slot.startTime);
+    setNewEnd(slot.endTime);
+    setNewMaxSlots(String(slot.maxSlots));
+    setNewNote(slot.note ?? "");
+    const dayIdx = days.findIndex((d) => d === slot.date);
+    if (dayIdx >= 0) setSelectedDay(dayIdx);
+    setShowModal(true);
+  }
+
   const addMutation = useMutation({
-    mutationFn: async (data: any) => apiRequest("POST", `/api/livers/${LIVER_ID}/availability`, data),
+    mutationFn: async (data: Record<string, unknown>) => {
+      if (!liverId) throw new Error("No liver profile");
+      return apiRequest("POST", `/api/livers/${liverId}/availability`, data);
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/livers/${LIVER_ID}/availability`] });
+      if (liverId) {
+        queryClient.invalidateQueries({ queryKey: [`/api/livers/${liverId}/availability`] });
+      }
       setShowModal(false);
       Alert.alert("Added", "Slot added successfully.");
     },
-    onError: () => Alert.alert("Error", "Failed to add slot."),
+    onError: (e: unknown) => Alert.alert("Error", formatUserFacingApiError(e)),
+  });
+
+  const patchMutation = useMutation({
+    mutationFn: async (vars: { slotId: number; body: Record<string, unknown> }) => {
+      if (!liverId) throw new Error("No liver profile");
+      return apiRequest("PATCH", `/api/livers/${liverId}/availability/${vars.slotId}`, vars.body);
+    },
+    onSuccess: () => {
+      if (liverId) {
+        queryClient.invalidateQueries({ queryKey: [`/api/livers/${liverId}/availability`] });
+      }
+      setShowModal(false);
+      Alert.alert("Saved", "Slot updated.");
+    },
+    onError: (e: unknown) => Alert.alert("Error", formatUserFacingApiError(e)),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async (slotId: number) => apiRequest("DELETE", `/api/livers/${LIVER_ID}/availability/${slotId}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [`/api/livers/${LIVER_ID}/availability`] }),
+    mutationFn: async (slotId: number) => {
+      if (!liverId) throw new Error("No liver profile");
+      return apiRequest("DELETE", `/api/livers/${liverId}/availability/${slotId}`);
+    },
+    onSuccess: () => {
+      if (liverId) {
+        queryClient.invalidateQueries({ queryKey: [`/api/livers/${liverId}/availability`] });
+      }
+    },
+    onError: (e: unknown) => Alert.alert("Error", formatUserFacingApiError(e)),
   });
 
   const selectedDate = days[selectedDay];
   const daySlots = slots.filter((s) => s.date === selectedDate);
 
-  function handleAdd() {
+  function handleSaveModal() {
+    const maxN = parseInt(newMaxSlots, 10) || 3;
+    if (editingSlot) {
+      patchMutation.mutate({
+        slotId: editingSlot.id,
+        body: {
+          startTime: newStart,
+          endTime: newEnd,
+          maxSlots: maxN,
+          note: newNote,
+        },
+      });
+      return;
+    }
     const date = days[selectedDay];
     addMutation.mutate({
       date,
       startTime: newStart,
       endTime: newEnd,
-      maxSlots: parseInt(newMaxSlots) || 3,
+      maxSlots: maxN,
       note: newNote,
     });
   }
 
   function confirmDelete(slotId: number) {
+    const run = () => deleteMutation.mutate(slotId);
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      if (window.confirm("Remove this slot?")) run();
+      return;
+    }
     Alert.alert("Delete Slot", "Remove this slot?", [
       { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: () => deleteMutation.mutate(slotId) },
+      { text: "Delete", style: "destructive", onPress: run },
     ]);
+  }
+
+  const savingModal = addMutation.isPending || patchMutation.isPending;
+
+  if (!user) {
+    return (
+      <View style={[styles.container, { paddingTop: topInset }]}>
+        <View style={styles.header}>
+          <Pressable style={styles.backBtn} onPress={() => router.back()}>
+            <Ionicons name="chevron-back" size={22} color={C.text} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Live schedule</Text>
+          <View style={{ width: 36 }} />
+        </View>
+        <Text style={styles.gateText}>Sign in to manage your live availability.</Text>
+      </View>
+    );
+  }
+
+  if (meLoading) {
+    return (
+      <View style={[styles.container, { paddingTop: topInset + 40 }]}>
+        <ActivityIndicator color={C.accent} />
+      </View>
+    );
+  }
+
+  if (meError || !liverId) {
+    return (
+      <View style={[styles.container, { paddingTop: topInset }]}>
+        <View style={styles.header}>
+          <Pressable style={styles.backBtn} onPress={() => router.back()}>
+            <Ionicons name="chevron-back" size={22} color={C.text} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Live schedule</Text>
+          <View style={{ width: 36 }} />
+        </View>
+        <View style={styles.gateBox}>
+          <Ionicons name="person-outline" size={40} color={C.textMuted} />
+          <Text style={styles.gateTitle}>Session Liver profile required</Text>
+          <Text style={styles.gateSub}>
+            Register as a Session Liver in your profile first. Your display name must match your creator listing.
+          </Text>
+        </View>
+      </View>
+    );
   }
 
   return (
@@ -116,18 +246,17 @@ export default function LiverScheduleScreen() {
         <Pressable style={styles.backBtn} onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={22} color={C.text} />
         </Pressable>
-        <Text style={styles.headerTitle}>Manage Availability</Text>
-        <Pressable
-          style={styles.addBtn}
-          onPress={() => setShowModal(true)}
-        >
+        <Text style={styles.headerTitle}>Live schedule</Text>
+        <Pressable style={styles.addBtn} onPress={openAddModal}>
           <Ionicons name="add" size={20} color="#fff" />
         </Pressable>
       </View>
 
       <View style={styles.infoBanner}>
         <Ionicons name="information-circle-outline" size={16} color={C.accent} />
-        <Text style={styles.infoText}>Set time slots fans can book. Slots close automatically when full.</Text>
+        <Text style={styles.infoText}>
+          Tap a slot card to edit times, capacity, or note. Fans book against these windows.
+        </Text>
       </View>
 
       <HorizontalScroll
@@ -156,15 +285,15 @@ export default function LiverScheduleScreen() {
       <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
         <Text style={styles.dateLabel}>Slots for {formatDate(selectedDate)}</Text>
 
-        {isLoading ? (
+        {slotsLoading ? (
           <ActivityIndicator color={C.accent} style={{ marginTop: 40 }} />
         ) : daySlots.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="calendar-outline" size={40} color={C.textMuted} />
             <Text style={styles.emptyText}>No slots for this day yet</Text>
-            <Pressable style={styles.emptyAddBtn} onPress={() => setShowModal(true)}>
+            <Pressable style={styles.emptyAddBtn} onPress={openAddModal}>
               <Ionicons name="add" size={16} color="#fff" />
-              <Text style={styles.emptyAddBtnText}>Add Slot</Text>
+              <Text style={styles.emptyAddBtnText}>Add slot</Text>
             </Pressable>
           </View>
         ) : (
@@ -172,23 +301,37 @@ export default function LiverScheduleScreen() {
             const fillRate = slot.maxSlots > 0 ? (slot.bookedSlots / slot.maxSlots) * 100 : 0;
             const isFull = slot.bookedSlots >= slot.maxSlots;
             return (
-              <View key={slot.id} style={styles.slotCard}>
+              <Pressable
+                key={slot.id}
+                style={styles.slotCard}
+                onPress={() => openEditModal(slot)}
+              >
                 <View style={styles.slotTop}>
                   <View style={styles.slotTimeBlock}>
                     <Ionicons name="time-outline" size={14} color={C.accent} />
-                    <Text style={styles.slotTime}>{slot.startTime} 〜 {slot.endTime}</Text>
+                    <Text style={styles.slotTime}>
+                      {slot.startTime} – {slot.endTime}
+                    </Text>
                   </View>
-                  <Pressable
-                    style={styles.deleteBtn}
-                    onPress={() => confirmDelete(slot.id)}
-                  >
-                    <Ionicons name="trash-outline" size={16} color={C.live} />
-                  </Pressable>
+                  <View style={styles.slotActions}>
+                    <View style={styles.editHint}>
+                      <Ionicons name="create-outline" size={14} color={C.textMuted} />
+                      <Text style={styles.editHintText}>Edit</Text>
+                    </View>
+                    <Pressable
+                      style={styles.deleteBtn}
+                      onPress={(e) => {
+                        if (e.stopPropagation) e.stopPropagation();
+                        confirmDelete(slot.id);
+                      }}
+                      hitSlop={8}
+                    >
+                      <Ionicons name="trash-outline" size={16} color={C.live} />
+                    </Pressable>
+                  </View>
                 </View>
 
-                {slot.note ? (
-                  <Text style={styles.slotNote}>{slot.note}</Text>
-                ) : null}
+                {slot.note ? <Text style={styles.slotNote}>{slot.note}</Text> : null}
 
                 <View style={styles.slotStats}>
                   <View style={styles.slotStatItem}>
@@ -213,7 +356,7 @@ export default function LiverScheduleScreen() {
                     ]}
                   />
                 </View>
-              </View>
+              </Pressable>
             );
           })
         )}
@@ -222,19 +365,23 @@ export default function LiverScheduleScreen() {
       </ScrollView>
 
       <Modal visible={showModal} transparent animationType="slide">
-        <Pressable style={styles.modalOverlay} onPress={() => setShowModal(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => !savingModal && setShowModal(false)}>
           <Pressable
             style={[styles.modalSheet, { paddingBottom: (Platform.OS === "web" ? 34 : insets.bottom) + 16 }]}
-            onPress={() => {}}
+            onPress={(e) => e.stopPropagation?.()}
           >
             <View style={styles.modalHandle} />
             <View style={styles.modalTitleRow}>
-              <Ionicons name="calendar-outline" size={18} color={C.accent} />
-              <Text style={styles.modalTitle}>Add Slot</Text>
+              <Ionicons name={editingSlot ? "create-outline" : "calendar-outline"} size={18} color={C.accent} />
+              <Text style={styles.modalTitle}>{editingSlot ? "Edit slot" : "Add slot"}</Text>
             </View>
-            <Text style={styles.modalDateLabel}>Adding for {formatDate(days[selectedDay])}</Text>
+            <Text style={styles.modalDateLabel}>
+              {editingSlot
+                ? `Date: ${formatDate(editingSlot.date)}`
+                : `Adding for ${formatDate(days[selectedDay])}`}
+            </Text>
 
-            <Text style={styles.fieldLabel}>Start Time</Text>
+            <Text style={styles.fieldLabel}>Start time</Text>
             <HorizontalScroll style={{ marginBottom: 12 }} showArrows={false}>
               {TIME_OPTIONS.slice(0, -1).map((t) => (
                 <Pressable
@@ -247,7 +394,7 @@ export default function LiverScheduleScreen() {
               ))}
             </HorizontalScroll>
 
-            <Text style={styles.fieldLabel}>End Time</Text>
+            <Text style={styles.fieldLabel}>End time</Text>
             <HorizontalScroll style={{ marginBottom: 12 }} showArrows={false}>
               {TIME_OPTIONS.slice(1).map((t) => (
                 <Pressable
@@ -260,7 +407,7 @@ export default function LiverScheduleScreen() {
               ))}
             </HorizontalScroll>
 
-            <Text style={styles.fieldLabel}>Max Slots</Text>
+            <Text style={styles.fieldLabel}>Max bookings</Text>
             <View style={styles.slotsRow}>
               {["1", "2", "3", "5", "10"].map((n) => (
                 <Pressable
@@ -285,16 +432,16 @@ export default function LiverScheduleScreen() {
             </View>
 
             <Pressable
-              style={[styles.saveBtn, addMutation.isPending && { opacity: 0.6 }]}
-              onPress={handleAdd}
-              disabled={addMutation.isPending}
+              style={[styles.saveBtn, savingModal && { opacity: 0.6 }]}
+              onPress={handleSaveModal}
+              disabled={savingModal}
             >
-              {addMutation.isPending ? (
+              {savingModal ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
                 <>
                   <Ionicons name="checkmark" size={18} color="#fff" />
-                  <Text style={styles.saveBtnText}>Add</Text>
+                  <Text style={styles.saveBtnText}>{editingSlot ? "Save changes" : "Add slot"}</Text>
                 </>
               )}
             </Pressable>
@@ -307,6 +454,10 @@ export default function LiverScheduleScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
+  gateText: { color: C.textMuted, padding: 24, textAlign: "center" },
+  gateBox: { padding: 24, alignItems: "center", gap: 12 },
+  gateTitle: { color: C.text, fontSize: 16, fontWeight: "700", textAlign: "center" },
+  gateSub: { color: C.textMuted, fontSize: 13, textAlign: "center", lineHeight: 20 },
   header: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingHorizontal: 16, paddingBottom: 12,
@@ -357,6 +508,9 @@ const styles = StyleSheet.create({
   slotTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
   slotTimeBlock: { flexDirection: "row", alignItems: "center", gap: 6 },
   slotTime: { fontSize: 15, fontWeight: "700", color: C.text },
+  slotActions: { flexDirection: "row", alignItems: "center", gap: 10 },
+  editHint: { flexDirection: "row", alignItems: "center", gap: 4 },
+  editHintText: { fontSize: 11, color: C.textMuted, fontWeight: "600" },
   deleteBtn: { padding: 4 },
   slotNote: { fontSize: 12, color: C.textMuted, marginBottom: 8 },
   slotStats: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },

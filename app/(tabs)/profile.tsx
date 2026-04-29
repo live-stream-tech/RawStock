@@ -476,22 +476,57 @@ export default function ProfileScreen() {
     }
   }
 
-  async function deleteVideo(id: number) {
+  async function runDeleteVideo(id: number) {
+    try {
+      await apiRequest("DELETE", `/api/videos/${id}`);
+      queryClient.invalidateQueries({ queryKey: ["/api/videos/my"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/videos/ranked"] });
+    } catch (e: any) {
+      Alert.alert("Delete Failed", e?.message ?? "Please try again later.");
+    }
+  }
+
+  function deleteVideo(id: number) {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      if (window.confirm("Delete this post? This cannot be undone.")) {
+        void runDeleteVideo(id);
+      }
+      return;
+    }
     Alert.alert("Delete Post?", "This cannot be undone.", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Delete",
         style: "destructive",
-        onPress: async () => {
-          try {
-            await apiRequest("DELETE", `/api/videos/${id}`);
-            queryClient.invalidateQueries({ queryKey: ["/api/videos/my"] });
-            queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
-          } catch (e: any) {
-            Alert.alert("Delete Failed", e?.message ?? "Please try again later.");
-          }
-        },
+        onPress: () => void runDeleteVideo(id),
       },
+    ]);
+  }
+
+  async function runBulkDeleteWorks() {
+    try {
+      await apiRequest("DELETE", "/api/videos/mine?postType=work");
+      queryClient.invalidateQueries({ queryKey: ["/api/videos/my"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/videos/ranked"] });
+    } catch (e: any) {
+      Alert.alert("Delete Failed", formatUserFacingApiError(e));
+    }
+  }
+
+  function deleteAllWorks() {
+    const n = myVideos.filter((v: any) => (v as any).postType === "work").length;
+    if (n === 0) return;
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      if (window.confirm(`Delete all ${n} Work post(s)? This cannot be undone.`)) {
+        void runBulkDeleteWorks();
+      }
+      return;
+    }
+    Alert.alert("Delete all Works?", `Remove ${n} Work post(s). This cannot be undone.`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete all", style: "destructive", onPress: () => void runBulkDeleteWorks() },
     ]);
   }
 
@@ -1094,6 +1129,13 @@ export default function ProfileScreen() {
             .map((video) => (
             <View key={video.id} style={styles.timelineItem}>
               <Pressable
+                style={styles.timelineDeleteBtn}
+                onPress={() => deleteVideo(video.id)}
+                hitSlop={8}
+              >
+                <Ionicons name="trash-outline" size={16} color={C.textMuted} />
+              </Pressable>
+              <Pressable
                 style={styles.timelineMain}
                 onPress={() => router.push(`/video/${video.id}`)}
               >
@@ -1106,13 +1148,6 @@ export default function ProfileScreen() {
                     {video.community} · {video.timeAgo ?? "just now"}
                   </Text>
                 </View>
-              </Pressable>
-              <Pressable
-                style={styles.timelineDeleteBtn}
-                onPress={() => deleteVideo(video.id)}
-                hitSlop={8}
-              >
-                <Ionicons name="trash-outline" size={16} color={C.textMuted} />
               </Pressable>
             </View>
           ))}
@@ -1138,12 +1173,25 @@ export default function ProfileScreen() {
           </Pressable>
         </View>
 
+        {myVideos.filter((v: any) => (v as any).postType === "work").length > 0 ? (
+          <Pressable style={styles.deleteAllWorksLink} onPress={deleteAllWorks}>
+            <Text style={styles.deleteAllWorksText}>Delete all Works</Text>
+          </Pressable>
+        ) : null}
+
         <View style={styles.timelineList}>
           {myVideos
             .filter((v: any) => (v as any).postType === "work")
             .slice(0, 4)
             .map((video) => (
             <View key={video.id} style={styles.timelineItem}>
+              <Pressable
+                style={styles.timelineDeleteBtn}
+                onPress={() => deleteVideo(video.id)}
+                hitSlop={8}
+              >
+                <Ionicons name="trash-outline" size={16} color={C.textMuted} />
+              </Pressable>
               <Pressable
                 style={styles.timelineMain}
                 onPress={() => router.push(`/video/${video.id}`)}
@@ -1157,13 +1205,6 @@ export default function ProfileScreen() {
                     {video.community} · {video.timeAgo ?? "just now"}
                   </Text>
                 </View>
-              </Pressable>
-              <Pressable
-                style={styles.timelineDeleteBtn}
-                onPress={() => deleteVideo(video.id)}
-                hitSlop={8}
-              >
-                <Ionicons name="trash-outline" size={16} color={C.textMuted} />
               </Pressable>
             </View>
           ))}
@@ -1737,8 +1778,19 @@ const styles = StyleSheet.create({
   timelineTitle: { color: C.text, fontSize: 12, fontWeight: "700", marginBottom: 1 },
   timelineMeta: { color: C.textMuted, fontSize: 10 },
   timelineDeleteBtn: {
-    paddingLeft: 6,
+    paddingRight: 6,
     paddingVertical: 4,
+  },
+  deleteAllWorksLink: {
+    alignSelf: "flex-end",
+    marginRight: 16,
+    marginBottom: 6,
+    paddingVertical: 4,
+  },
+  deleteAllWorksText: {
+    color: C.live,
+    fontSize: 12,
+    fontWeight: "600",
   },
   timelineEmpty: { paddingHorizontal: 16, paddingVertical: 12, alignItems: "center" },
   timelineEmptyText: { color: C.textSec, fontSize: 13, fontWeight: "700" },

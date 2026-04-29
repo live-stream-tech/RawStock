@@ -254,7 +254,7 @@ export default function HomeJP() {
                 width="1000"
                 height="563"
                 src="https://www.youtube.com/embed/DANWox4tTO4"
-                title="RawStock Background Story"
+                title="RawStock の背景ストーリー"
                 frameBorder="0"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                 allowFullScreen
@@ -678,7 +678,7 @@ export default function HomeJP() {
 
       <footer className="relative py-10 border-t border-white/10" style={{ backgroundColor: "#050505" }}>
         <div className={`${LP_COL} flex flex-col md:flex-row items-center justify-between gap-4`}>
-          <p className="font-mono-body text-white/50 text-xs">© 2026 Raw Stock UK. All rights reserved.</p>
+          <p className="font-mono-body text-white/50 text-xs">© 2026 Raw Stock UK. 無断転載を禁じます。</p>
           <div className="flex gap-4">
             <a href="/" className="font-mono-body text-xs text-white/50 hover:text-neon transition-colors">
               EN

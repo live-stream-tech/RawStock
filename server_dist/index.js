@@ -3331,6 +3331,10 @@ function sessionUserFromRow(user) {
     privacyAcceptedAt: user.privacyAcceptedAt ?? null
   };
 }
+function isVideoOwner(video, user) {
+  if (video.userId != null) return video.userId === user.id;
+  return video.creator === user.displayName;
+}
 async function getAuthUser(req) {
   const auth = req.headers?.authorization ?? "";
   if (!auth.startsWith("Bearer ")) {
@@ -6841,6 +6845,30 @@ async function registerRoutes(app2) {
     const filtered = rows.filter((r) => !r.hidden);
     res.json(filtered);
   });
+  app2.delete("/api/videos/mine", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const raw = typeof req.query.postType === "string" ? req.query.postType : "";
+    if (!["work", "daily", "all"].includes(raw)) {
+      return res.status(400).json({ error: "Query postType must be work, daily, or all" });
+    }
+    const ownerClause = or(
+      eq6(videos.userId, user.id),
+      and5(isNull(videos.userId), eq6(videos.creator, user.displayName))
+    );
+    let typeCond;
+    if (raw === "work") typeCond = eq6(videos.postType, "work");
+    else if (raw === "daily") typeCond = eq6(videos.postType, "daily");
+    const whereClause = typeCond ? and5(ownerClause, typeCond) : ownerClause;
+    const idRows = await db.select({ id: videos.id }).from(videos).where(whereClause);
+    let deleted = 0;
+    for (const { id } of idRows) {
+      await db.delete(videoComments).where(eq6(videoComments.videoId, id));
+      await db.delete(videos).where(eq6(videos.id, id));
+      deleted += 1;
+    }
+    res.json({ ok: true, deleted });
+  });
   app2.get("/api/videos/ranked", async (_req, res) => {
     const rows = await db.select().from(videos).where(and5(eq6(videos.postType, "work"), eq6(videos.hidden, false))).orderBy(asc3(videos.rank));
     res.json(rows);
@@ -6869,7 +6897,7 @@ async function registerRoutes(app2) {
     const [row] = await db.select().from(videos).where(eq6(videos.id, id));
     if (!row || row.hidden) return res.status(404).json({ message: "Not found" });
     const vis = row.visibility;
-    const isOwner = authUser && (row.userId === authUser.id || row.creator === authUser.displayName);
+    const isOwner = authUser && isVideoOwner(row, authUser);
     if (vis === "draft" && !isOwner) return res.status(404).json({ message: "Not found" });
     if (vis === "my_page_only" && !isOwner) return res.status(404).json({ message: "Not found" });
     const timeAgo = row.createdAt ? formatTimeAgo(row.createdAt) : row.timeAgo;
@@ -6946,9 +6974,9 @@ async function registerRoutes(app2) {
     const id = paramNum(req, "id");
     const [video] = await db.select().from(videos).where(eq6(videos.id, id));
     if (!video) return res.status(404).json({ message: "Not found" });
-    const isOwner = video.userId === user.id || video.creator === user.displayName;
+    const isOwner = isVideoOwner(video, user);
     if (!isOwner) return res.status(403).json({ error: "You do not have permission to edit" });
-    const { title, visibility, communityId, community } = req.body;
+    const { title, visibility, communityId, community, price, videoUrl, duration } = req.body;
     const updates = {};
     if (title !== void 0) {
       const newTitle = title?.trim();
@@ -6962,6 +6990,19 @@ async function registerRoutes(app2) {
       if (vis === "community" && community?.trim()) updates.community = community.trim();
       if (vis !== "community") updates.communityId = null;
     }
+    if (price !== void 0) {
+      if (price === null) updates.price = null;
+      else if (typeof price === "number" && Number.isFinite(price) && price >= 0) updates.price = Math.round(price);
+      else return res.status(400).json({ error: "Invalid price" });
+    }
+    if (videoUrl !== void 0) {
+      const v = typeof videoUrl === "string" ? videoUrl.trim() : "";
+      updates.videoUrl = v.length ? v : null;
+    }
+    if (duration !== void 0) {
+      const d = typeof duration === "string" ? duration.trim() : "";
+      if (d.length) updates.duration = d;
+    }
     if (Object.keys(updates).length === 0) return res.json(video);
     const [updated] = await db.update(videos).set(updates).where(eq6(videos.id, id)).returning();
     res.json(updated);
@@ -6972,7 +7013,7 @@ async function registerRoutes(app2) {
     const id = paramNum(req, "id");
     const [video] = await db.select().from(videos).where(eq6(videos.id, id));
     if (!video) return res.status(404).json({ message: "Not found" });
-    const isOwner = video.userId === user.id || video.creator === user.displayName;
+    const isOwner = isVideoOwner(video, user);
     if (!isOwner) return res.status(403).json({ error: "You do not have permission to delete" });
     await db.delete(videoComments).where(eq6(videoComments.videoId, id));
     await db.delete(videos).where(eq6(videos.id, id));
@@ -8843,6 +8884,13 @@ data: ${data}
     }
     res.json({ rankingType, month, rows });
   });
+  app2.get("/api/livers/me", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const [creator] = await db.select({ id: creators.id, name: creators.name, category: creators.category }).from(creators).where(eq6(creators.name, user.displayName));
+    if (!creator) return res.status(404).json({ error: "Creator profile not found" });
+    res.json(creator);
+  });
   app2.get("/api/livers/:id", async (req, res) => {
     const id = paramNum(req, "id");
     const [liver] = await db.select().from(creators).where(eq6(creators.id, id));
@@ -8984,13 +9032,20 @@ data: ${data}
     }).where(eq6(creators.id, id));
     res.status(201).json(row);
   });
+  async function userOwnsLiverId(liverId, user) {
+    const [row] = await db.select({ id: creators.id }).from(creators).where(and5(eq6(creators.id, liverId), eq6(creators.name, user.displayName)));
+    return !!row;
+  }
   app2.get("/api/livers/:id/availability", async (req, res) => {
     const id = paramNum(req, "id");
     const rows = await db.select().from(liverAvailability).where(eq6(liverAvailability.liverId, id)).orderBy(asc3(liverAvailability.date), asc3(liverAvailability.startTime));
     res.json(rows);
   });
   app2.post("/api/livers/:id/availability", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const id = paramNum(req, "id");
+    if (!await userOwnsLiverId(id, user)) return res.status(403).json({ error: "Not allowed" });
     const { date, startTime, endTime, maxSlots, note } = req.body;
     if (!date || !startTime || !endTime) return res.status(400).json({ error: "Please enter date and time" });
     const [row] = await db.insert(liverAvailability).values({
@@ -9004,8 +9059,39 @@ data: ${data}
     }).returning();
     res.status(201).json(row);
   });
-  app2.delete("/api/livers/:id/availability/:slotId", async (req, res) => {
+  app2.patch("/api/livers/:id/availability/:slotId", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const liverId = paramNum(req, "id");
     const slotId = paramNum(req, "slotId");
+    if (!await userOwnsLiverId(liverId, user)) return res.status(403).json({ error: "Not allowed" });
+    const [slot] = await db.select().from(liverAvailability).where(and5(eq6(liverAvailability.id, slotId), eq6(liverAvailability.liverId, liverId)));
+    if (!slot) return res.status(404).json({ error: "Slot not found" });
+    const { startTime, endTime, maxSlots, note } = req.body;
+    const updates = {};
+    if (startTime !== void 0) updates.startTime = startTime;
+    if (endTime !== void 0) updates.endTime = endTime;
+    if (maxSlots !== void 0) {
+      const m = Number(maxSlots);
+      if (!Number.isFinite(m) || m < 1) return res.status(400).json({ error: "Invalid maxSlots" });
+      if (m < slot.bookedSlots) {
+        return res.status(400).json({ error: "maxSlots cannot be below current bookings" });
+      }
+      updates.maxSlots = Math.round(m);
+    }
+    if (note !== void 0) updates.note = typeof note === "string" ? note : "";
+    if (Object.keys(updates).length === 0) return res.json(slot);
+    const [updated] = await db.update(liverAvailability).set(updates).where(eq6(liverAvailability.id, slotId)).returning();
+    res.json(updated);
+  });
+  app2.delete("/api/livers/:id/availability/:slotId", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const liverId = paramNum(req, "id");
+    const slotId = paramNum(req, "slotId");
+    if (!await userOwnsLiverId(liverId, user)) return res.status(403).json({ error: "Not allowed" });
+    const [slot] = await db.select().from(liverAvailability).where(and5(eq6(liverAvailability.id, slotId), eq6(liverAvailability.liverId, liverId)));
+    if (!slot) return res.status(404).json({ error: "Not found" });
     await db.delete(liverAvailability).where(eq6(liverAvailability.id, slotId));
     res.json({ ok: true });
   });

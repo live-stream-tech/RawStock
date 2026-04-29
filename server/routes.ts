@@ -316,6 +316,15 @@ function sessionUserFromRow(user: InferSelectModel<typeof users>): SessionUser {
   };
 }
 
+/** Ownership: prefer `userId`; legacy rows match `creator` to current display name. */
+function isVideoOwner(
+  video: { userId: number | null; creator: string },
+  user: SessionUser,
+): boolean {
+  if (video.userId != null) return video.userId === user.id;
+  return video.creator === user.displayName;
+}
+
 async function getAuthUser(req: Request): Promise<SessionUser | null> {
   const auth = (req as any).headers?.authorization ?? "";
   if (!auth.startsWith("Bearer ")) {
@@ -4963,6 +4972,35 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json(filtered);
   });
 
+  /**
+   * Bulk-delete current user's posts (by postType). Requires auth.
+   * Use to clear broken Work uploads; comments are removed per video.
+   */
+  app.delete("/api/videos/mine", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const raw = typeof req.query.postType === "string" ? req.query.postType : "";
+    if (!["work", "daily", "all"].includes(raw)) {
+      return res.status(400).json({ error: "Query postType must be work, daily, or all" });
+    }
+    const ownerClause = or(
+      eq(videos.userId, user.id),
+      and(isNull(videos.userId), eq(videos.creator, user.displayName)),
+    );
+    let typeCond: SQL<unknown> | undefined;
+    if (raw === "work") typeCond = eq(videos.postType, "work");
+    else if (raw === "daily") typeCond = eq(videos.postType, "daily");
+    const whereClause = typeCond ? and(ownerClause, typeCond) : ownerClause;
+    const idRows = await db.select({ id: videos.id }).from(videos).where(whereClause);
+    let deleted = 0;
+    for (const { id } of idRows) {
+      await db.delete(videoComments).where(eq(videoComments.videoId, id));
+      await db.delete(videos).where(eq(videos.id, id));
+      deleted += 1;
+    }
+    res.json({ ok: true, deleted });
+  });
+
   app.get("/api/videos/ranked", async (_req: Request, res: Response) => {
     const rows = await db
       .select()
@@ -5004,7 +5042,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const [row] = await db.select().from(videos).where(eq(videos.id, id));
     if (!row || row.hidden) return res.status(404).json({ message: "Not found" });
     const vis = (row as any).visibility;
-    const isOwner = authUser && ((row as any).userId === authUser.id || row.creator === authUser.displayName);
+    const isOwner = authUser && isVideoOwner(row as { userId: number | null; creator: string }, authUser);
     if (vis === "draft" && !isOwner) return res.status(404).json({ message: "Not found" });
     if (vis === "my_page_only" && !isOwner) return res.status(404).json({ message: "Not found" });
     const timeAgo = row.createdAt ? formatTimeAgo(row.createdAt) : row.timeAgo;
@@ -5125,14 +5163,17 @@ export async function registerRoutes(app: Express): Promise<void> {
     const id = paramNum(req, "id");
     const [video] = await db.select().from(videos).where(eq(videos.id, id));
     if (!video) return res.status(404).json({ message: "Not found" });
-    const isOwner = (video as any).userId === user.id || video.creator === user.displayName;
+    const isOwner = isVideoOwner(video as { userId: number | null; creator: string }, user);
     if (!isOwner) return res.status(403).json({ error: "You do not have permission to edit" });
 
-    const { title, visibility, communityId, community } = req.body as {
+    const { title, visibility, communityId, community, price, videoUrl, duration } = req.body as {
       title?: string;
       visibility?: "draft" | "my_page_only" | "community";
       communityId?: number | null;
       community?: string;
+      price?: number | null;
+      videoUrl?: string | null;
+      duration?: string;
     };
 
     const updates: Record<string, unknown> = {};
@@ -5147,6 +5188,19 @@ export async function registerRoutes(app: Express): Promise<void> {
       if (vis === "community" && communityId != null) updates.communityId = communityId;
       if (vis === "community" && community?.trim()) updates.community = community.trim();
       if (vis !== "community") updates.communityId = null;
+    }
+    if (price !== undefined) {
+      if (price === null) updates.price = null;
+      else if (typeof price === "number" && Number.isFinite(price) && price >= 0) updates.price = Math.round(price);
+      else return res.status(400).json({ error: "Invalid price" });
+    }
+    if (videoUrl !== undefined) {
+      const v = typeof videoUrl === "string" ? videoUrl.trim() : "";
+      updates.videoUrl = v.length ? v : null;
+    }
+    if (duration !== undefined) {
+      const d = typeof duration === "string" ? duration.trim() : "";
+      if (d.length) updates.duration = d;
     }
 
     if (Object.keys(updates).length === 0) return res.json(video);
@@ -5167,7 +5221,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const id = paramNum(req, "id");
     const [video] = await db.select().from(videos).where(eq(videos.id, id));
     if (!video) return res.status(404).json({ message: "Not found" });
-    const isOwner = (video as any).userId === user.id || video.creator === user.displayName;
+    const isOwner = isVideoOwner(video as { userId: number | null; creator: string }, user);
     if (!isOwner) return res.status(403).json({ error: "You do not have permission to delete" });
 
     await db.delete(videoComments).where(eq(videoComments.videoId, id));
@@ -7757,6 +7811,18 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json({ rankingType, month, rows });
   });
 
+  /** Current user's liver (creators) row — for schedule / availability management. */
+  app.get("/api/livers/me", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const [creator] = await db
+      .select({ id: creators.id, name: creators.name, category: creators.category })
+      .from(creators)
+      .where(eq(creators.name, user.displayName));
+    if (!creator) return res.status(404).json({ error: "Creator profile not found" });
+    res.json(creator);
+  });
+
   app.get("/api/livers/:id", async (req: Request, res: Response) => {
     const id = paramNum(req, "id");
     const [liver] = await db.select().from(creators).where(eq(creators.id, id));
@@ -7938,6 +8004,11 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   // ── Liver Availability ────────────────────────────────────────────
+  async function userOwnsLiverId(liverId: number, user: SessionUser): Promise<boolean> {
+    const [row] = await db.select({ id: creators.id }).from(creators).where(and(eq(creators.id, liverId), eq(creators.name, user.displayName)));
+    return !!row;
+  }
+
   app.get("/api/livers/:id/availability", async (req: Request, res: Response) => {
     const id = paramNum(req, "id");
     const rows = await db.select().from(liverAvailability)
@@ -7947,8 +8018,17 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   app.post("/api/livers/:id/availability", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
     const id = paramNum(req, "id");
-    const { date, startTime, endTime, maxSlots, note } = req.body;
+    if (!(await userOwnsLiverId(id, user))) return res.status(403).json({ error: "Not allowed" });
+    const { date, startTime, endTime, maxSlots, note } = req.body as {
+      date?: string;
+      startTime?: string;
+      endTime?: string;
+      maxSlots?: number;
+      note?: string;
+    };
     if (!date || !startTime || !endTime) return res.status(400).json({ error: "Please enter date and time" });
     const [row] = await db.insert(liverAvailability).values({
       liverId: id,
@@ -7962,8 +8042,55 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.status(201).json(row);
   });
 
-  app.delete("/api/livers/:id/availability/:slotId", async (req: Request, res: Response) => {
+  app.patch("/api/livers/:id/availability/:slotId", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const liverId = paramNum(req, "id");
     const slotId = paramNum(req, "slotId");
+    if (!(await userOwnsLiverId(liverId, user))) return res.status(403).json({ error: "Not allowed" });
+    const [slot] = await db
+      .select()
+      .from(liverAvailability)
+      .where(and(eq(liverAvailability.id, slotId), eq(liverAvailability.liverId, liverId)));
+    if (!slot) return res.status(404).json({ error: "Slot not found" });
+    const { startTime, endTime, maxSlots, note } = req.body as {
+      startTime?: string;
+      endTime?: string;
+      maxSlots?: number;
+      note?: string;
+    };
+    const updates: Record<string, unknown> = {};
+    if (startTime !== undefined) updates.startTime = startTime;
+    if (endTime !== undefined) updates.endTime = endTime;
+    if (maxSlots !== undefined) {
+      const m = Number(maxSlots);
+      if (!Number.isFinite(m) || m < 1) return res.status(400).json({ error: "Invalid maxSlots" });
+      if (m < slot.bookedSlots) {
+        return res.status(400).json({ error: "maxSlots cannot be below current bookings" });
+      }
+      updates.maxSlots = Math.round(m);
+    }
+    if (note !== undefined) updates.note = typeof note === "string" ? note : "";
+    if (Object.keys(updates).length === 0) return res.json(slot);
+    const [updated] = await db
+      .update(liverAvailability)
+      .set(updates as Partial<InferSelectModel<typeof liverAvailability>>)
+      .where(eq(liverAvailability.id, slotId))
+      .returning();
+    res.json(updated);
+  });
+
+  app.delete("/api/livers/:id/availability/:slotId", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const liverId = paramNum(req, "id");
+    const slotId = paramNum(req, "slotId");
+    if (!(await userOwnsLiverId(liverId, user))) return res.status(403).json({ error: "Not allowed" });
+    const [slot] = await db
+      .select()
+      .from(liverAvailability)
+      .where(and(eq(liverAvailability.id, slotId), eq(liverAvailability.liverId, liverId)));
+    if (!slot) return res.status(404).json({ error: "Not found" });
     await db.delete(liverAvailability).where(eq(liverAvailability.id, slotId));
     res.json({ ok: true });
   });
