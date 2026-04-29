@@ -6869,7 +6869,8 @@ export async function registerRoutes(app: Express): Promise<void> {
     const communityId = paramNum(req, "communityId");
     await ensureStationJukeboxCommunity(communityId);
     const itemId = paramNum(req, "itemId");
-    const addedBy = (req.query.addedBy as string) || (req.body?.addedBy as string) || null;
+    const authUser = await getAuthUser(req);
+    if (!authUser) return res.status(401).json({ error: "Login required" });
 
     const [item] = await db
       .select()
@@ -6888,8 +6889,10 @@ export async function registerRoutes(app: Express): Promise<void> {
       return res.status(400).json({ error: "Cannot remove the currently playing track" });
     }
 
-    // Author-only check
-    if (addedBy && item.addedBy !== addedBy) {
+    // Author-only check (prefer stable userId, fallback to legacy addedBy name)
+    const isOwnerByUserId = item.addedByUserId != null && item.addedByUserId === authUser.id;
+    const isOwnerByLegacyName = item.addedByUserId == null && item.addedBy === authUser.displayName;
+    if (!isOwnerByUserId && !isOwnerByLegacyName) {
       return res.status(403).json({ error: "You can only remove your own requests" });
     }
 

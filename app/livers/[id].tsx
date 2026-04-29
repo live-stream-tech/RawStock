@@ -65,6 +65,28 @@ type Slot = {
   bookedSlots: number;
   note: string;
 };
+type SlotKind = "open" | "paid";
+const SLOT_META_PREFIX = "[RS_SLOT_META]";
+
+function parseSlotNote(raw: string | null | undefined): { slotKind: SlotKind; ticketPrice: number | null; noteText: string } {
+  const text = String(raw ?? "");
+  if (!text.startsWith(SLOT_META_PREFIX)) {
+    return { slotKind: "open", ticketPrice: null, noteText: text };
+  }
+  const firstLineEnd = text.indexOf("\n");
+  const header = firstLineEnd >= 0 ? text.slice(0, firstLineEnd) : text;
+  const rest = firstLineEnd >= 0 ? text.slice(firstLineEnd + 1) : "";
+  try {
+    const payload = JSON.parse(header.slice(SLOT_META_PREFIX.length)) as { kind?: SlotKind; price?: number | null };
+    return {
+      slotKind: payload.kind === "paid" ? "paid" : "open",
+      ticketPrice: typeof payload.price === "number" && payload.price > 0 ? Math.floor(payload.price) : null,
+      noteText: rest,
+    };
+  } catch {
+    return { slotKind: "open", ticketPrice: null, noteText: text };
+  }
+}
 
 type VideoSummary = {
   id: number;
@@ -541,6 +563,7 @@ export default function LiverDetailScreen() {
               </View>
             ) : (
               upcomingSlots.map((slot) => {
+                const parsed = parseSlotNote(slot.note);
                 const isFull = slot.bookedSlots >= slot.maxSlots;
                 const remaining = slot.maxSlots - slot.bookedSlots;
                 return (
@@ -550,7 +573,12 @@ export default function LiverDetailScreen() {
                         <Text style={styles.slotDate}>{formatSlotDate(slot.date)}</Text>
                         <Text style={styles.slotTime}>{slot.startTime} 〜 {slot.endTime}</Text>
                       </View>
-                      {slot.note ? <Text style={styles.slotNote}>{slot.note}</Text> : null}
+                      <View style={[styles.slotModeBadge, parsed.slotKind === "paid" ? styles.slotModeBadgePaid : styles.slotModeBadgeOpen]}>
+                        <Text style={[styles.slotModeText, parsed.slotKind === "paid" ? styles.slotModeTextPaid : styles.slotModeTextOpen]}>
+                          {parsed.slotKind === "paid" ? `Paid 🎟${(parsed.ticketPrice ?? 0).toLocaleString()}` : "Open"}
+                        </Text>
+                      </View>
+                      {parsed.noteText ? <Text style={styles.slotNote}>{parsed.noteText}</Text> : null}
                     </View>
                     <View style={styles.slotRight}>
                       <View style={[styles.slotStatusBadge, isFull && styles.slotStatusFull]}>
@@ -895,6 +923,12 @@ const styles = StyleSheet.create({
   slotDateBlock: {},
   slotDate: { fontSize: 14, fontWeight: "700", color: C.text, marginBottom: 2 },
   slotTime: { fontSize: 12, color: C.textMuted },
+  slotModeBadge: { alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, borderWidth: 1, marginTop: 6 },
+  slotModeBadgeOpen: { backgroundColor: "rgba(41,182,207,0.12)", borderColor: "rgba(41,182,207,0.45)" },
+  slotModeBadgePaid: { backgroundColor: "rgba(255,183,77,0.14)", borderColor: "rgba(255,183,77,0.5)" },
+  slotModeText: { fontSize: 11, fontWeight: "700" },
+  slotModeTextOpen: { color: C.accent },
+  slotModeTextPaid: { color: C.amber },
   slotNote: { fontSize: 11, color: C.textMuted, marginTop: 4 },
   slotRight: { alignItems: "flex-end", gap: 6 },
   slotStatusBadge: {

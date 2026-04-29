@@ -577,6 +577,7 @@ function QueueRow({
   state,
   onAdd,
   userName,
+  userId,
   onDelete,
   variant = "horizontal",
   showAddInHeader = false,
@@ -585,6 +586,7 @@ function QueueRow({
   state: JukeboxState | null;
   onAdd: () => void;
   userName?: string | null;
+  userId?: number | null;
   onDelete?: (id: number) => void;
   variant?: "horizontal" | "vertical";
   showAddInHeader?: boolean;
@@ -598,7 +600,12 @@ function QueueRow({
   );
   const isVertical = variant === "vertical";
 
-  const itemNodes = upcoming.map((item) =>
+  const itemNodes = upcoming.map((item) => {
+    const canDeleteOwnRequest =
+      !!onDelete &&
+      ((userId != null && item.addedByUserId != null && item.addedByUserId === userId) ||
+        (!!userName && item.addedBy === userName));
+    return (
     isVertical ? (
       <View key={item.id} style={styles.queueItemVertical}>
         <Image source={{ uri: item.videoThumbnail }} style={styles.queueThumbVertical} contentFit="cover" />
@@ -623,7 +630,7 @@ function QueueRow({
             <Text style={styles.queueItemByVertical}>{item.addedBy}</Text>
           </View>
         </View>
-        {userName && item.addedBy === userName && onDelete ? (
+        {canDeleteOwnRequest ? (
           <Pressable onPress={() => onDelete(item.id)} style={styles.queueItemDeleteBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Ionicons name="close" size={16} color="#fff" />
           </Pressable>
@@ -631,10 +638,10 @@ function QueueRow({
       </View>
     ) : (
       <View key={item.id} style={styles.queueItem}>
-        {userName && item.addedBy === userName && onDelete ? (
+        {canDeleteOwnRequest ? (
           <Pressable
             onPress={() => onDelete(item.id)}
-            style={{ position: "absolute", top: 4, right: 4, zIndex: 20, backgroundColor: "rgba(0,0,0,0.55)", borderRadius: 10, padding: 2 }}
+            style={{ position: "absolute", top: 4, right: 4, zIndex: 20, elevation: 20, backgroundColor: "rgba(0,0,0,0.55)", borderRadius: 10, padding: 2 }}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <Ionicons name="close" size={14} color="#fff" />
@@ -664,6 +671,7 @@ function QueueRow({
       </View>
     )
   );
+  });
 
   return (
     <View style={[styles.queueSection, isVertical && styles.queueSectionVertical]}>
@@ -1031,12 +1039,15 @@ export default function JukeboxScreen() {
 
   const deleteMutation = useMutation({
     mutationFn: (itemId: number) => {
-      const addedBy = user?.name ? `?addedBy=${encodeURIComponent(user.name)}` : "";
-      return apiRequest("DELETE", `/api/jukebox/${communityId}/queue/${itemId}${addedBy}`);
+      return apiRequest("DELETE", `/api/jukebox/${communityId}/queue/${itemId}`);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: jukeboxKey });
       qc.invalidateQueries({ queryKey: JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY });
+    },
+    onError: (err) => {
+      const msg = formatUserFacingApiError(err);
+      Alert.alert("削除できませんでした", msg);
     },
   });
 
@@ -1516,6 +1527,7 @@ export default function JukeboxScreen() {
               items={queue}
               state={state}
               userName={user?.name}
+              userId={user?.id ?? null}
               onDelete={(id) => deleteMutation.mutate(id)}
               onAdd={() => {}}
             />
@@ -1662,7 +1674,7 @@ export default function JukeboxScreen() {
         {/* Portrait: queue + chat; keep above video layer for WebKit stability */}
         {!isLandscape && (
           <View style={styles.portraitBelowPlayer}>
-            <QueueRow items={queue} state={state} userName={user?.name} onDelete={(id) => deleteMutation.mutate(id)} onAdd={() => {
+            <QueueRow items={queue} state={state} userName={user?.name} userId={user?.id ?? null} onDelete={(id) => deleteMutation.mutate(id)} onAdd={() => {
               if (!user) { router.push("/auth/login"); return; }
               setShowAddModal(true);
             }} showAddInHeader />

@@ -35,10 +35,39 @@ type Slot = {
   note: string;
 };
 
-const TIME_OPTIONS = [
-  "09:00", "10:00", "11:00", "12:00", "13:00", "14:00",
-  "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00",
-];
+type SlotKind = "open" | "paid";
+type SlotUi = Slot & { slotKind: SlotKind; ticketPrice: number | null; noteText: string };
+const SLOT_META_PREFIX = "[RS_SLOT_META]";
+const TIME_OPTIONS = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, "0")}:00`);
+
+function parseSlotNote(raw: string | null | undefined): { slotKind: SlotKind; ticketPrice: number | null; noteText: string } {
+  const text = String(raw ?? "");
+  if (!text.startsWith(SLOT_META_PREFIX)) {
+    return { slotKind: "open", ticketPrice: null, noteText: text };
+  }
+  const firstLineEnd = text.indexOf("\n");
+  const header = firstLineEnd >= 0 ? text.slice(0, firstLineEnd) : text;
+  const rest = firstLineEnd >= 0 ? text.slice(firstLineEnd + 1) : "";
+  try {
+    const payload = JSON.parse(header.slice(SLOT_META_PREFIX.length)) as { kind?: SlotKind; price?: number | null };
+    return {
+      slotKind: payload.kind === "paid" ? "paid" : "open",
+      ticketPrice: typeof payload.price === "number" && payload.price > 0 ? Math.floor(payload.price) : null,
+      noteText: rest,
+    };
+  } catch {
+    return { slotKind: "open", ticketPrice: null, noteText: text };
+  }
+}
+
+function buildSlotNote(kind: SlotKind, ticketPrice: number | null, noteText: string): string {
+  const safeNote = noteText.trim();
+  const meta = `${SLOT_META_PREFIX}${JSON.stringify({
+    kind,
+    price: kind === "paid" ? (ticketPrice ?? 0) : null,
+  })}`;
+  return safeNote ? `${meta}\n${safeNote}` : meta;
+}
 
 function generateNextDays(n: number): string[] {
   const dates: string[] = [];
@@ -77,6 +106,8 @@ export default function LiverScheduleScreen() {
   const [newEnd, setNewEnd] = useState("21:00");
   const [newMaxSlots, setNewMaxSlots] = useState("3");
   const [newNote, setNewNote] = useState("");
+  const [newSlotKind, setNewSlotKind] = useState<SlotKind>("open");
+  const [newTicketPrice, setNewTicketPrice] = useState("500");
   const [selectedDay, setSelectedDay] = useState(0);
 
   const days = generateNextDays(14);
@@ -98,15 +129,20 @@ export default function LiverScheduleScreen() {
     setNewEnd("21:00");
     setNewMaxSlots("3");
     setNewNote("");
+    setNewSlotKind("open");
+    setNewTicketPrice("500");
     setShowModal(true);
   }
 
   function openEditModal(slot: Slot) {
+    const parsed = parseSlotNote(slot.note);
     setEditingSlot(slot);
     setNewStart(slot.startTime);
     setNewEnd(slot.endTime);
     setNewMaxSlots(String(slot.maxSlots));
-    setNewNote(slot.note ?? "");
+    setNewNote(parsed.noteText);
+    setNewSlotKind(parsed.slotKind);
+    setNewTicketPrice(parsed.ticketPrice != null ? String(parsed.ticketPrice) : "500");
     const dayIdx = days.findIndex((d) => d === slot.date);
     if (dayIdx >= 0) setSelectedDay(dayIdx);
     setShowModal(true);
@@ -156,10 +192,31 @@ export default function LiverScheduleScreen() {
   });
 
   const selectedDate = days[selectedDay];
-  const daySlots = slots.filter((s) => s.date === selectedDate);
+  const daySlots: SlotUi[] = slots
+    .filter((s) => s.date === selectedDate)
+    .map((s) => {
+      const parsed = parseSlotNote(s.note);
+      return { ...s, ...parsed };
+    });
 
   function handleSaveModal() {
+    if (newEnd <= newStart) {
+      Alert.alert("時間エラー", "End time は Start time より後に設定してください。");
+      return;
+    }
     const maxN = parseInt(newMaxSlots, 10) || 3;
+    const parsedPrice = parseInt(newTicketPrice, 10);
+    const ticketPrice =
+      newSlotKind === "paid"
+        ? Number.isFinite(parsedPrice) && parsedPrice > 0
+          ? parsedPrice
+          : NaN
+        : null;
+    if (newSlotKind === "paid" && !Number.isFinite(ticketPrice as number)) {
+      Alert.alert("料金エラー", "Paid の場合は ticket 料金を入力してください。");
+      return;
+    }
+    const encodedNote = buildSlotNote(newSlotKind, ticketPrice as number | null, newNote);
     if (editingSlot) {
       patchMutation.mutate({
         slotId: editingSlot.id,
@@ -167,7 +224,7 @@ export default function LiverScheduleScreen() {
           startTime: newStart,
           endTime: newEnd,
           maxSlots: maxN,
-          note: newNote,
+          note: encodedNote,
         },
       });
       return;
@@ -178,7 +235,7 @@ export default function LiverScheduleScreen() {
       startTime: newStart,
       endTime: newEnd,
       maxSlots: maxN,
-      note: newNote,
+      note: encodedNote,
     });
   }
 
@@ -255,7 +312,7 @@ export default function LiverScheduleScreen() {
       <View style={styles.infoBanner}>
         <Ionicons name="information-circle-outline" size={16} color={C.accent} />
         <Text style={styles.infoText}>
-          Tap a slot card to edit times, capacity, or note. Fans book against these windows.
+          Slot ごとに Open / Paid を告知できます。Paid は ticket 料金を事前表示できます。時間は24時間表記で設定できます。
         </Text>
       </View>
 
@@ -312,6 +369,11 @@ export default function LiverScheduleScreen() {
                     <Text style={styles.slotTime}>
                       {slot.startTime} – {slot.endTime}
                     </Text>
+                    <View style={[styles.kindBadge, slot.slotKind === "paid" ? styles.kindBadgePaid : styles.kindBadgeOpen]}>
+                      <Text style={[styles.kindBadgeText, slot.slotKind === "paid" ? styles.kindBadgeTextPaid : styles.kindBadgeTextOpen]}>
+                        {slot.slotKind === "paid" ? `Paid 🎟${(slot.ticketPrice ?? 0).toLocaleString()}` : "Open"}
+                      </Text>
+                    </View>
                   </View>
                   <View style={styles.slotActions}>
                     <View style={styles.editHint}>
@@ -331,7 +393,7 @@ export default function LiverScheduleScreen() {
                   </View>
                 </View>
 
-                {slot.note ? <Text style={styles.slotNote}>{slot.note}</Text> : null}
+                {slot.noteText ? <Text style={styles.slotNote}>{slot.noteText}</Text> : null}
 
                 <View style={styles.slotStats}>
                   <View style={styles.slotStatItem}>
@@ -396,7 +458,7 @@ export default function LiverScheduleScreen() {
 
             <Text style={styles.fieldLabel}>End time</Text>
             <HorizontalScroll style={{ marginBottom: 12 }} showArrows={false}>
-              {TIME_OPTIONS.slice(1).map((t) => (
+              {TIME_OPTIONS.map((t) => (
                 <Pressable
                   key={t}
                   style={[styles.timePill, newEnd === t && styles.timePillActive]}
@@ -406,6 +468,38 @@ export default function LiverScheduleScreen() {
                 </Pressable>
               ))}
             </HorizontalScroll>
+
+            <Text style={styles.fieldLabel}>Schedule type</Text>
+            <View style={styles.typeRow}>
+              <Pressable
+                style={[styles.typePill, newSlotKind === "open" && styles.typePillActive]}
+                onPress={() => setNewSlotKind("open")}
+              >
+                <Text style={[styles.typePillText, newSlotKind === "open" && styles.typePillTextActive]}>Open</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.typePill, newSlotKind === "paid" && styles.typePillActive]}
+                onPress={() => setNewSlotKind("paid")}
+              >
+                <Text style={[styles.typePillText, newSlotKind === "paid" && styles.typePillTextActive]}>Paid</Text>
+              </Pressable>
+            </View>
+
+            {newSlotKind === "paid" ? (
+              <>
+                <Text style={styles.fieldLabel}>Ticket price</Text>
+                <View style={styles.inputWrap}>
+                  <TextInput
+                    style={styles.noteInput}
+                    value={newTicketPrice}
+                    onChangeText={(v) => setNewTicketPrice(v.replace(/[^0-9]/g, ""))}
+                    keyboardType="number-pad"
+                    placeholder="e.g. 500"
+                    placeholderTextColor={C.textMuted}
+                  />
+                </View>
+              </>
+            ) : null}
 
             <Text style={styles.fieldLabel}>Max bookings</Text>
             <View style={styles.slotsRow}>
@@ -426,7 +520,7 @@ export default function LiverScheduleScreen() {
                 style={styles.noteInput}
                 value={newNote}
                 onChangeText={setNewNote}
-                placeholder="e.g. Afternoon session"
+                placeholder="e.g. DJ set / Q&A / guest info"
                 placeholderTextColor={C.textMuted}
               />
             </View>
@@ -506,8 +600,14 @@ const styles = StyleSheet.create({
     borderRadius: 12, padding: 14, borderWidth: 1, borderColor: C.border,
   },
   slotTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
-  slotTimeBlock: { flexDirection: "row", alignItems: "center", gap: 6 },
+  slotTimeBlock: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap", flex: 1, marginRight: 8 },
   slotTime: { fontSize: 15, fontWeight: "700", color: C.text },
+  kindBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, borderWidth: 1 },
+  kindBadgeOpen: { backgroundColor: "rgba(41,182,207,0.12)", borderColor: "rgba(41,182,207,0.45)" },
+  kindBadgePaid: { backgroundColor: "rgba(255,183,77,0.14)", borderColor: "rgba(255,183,77,0.5)" },
+  kindBadgeText: { fontSize: 11, fontWeight: "700" },
+  kindBadgeTextOpen: { color: C.accent },
+  kindBadgeTextPaid: { color: C.amber },
   slotActions: { flexDirection: "row", alignItems: "center", gap: 10 },
   editHint: { flexDirection: "row", alignItems: "center", gap: 4 },
   editHintText: { fontSize: 11, color: C.textMuted, fontWeight: "600" },
@@ -544,6 +644,14 @@ const styles = StyleSheet.create({
   timePillActive: { backgroundColor: C.accent, borderColor: C.accent },
   timePillText: { fontSize: 13, color: C.textSec, fontWeight: "600" },
   timePillTextActive: { color: "#fff" },
+  typeRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
+  typePill: {
+    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
+    backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border,
+  },
+  typePillActive: { backgroundColor: C.accent, borderColor: C.accent },
+  typePillText: { fontSize: 13, color: C.textSec, fontWeight: "600" },
+  typePillTextActive: { color: "#fff" },
   slotsRow: { flexDirection: "row", gap: 8, marginBottom: 14 },
   slotPill: {
     paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
