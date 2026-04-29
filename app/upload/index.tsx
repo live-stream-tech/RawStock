@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
+import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, ApiError, formatUserFacingApiError, uploadUserMediaBlobToR2 } from "@/lib/query-client";
 import { C } from "@/constants/colors";
@@ -30,6 +31,28 @@ type MediaItem = { id: string; uri: string; type: "image" | "video"; size?: numb
 type Community = { id: number; name: string; thumbnail: string };
 
 const UPLOAD_LOG = "[upload]";
+const IMAGE_COMPRESS_MAX_WIDTH = 1920;
+const IMAGE_COMPRESS_QUALITY = 0.75;
+
+function toUploadErrorMessage(err: unknown, maxMb: number): string {
+  if (err instanceof ApiError && err.status === 413) {
+    return `File is too large. Please use a file under ${maxMb}MB.`;
+  }
+  if (err instanceof Error && /under\s+\d+mb/i.test(err.message)) {
+    return err.message;
+  }
+  return err instanceof Error ? err.message : "Upload failed. Please try a smaller file.";
+}
+
+async function compressImageForUpload(uri: string): Promise<string> {
+  if (Platform.OS === "web") return uri;
+  const result = await manipulateAsync(
+    uri,
+    [{ resize: { width: IMAGE_COMPRESS_MAX_WIDTH } }],
+    { compress: IMAGE_COMPRESS_QUALITY, format: SaveFormat.JPEG }
+  );
+  return result.uri;
+}
 
 export default function DailyUploadScreen() {
   const insets = useSafeAreaInsets();
@@ -134,14 +157,19 @@ export default function DailyUploadScreen() {
     });
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
+      if ((asset.fileSize ?? 0) > DAILY_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
+        Alert.alert("", `File must be under ${DAILY_POST_LIMITS.maxFileSizeMB}MB`);
+        return;
+      }
       try {
         setUploading(true);
-        const mime = asset.mimeType ?? "image/jpeg";
+        const compressedUri = await compressImageForUpload(asset.uri);
+        const mime = "image/jpeg";
         const name = asset.fileName ?? "image.jpg";
-        const url = await uploadFileToR2Native(asset.uri, name, mime);
+        const url = await uploadFileToR2Native(compressedUri, name, mime);
         addMedia(`img-${Date.now()}`, url, "image");
-      } catch (err: any) {
-        Alert.alert("Error", err?.message ?? "Failed to upload image");
+      } catch (err: unknown) {
+        Alert.alert("Error", toUploadErrorMessage(err, DAILY_POST_LIMITS.maxFileSizeMB));
       } finally {
         setUploading(false);
       }
@@ -178,9 +206,14 @@ export default function DailyUploadScreen() {
       mediaTypes: ["videos"],
       allowsEditing: false,
       videoMaxDuration: DAILY_POST_LIMITS.maxVideoDurationSec,
+      videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
     });
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
+      if ((asset.fileSize ?? 0) > DAILY_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
+        Alert.alert("", `File must be under ${DAILY_POST_LIMITS.maxFileSizeMB}MB`);
+        return;
+      }
       const durationSec = asset.duration ? Math.ceil(asset.duration / 1000) : undefined;
       if (durationSec && durationSec > DAILY_POST_LIMITS.maxVideoDurationSec) {
         Alert.alert("", `Video must be under ${DAILY_POST_LIMITS.maxVideoDurationSec} seconds`);
@@ -192,8 +225,8 @@ export default function DailyUploadScreen() {
         const name = asset.fileName ?? "video.mp4";
         const url = await uploadFileToR2Native(asset.uri, name, mime);
         addMedia(`vid-${Date.now()}`, url, "video", undefined, durationSec);
-      } catch (err: any) {
-        Alert.alert("Error", err?.message ?? "Failed to upload video");
+      } catch (err: unknown) {
+        Alert.alert("Error", toUploadErrorMessage(err, DAILY_POST_LIMITS.maxFileSizeMB));
       } finally {
         setUploading(false);
       }

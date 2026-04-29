@@ -18,10 +18,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
+import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, ApiError, uploadUserMediaBlobToR2 } from "@/lib/query-client";
 import { C } from "@/constants/colors";
 import { useAuth } from "@/lib/auth";
+import { WORK_POST_LIMITS } from "@/constants/upload-limits";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { webScrollStyle } from "@/constants/layout";
 
@@ -33,6 +35,28 @@ type MediaItem = { id: string; uri: string; type: "image" | "video" };
 type Community = { id: number; name: string; thumbnail: string };
 
 const UPLOAD_LOG = "[upload]";
+const IMAGE_COMPRESS_MAX_WIDTH = 1920;
+const IMAGE_COMPRESS_QUALITY = 0.75;
+
+function toUploadErrorMessage(err: unknown, maxMb: number): string {
+  if (err instanceof ApiError && err.status === 413) {
+    return `File is too large. Please use a file under ${maxMb}MB.`;
+  }
+  if (err instanceof Error && /under\s+\d+mb/i.test(err.message)) {
+    return err.message;
+  }
+  return err instanceof Error ? err.message : "Upload failed. Please try a smaller file.";
+}
+
+async function compressImageForUpload(uri: string): Promise<string> {
+  if (Platform.OS === "web") return uri;
+  const result = await manipulateAsync(
+    uri,
+    [{ resize: { width: IMAGE_COMPRESS_MAX_WIDTH } }],
+    { compress: IMAGE_COMPRESS_QUALITY, format: SaveFormat.JPEG }
+  );
+  return result.uri;
+}
 
 export default function WorkUploadScreen() {
   const insets = useSafeAreaInsets();
@@ -88,6 +112,9 @@ export default function WorkUploadScreen() {
     console.log(`${UPLOAD_LOG} step:work_native_blob_fetch_start`, { name, mime });
     const blob = await (await fetch(uri)).blob();
     console.log(`${UPLOAD_LOG} step:work_native_blob_fetch_ok`, { size: blob.size });
+    if (blob.size > WORK_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
+      throw new Error(`File must be under ${WORK_POST_LIMITS.maxFileSizeMB}MB`);
+    }
     console.log(`${UPLOAD_LOG} step:work_native_r2_upload_start`);
     const url = await uploadUserMediaBlobToR2(blob, name, mime);
     console.log(`${UPLOAD_LOG} step:work_native_r2_upload_ok`);
@@ -103,8 +130,8 @@ export default function WorkUploadScreen() {
       input.onchange = (e: any) => {
         const file = e.target.files?.[0] as File | undefined;
         if (!file) return;
-        if (file.size > 50 * 1024 * 1024) {
-          Alert.alert("", "File must be under 50MB");
+        if (file.size > WORK_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
+          Alert.alert("", `File must be under ${WORK_POST_LIMITS.maxFileSizeMB}MB`);
           return;
         }
         addMedia(`img-${Date.now()}`, URL.createObjectURL(file), "image");
@@ -126,14 +153,19 @@ export default function WorkUploadScreen() {
     });
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
+      if ((asset.fileSize ?? 0) > WORK_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
+        Alert.alert("", `File must be under ${WORK_POST_LIMITS.maxFileSizeMB}MB`);
+        return;
+      }
       try {
         setUploading(true);
-        const mime = asset.mimeType ?? "image/jpeg";
+        const compressedUri = await compressImageForUpload(asset.uri);
+        const mime = "image/jpeg";
         const name = asset.fileName ?? "image.jpg";
-        const url = await uploadFileToR2Native(asset.uri, name, mime);
+        const url = await uploadFileToR2Native(compressedUri, name, mime);
         addMedia(`img-${Date.now()}`, url, "image");
-      } catch (err: any) {
-        Alert.alert("Error", err?.message ?? "Failed to upload image");
+      } catch (err: unknown) {
+        Alert.alert("Error", toUploadErrorMessage(err, WORK_POST_LIMITS.maxFileSizeMB));
       } finally {
         setUploading(false);
       }
@@ -149,8 +181,8 @@ export default function WorkUploadScreen() {
       input.onchange = async (e: any) => {
         const file = e.target.files?.[0] as File | undefined;
         if (!file) return;
-        if (file.size > 50 * 1024 * 1024) {
-          Alert.alert("", "File must be under 50MB");
+        if (file.size > WORK_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
+          Alert.alert("", `File must be under ${WORK_POST_LIMITS.maxFileSizeMB}MB`);
           return;
         }
         try {
@@ -158,8 +190,8 @@ export default function WorkUploadScreen() {
           const ct = file.type || "video/mp4";
           const url = await uploadUserMediaBlobToR2(file, file.name || "upload.mp4", ct);
           addMedia(`vid-${Date.now()}`, url, "video");
-        } catch (err: any) {
-          Alert.alert("Error", err?.message ?? "Failed to upload video");
+        } catch (err: unknown) {
+          Alert.alert("Error", toUploadErrorMessage(err, WORK_POST_LIMITS.maxFileSizeMB));
         } finally {
           setUploading(false);
         }
@@ -177,17 +209,22 @@ export default function WorkUploadScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["videos"],
       allowsEditing: false,
+      videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
     });
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
+      if ((asset.fileSize ?? 0) > WORK_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
+        Alert.alert("", `File must be under ${WORK_POST_LIMITS.maxFileSizeMB}MB`);
+        return;
+      }
       try {
         setUploading(true);
         const mime = asset.mimeType ?? "video/mp4";
         const name = asset.fileName ?? "video.mp4";
         const url = await uploadFileToR2Native(asset.uri, name, mime);
         addMedia(`vid-${Date.now()}`, url, "video");
-      } catch (err: any) {
-        Alert.alert("Error", err?.message ?? "Failed to upload video");
+      } catch (err: unknown) {
+        Alert.alert("Error", toUploadErrorMessage(err, WORK_POST_LIMITS.maxFileSizeMB));
       } finally {
         setUploading(false);
       }
@@ -223,8 +260,8 @@ export default function WorkUploadScreen() {
       throw new Error("Failed to load file");
     }
     const blob = await res.blob();
-    if (blob.size > 50 * 1024 * 1024) {
-      throw new Error("File must be under 50MB");
+    if (blob.size > WORK_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
+      throw new Error(`File must be under ${WORK_POST_LIMITS.maxFileSizeMB}MB`);
     }
     const contentType = res.headers.get("content-type") || (type === "image" ? "image/jpeg" : "video/mp4");
     const ext = type === "image" ? "jpg" : "mp4";

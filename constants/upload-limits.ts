@@ -11,3 +11,9 @@ export const DAILY_POST_LIMITS = {
   /** Max text length (characters). */
   maxTextLength: 500,
 } as const;
+
+/** Per-post limits for work posts. */
+export const WORK_POST_LIMITS = {
+  /** Max size per file (MB). */
+  maxFileSizeMB: 50,
+} as const;
