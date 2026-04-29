@@ -379,10 +379,14 @@ export default function HomeScreen() {
       <View style={[styles.header, { paddingTop: topInset + 8 }]}>
         <AppLogo height={32} />
         <View style={styles.headerRight}>
-          <Pressable style={styles.iconBtn} onPress={() => router.push("/notifications?filter=purchase")}>
+          <Pressable
+            style={styles.iconBtn}
+            hitSlop={8}
+            onPress={() => router.push("/notifications?filter=purchase")}
+          >
             <Ionicons name="notifications-outline" size={22} color={C.text} />
             {unreadCount > 0 && (
-              <View style={styles.notifBadge}>
+              <View style={styles.notifBadge} pointerEvents="none">
                 <Text style={styles.notifBadgeText}>{unreadCount > 9 ? "9+" : unreadCount}</Text>
               </View>
             )}
