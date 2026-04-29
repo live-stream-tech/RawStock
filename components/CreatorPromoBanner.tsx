@@ -1,16 +1,14 @@
 import React, { useState } from "react";
 import {
   View,
+  Text,
   Pressable,
   StyleSheet,
   Platform,
-  Linking,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
-import { Image } from "expo-image";
 import { C } from "@/constants/colors";
-import { TEMP_BANNER_IMAGE_PATH, TEMP_BANNER_TARGET_URL } from "@/constants/bannerLinks";
 
 type Props = {
   /** Optional outer spacing (profile vs home use different margins) */
@@ -18,29 +16,15 @@ type Props = {
 };
 
 export function CreatorPromoBanner({ style }: Props) {
-  const isWeb = Platform.OS === "web";
-  const [hovered, setHovered] = useState(false);
-
-  const openBannerLink = () => {
-    void Linking.openURL(TEMP_BANNER_TARGET_URL);
-  };
-
   return (
-    <Pressable
-      accessibilityRole="link"
-      accessibilityLabel="Sponsored banner"
-      onHoverIn={isWeb ? () => setHovered(true) : undefined}
-      onHoverOut={isWeb ? () => setHovered(false) : undefined}
-      style={({ pressed }) => [styles.creatorBanner, style, (pressed || hovered) && styles.creatorBannerActive]}
-      onPress={openBannerLink}
+    <View
+      accessibilityLabel="広告募集中バナー"
+      style={[styles.creatorBanner, style]}
     >
-      <Image
-        source={{ uri: TEMP_BANNER_IMAGE_PATH }}
-        style={styles.bannerImage}
-        contentFit="contain"
-        contentPosition="center"
-      />
-    </Pressable>
+      <View style={styles.bannerInner}>
+        <Text style={styles.bannerText}>広告募集中</Text>
+      </View>
+    </View>
   );
 }
 
@@ -61,12 +45,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  creatorBannerActive: {
-    opacity: 0.92,
-  },
-  bannerImage: {
+  bannerInner: {
     width: "100%",
     height: "100%",
     backgroundColor: "#0a0a0a",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bannerText: {
+    color: C.textMuted,
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.4,
   },
 });
