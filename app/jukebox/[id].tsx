@@ -963,8 +963,16 @@ export default function JukeboxScreen() {
       const currentFreeRemaining = reqCountData?.freeRemaining ?? 20;
 
       if (currentFreeRemaining > 0) {
-        // Free request — just record it
-        await apiRequest("POST", "/api/tickets/record-free-request", { communityId });
+        // Free request count is best-effort.
+        // On some mobile sessions auth can expire while jukebox add itself is still allowed.
+        // Do not block queue insertion when this tracking endpoint fails.
+        try {
+          await apiRequest("POST", "/api/tickets/record-free-request", { communityId });
+        } catch (err) {
+          if (!(err instanceof ApiError) || (err.status !== 401 && err.status !== 403)) {
+            throw err;
+          }
+        }
       } else {
         // Paid request — deduct tickets first
         const currentBalance = ticketData?.balance ?? 0;
