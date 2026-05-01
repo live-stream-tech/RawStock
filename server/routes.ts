@@ -4868,7 +4868,8 @@ export async function registerRoutes(app: Express): Promise<void> {
         targetUsers.slice(i, i + BATCH).map(async (u) => {
           const email = u.email!;
           const token = generateUnsubscribeToken(email);
-          const unsubUrl = `${APP_URL}/api/email/unsubscribe?email=${encodeURIComponent(email)}&token=${token}`;
+          const publicBase = APP_URL || resolvePublicAppOrigin();
+          const unsubUrl = `${publicBase}/api/email/unsubscribe?email=${encodeURIComponent(email)}&token=${token}`;
           const html = `${bodyHtml}<br><br><hr style="border:none;border-top:1px solid #eee"><p style="color:#999;font-size:11px">このメールの配信停止は<a href="${unsubUrl}" style="color:#999">こちら</a></p>`;
 
           try {

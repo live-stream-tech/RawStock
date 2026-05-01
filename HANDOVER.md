@@ -102,6 +102,10 @@
 | `TEMPLATED_WEBHOOK_BASE_URL` | Templated の完了 webhook のコールバック先オリジン（未設定時は `FRONTEND_URL` 等） |
 | `ADMIN_EMAIL` | 管理者メール（特定の管理系挙動） |
 | `WEGLOT_API_KEY` | サイト翻訳（設定時のみ有効） |
+| `APP_URL` | メール内の配信停止リンクの絶対URL（未設定時は `FRONTEND_URL` / `VERCEL_URL` / `rawstock.live` にフォールバック） |
+| `EMAIL_PROVIDER` | `log`（コンソールのみ） / `resend`（本送信） |
+| `RESEND_API_KEY` / `EMAIL_FROM` | Resend 本送信時に必須（送信元ドメインは Resend で検証） |
+| `UNSUBSCRIBE_SECRET` | 配信停止リンクの HMAC（本番は長いランダム値を推奨） |
 | `MYMEMORY_EMAIL` | 自動翻訳 MyMemory の日次枠拡張（`de` パラメータ・任意） |
 | `PUBLIC_LOGO_URL` / `PUBLIC_HERO_*` / `PUBLIC_LP_*` / `PUBLIC_FEATURE_*` | LP・ブランド画像の上書き（`lib/brand.ts`） |
 
@@ -125,7 +129,7 @@ Vercel では **`VERCEL_URL` が自動注入**され、OAuth のフォールバ�
 
 ## DB マイグレーション状況
 
-最新適用済み: `0024_editing_requests.sql`（未適用環境は順に `0023` まで適用後に実行）
+本番では `0030_email_campaigns.sql` まで適用済みであることを確認すること（未適用環境は順に適用）
 
 | ファイル | 内容 |
 |--------|------|
@@ -137,6 +141,15 @@ Vercel では **`VERCEL_URL` が自動注入**され、OAuth のフォールバ�
 | 0022 | users.preferred_language（UI/翻訳宛先言語） |
 | 0023 | translations / translation_glossary（自動翻訳キャッシュ＆固有名詞ガード） |
 | 0024 | editing_requests（プロ編集依頼のチケット手数料・参照トランザクション） |
+| 0030 | email_campaigns / email_deliveries / email_unsubscribes（管理者キャンペーンメール・配信停止） |
+
+### キャンペーンメール（管理者）
+
+1. Neon 等で `migrations/0030_email_campaigns.sql` を適用済みにする。
+2. Vercel に `EMAIL_PROVIDER=resend`、`RESEND_API_KEY`、`EMAIL_FROM`、`UNSUBSCRIBE_SECRET`、`APP_URL`（任意・推奨）を設定。
+3. `role=ADMIN` のユーザーで Bearer JWT を付与して呼ぶ。
+   - `GET /api/admin/email-campaigns/preview` … 対象件数（Googleログイン + email あり + 未配信停止）
+   - `POST /api/admin/email-campaigns/send` … JSON `{ "campaignKey": "unique-key", "subject": "...", "bodyHtml": "<p>...</p>", "dryRun": true }` のあと `"dryRun": false` で本送信（同一 `campaignKey` の実送信は1回のみ）
 
 ---
 
