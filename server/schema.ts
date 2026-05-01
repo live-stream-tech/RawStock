@@ -982,6 +982,46 @@ export const editingRequests = pgTable("editing_requests", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// ─── Email Campaign System ────────────────────────────────────────────────────
+
+/** キャンペーンメール送信記録（管理者が作成・送信を管理） */
+export const emailCampaigns = pgTable("email_campaigns", {
+  id: serial("id").primaryKey(),
+  /** 送信に使う一意キー（同一キーの実送信は1回のみ許可） */
+  campaignKey: text("campaign_key").notNull().unique(),
+  subject: text("subject").notNull(),
+  bodyHtml: text("body_html").notNull(),
+  /** draft | sending | sent | dry_run_completed */
+  status: text("status").notNull().default("draft"),
+  dryRun: boolean("dry_run").notNull().default(true),
+  targetCount: integer("target_count").notNull().default(0),
+  sentCount: integer("sent_count").notNull().default(0),
+  failedCount: integer("failed_count").notNull().default(0),
+  sentByUserId: integer("sent_by_user_id").notNull(),
+  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+/** メールの配信ログ（recipient ごと1行） */
+export const emailDeliveries = pgTable("email_deliveries", {
+  id: serial("id").primaryKey(),
+  campaignId: integer("campaign_id").notNull(),
+  userId: integer("user_id").notNull(),
+  email: text("email").notNull(),
+  /** queued | sent | failed | skipped */
+  status: text("status").notNull().default("queued"),
+  error: text("error"),
+  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+/** 配信停止リスト（メールアドレス単位） */
+export const emailUnsubscribes = pgTable("email_unsubscribes", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 /** 1対1（2ショット）有料配信の予約。決済完了で CONFIRMED。 */
 export const twoShotReservations = pgTable("two_shot_reservations", {
   id: serial("id").primaryKey(),

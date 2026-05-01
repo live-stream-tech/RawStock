@@ -61,6 +61,9 @@ import {
   dmThreads,
   dmThreadMessages,
   lpLeads,
+  emailCampaigns,
+  emailDeliveries,
+  emailUnsubscribes,
 } from "./schema";
 import {
   eq,
@@ -117,6 +120,7 @@ import { parseThreadBody } from "../lib/parse-thread-body";
 import { STATIONS } from "../constants/stations";
 import { STATION_JUKEBOX_IDS } from "../constants/stationJukebox";
 import { diversifyAnnouncementRowsByCommunity } from "./lib/diversifyAnnouncementFeed";
+import { sendEmail, generateUnsubscribeToken, verifyUnsubscribeToken } from "./lib/emailAdapter";
 import {
   fetchCommunitiesForIds,
   fetchCommunitiesListOrdered,
@@ -143,6 +147,7 @@ const CLOUDFLARE_STREAM_TOKEN = (process.env.CLOUDFLARE_STREAM_TOKEN ?? "").trim
 const CLOUDFLARE_GLOBAL_API_KEY = (process.env.CLOUDFLARE_GLOBAL_API_KEY ?? "").trim();
 const CLOUDFLARE_EMAIL = (process.env.CLOUDFLARE_EMAIL ?? "").trim();
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
+const APP_URL = (process.env.APP_URL ?? "").replace(/\/$/, "");
 let announcementRunInProgress = false;
 
 function maskSecretPrefix(value: string): string {
@@ -4767,6 +4772,135 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (deleted.length === 0) return res.status(404).json({ error: "Content not found" });
 
     res.json({ ok: true, id: videoId });
+  });
+
+  // ── Email Campaigns ───────────────────────────────────────────────
+
+  /** 配信対象件数のプレビュー（Googleログイン + email 有り + 未配信停止） */
+  app.get("/api/admin/email-campaigns/preview", async (req: Request, res: Response) => {
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+
+    const rows = await db
+      .select({ total: count() })
+      .from(users)
+      .leftJoin(emailUnsubscribes, eq(emailUnsubscribes.email, users.email))
+      .where(
+        and(
+          sql`${users.lineId} LIKE 'google:%'`,
+          isNotNull(users.email),
+          isNull(emailUnsubscribes.id),
+        ),
+      );
+
+    res.json({ targetCount: rows[0]?.total ?? 0 });
+  });
+
+  /**
+   * キャンペーンメール送信。
+   * dryRun=true  → DB記録のみ、実送信なし（件数検証用）
+   * dryRun=false → 実送信（campaignKey の二重送信を防止）
+   */
+  app.post("/api/admin/email-campaigns/send", async (req: Request, res: Response) => {
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+
+    const { campaignKey, subject, bodyHtml, dryRun = true } = req.body as {
+      campaignKey?: string;
+      subject?: string;
+      bodyHtml?: string;
+      dryRun?: boolean;
+    };
+
+    if (!campaignKey || !subject || !bodyHtml) {
+      return res.status(400).json({ error: "campaignKey, subject, bodyHtml are required" });
+    }
+
+    // 二重送信防止: 同一 campaignKey の実送信が既に完了していたら拒否
+    if (!dryRun) {
+      const existing = await db
+        .select({ id: emailCampaigns.id })
+        .from(emailCampaigns)
+        .where(and(eq(emailCampaigns.campaignKey, campaignKey), eq(emailCampaigns.dryRun, false)))
+        .limit(1);
+      if (existing.length > 0) {
+        return res.status(409).json({ error: "This campaignKey has already been sent.", existingId: existing[0].id });
+      }
+    }
+
+    // 配信対象ユーザー取得
+    const targetUsers = await db
+      .select({ id: users.id, email: users.email })
+      .from(users)
+      .leftJoin(emailUnsubscribes, eq(emailUnsubscribes.email, users.email))
+      .where(
+        and(
+          sql`${users.lineId} LIKE 'google:%'`,
+          isNotNull(users.email),
+          isNull(emailUnsubscribes.id),
+        ),
+      );
+
+    const [campaign] = await db
+      .insert(emailCampaigns)
+      .values({
+        campaignKey: dryRun ? `${campaignKey}__dryrun_${Date.now()}` : campaignKey,
+        subject,
+        bodyHtml,
+        dryRun,
+        targetCount: targetUsers.length,
+        sentByUserId: admin.id,
+        status: dryRun ? "dry_run_completed" : "sending",
+      })
+      .returning();
+
+    if (dryRun) {
+      return res.json({ campaignId: campaign.id, dryRun: true, targetCount: targetUsers.length, sentCount: 0 });
+    }
+
+    // 実送信（バッチサイズ10）
+    let sentCount = 0;
+    let failedCount = 0;
+    const BATCH = 10;
+
+    for (let i = 0; i < targetUsers.length; i += BATCH) {
+      await Promise.allSettled(
+        targetUsers.slice(i, i + BATCH).map(async (u) => {
+          const email = u.email!;
+          const token = generateUnsubscribeToken(email);
+          const unsubUrl = `${APP_URL}/api/email/unsubscribe?email=${encodeURIComponent(email)}&token=${token}`;
+          const html = `${bodyHtml}<br><br><hr style="border:none;border-top:1px solid #eee"><p style="color:#999;font-size:11px">このメールの配信停止は<a href="${unsubUrl}" style="color:#999">こちら</a></p>`;
+
+          try {
+            await sendEmail({ to: email, subject, html });
+            await db.insert(emailDeliveries).values({
+              campaignId: campaign.id,
+              userId: u.id,
+              email,
+              status: "sent",
+              sentAt: new Date(),
+            });
+            sentCount++;
+          } catch (err) {
+            await db.insert(emailDeliveries).values({
+              campaignId: campaign.id,
+              userId: u.id,
+              email,
+              status: "failed",
+              error: String(err),
+            });
+            failedCount++;
+          }
+        }),
+      );
+    }
+
+    await db
+      .update(emailCampaigns)
+      .set({ status: "sent", sentCount, failedCount, sentAt: new Date() })
+      .where(eq(emailCampaigns.id, campaign.id));
+
+    res.json({ campaignId: campaign.id, dryRun: false, targetCount: targetUsers.length, sentCount, failedCount });
   });
 
   // ── Upload signed URL (Cloudflare R2) ────────────────────────────
@@ -9431,6 +9565,25 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
 
     res.json({ ok: true, id, status: "delivered", deliveredUrl: deliveredUrl.trim() });
+  });
+
+  /** メール配信停止（公開エンドポイント）。HMAC トークンで検証してからリストに追加。 */
+  app.get("/api/email/unsubscribe", async (req: Request, res: Response) => {
+    const { email, token } = req.query as { email?: string; token?: string };
+    if (!email || !token || !verifyUnsubscribeToken(email, token)) {
+      return res.status(400).send("無効なリンクです。URLが正しいかご確認ください。");
+    }
+    await db
+      .insert(emailUnsubscribes)
+      .values({ email: email.toLowerCase() })
+      .onConflictDoNothing({ target: [emailUnsubscribes.email] });
+    res.send(
+      "<!DOCTYPE html><html lang='ja'><head><meta charset='UTF-8'><title>配信停止完了</title></head>" +
+        "<body style='font-family:sans-serif;max-width:480px;margin:80px auto;text-align:center'>" +
+        "<h2>配信停止が完了しました</h2>" +
+        "<p>以降、このメールアドレスへのキャンペーンメールは送信されません。</p>" +
+        "</body></html>",
+    );
   });
 
   /** Vercel Cron: batch pending AI Edit jobs (Bearer matches CRON_SECRET or AI_EDIT_CRON_SECRET) */
