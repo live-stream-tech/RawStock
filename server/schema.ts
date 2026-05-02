@@ -420,6 +420,9 @@ export const dmThreads = pgTable(
     user2Id: integer("user_2_id").notNull(),
     lastMessagePreview: text("last_message_preview"),
     updatedAt: timestamp("updated_at").defaultNow(),
+    /** Max dm_thread_messages.id the user has seen (user_1); used for unread counts */
+    user1LastReadMessageId: integer("user_1_last_read_message_id"),
+    user2LastReadMessageId: integer("user_2_last_read_message_id"),
   },
   (t) => [unique().on(t.user1Id, t.user2Id)],
 );

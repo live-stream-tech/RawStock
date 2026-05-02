@@ -121,6 +121,7 @@ export default function DMChatScreen() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [`/api/dm-messages/${dmId}/conversation`] });
       qc.invalidateQueries({ queryKey: ["/api/dm-messages"] });
+      qc.invalidateQueries({ queryKey: ["/api/dm-messages/unread-count"] });
       setAttachmentUrl(null);
     },
     onError: (e: unknown) => {
@@ -199,13 +200,14 @@ export default function DMChatScreen() {
     }
   }, [messages.length]);
 
-  /** Clear ops-DM unread badge the first time a legacy negative thread id is opened */
+  /** Mark DM thread / ops guide as read when opened; keeps list + header badges in sync */
   useEffect(() => {
-    if (!(token || user) || !Number.isFinite(dmId) || dmId === 0 || dmId > 0) return;
+    if (!(token || user) || !Number.isFinite(dmId) || dmId === 0) return;
     void (async () => {
       try {
         await apiRequest("POST", `/api/dm-messages/${dmId}/read`, {});
         await qc.invalidateQueries({ queryKey: ["/api/dm-messages"] });
+        await qc.invalidateQueries({ queryKey: ["/api/dm-messages/unread-count"] });
       } catch {
         // ignore
       }

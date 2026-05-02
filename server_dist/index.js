@@ -61,6 +61,9 @@ __export(schema_exports, {
   dmThreads: () => dmThreads,
   earnings: () => earnings,
   editingRequests: () => editingRequests,
+  emailCampaigns: () => emailCampaigns,
+  emailDeliveries: () => emailDeliveries,
+  emailUnsubscribes: () => emailUnsubscribes,
   genreAds: () => genreAds,
   genreOwners: () => genreOwners,
   jukeboxChat: () => jukeboxChat,
@@ -481,7 +484,10 @@ var dmThreads = pgTable(
     user1Id: integer("user_1_id").notNull(),
     user2Id: integer("user_2_id").notNull(),
     lastMessagePreview: text("last_message_preview"),
-    updatedAt: timestamp("updated_at").defaultNow()
+    updatedAt: timestamp("updated_at").defaultNow(),
+    /** Max dm_thread_messages.id the user has seen (user_1); used for unread counts */
+    user1LastReadMessageId: integer("user_1_last_read_message_id"),
+    user2LastReadMessageId: integer("user_2_last_read_message_id")
   },
   (t) => [unique().on(t.user1Id, t.user2Id)]
 );
@@ -953,6 +959,38 @@ var editingRequests = pgTable("editing_requests", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow()
 });
+var emailCampaigns = pgTable("email_campaigns", {
+  id: serial("id").primaryKey(),
+  /** 送信に使う一意キー（同一キーの実送信は1回のみ許可） */
+  campaignKey: text("campaign_key").notNull().unique(),
+  subject: text("subject").notNull(),
+  bodyHtml: text("body_html").notNull(),
+  /** draft | sending | sent | dry_run_completed */
+  status: text("status").notNull().default("draft"),
+  dryRun: boolean("dry_run").notNull().default(true),
+  targetCount: integer("target_count").notNull().default(0),
+  sentCount: integer("sent_count").notNull().default(0),
+  failedCount: integer("failed_count").notNull().default(0),
+  sentByUserId: integer("sent_by_user_id").notNull(),
+  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at").defaultNow()
+});
+var emailDeliveries = pgTable("email_deliveries", {
+  id: serial("id").primaryKey(),
+  campaignId: integer("campaign_id").notNull(),
+  userId: integer("user_id").notNull(),
+  email: text("email").notNull(),
+  /** queued | sent | failed | skipped */
+  status: text("status").notNull().default("queued"),
+  error: text("error"),
+  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at").defaultNow()
+});
+var emailUnsubscribes = pgTable("email_unsubscribes", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  createdAt: timestamp("created_at").defaultNow()
+});
 var twoShotReservations = pgTable("two_shot_reservations", {
   id: serial("id").primaryKey(),
   hostUserId: integer("host_user_id").notNull(),
@@ -986,6 +1024,9 @@ import {
   or,
   gte as gte2,
   lte as lte2,
+  gt,
+  ne,
+  max,
   isNull,
   inArray as inArray2,
   isNotNull
@@ -1151,9 +1192,9 @@ function getPrevMonth(yearMonth) {
 function round1(value) {
   return Number(value.toFixed(1));
 }
-function normalize(value, max) {
-  if (max <= 0) return 0;
-  return value / max;
+function normalize(value, max2) {
+  if (max2 <= 0) return 0;
+  return value / max2;
 }
 async function getMonthlyRevenueRank(yearMonth) {
   const range = parseMonthRange(yearMonth);
@@ -2308,7 +2349,7 @@ async function createSignedUploadUrl(key, contentType) {
   const publicUrl = publicBase && !useUnsafeR2DevBase ? `${publicBase.replace(/\/$/, "")}/${key}` : null;
   return { uploadUrl, publicUrl };
 }
-function resolveUploadPublicUrlForKey(req, key) {
+function resolveUploadPublicUrlForKey(req2, key) {
   const publicBase = process.env.R2_PUBLIC_BASE_URL?.trim();
   if (publicBase) {
     const hostOnly = publicBase.replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
@@ -2316,10 +2357,10 @@ function resolveUploadPublicUrlForKey(req, key) {
       return `${publicBase.replace(/\/$/, "")}/${key}`;
     }
   }
-  const forwardedOrHost = String(req.get("x-forwarded-host") ?? req.get("host") ?? "").trim();
+  const forwardedOrHost = String(req2.get("x-forwarded-host") ?? req2.get("host") ?? "").trim();
   const host = !forwardedOrHost ? "" : forwardedOrHost === "rawstock.live" ? forwardedOrHost : forwardedOrHost.endsWith("rawstock.live") ? "rawstock.live" : forwardedOrHost;
-  const xfProto = String(req.get("x-forwarded-proto") ?? "").split(",")[0]?.trim();
-  const proto = xfProto === "http" || xfProto === "https" ? xfProto : req.protocol === "https" ? "https" : "http";
+  const xfProto = String(req2.get("x-forwarded-proto") ?? "").split(",")[0]?.trim();
+  const proto = xfProto === "http" || xfProto === "https" ? xfProto : req2.protocol === "https" ? "https" : "http";
   if (!host) {
     throw new Error("MISSING_HOST_FOR_PUBLIC_URL");
   }
@@ -2812,6 +2853,49 @@ function diversifyAnnouncementRowsByCommunity(rows, limit, maxPerCommunity) {
   return out;
 }
 
+// server/lib/emailAdapter.ts
+import { createHmac } from "node:crypto";
+var UNSUBSCRIBE_SECRET = (process.env.UNSUBSCRIBE_SECRET ?? "rawstock-unsub-dev-secret").trim();
+function generateUnsubscribeToken(email) {
+  return createHmac("sha256", UNSUBSCRIBE_SECRET).update(email.toLowerCase()).digest("hex");
+}
+function verifyUnsubscribeToken(email, token) {
+  const expected = generateUnsubscribeToken(email.toLowerCase());
+  if (expected.length !== token.length) return false;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) {
+    diff |= expected.charCodeAt(i) ^ token.charCodeAt(i);
+  }
+  return diff === 0;
+}
+async function sendEmail(msg) {
+  const provider = (process.env.EMAIL_PROVIDER ?? "log").trim();
+  if (provider === "log") {
+    console.log(
+      `[emailAdapter] LOG to=${msg.to} subject="${msg.subject}" (set EMAIL_PROVIDER=resend to send for real)`
+    );
+    return;
+  }
+  if (provider === "resend") {
+    const apiKey = process.env.RESEND_API_KEY ?? "";
+    const from = process.env.EMAIL_FROM ?? "noreply@rawstock.jp";
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ from, to: msg.to, subject: msg.subject, html: msg.html })
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Resend error ${res.status}: ${body}`);
+    }
+    return;
+  }
+  throw new Error(`Unknown EMAIL_PROVIDER: ${provider}`);
+}
+
 // server/lib/communitiesCompat.ts
 import { desc, eq as eq5, inArray, sql as sql3 } from "drizzle-orm";
 function mapLegacyCommunityRow(r) {
@@ -3192,6 +3276,7 @@ var CLOUDFLARE_STREAM_TOKEN = (process.env.CLOUDFLARE_STREAM_TOKEN ?? "").trim()
 var CLOUDFLARE_GLOBAL_API_KEY = (process.env.CLOUDFLARE_GLOBAL_API_KEY ?? "").trim();
 var CLOUDFLARE_EMAIL = (process.env.CLOUDFLARE_EMAIL ?? "").trim();
 var ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
+var APP_URL = (process.env.APP_URL ?? "").replace(/\/$/, "");
 var announcementRunInProgress = false;
 function maskSecretPrefix(value) {
   if (!value) return "(empty, len=0)";
@@ -3237,12 +3322,12 @@ function formatCloudflareApiErrors(errors) {
 function makeToken(userId) {
   return jwt.sign({ sub: userId }, JWT_SECRET, { expiresIn: "90d" });
 }
-function paramStr(req, key) {
-  const v = req.params[key];
+function paramStr(req2, key) {
+  const v = req2.params[key];
   return Array.isArray(v) ? v[0] ?? "" : v ?? "";
 }
-function paramNum(req, key) {
-  return parseInt(paramStr(req, key), 10) || 0;
+function paramNum(req2, key) {
+  return parseInt(paramStr(req2, key), 10) || 0;
 }
 function formatTimeAgo(d) {
   if (!d) return "Just now";
@@ -3261,8 +3346,8 @@ function formatTimeAgo(d) {
   if (diffDay < 365) return `${Math.floor(diffDay / 30)}mo ago`;
   return `${Math.floor(diffDay / 365)}y ago`;
 }
-function queryStr(req, key) {
-  const v = req.query[key];
+function queryStr(req2, key) {
+  const v = req2.query[key];
   if (Array.isArray(v)) return typeof v[0] === "string" ? v[0] : "";
   return typeof v === "string" ? v : "";
 }
@@ -3289,8 +3374,8 @@ function normalizePreferredLanguage(value) {
   const base = lower.split(/[-_]/u)[0];
   return SUPPORTED_PREFERRED_LANGUAGES.has(base) ? base : null;
 }
-function preferredLanguageFromHeader(req) {
-  const raw = req.headers["accept-language"] ?? "";
+function preferredLanguageFromHeader(req2) {
+  const raw = req2.headers["accept-language"] ?? "";
   if (!raw) return null;
   const first = raw.split(",")[0]?.trim();
   return normalizePreferredLanguage(first);
@@ -3335,8 +3420,8 @@ function isVideoOwner(video, user) {
   if (video.userId != null) return video.userId === user.id;
   return video.creator === user.displayName;
 }
-async function getAuthUser(req) {
-  const auth = req.headers?.authorization ?? "";
+async function getAuthUser(req2) {
+  const auth = req2.headers?.authorization ?? "";
   if (!auth.startsWith("Bearer ")) {
     debugIngestServer({
       sessionId: "88cb7d",
@@ -3423,8 +3508,8 @@ function policyFieldsForApi(u2) {
 function isAdminRole(role) {
   return (role ?? "").toUpperCase() === "ADMIN";
 }
-async function getAdminUserOrReject(req, res) {
-  const user = await getAuthUser(req);
+async function getAdminUserOrReject(req2, res) {
+  const user = await getAuthUser(req2);
   if (!user) {
     res.status(401).json({ error: "Unauthorized" });
     return null;
@@ -3599,7 +3684,54 @@ async function ensureDmThreadTables() {
       created_at timestamp DEFAULT now()
     )
   `);
+  await db.execute(
+    sql5`ALTER TABLE dm_threads ADD COLUMN IF NOT EXISTS user_1_last_read_message_id integer`
+  );
+  await db.execute(
+    sql5`ALTER TABLE dm_threads ADD COLUMN IF NOT EXISTS user_2_last_read_message_id integer`
+  );
   dmThreadTablesEnsured = true;
+}
+async function markDmThreadRead(threadId, meId) {
+  const [th] = await db.select().from(dmThreads).where(eq6(dmThreads.id, threadId));
+  if (!th) return;
+  const [agg] = await db.select({ maxId: max(dmThreadMessages.id) }).from(dmThreadMessages).where(eq6(dmThreadMessages.threadId, threadId));
+  const maxId = Number(agg?.maxId ?? 0);
+  const isU1 = meId === th.user1Id;
+  if (isU1) {
+    await db.update(dmThreads).set({ user1LastReadMessageId: maxId }).where(eq6(dmThreads.id, threadId));
+  } else {
+    await db.update(dmThreads).set({ user2LastReadMessageId: maxId }).where(eq6(dmThreads.id, threadId));
+  }
+}
+async function dmThreadPeerUnreadCount(threadId, meId, th) {
+  const lastRead = meId === th.user1Id ? th.user1LastReadMessageId ?? null : th.user2LastReadMessageId ?? null;
+  const peerFilter = lastRead === null ? and5(eq6(dmThreadMessages.threadId, threadId), ne(dmThreadMessages.senderUserId, meId)) : and5(
+    eq6(dmThreadMessages.threadId, threadId),
+    ne(dmThreadMessages.senderUserId, meId),
+    gt(dmThreadMessages.id, lastRead)
+  );
+  const [{ c }] = await db.select({ c: sql5`count(*)::int` }).from(dmThreadMessages).where(peerFilter);
+  return c ?? 0;
+}
+async function operationsGuideDmUnreadForUser(meId) {
+  const [opsDm] = await db.select().from(dmMessages).where(eq6(dmMessages.name, OPERATIONS_DM_NAME));
+  if (!opsDm) return 0;
+  const [{ welcomeDmSentAt, operationsDmOpenedAt }] = await db.select({
+    welcomeDmSentAt: users.welcomeDmSentAt,
+    operationsDmOpenedAt: users.operationsDmOpenedAt
+  }).from(users).where(eq6(users.id, meId));
+  return welcomeDmSentAt && !operationsDmOpenedAt ? 1 : 0;
+}
+async function totalDmUnreadForUser(meId) {
+  await ensureDmThreadTables();
+  const threads = await db.select().from(dmThreads).where(or(eq6(dmThreads.user1Id, meId), eq6(dmThreads.user2Id, meId)));
+  let total = 0;
+  for (const t of threads) {
+    total += await dmThreadPeerUnreadCount(t.id, meId, t);
+  }
+  total += await operationsGuideDmUnreadForUser(meId);
+  return total;
 }
 var SYSTEM_WALLET_KINDS = ["MODERATOR", "ADMIN", "EVENT_RESERVE", "PLATFORM"];
 async function getOrCreateSystemWallets() {
@@ -3849,8 +3981,8 @@ async function registerRoutes(app2) {
     await ensureUserFollowsSchema();
     next();
   });
-  app2.get("/api/r2-public/:key", async (req, res) => {
-    const raw = String(req.params.key ?? "");
+  app2.get("/api/r2-public/:key", async (req2, res) => {
+    const raw = String(req2.params.key ?? "");
     let key = raw;
     try {
       key = decodeURIComponent(raw);
@@ -3859,11 +3991,11 @@ async function registerRoutes(app2) {
     }
     await pipeR2PublicObjectToResponse(res, key);
   });
-  app2.post("/api/lp/leads", async (req, res) => {
-    const rawEmail = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
-    const source = typeof req.body?.source === "string" ? req.body.source.trim().toLowerCase() : "email_form";
-    const locale = typeof req.body?.locale === "string" ? req.body.locale.trim().slice(0, 16) : null;
-    const campaign = typeof req.body?.campaign === "string" ? req.body.campaign.trim().slice(0, 120) : null;
+  app2.post("/api/lp/leads", async (req2, res) => {
+    const rawEmail = typeof req2.body?.email === "string" ? req2.body.email.trim().toLowerCase() : "";
+    const source = typeof req2.body?.source === "string" ? req2.body.source.trim().toLowerCase() : "email_form";
+    const locale = typeof req2.body?.locale === "string" ? req2.body.locale.trim().slice(0, 16) : null;
+    const campaign = typeof req2.body?.campaign === "string" ? req2.body.campaign.trim().slice(0, 120) : null;
     if (!rawEmail) {
       return res.status(400).json({ error: "Email is required" });
     }
@@ -3889,9 +4021,9 @@ async function registerRoutes(app2) {
       return res.status(500).json({ error: "Failed to save lead" });
     }
   });
-  app2.post("/api/auth/register", async (req, res) => {
-    const { password, name } = req.body ?? {};
-    const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+  app2.post("/api/auth/register", async (req2, res) => {
+    const { password, name } = req2.body ?? {};
+    const email = typeof req2.body?.email === "string" ? req2.body.email.trim().toLowerCase() : "";
     if (!email || !password) {
       return res.status(400).json({ error: "Email and password are required" });
     }
@@ -3905,7 +4037,7 @@ async function registerRoutes(app2) {
     const hash = await bcrypt.hash(password, 10);
     const displayName = name || email.split("@")[0];
     const lineId = `email:${email}`;
-    const preferredLanguage = normalizePreferredLanguage(req.body?.preferredLanguage) ?? preferredLanguageFromHeader(req);
+    const preferredLanguage = normalizePreferredLanguage(req2.body?.preferredLanguage) ?? preferredLanguageFromHeader(req2);
     const [user] = await db.insert(users).values({
       lineId,
       displayName,
@@ -3931,9 +4063,9 @@ async function registerRoutes(app2) {
   app2.post("/api/auth/demo", (_req, res) => {
     return res.status(403).json({ error: "Demo login is disabled", code: "DEMO_DISABLED" });
   });
-  app2.post("/api/auth/login", async (req, res) => {
-    const password = req.body?.password;
-    const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+  app2.post("/api/auth/login", async (req2, res) => {
+    const password = req2.body?.password;
+    const email = typeof req2.body?.email === "string" ? req2.body.email.trim().toLowerCase() : "";
     if (!email || !password) {
       return res.status(400).json({ error: "Email and password are required" });
     }
@@ -3949,7 +4081,7 @@ async function registerRoutes(app2) {
     await sendWelcomeDmIfNeeded(user.id);
     let preferredLanguage = user.preferredLanguage ?? null;
     if (!preferredLanguage) {
-      const guess = normalizePreferredLanguage(req.body?.preferredLanguage) ?? preferredLanguageFromHeader(req);
+      const guess = normalizePreferredLanguage(req2.body?.preferredLanguage) ?? preferredLanguageFromHeader(req2);
       if (guess) {
         try {
           await db.update(users).set({ preferredLanguage: guess, updatedAt: /* @__PURE__ */ new Date() }).where(eq6(users.id, user.id));
@@ -3959,7 +4091,7 @@ async function registerRoutes(app2) {
         }
       }
     } else {
-      const explicit = normalizePreferredLanguage(req.body?.preferredLanguage);
+      const explicit = normalizePreferredLanguage(req2.body?.preferredLanguage);
       if (explicit && explicit !== preferredLanguage) {
         try {
           await db.update(users).set({ preferredLanguage: explicit, updatedAt: /* @__PURE__ */ new Date() }).where(eq6(users.id, user.id));
@@ -3980,9 +4112,9 @@ async function registerRoutes(app2) {
       }
     });
   });
-  app2.get("/api/auth/me", async (req, res) => {
+  app2.get("/api/auth/me", async (req2, res) => {
     res.setHeader("Cache-Control", "private, no-store");
-    const user = await getAuthUser(req);
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const [u2] = await db.select({
       pinnedCommunityIds: users.pinnedCommunityIds
@@ -4021,8 +4153,8 @@ async function registerRoutes(app2) {
       ...policyFieldsForApi(user)
     });
   });
-  app2.get("/api/translate/preferred-language", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/translate/preferred-language", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     res.json({
       preferredLanguage: user.preferredLanguage ?? null,
@@ -4030,10 +4162,10 @@ async function registerRoutes(app2) {
       supported: Array.from(SUPPORTED_PREFERRED_LANGUAGES)
     });
   });
-  app2.patch("/api/translate/preferred-language", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.patch("/api/translate/preferred-language", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const next = normalizePreferredLanguage(req.body?.preferredLanguage);
+    const next = normalizePreferredLanguage(req2.body?.preferredLanguage);
     if (!next) {
       return res.status(400).json({
         error: "Unsupported language",
@@ -4043,8 +4175,8 @@ async function registerRoutes(app2) {
     await db.update(users).set({ preferredLanguage: next, updatedAt: /* @__PURE__ */ new Date() }).where(eq6(users.id, user.id));
     res.json({ preferredLanguage: next });
   });
-  app2.post("/api/translate", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/translate", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const limit = checkTranslateRateLimit(user.id);
     if (!limit.ok) {
@@ -4054,7 +4186,7 @@ async function registerRoutes(app2) {
         retryAfterSec: limit.retryAfterSec
       });
     }
-    const text2 = typeof req.body?.text === "string" ? req.body.text : "";
+    const text2 = typeof req2.body?.text === "string" ? req2.body.text : "";
     if (!text2.trim()) {
       return res.status(400).json({ error: "text is required" });
     }
@@ -4064,9 +4196,9 @@ async function registerRoutes(app2) {
         error: `text exceeds ${MAX_TRANSLATE_LENGTH} chars`
       });
     }
-    const explicitDst = normalizePreferredLanguage(req.body?.dstLang);
-    const dstLang = explicitDst ?? user.preferredLanguage ?? preferredLanguageFromHeader(req) ?? "en";
-    const explicitSrc = normalizePreferredLanguage(req.body?.srcLang);
+    const explicitDst = normalizePreferredLanguage(req2.body?.dstLang);
+    const dstLang = explicitDst ?? user.preferredLanguage ?? preferredLanguageFromHeader(req2) ?? "en";
+    const explicitSrc = normalizePreferredLanguage(req2.body?.srcLang);
     let srcLang = explicitSrc ?? null;
     if (!srcLang) {
       const detected = await detectContentLang(text2);
@@ -4095,10 +4227,10 @@ async function registerRoutes(app2) {
       error: result.error ?? false
     });
   });
-  app2.post("/api/auth/accept-policies", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/auth/accept-policies", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const { acceptTerms, acceptPrivacy } = req.body;
+    const { acceptTerms, acceptPrivacy } = req2.body;
     const doTerms = acceptTerms !== false;
     const doPrivacy = acceptPrivacy !== false;
     const now = /* @__PURE__ */ new Date();
@@ -4117,15 +4249,15 @@ async function registerRoutes(app2) {
       ...policyFieldsForApi(row)
     });
   });
-  app2.post("/api/connect/payout-terms-agree", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/connect/payout-terms-agree", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const now = /* @__PURE__ */ new Date();
     await db.update(users).set({ payoutTermsAgreedAt: now, updatedAt: now }).where(eq6(users.id, user.id));
     res.json({ ok: true, payoutTermsAgreedAt: now.toISOString() });
   });
-  app2.post("/api/connect/onboard", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/connect/onboard", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const [ptRow] = await db.select({ payoutTermsAgreedAt: users.payoutTermsAgreedAt }).from(users).where(eq6(users.id, user.id));
     if (!ptRow?.payoutTermsAgreedAt) {
@@ -4149,8 +4281,8 @@ async function registerRoutes(app2) {
       res.status(500).json({ error: e.message ?? "Failed to prepare Stripe Connect" });
     }
   });
-  app2.get("/api/connect/status", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/connect/status", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     if (!user.stripeConnectId) {
       return res.json({ connected: false, stripeConnectId: null, chargesEnabled: false });
@@ -4169,10 +4301,10 @@ async function registerRoutes(app2) {
   const BANNER_RATE_ADMIN = 0.2;
   const BANNER_RATE_EVENT = 0.1;
   const BANNER_RATE_PLATFORM = 0.5;
-  app2.post("/api/banner/checkout", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/banner/checkout", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const { people, days } = req.body;
+    const { people, days } = req2.body;
     const p = Math.max(1, Number(people) || 1);
     const d = Math.max(1, Number(days) || 1);
     const amountUSD = Math.max(BANNER_MIN_AMOUNT, p * 5 * d);
@@ -4187,10 +4319,10 @@ async function registerRoutes(app2) {
       res.status(500).json({ error: e.message ?? "Failed to prepare payment" });
     }
   });
-  app2.post("/api/banner/confirm", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/banner/confirm", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const { paymentIntentId } = req.body;
+    const { paymentIntentId } = req2.body;
     if (!paymentIntentId) return res.status(400).json({ error: "paymentIntentId is required" });
     const status = await getPaymentIntentStatus(paymentIntentId);
     if (status !== "succeeded") {
@@ -4214,8 +4346,8 @@ async function registerRoutes(app2) {
   });
   const BANNER_CHECKOUT_DAYS = 3;
   const BANNER_CHECKOUT_AMOUNT_USD = 1e4;
-  app2.post("/api/banner/checkout-session", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/banner/checkout-session", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     try {
       const stripe = await getUncachableStripeClient();
@@ -4250,8 +4382,8 @@ async function registerRoutes(app2) {
       res.status(500).json({ error: e.message ?? "Failed to prepare payment" });
     }
   });
-  app2.post("/api/banner/confirm-session", async (req, res) => {
-    const { sessionId } = req.body;
+  app2.post("/api/banner/confirm-session", async (req2, res) => {
+    const { sessionId } = req2.body;
     if (!sessionId) return res.status(400).json({ error: "sessionId is required" });
     try {
       const stripe = await getUncachableStripeClient();
@@ -4298,8 +4430,8 @@ async function registerRoutes(app2) {
       { slotKey: `${hostId}-slot-c`, label: "+3 days \xB7 Noon (45 min)", scheduledAt: d3.toISOString(), durationMinutes: 45, priceJpy: 4500 }
     ];
   }
-  app2.get("/api/two-shot/slots", async (req, res) => {
-    const hostId = parseInt(String(req.query?.hostId ?? ""), 10);
+  app2.get("/api/two-shot/slots", async (req2, res) => {
+    const hostId = parseInt(String(req2.query?.hostId ?? ""), 10);
     if (!Number.isFinite(hostId) || hostId <= 0) {
       return res.status(400).json({ error: "hostId is required" });
     }
@@ -4307,10 +4439,10 @@ async function registerRoutes(app2) {
     if (!host) return res.status(404).json({ error: "Host not found" });
     return res.json({ hostId, slots: buildMockTwoShotSlots(hostId) });
   });
-  app2.get("/api/two-shot/reservations/:id", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/two-shot/reservations/:id", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const id = paramNum(req, "id");
+    const id = paramNum(req2, "id");
     const [row] = await db.select().from(twoShotReservations).where(eq6(twoShotReservations.id, id)).limit(1);
     if (!row) return res.status(404).json({ error: "Not found" });
     if (row.hostUserId !== user.id && row.guestUserId !== user.id) {
@@ -4318,10 +4450,10 @@ async function registerRoutes(app2) {
     }
     return res.json(row);
   });
-  app2.post("/api/checkout/2shot", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/checkout/2shot", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const { hostId, slotKey, origin } = req.body;
+    const { hostId, slotKey, origin } = req2.body;
     if (!hostId || hostId <= 0 || !slotKey || typeof slotKey !== "string") {
       return res.status(400).json({ error: "hostId and slotKey are required" });
     }
@@ -4380,16 +4512,16 @@ async function registerRoutes(app2) {
       return res.status(500).json({ error: e?.message ?? "Failed to create checkout session" });
     }
   });
-  app2.post("/api/webhook/stripe", async (req, res) => {
+  app2.post("/api/webhook/stripe", async (req2, res) => {
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
     if (!webhookSecret) {
       return res.status(503).json({ error: "STRIPE_WEBHOOK_SECRET is not configured" });
     }
-    const sig = req.headers["stripe-signature"];
+    const sig = req2.headers["stripe-signature"];
     if (!sig || typeof sig !== "string") {
       return res.status(400).json({ error: "Missing stripe-signature" });
     }
-    const buf = req.rawBody;
+    const buf = req2.rawBody;
     if (!Buffer.isBuffer(buf)) {
       return res.status(400).json({ error: "Invalid body" });
     }
@@ -4426,19 +4558,19 @@ async function registerRoutes(app2) {
     }
     return res.json({ received: true });
   });
-  app2.put("/api/auth/profile", async (req, res) => {
+  app2.put("/api/auth/profile", async (req2, res) => {
     debugIngestServer({
       sessionId: "88cb7d",
       runId: "initial",
       hypothesisId: "H3",
       location: "server/routes.ts:/api/auth/profile",
       message: "Profile endpoint hit",
-      data: { bodyKeys: Object.keys(req.body ?? {}) },
+      data: { bodyKeys: Object.keys(req2.body ?? {}) },
       timestamp: Date.now()
     });
-    const user = await getAuthUser(req);
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const { name, displayName, bio, avatar, profileImageUrl, spotifyUrl, appleMusicUrl, bandcampUrl, instagramUrl, youtubeUrl, xUrl, phoneNumber, pinnedCommunityIds } = req.body;
+    const { name, displayName, bio, avatar, profileImageUrl, spotifyUrl, appleMusicUrl, bandcampUrl, instagramUrl, youtubeUrl, xUrl, phoneNumber, pinnedCommunityIds } = req2.body;
     const newName = name ?? displayName ?? user.displayName;
     const newBio = bio ?? user.bio;
     const newAvatar = avatar !== void 0 ? avatar : profileImageUrl !== void 0 ? profileImageUrl : user.profileImageUrl;
@@ -4491,8 +4623,8 @@ async function registerRoutes(app2) {
       ...policyFieldsForApi(updated)
     });
   });
-  app2.delete("/api/auth/account", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.delete("/api/auth/account", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const [owned] = await db.select().from(communities).where(eq6(communities.ownerId, user.id)).limit(1);
     if (owned) {
@@ -4512,8 +4644,8 @@ async function registerRoutes(app2) {
       res.status(500).json({ error: "Failed to delete account" });
     }
   });
-  app2.get("/api/profile/by-name/:name", async (req, res) => {
-    const name = decodeURIComponent(req.params.name || "");
+  app2.get("/api/profile/by-name/:name", async (req2, res) => {
+    const name = decodeURIComponent(req2.params.name || "");
     if (!name.trim()) return res.status(400).json({ error: "Please provide a name" });
     const [u2] = await db.select({ id: users.id }).from(users).where(eq6(users.displayName, name));
     if (u2) return res.json({ type: "user", id: u2.id });
@@ -4521,8 +4653,8 @@ async function registerRoutes(app2) {
     if (c) return res.json({ type: "liver", id: c.id });
     return res.status(404).json({ error: "Not found" });
   });
-  app2.get("/api/users/:id", async (req, res) => {
-    const id = paramNum(req, "id");
+  app2.get("/api/users/:id", async (req2, res) => {
+    const id = paramNum(req2, "id");
     const [u2] = await db.select({
       id: users.id,
       displayName: users.displayName,
@@ -4576,22 +4708,22 @@ async function registerRoutes(app2) {
       followingCount: Number(followingCountRaw ?? 0)
     });
   });
-  app2.get("/api/users/:id/follow-status", async (req, res) => {
-    const me = await getAuthUser(req);
+  app2.get("/api/users/:id/follow-status", async (req2, res) => {
+    const me = await getAuthUser(req2);
     if (!me) return res.status(401).json({ error: "Not authenticated" });
-    const targetId = paramNum(req, "id");
+    const targetId = paramNum(req2, "id");
     if (!targetId) return res.status(400).json({ error: "Invalid id" });
     const [row] = await db.select({ id: userFollows.id }).from(userFollows).where(and5(eq6(userFollows.followerId, me.id), eq6(userFollows.followingId, targetId)));
     res.json({ isFollowing: !!row });
   });
-  app2.get("/api/users/:id/mentor-sessions", async (req, res) => {
-    const uid = paramNum(req, "id");
+  app2.get("/api/users/:id/mentor-sessions", async (req2, res) => {
+    const uid = paramNum(req2, "id");
     if (!uid) return res.status(400).json({ error: "Invalid id" });
     const rows = await db.select().from(mentorSessions).where(and5(eq6(mentorSessions.creatorId, uid), eq6(mentorSessions.isActive, true))).orderBy(desc2(mentorSessions.createdAt));
     res.json(rows);
   });
-  app2.get("/api/users/:id/communities", async (req, res) => {
-    const uid = paramNum(req, "id");
+  app2.get("/api/users/:id/communities", async (req2, res) => {
+    const uid = paramNum(req2, "id");
     if (!uid) return res.status(400).json({ error: "Invalid id" });
     const memberships = await db.select({ communityId: communityMembers.communityId }).from(communityMembers).where(eq6(communityMembers.userId, uid));
     if (memberships.length === 0) return res.json([]);
@@ -4604,8 +4736,8 @@ async function registerRoutes(app2) {
     }).from(communities).where(inArray2(communities.id, ids)).orderBy(desc2(communities.members));
     res.json(rows);
   });
-  app2.get("/api/users/:id/followers", async (req, res) => {
-    const targetId = paramNum(req, "id");
+  app2.get("/api/users/:id/followers", async (req2, res) => {
+    const targetId = paramNum(req2, "id");
     if (!targetId) return res.status(400).json({ error: "Invalid id" });
     const rows = await db.select({
       id: users.id,
@@ -4623,8 +4755,8 @@ async function registerRoutes(app2) {
       }))
     );
   });
-  app2.get("/api/users/:id/following", async (req, res) => {
-    const targetId = paramNum(req, "id");
+  app2.get("/api/users/:id/following", async (req2, res) => {
+    const targetId = paramNum(req2, "id");
     if (!targetId) return res.status(400).json({ error: "Invalid id" });
     const rows = await db.select({
       id: users.id,
@@ -4642,10 +4774,10 @@ async function registerRoutes(app2) {
       }))
     );
   });
-  app2.post("/api/users/:id/follow", async (req, res) => {
-    const me = await getAuthUser(req);
+  app2.post("/api/users/:id/follow", async (req2, res) => {
+    const me = await getAuthUser(req2);
     if (!me) return res.status(401).json({ error: "Not authenticated" });
-    const targetId = paramNum(req, "id");
+    const targetId = paramNum(req2, "id");
     if (!targetId) return res.status(400).json({ error: "Invalid id" });
     if (targetId === me.id) return res.status(400).json({ error: "You cannot follow yourself" });
     const [exists] = await db.select({ id: users.id }).from(users).where(eq6(users.id, targetId));
@@ -4653,10 +4785,10 @@ async function registerRoutes(app2) {
     await db.insert(userFollows).values({ followerId: me.id, followingId: targetId }).onConflictDoNothing({ target: [userFollows.followerId, userFollows.followingId] });
     res.json({ ok: true });
   });
-  app2.delete("/api/users/:id/follow", async (req, res) => {
-    const me = await getAuthUser(req);
+  app2.delete("/api/users/:id/follow", async (req2, res) => {
+    const me = await getAuthUser(req2);
     if (!me) return res.status(401).json({ error: "Not authenticated" });
-    const targetId = paramNum(req, "id");
+    const targetId = paramNum(req2, "id");
     if (!targetId) return res.status(400).json({ error: "Invalid id" });
     await db.delete(userFollows).where(and5(eq6(userFollows.followerId, me.id), eq6(userFollows.followingId, targetId)));
     res.json({ ok: true });
@@ -4693,9 +4825,9 @@ async function registerRoutes(app2) {
     });
     res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
   });
-  app2.get("/api/auth/google-callback", async (req, res) => {
-    const code = req.query.code;
-    const state = req.query.state;
+  app2.get("/api/auth/google-callback", async (req2, res) => {
+    const code = req2.query.code;
+    const state = req2.query.state;
     if (!code || state !== GOOGLE_STATE) {
       return res.redirect(`${BASE_URL}/auth/login?auth_error=invalid_state`);
     }
@@ -4767,8 +4899,8 @@ async function registerRoutes(app2) {
       res.redirect(`${BASE_URL}/auth/login?auth_error=server_error`);
     }
   });
-  app2.get("/api/youtube/search", async (req, res) => {
-    const q = queryStr(req, "q").trim();
+  app2.get("/api/youtube/search", async (req2, res) => {
+    const q = queryStr(req2, "q").trim();
     if (!q) {
       return res.status(400).json({ error: "Please enter a search query" });
     }
@@ -4877,8 +5009,8 @@ async function registerRoutes(app2) {
       return null;
     }
   }
-  app2.get("/api/youtube/playlists", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/youtube/playlists", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const accessToken = await getGoogleAccessToken(user.id);
     if (!accessToken) {
@@ -4918,8 +5050,8 @@ async function registerRoutes(app2) {
       res.status(500).json({ error: "An error occurred while fetching the playlist" });
     }
   });
-  app2.get("/api/youtube/playlists/:playlistId/items", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/youtube/playlists/:playlistId/items", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const accessToken = await getGoogleAccessToken(user.id);
     if (!accessToken) {
@@ -4928,7 +5060,7 @@ async function registerRoutes(app2) {
         needsGoogleLogin: true
       });
     }
-    const playlistId = paramStr(req, "playlistId");
+    const playlistId = paramStr(req2, "playlistId");
     if (!playlistId) return res.status(400).json({ error: "playlistId is required" });
     try {
       const params = new URLSearchParams({
@@ -4999,8 +5131,8 @@ async function registerRoutes(app2) {
       members: isOfficial ? Math.max(OFFICIAL_DISTRICT_MIN_MEMBERS, members) : members
     };
   };
-  app2.get("/api/communities", async (req, res) => {
-    const genreId = queryStr(req, "genre");
+  app2.get("/api/communities", async (req2, res) => {
+    const genreId = queryStr(req2, "genre");
     let rows = await fetchCommunitiesListOrdered();
     if (genreId && GENRE_TO_CATEGORY[genreId]) {
       const terms = GENRE_TO_CATEGORY[genreId];
@@ -5029,8 +5161,8 @@ async function registerRoutes(app2) {
       memberSum
     });
   });
-  app2.get("/api/communities/me", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/communities/me", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const memberships = await db.select({ communityId: communityMembers.communityId }).from(communityMembers).where(eq6(communityMembers.userId, user.id));
     if (memberships.length === 0) {
@@ -5041,20 +5173,20 @@ async function registerRoutes(app2) {
     const normalized = rows.map(normalizeCommunityRow);
     res.json(normalized);
   });
-  app2.get("/api/communities/:id", async (req, res) => {
-    const id = paramNum(req, "id");
+  app2.get("/api/communities/:id", async (req2, res) => {
+    const id = paramNum(req2, "id");
     await ensureStationJukeboxCommunity(id);
     const row = await fetchCommunityById(id);
     if (!row) return res.status(404).json({ message: "Not found" });
     res.json(normalizeCommunityRow(row));
   });
-  app2.get("/api/communities/:id/editors", async (req, res) => {
-    const communityId = paramNum(req, "id");
+  app2.get("/api/communities/:id/editors", async (req2, res) => {
+    const communityId = paramNum(req2, "id");
     const rows = await db.select().from(videoEditors).where(eq6(videoEditors.communityId, communityId)).orderBy(desc2(videoEditors.isAvailable), desc2(videoEditors.rating));
     res.json(rows);
   });
-  app2.get("/api/communities/:id/creators", async (req, res) => {
-    const communityId = paramNum(req, "id");
+  app2.get("/api/communities/:id/creators", async (req2, res) => {
+    const communityId = paramNum(req2, "id");
     const [community] = await db.select().from(communities).where(eq6(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const editors = await db.select().from(videoEditors).where(eq6(videoEditors.communityId, communityId)).orderBy(desc2(videoEditors.rating));
@@ -5064,8 +5196,8 @@ async function registerRoutes(app2) {
       livers: livers.map((l) => ({ ...l, kind: "liver" }))
     });
   });
-  app2.get("/api/communities/:id/staff", async (req, res) => {
-    const communityId = paramNum(req, "id");
+  app2.get("/api/communities/:id/staff", async (req2, res) => {
+    const communityId = paramNum(req2, "id");
     const [community] = await db.select().from(communities).where(eq6(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const admin = community.adminId ? (await db.select().from(users).where(eq6(users.id, community.adminId)))[0] ?? null : null;
@@ -5079,15 +5211,15 @@ async function registerRoutes(app2) {
       moderators: moderatorUsers.map((u2) => ({ id: u2.id, displayName: u2.displayName, profileImageUrl: u2.profileImageUrl }))
     });
   });
-  app2.patch("/api/communities/:id/staff", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.patch("/api/communities/:id/staff", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const communityId = paramNum(req, "id");
+    const communityId = paramNum(req2, "id");
     const [community] = await db.select().from(communities).where(eq6(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
     if (!isAdmin) return res.status(403).json({ error: "Only the community owner can change this" });
-    const { adminId, moderatorIds } = req.body;
+    const { adminId, moderatorIds } = req2.body;
     if (adminId !== void 0) {
       await db.update(communities).set({ adminId: adminId ?? null }).where(eq6(communities.id, communityId));
     }
@@ -5102,8 +5234,8 @@ async function registerRoutes(app2) {
     const [updated] = await db.select().from(communities).where(eq6(communities.id, communityId));
     res.json(updated);
   });
-  app2.get("/api/communities/:id/members", async (req, res) => {
-    const communityId = paramNum(req, "id");
+  app2.get("/api/communities/:id/members", async (req2, res) => {
+    const communityId = paramNum(req2, "id");
     const [community] = await db.select().from(communities).where(eq6(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const rows = await db.select({ userId: communityMembers.userId }).from(communityMembers).where(eq6(communityMembers.communityId, communityId));
@@ -5114,10 +5246,10 @@ async function registerRoutes(app2) {
     }).from(users).where(inArray2(users.id, rows.map((r) => r.userId))) : [];
     res.json(memberUsers);
   });
-  app2.get("/api/communities/:id/members/me", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/communities/:id/members/me", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.json({ isMember: false });
-    const communityId = paramNum(req, "id");
+    const communityId = paramNum(req2, "id");
     const rows = await db.select().from(communityMembers).where(
       and5(
         eq6(communityMembers.communityId, communityId),
@@ -5126,10 +5258,10 @@ async function registerRoutes(app2) {
     );
     res.json({ isMember: rows.length > 0 });
   });
-  app2.post("/api/communities/:id/join", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/communities/:id/join", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const communityId = paramNum(req, "id");
+    const communityId = paramNum(req2, "id");
     const [community] = await db.select().from(communities).where(eq6(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const existing = await db.select().from(communityMembers).where(
@@ -5151,8 +5283,8 @@ async function registerRoutes(app2) {
     }
     res.status(201).json({ ok: true });
   });
-  app2.get("/api/communities/:id/threads", async (req, res) => {
-    const communityId = paramNum(req, "id");
+  app2.get("/api/communities/:id/threads", async (req2, res) => {
+    const communityId = paramNum(req2, "id");
     const [community] = await db.select().from(communities).where(eq6(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const rows = await db.select({
@@ -5286,10 +5418,10 @@ async function registerRoutes(app2) {
     );
     return res.json(translated);
   });
-  app2.post("/api/communities/:id/threads", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/communities/:id/threads", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const communityId = paramNum(req, "id");
+    const communityId = paramNum(req2, "id");
     const [community] = await db.select().from(communities).where(eq6(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const [memberRow] = await db.select({ id: communityMembers.id }).from(communityMembers).where(and5(eq6(communityMembers.communityId, communityId), eq6(communityMembers.userId, user.id))).limit(1);
@@ -5299,7 +5431,7 @@ async function registerRoutes(app2) {
     if (!memberRow && !canPostAsStaff) {
       return res.status(403).json({ error: "Join the community first, or post as admin/moderator" });
     }
-    const { title, body } = req.body;
+    const { title, body } = req2.body;
     if (!title || !title.trim()) return res.status(400).json({ error: "Please enter a title" });
     const combinedText = [title, body].filter(Boolean).join(" ");
     const modResult = await moderateContent(combinedText);
@@ -5314,9 +5446,9 @@ async function registerRoutes(app2) {
     }).returning();
     res.status(201).json(row);
   });
-  app2.get("/api/communities/:id/threads/:threadId", async (req, res) => {
-    const communityId = paramNum(req, "id");
-    const threadId = paramNum(req, "threadId");
+  app2.get("/api/communities/:id/threads/:threadId", async (req2, res) => {
+    const communityId = paramNum(req2, "id");
+    const threadId = paramNum(req2, "threadId");
     const [thread] = await db.select().from(communityThreads).where(and5(eq6(communityThreads.communityId, communityId), eq6(communityThreads.id, threadId)));
     if (!thread) return res.status(404).json({ message: "Not found" });
     const posts = await db.select().from(communityThreadPosts).where(eq6(communityThreadPosts.threadId, threadId)).orderBy(asc3(communityThreadPosts.createdAt));
@@ -5332,11 +5464,11 @@ async function registerRoutes(app2) {
       }))
     });
   });
-  app2.delete("/api/communities/:id/threads/:threadId", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.delete("/api/communities/:id/threads/:threadId", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const communityId = paramNum(req, "id");
-    const threadId = paramNum(req, "threadId");
+    const communityId = paramNum(req2, "id");
+    const threadId = paramNum(req2, "threadId");
     const [community] = await db.select().from(communities).where(eq6(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
@@ -5349,12 +5481,12 @@ async function registerRoutes(app2) {
     await db.delete(communityThreads).where(eq6(communityThreads.id, threadId));
     res.json({ ok: true });
   });
-  app2.delete("/api/communities/:id/threads/:threadId/posts/:postId", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.delete("/api/communities/:id/threads/:threadId/posts/:postId", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const communityId = paramNum(req, "id");
-    const threadId = paramNum(req, "threadId");
-    const postId = paramNum(req, "postId");
+    const communityId = paramNum(req2, "id");
+    const threadId = paramNum(req2, "threadId");
+    const postId = paramNum(req2, "postId");
     const [community] = await db.select().from(communities).where(eq6(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
@@ -5366,11 +5498,11 @@ async function registerRoutes(app2) {
     await db.delete(communityThreadPosts).where(and5(eq6(communityThreadPosts.threadId, threadId), eq6(communityThreadPosts.id, postId)));
     res.json({ ok: true });
   });
-  app2.post("/api/communities/:id/threads/:threadId/posts", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/communities/:id/threads/:threadId/posts", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const communityId = paramNum(req, "id");
-    const threadId = paramNum(req, "threadId");
+    const communityId = paramNum(req2, "id");
+    const threadId = paramNum(req2, "threadId");
     const [thread] = await db.select().from(communityThreads).where(and5(eq6(communityThreads.communityId, communityId), eq6(communityThreads.id, threadId)));
     if (!thread) return res.status(404).json({ message: "Not found" });
     const [memberRow] = await db.select({ id: communityMembers.id }).from(communityMembers).where(and5(eq6(communityMembers.communityId, communityId), eq6(communityMembers.userId, user.id))).limit(1);
@@ -5382,7 +5514,7 @@ async function registerRoutes(app2) {
     if (!memberRow && !canReplyAsStaff) {
       return res.status(403).json({ error: "Join the community first, or reply as admin/moderator" });
     }
-    const { body } = req.body;
+    const { body } = req2.body;
     if (!body || !body.trim()) return res.status(400).json({ error: "Please enter body text" });
     const modResult = await moderateContent(body);
     if (modResult.allowed === false) {
@@ -5396,10 +5528,10 @@ async function registerRoutes(app2) {
     await syncUserLastContentLang(user.id, body.trim());
     res.status(201).json(row);
   });
-  app2.get("/api/communities/:id/admin/jukebox-queue", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/communities/:id/admin/jukebox-queue", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const communityId = paramNum(req, "id");
+    const communityId = paramNum(req2, "id");
     const [community] = await db.select().from(communities).where(eq6(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
@@ -5409,11 +5541,11 @@ async function registerRoutes(app2) {
     const rows = await db.select().from(jukeboxQueue).where(eq6(jukeboxQueue.communityId, communityId)).orderBy(asc3(jukeboxQueue.position));
     res.json(rows);
   });
-  app2.delete("/api/communities/:id/admin/jukebox-queue/:itemId", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.delete("/api/communities/:id/admin/jukebox-queue/:itemId", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const communityId = paramNum(req, "id");
-    const itemId = paramNum(req, "itemId");
+    const communityId = paramNum(req2, "id");
+    const itemId = paramNum(req2, "itemId");
     const [community] = await db.select().from(communities).where(eq6(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
@@ -5425,10 +5557,10 @@ async function registerRoutes(app2) {
     await db.delete(jukeboxQueue).where(eq6(jukeboxQueue.id, itemId));
     res.json({ ok: true });
   });
-  app2.get("/api/communities/:id/admin/ads", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/communities/:id/admin/ads", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const communityId = paramNum(req, "id");
+    const communityId = paramNum(req2, "id");
     const [community] = await db.select().from(communities).where(eq6(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
@@ -5438,10 +5570,10 @@ async function registerRoutes(app2) {
     const rows = await db.select().from(communityAds).where(and5(eq6(communityAds.communityId, communityId), eq6(communityAds.status, "approved"))).orderBy(asc3(communityAds.startDate));
     res.json(rows);
   });
-  app2.get("/api/communities/:id/admin/reports", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/communities/:id/admin/reports", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const communityId = paramNum(req, "id");
+    const communityId = paramNum(req2, "id");
     const [community] = await db.select().from(communities).where(eq6(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
@@ -5467,11 +5599,11 @@ async function registerRoutes(app2) {
     }
     res.json(filtered);
   });
-  app2.patch("/api/communities/:id/admin/reports/:reportId/hide", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.patch("/api/communities/:id/admin/reports/:reportId/hide", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const communityId = paramNum(req, "id");
-    const reportId = paramNum(req, "reportId");
+    const communityId = paramNum(req2, "id");
+    const reportId = paramNum(req2, "reportId");
     const [community] = await db.select().from(communities).where(eq6(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
@@ -5501,11 +5633,11 @@ async function registerRoutes(app2) {
     await db.update(reports).set({ status: "hidden" }).where(eq6(reports.id, reportId));
     res.json({ ok: true });
   });
-  app2.patch("/api/communities/:id/admin/reports/:reportId/dismiss", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.patch("/api/communities/:id/admin/reports/:reportId/dismiss", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const communityId = paramNum(req, "id");
-    const reportId = paramNum(req, "reportId");
+    const communityId = paramNum(req2, "id");
+    const reportId = paramNum(req2, "reportId");
     const [community] = await db.select().from(communities).where(eq6(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const isAdmin = community.adminId === user.id;
@@ -5530,9 +5662,9 @@ async function registerRoutes(app2) {
     await db.update(reports).set({ status: "reviewed" }).where(eq6(reports.id, reportId));
     res.json({ ok: true });
   });
-  app2.get("/api/communities/:id/polls", async (req, res) => {
-    const user = await getAuthUser(req);
-    const communityId = paramNum(req, "id");
+  app2.get("/api/communities/:id/polls", async (req2, res) => {
+    const user = await getAuthUser(req2);
+    const communityId = paramNum(req2, "id");
     const [community] = await db.select().from(communities).where(eq6(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const polls = await db.select().from(communityPolls).where(eq6(communityPolls.communityId, communityId)).orderBy(desc2(communityPolls.createdAt));
@@ -5551,15 +5683,15 @@ async function registerRoutes(app2) {
     );
     res.json(result);
   });
-  app2.post("/api/communities/:id/polls", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/communities/:id/polls", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const communityId = paramNum(req, "id");
+    const communityId = paramNum(req2, "id");
     const [community] = await db.select().from(communities).where(eq6(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     const memberRows = await db.select().from(communityMembers).where(and5(eq6(communityMembers.communityId, communityId), eq6(communityMembers.userId, user.id)));
     if (memberRows.length === 0) return res.status(403).json({ error: "Join the community first" });
-    const { question, options } = req.body;
+    const { question, options } = req2.body;
     if (!question || !question.trim()) return res.status(400).json({ error: "Please enter a question" });
     if (!options || !Array.isArray(options) || options.length < 2) return res.status(400).json({ error: "Provide at least two options" });
     const validOpts = options.filter((o) => o && String(o).trim()).slice(0, 10);
@@ -5578,12 +5710,12 @@ async function registerRoutes(app2) {
     }
     res.status(201).json(poll);
   });
-  app2.post("/api/communities/:id/polls/:pollId/vote", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/communities/:id/polls/:pollId/vote", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const communityId = paramNum(req, "id");
-    const pollId = paramNum(req, "pollId");
-    const { optionId } = req.body;
+    const communityId = paramNum(req2, "id");
+    const pollId = paramNum(req2, "pollId");
+    const { optionId } = req2.body;
     if (!optionId) return res.status(400).json({ error: "optionId is required" });
     const [poll] = await db.select().from(communityPolls).where(and5(eq6(communityPolls.communityId, communityId), eq6(communityPolls.id, pollId)));
     if (!poll) return res.status(404).json({ message: "Not found" });
@@ -5600,9 +5732,9 @@ async function registerRoutes(app2) {
     });
     res.json({ ok: true });
   });
-  app2.get("/api/editors", async (req, res) => {
-    const sort = req.query.sort || "rating";
-    const mode = typeof req.query.mode === "string" ? req.query.mode.trim() : "";
+  app2.get("/api/editors", async (req2, res) => {
+    const sort = req2.query.sort || "rating";
+    const mode = typeof req2.query.mode === "string" ? req2.query.mode.trim() : "";
     const filters = [];
     if (mode === "per_minute") {
       filters.push(inArray2(videoEditors.priceType, ["per_minute", "both"]));
@@ -5611,7 +5743,7 @@ async function registerRoutes(app2) {
     } else if (mode.length > 0) {
       return res.status(400).json({ error: "Invalid mode (use per_minute or revenue_share)" });
     }
-    const maxTicketsRaw = req.query.maxTicketsPerMin;
+    const maxTicketsRaw = req2.query.maxTicketsPerMin;
     const maxTicketsStr = Array.isArray(maxTicketsRaw) ? maxTicketsRaw[0] : maxTicketsRaw;
     if (maxTicketsStr !== void 0 && String(maxTicketsStr).trim() !== "") {
       const maxT = parseInt(String(maxTicketsStr), 10);
@@ -5621,7 +5753,7 @@ async function registerRoutes(app2) {
         );
       }
     }
-    const minShareRaw = req.query.minRevenueSharePercent;
+    const minShareRaw = req2.query.minRevenueSharePercent;
     const minShareStr = Array.isArray(minShareRaw) ? minShareRaw[0] : minShareRaw;
     if (minShareStr !== void 0 && String(minShareStr).trim() !== "") {
       const minS = parseInt(String(minShareStr), 10);
@@ -5631,7 +5763,7 @@ async function registerRoutes(app2) {
         );
       }
     }
-    const maxDelRaw = req.query.maxDeliveryDays;
+    const maxDelRaw = req2.query.maxDeliveryDays;
     const maxDelStr = Array.isArray(maxDelRaw) ? maxDelRaw[0] : maxDelRaw;
     if (maxDelStr !== void 0 && String(maxDelStr).trim() !== "") {
       const maxD = parseInt(String(maxDelStr), 10);
@@ -5639,13 +5771,13 @@ async function registerRoutes(app2) {
         filters.push(lte2(videoEditors.deliveryDays, maxD));
       }
     }
-    const tagList = parseTagsQueryParam(req.query.tags);
+    const tagList = parseTagsQueryParam(req2.query.tags);
     if (tagList.length > 0) {
       const arrayLit = "ARRAY[" + tagList.map((t) => "'" + t.replace(/'/g, "''") + "'").join(",") + "]::text[]";
       filters.push(sql5`${videoEditors.styleTags} && ${sql5.raw(arrayLit)}`);
     }
     let rows = filters.length > 0 ? await db.select().from(videoEditors).where(and5(...filters)) : await db.select().from(videoEditors);
-    const genreTerms = parseGenresQueryParam(req.query.genres);
+    const genreTerms = parseGenresQueryParam(req2.query.genres);
     if (genreTerms.length > 0) {
       rows = rows.filter((e) => {
         const hay = (e.genres ?? "").toLowerCase();
@@ -5665,34 +5797,34 @@ async function registerRoutes(app2) {
     }
     res.json(rows);
   });
-  app2.get("/api/editors/me", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/editors/me", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const [row] = await db.select().from(videoEditors).where(eq6(videoEditors.userId, user.id)).limit(1);
     return res.json(row ?? null);
   });
-  app2.get("/api/editors/me/requests", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/editors/me/requests", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const [editor] = await db.select({ id: videoEditors.id }).from(videoEditors).where(eq6(videoEditors.userId, user.id)).limit(1);
     if (!editor) return res.json([]);
     const rows = await db.select().from(videoEditRequests).where(eq6(videoEditRequests.editorId, editor.id)).orderBy(desc2(videoEditRequests.createdAt));
     res.json(rows);
   });
-  app2.get("/api/editors/:id", async (req, res) => {
-    const id = paramNum(req, "id");
+  app2.get("/api/editors/:id", async (req2, res) => {
+    const id = paramNum(req2, "id");
     const [editor] = await db.select().from(videoEditors).where(eq6(videoEditors.id, id));
     if (!editor) return res.status(404).json({ error: "Not found" });
     res.json(editor);
   });
   const EDITOR_REQUEST_TICKET_FEE = 200;
-  app2.post("/api/editors/:id/request", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/editors/:id/request", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) {
       return res.status(401).json({ error: "Sign in required to submit a paid edit request" });
     }
-    const editorId = paramNum(req, "id");
-    const { requesterName, title, description, priceType, budget, deadline } = req.body;
+    const editorId = paramNum(req2, "id");
+    const { requesterName, title, description, priceType, budget, deadline } = req2.body;
     if (!title || !description || !priceType) {
       return res.status(400).json({ error: "Please fill in all required fields" });
     }
@@ -5784,14 +5916,14 @@ async function registerRoutes(app2) {
       return res.status(500).json({ error: e?.message ?? "Request failed" });
     }
   });
-  app2.post("/api/editors", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/editors", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const taken = await db.select().from(videoEditors).where(eq6(videoEditors.userId, user.id)).limit(1);
     if (taken.length > 0) {
       return res.status(409).json({ error: "Already registered as a video editor" });
     }
-    const body = req.body;
+    const body = req2.body;
     const communityId = body.communityId;
     if (communityId == null || !Number.isFinite(communityId)) {
       return res.status(400).json({ error: "communityId is required" });
@@ -5826,14 +5958,14 @@ async function registerRoutes(app2) {
     }).returning();
     return res.status(201).json(created);
   });
-  app2.put("/api/editors/:id", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.put("/api/editors/:id", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const id = paramNum(req, "id");
+    const id = paramNum(req2, "id");
     const [editor] = await db.select().from(videoEditors).where(eq6(videoEditors.id, id));
     if (!editor) return res.status(404).json({ error: "Not found" });
     if (editor.userId !== user.id) return res.status(403).json({ error: "You cannot edit this" });
-    const body = req.body;
+    const body = req2.body;
     const communityId = body.communityId ?? editor.communityId;
     const [comm] = await db.select({ id: communities.id }).from(communities).where(eq6(communities.id, communityId));
     if (!comm) return res.status(400).json({ error: "Community not found" });
@@ -5864,10 +5996,10 @@ async function registerRoutes(app2) {
     const [updated] = await db.select().from(videoEditors).where(eq6(videoEditors.id, id));
     return res.json(updated);
   });
-  app2.post("/api/communities", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/communities", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const { name, description, bannerUrl, iconUrl, categories } = req.body;
+    const { name, description, bannerUrl, iconUrl, categories } = req2.body;
     const trimmedName = (name ?? "").trim();
     const trimmedDescription = (description ?? "").trim();
     const categoryList = Array.isArray(categories) ? categories.map((c) => String(c).trim()).filter(Boolean) : typeof categories === "string" ? categories.split(/[,\s]+/).map((c) => c.trim()).filter(Boolean) : [];
@@ -5908,10 +6040,10 @@ async function registerRoutes(app2) {
       res.status(500).json({ error: "Failed to create community" });
     }
   });
-  app2.delete("/api/communities/:id", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.delete("/api/communities/:id", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const communityId = paramNum(req, "id");
+    const communityId = paramNum(req2, "id");
     const [community] = await db.select().from(communities).where(eq6(communities.id, communityId));
     if (!community) return res.status(404).json({ message: "Not found" });
     if (community.ownerId !== user.id) {
@@ -5952,8 +6084,8 @@ async function registerRoutes(app2) {
   const DAILY_RATE_PER_MEMBER = 5;
   const GENRE_DAILY_RATE_PER_MEMBER = 3;
   const MAX_MONTHS_AHEAD = 3;
-  app2.get("/api/community-ads/pricing", async (req, res) => {
-    const cid = Number(queryStr(req, "communityId")) || 0;
+  app2.get("/api/community-ads/pricing", async (req2, res) => {
+    const cid = Number(queryStr(req2, "communityId")) || 0;
     if (!cid) return res.status(400).json({ error: "communityId is required" });
     const [community] = await db.select().from(communities).where(eq6(communities.id, cid));
     if (!community) return res.status(404).json({ error: "Community not found" });
@@ -5968,10 +6100,10 @@ async function registerRoutes(app2) {
       ratePerMember: DAILY_RATE_PER_MEMBER
     });
   });
-  app2.get("/api/community-ads/availability", async (req, res) => {
-    const cid = Number(queryStr(req, "communityId")) || 0;
-    const start = queryStr(req, "start");
-    const end = queryStr(req, "end");
+  app2.get("/api/community-ads/availability", async (req2, res) => {
+    const cid = Number(queryStr(req2, "communityId")) || 0;
+    const start = queryStr(req2, "start");
+    const end = queryStr(req2, "end");
     if (!cid || !start || !end) return res.status(400).json({ error: "communityId, start, and end are required" });
     const conflicts = await db.select({ id: communityAds.id, startDate: communityAds.startDate, endDate: communityAds.endDate }).from(communityAds).where(
       and5(
@@ -5985,8 +6117,8 @@ async function registerRoutes(app2) {
     );
     res.json({ available: conflicts.length === 0, conflicts });
   });
-  app2.get("/api/communities/:id/ads/active", async (req, res) => {
-    const communityId = paramNum(req, "id");
+  app2.get("/api/communities/:id/ads/active", async (req2, res) => {
+    const communityId = paramNum(req2, "id");
     if (!communityId) return res.status(400).json({ error: "Invalid community id" });
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     const rows = await db.select().from(communityAds).where(
@@ -5999,8 +6131,8 @@ async function registerRoutes(app2) {
     ).orderBy(desc2(communityAds.createdAt));
     res.json(rows);
   });
-  app2.post("/api/community-ads", async (req, res) => {
-    const { communityId: bodyCommunityId, companyName, contactName, email, bannerUrl, linkUrl, startDate, endDate, agreedToTerms } = req.body;
+  app2.post("/api/community-ads", async (req2, res) => {
+    const { communityId: bodyCommunityId, companyName, contactName, email, bannerUrl, linkUrl, startDate, endDate, agreedToTerms } = req2.body;
     const cid = Number(bodyCommunityId) || 0;
     const [community] = await db.select().from(communities).where(eq6(communities.id, cid));
     if (!community) return res.status(404).json({ error: "Community not found" });
@@ -6061,10 +6193,10 @@ async function registerRoutes(app2) {
     }).returning();
     res.status(201).json(row);
   });
-  app2.get("/api/community-ads/revenue-settings/:communityId", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/community-ads/revenue-settings/:communityId", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const cid = paramNum(req, "communityId");
+    const cid = paramNum(req2, "communityId");
     const [community] = await db.select().from(communities).where(eq6(communities.id, cid));
     if (!community) return res.status(404).json({ error: "Community not found" });
     if (community.adminId !== user.id) return res.status(403).json({ error: "Only the community owner can change this" });
@@ -6099,17 +6231,17 @@ async function registerRoutes(app2) {
       revenueStructure: { eventFund: 10, adminAndMods: 70, platform: 20 }
     });
   });
-  app2.patch("/api/community-ads/revenue-settings/:communityId", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.patch("/api/community-ads/revenue-settings/:communityId", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const cid = paramNum(req, "communityId");
+    const cid = paramNum(req2, "communityId");
     const [community] = await db.select().from(communities).where(eq6(communities.id, cid));
     if (!community) return res.status(404).json({ error: "Community not found" });
     if (community.adminId !== user.id) return res.status(403).json({ error: "Only the community owner can change this" });
     if (await isOfficialStationCommunityId(cid)) {
       return res.status(400).json({ error: "Official Station ad revenue is fixed to operations (100%)" });
     }
-    const { distribution } = req.body;
+    const { distribution } = req2.body;
     if (!distribution || typeof distribution !== "object") {
       return res.status(400).json({ error: "distribution object is required" });
     }
@@ -6120,8 +6252,8 @@ async function registerRoutes(app2) {
     await db.update(communities).set({ revenueDistribution: JSON.stringify(distribution) }).where(eq6(communities.id, cid));
     res.json({ ok: true });
   });
-  app2.post("/api/genre-owners/assign", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/genre-owners/assign", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user || user.role !== "ADMIN") return res.status(403).json({ error: "Only admins can run this" });
     const allCommunities = await db.select({ id: communities.id, category: communities.category, members: communities.members, adminId: communities.adminId }).from(communities).where(sql5`${communities.adminId} IS NOT NULL`);
     const byGenre = /* @__PURE__ */ new Map();
@@ -6148,8 +6280,8 @@ async function registerRoutes(app2) {
     }
     res.json({ ok: true, assigned: results });
   });
-  app2.get("/api/community-ads/review", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/community-ads/review", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const ownedRows = await db.select({ id: communities.id }).from(communities).where(eq6(communities.adminId, user.id));
     const modRows = await db.select({ communityId: communityModerators.communityId }).from(communityModerators).where(eq6(communityModerators.userId, user.id));
@@ -6170,10 +6302,10 @@ async function registerRoutes(app2) {
     }));
     res.json(result);
   });
-  app2.patch("/api/community-ads/:id/moderator-approve", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.patch("/api/community-ads/:id/moderator-approve", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const id = paramNum(req, "id");
+    const id = paramNum(req2, "id");
     const [ad] = await db.select().from(communityAds).where(eq6(communityAds.id, id));
     if (!ad) return res.status(404).json({ error: "Application not found" });
     if (ad.status !== "pending") return res.status(400).json({ error: "This application has already been processed" });
@@ -6182,10 +6314,10 @@ async function registerRoutes(app2) {
     await db.update(communityAds).set({ status: "moderator_approved", approvedByModerator: user.id }).where(eq6(communityAds.id, id));
     res.json({ ok: true });
   });
-  app2.patch("/api/community-ads/:id/approve", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.patch("/api/community-ads/:id/approve", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const id = paramNum(req, "id");
+    const id = paramNum(req2, "id");
     const [ad] = await db.select().from(communityAds).where(eq6(communityAds.id, id));
     if (!ad) return res.status(404).json({ error: "Application not found" });
     if (ad.status !== "moderator_approved") return res.status(400).json({ error: "The owner can approve after moderator approval" });
@@ -6197,10 +6329,10 @@ async function registerRoutes(app2) {
     });
     res.json({ ok: true });
   });
-  app2.patch("/api/community-ads/:id/reject", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.patch("/api/community-ads/:id/reject", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const id = paramNum(req, "id");
+    const id = paramNum(req2, "id");
     const [ad] = await db.select().from(communityAds).where(eq6(communityAds.id, id));
     if (!ad) return res.status(404).json({ error: "Application not found" });
     if (ad.status === "approved" || ad.status === "rejected") return res.status(400).json({ error: "Already processed" });
@@ -6213,10 +6345,10 @@ async function registerRoutes(app2) {
     res.json({ ok: true });
   });
   const REPORT_REASONS = ["spam", "harassment", "inappropriate", "other"];
-  app2.post("/api/reports", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/reports", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const { contentType, contentId, reason } = req.body;
+    const { contentType, contentId, reason } = req2.body;
     const cid = Number(contentId) || 0;
     const type = contentType === "comment" ? "comment" : contentType === "video" ? "video" : null;
     if (!type || !cid || !reason || !REPORT_REASONS.includes(reason)) {
@@ -6251,8 +6383,8 @@ async function registerRoutes(app2) {
     }
     res.status(201).json(report);
   });
-  app2.post("/api/concerts", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/concerts", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const {
       title,
@@ -6267,7 +6399,7 @@ async function registerRoutes(app2) {
       editorShare,
       venueShare,
       status
-    } = req.body;
+    } = req2.body;
     if (!title || !venueName || !venueAddress || !concertDate) {
       return res.status(400).json({ error: "Required items are missing" });
     }
@@ -6305,16 +6437,16 @@ async function registerRoutes(app2) {
     const rows = await db.select().from(concerts).where(eq6(concerts.status, "published")).orderBy(desc2(concerts.concertDate), desc2(concerts.createdAt));
     res.json(rows);
   });
-  app2.get("/api/concerts/:id", async (req, res) => {
-    const id = paramNum(req, "id");
+  app2.get("/api/concerts/:id", async (req2, res) => {
+    const id = paramNum(req2, "id");
     const [row] = await db.select().from(concerts).where(eq6(concerts.id, id));
     if (!row) return res.status(404).json({ error: "Show not found" });
     res.json(row);
   });
-  app2.post("/api/concerts/:id/staff-request", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/concerts/:id/staff-request", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const concertId = paramNum(req, "id");
+    const concertId = paramNum(req2, "id");
     const [concert] = await db.select().from(concerts).where(eq6(concerts.id, concertId));
     if (!concert) return res.status(404).json({ error: "Show not found" });
     const existing = await db.select().from(concertStaff).where(and5(eq6(concertStaff.concertId, concertId), eq6(concertStaff.staffUserId, user.id)));
@@ -6329,10 +6461,10 @@ async function registerRoutes(app2) {
     }).returning();
     res.status(201).json(row);
   });
-  app2.get("/api/concerts/:id/staff-requests", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/concerts/:id/staff-requests", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const concertId = paramNum(req, "id");
+    const concertId = paramNum(req2, "id");
     const [concert] = await db.select().from(concerts).where(eq6(concerts.id, concertId));
     if (!concert) return res.status(404).json({ error: "Show not found" });
     if (concert.artistUserId !== user.id) {
@@ -6341,19 +6473,19 @@ async function registerRoutes(app2) {
     const rows = await db.select().from(concertStaff).where(eq6(concertStaff.concertId, concertId)).orderBy(desc2(concertStaff.createdAt));
     res.json(rows);
   });
-  app2.get("/api/concerts/:id/staff-req", async (req, res) => {
+  app2.get("/api/concerts/:id/staff-req", async (req2, res) => {
     return app2._router.handle(
-      { ...req, url: `/api/concerts/${paramNum(req, "id")}/staff-requests`, params: req.params },
+      { ...req2, url: `/api/concerts/${paramNum(req2, "id")}/staff-requests`, params: req2.params },
       res,
       () => {
       }
     );
   });
-  app2.patch("/api/concerts/:id/staff/:staffId/approve", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.patch("/api/concerts/:id/staff/:staffId/approve", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const concertId = paramNum(req, "id");
-    const staffId = paramNum(req, "staffId");
+    const concertId = paramNum(req2, "id");
+    const staffId = paramNum(req2, "staffId");
     const [concert] = await db.select().from(concerts).where(eq6(concerts.id, concertId));
     if (!concert) return res.status(404).json({ error: "Show not found" });
     if (concert.artistUserId !== user.id) {
@@ -6364,11 +6496,11 @@ async function registerRoutes(app2) {
     const [updated] = await db.update(concertStaff).set({ status: "approved" }).where(eq6(concertStaff.id, staffId)).returning();
     res.json(updated);
   });
-  app2.patch("/api/concerts/:id/staff/:staffId/reject", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.patch("/api/concerts/:id/staff/:staffId/reject", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const concertId = paramNum(req, "id");
-    const staffId = paramNum(req, "staffId");
+    const concertId = paramNum(req2, "id");
+    const staffId = paramNum(req2, "staffId");
     const [concert] = await db.select().from(concerts).where(eq6(concerts.id, concertId));
     if (!concert) return res.status(404).json({ error: "Show not found" });
     if (concert.artistUserId !== user.id) {
@@ -6381,10 +6513,10 @@ async function registerRoutes(app2) {
   });
   const GENRE_MIN_AMOUNT = 7e3;
   const GENRE_MAX_MONTHS_AHEAD = 3;
-  app2.post("/api/genre-ads", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/genre-ads", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const { genreId, companyName, contactName, email, bannerUrl, startDate, endDate } = req.body;
+    const { genreId, companyName, contactName, email, bannerUrl, startDate, endDate } = req2.body;
     const gid = (genreId ?? "").trim();
     if (!gid || !GENRE_TO_CATEGORY[gid]) {
       return res.status(400).json({ error: "Invalid genreId" });
@@ -6434,8 +6566,8 @@ async function registerRoutes(app2) {
     }).returning();
     res.status(201).json(row);
   });
-  app2.get("/api/genre-ads/review", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/genre-ads/review", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
     const ownerRows = await db.select().from(genreOwners).where(eq6(genreOwners.ownerUserId, user.id));
     if (ownerRows.length === 0) return res.json([]);
@@ -6443,10 +6575,10 @@ async function registerRoutes(app2) {
     const rows = await db.select().from(genreAds).where(and5(inArray2(genreAds.genreId, genreIds), eq6(genreAds.status, "pending"))).orderBy(desc2(genreAds.createdAt));
     res.json(rows);
   });
-  app2.patch("/api/genre-ads/:id/approve", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.patch("/api/genre-ads/:id/approve", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const id = paramNum(req, "id");
+    const id = paramNum(req2, "id");
     const [ad] = await db.select().from(genreAds).where(eq6(genreAds.id, id));
     if (!ad) return res.status(404).json({ error: "Application not found" });
     const [owner] = await db.select().from(genreOwners).where(and5(eq6(genreOwners.genreId, ad.genreId), eq6(genreOwners.ownerUserId, user.id)));
@@ -6454,10 +6586,10 @@ async function registerRoutes(app2) {
     await db.update(genreAds).set({ status: "approved" }).where(eq6(genreAds.id, id));
     res.json({ ok: true });
   });
-  app2.patch("/api/genre-ads/:id/reject", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.patch("/api/genre-ads/:id/reject", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Please sign in" });
-    const id = paramNum(req, "id");
+    const id = paramNum(req2, "id");
     const [ad] = await db.select().from(genreAds).where(eq6(genreAds.id, id));
     if (!ad) return res.status(404).json({ error: "Application not found" });
     const [owner] = await db.select().from(genreOwners).where(and5(eq6(genreOwners.genreId, ad.genreId), eq6(genreOwners.ownerUserId, user.id)));
@@ -6521,8 +6653,8 @@ async function registerRoutes(app2) {
     }
     res.json({ ok: true, updated: ranked.length, yearMonth });
   });
-  app2.post("/api/admin/announcements/run", async (req, res) => {
-    const admin = await getAdminUserOrReject(req, res);
+  app2.post("/api/admin/announcements/run", async (req2, res) => {
+    const admin = await getAdminUserOrReject(req2, res);
     if (!admin) return;
     if (announcementRunInProgress) {
       return res.status(409).json({ error: "Announcement run already in progress" });
@@ -6560,17 +6692,17 @@ async function registerRoutes(app2) {
       announcementRunInProgress = false;
     }
   });
-  app2.get("/api/admin/reports", async (req, res) => {
-    const user = await getAdminUserOrReject(req, res);
+  app2.get("/api/admin/reports", async (req2, res) => {
+    const user = await getAdminUserOrReject(req2, res);
     if (!user) return;
-    const showAll = req.query.all === "1";
+    const showAll = req2.query.all === "1";
     const rows = await db.select().from(reports).where(showAll ? void 0 : eq6(reports.status, "pending")).orderBy(desc2(reports.createdAt));
     res.json(rows);
   });
-  app2.patch("/api/admin/reports/:id/hide", async (req, res) => {
-    const user = await getAdminUserOrReject(req, res);
+  app2.patch("/api/admin/reports/:id/hide", async (req2, res) => {
+    const user = await getAdminUserOrReject(req2, res);
     if (!user) return;
-    const id = paramNum(req, "id");
+    const id = paramNum(req2, "id");
     const [report] = await db.select().from(reports).where(eq6(reports.id, id));
     if (!report) return res.status(404).json({ error: "Report not found" });
     if (report.contentType === "video") {
@@ -6581,17 +6713,17 @@ async function registerRoutes(app2) {
     await db.update(reports).set({ status: "hidden" }).where(eq6(reports.id, id));
     res.json({ ok: true });
   });
-  app2.patch("/api/admin/reports/:id/dismiss", async (req, res) => {
-    const user = await getAdminUserOrReject(req, res);
+  app2.patch("/api/admin/reports/:id/dismiss", async (req2, res) => {
+    const user = await getAdminUserOrReject(req2, res);
     if (!user) return;
-    const id = paramNum(req, "id");
+    const id = paramNum(req2, "id");
     const [report] = await db.select().from(reports).where(eq6(reports.id, id));
     if (!report) return res.status(404).json({ error: "Report not found" });
     await db.update(reports).set({ status: "reviewed" }).where(eq6(reports.id, id));
     res.json({ ok: true });
   });
-  app2.get("/api/admin/stats", async (req, res) => {
-    const admin = await getAdminUserOrReject(req, res);
+  app2.get("/api/admin/stats", async (req2, res) => {
+    const admin = await getAdminUserOrReject(req2, res);
     if (!admin) return;
     const [{ userCount }] = await db.select({ userCount: sql5`count(*)::int` }).from(users);
     const [{ videoCount }] = await db.select({ videoCount: sql5`count(*)::int` }).from(videos);
@@ -6605,8 +6737,8 @@ async function registerRoutes(app2) {
       salesLast30Days: Number(salesLast30Days ?? 0)
     });
   });
-  app2.get("/api/admin/users", async (req, res) => {
-    const admin = await getAdminUserOrReject(req, res);
+  app2.get("/api/admin/users", async (req2, res) => {
+    const admin = await getAdminUserOrReject(req2, res);
     if (!admin) return;
     const rows = await db.select({
       id: users.id,
@@ -6618,13 +6750,13 @@ async function registerRoutes(app2) {
     }).from(users).orderBy(desc2(users.createdAt));
     res.json(rows);
   });
-  app2.patch("/api/admin/users/:id", async (req, res) => {
-    const admin = await getAdminUserOrReject(req, res);
+  app2.patch("/api/admin/users/:id", async (req2, res) => {
+    const admin = await getAdminUserOrReject(req2, res);
     if (!admin) return;
-    const targetUserId = paramNum(req, "id");
+    const targetUserId = paramNum(req2, "id");
     if (!targetUserId) return res.status(400).json({ error: "Invalid user id" });
-    const role = typeof req.body?.role === "string" ? req.body.role.trim().toUpperCase() : void 0;
-    const isBanned = typeof req.body?.isBanned === "boolean" ? req.body.isBanned : void 0;
+    const role = typeof req2.body?.role === "string" ? req2.body.role.trim().toUpperCase() : void 0;
+    const isBanned = typeof req2.body?.isBanned === "boolean" ? req2.body.isBanned : void 0;
     const nextValues = { updatedAt: /* @__PURE__ */ new Date() };
     if (role !== void 0) {
       if (!["USER", "ADMIN"].includes(role)) {
@@ -6649,8 +6781,8 @@ async function registerRoutes(app2) {
     if (!updated) return res.status(404).json({ error: "User not found" });
     res.json(updated);
   });
-  app2.get("/api/admin/content", async (req, res) => {
-    const admin = await getAdminUserOrReject(req, res);
+  app2.get("/api/admin/content", async (req2, res) => {
+    const admin = await getAdminUserOrReject(req2, res);
     if (!admin) return;
     const rows = await db.select({
       id: videos.id,
@@ -6664,12 +6796,12 @@ async function registerRoutes(app2) {
     }).from(videos).orderBy(desc2(videos.createdAt));
     res.json(rows);
   });
-  app2.patch("/api/admin/content/:id", async (req, res) => {
-    const admin = await getAdminUserOrReject(req, res);
+  app2.patch("/api/admin/content/:id", async (req2, res) => {
+    const admin = await getAdminUserOrReject(req2, res);
     if (!admin) return;
-    const videoId = paramNum(req, "id");
+    const videoId = paramNum(req2, "id");
     if (!videoId) return res.status(400).json({ error: "Invalid content id" });
-    const hidden = typeof req.body?.hidden === "boolean" ? req.body.hidden : true;
+    const hidden = typeof req2.body?.hidden === "boolean" ? req2.body.hidden : true;
     const [updated] = await db.update(videos).set({
       hidden
     }).where(eq6(videos.id, videoId)).returning({
@@ -6681,10 +6813,10 @@ async function registerRoutes(app2) {
     if (!updated) return res.status(404).json({ error: "Content not found" });
     res.json(updated);
   });
-  app2.delete("/api/admin/content/:id", async (req, res) => {
-    const admin = await getAdminUserOrReject(req, res);
+  app2.delete("/api/admin/content/:id", async (req2, res) => {
+    const admin = await getAdminUserOrReject(req2, res);
     if (!admin) return;
-    const videoId = paramNum(req, "id");
+    const videoId = paramNum(req2, "id");
     if (!videoId) return res.status(400).json({ error: "Invalid content id" });
     await db.delete(savedVideos).where(eq6(savedVideos.videoId, videoId));
     await db.delete(videoComments).where(eq6(videoComments.videoId, videoId));
@@ -6694,7 +6826,88 @@ async function registerRoutes(app2) {
     if (deleted.length === 0) return res.status(404).json({ error: "Content not found" });
     res.json({ ok: true, id: videoId });
   });
-  app2.post("/api/upload-url", async (req, res) => {
+  app2.get("/api/admin/email-campaigns/preview", async (req2, res) => {
+    const admin = await getAdminUserOrReject(req2, res);
+    if (!admin) return;
+    const rows = await db.select({ total: count() }).from(users).leftJoin(emailUnsubscribes, eq6(emailUnsubscribes.email, users.email)).where(
+      and5(
+        sql5`${users.lineId} LIKE 'google:%'`,
+        isNotNull(users.email),
+        isNull(emailUnsubscribes.id)
+      )
+    );
+    res.json({ targetCount: rows[0]?.total ?? 0 });
+  });
+  app2.post("/api/admin/email-campaigns/send", async (req2, res) => {
+    const admin = await getAdminUserOrReject(req2, res);
+    if (!admin) return;
+    const { campaignKey, subject, bodyHtml, dryRun = true } = req2.body;
+    if (!campaignKey || !subject || !bodyHtml) {
+      return res.status(400).json({ error: "campaignKey, subject, bodyHtml are required" });
+    }
+    if (!dryRun) {
+      const existing = await db.select({ id: emailCampaigns.id }).from(emailCampaigns).where(and5(eq6(emailCampaigns.campaignKey, campaignKey), eq6(emailCampaigns.dryRun, false))).limit(1);
+      if (existing.length > 0) {
+        return res.status(409).json({ error: "This campaignKey has already been sent.", existingId: existing[0].id });
+      }
+    }
+    const targetUsers = await db.select({ id: users.id, email: users.email }).from(users).leftJoin(emailUnsubscribes, eq6(emailUnsubscribes.email, users.email)).where(
+      and5(
+        sql5`${users.lineId} LIKE 'google:%'`,
+        isNotNull(users.email),
+        isNull(emailUnsubscribes.id)
+      )
+    );
+    const [campaign] = await db.insert(emailCampaigns).values({
+      campaignKey: dryRun ? `${campaignKey}__dryrun_${Date.now()}` : campaignKey,
+      subject,
+      bodyHtml,
+      dryRun,
+      targetCount: targetUsers.length,
+      sentByUserId: admin.id,
+      status: dryRun ? "dry_run_completed" : "sending"
+    }).returning();
+    if (dryRun) {
+      return res.json({ campaignId: campaign.id, dryRun: true, targetCount: targetUsers.length, sentCount: 0 });
+    }
+    let sentCount = 0;
+    let failedCount = 0;
+    const BATCH = 10;
+    for (let i = 0; i < targetUsers.length; i += BATCH) {
+      await Promise.allSettled(
+        targetUsers.slice(i, i + BATCH).map(async (u2) => {
+          const email = u2.email;
+          const token = generateUnsubscribeToken(email);
+          const publicBase = APP_URL || resolvePublicAppOrigin();
+          const unsubUrl = `${publicBase}/api/email/unsubscribe?email=${encodeURIComponent(email)}&token=${token}`;
+          const html = `${bodyHtml}<br><br><hr style="border:none;border-top:1px solid #eee"><p style="color:#999;font-size:11px">\u3053\u306E\u30E1\u30FC\u30EB\u306E\u914D\u4FE1\u505C\u6B62\u306F<a href="${unsubUrl}" style="color:#999">\u3053\u3061\u3089</a></p>`;
+          try {
+            await sendEmail({ to: email, subject, html });
+            await db.insert(emailDeliveries).values({
+              campaignId: campaign.id,
+              userId: u2.id,
+              email,
+              status: "sent",
+              sentAt: /* @__PURE__ */ new Date()
+            });
+            sentCount++;
+          } catch (err) {
+            await db.insert(emailDeliveries).values({
+              campaignId: campaign.id,
+              userId: u2.id,
+              email,
+              status: "failed",
+              error: String(err)
+            });
+            failedCount++;
+          }
+        })
+      );
+    }
+    await db.update(emailCampaigns).set({ status: "sent", sentCount, failedCount, sentAt: /* @__PURE__ */ new Date() }).where(eq6(emailCampaigns.id, campaign.id));
+    res.json({ campaignId: campaign.id, dryRun: false, targetCount: targetUsers.length, sentCount, failedCount });
+  });
+  app2.post("/api/upload-url", async (req2, res) => {
     debugIngestServer({
       sessionId: "88cb7d",
       runId: "initial",
@@ -6702,12 +6915,12 @@ async function registerRoutes(app2) {
       location: "server/routes.ts:/api/upload-url",
       message: "Upload URL endpoint hit",
       data: {
-        hasFileName: Boolean(req.body?.fileName),
-        hasContentType: Boolean(req.body?.contentType)
+        hasFileName: Boolean(req2.body?.fileName),
+        hasContentType: Boolean(req2.body?.contentType)
       },
       timestamp: Date.now()
     });
-    const user = await getAuthUser(req);
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const hasAccessKey = Boolean(process.env.R2_ACCESS_KEY_ID?.trim());
     const hasSecret = Boolean(process.env.R2_SECRET_ACCESS_KEY?.trim());
@@ -6720,7 +6933,7 @@ async function registerRoutes(app2) {
       hasBucket,
       userId: user.id
     });
-    const { fileName, contentType: rawContentType } = req.body;
+    const { fileName, contentType: rawContentType } = req2.body;
     if (!fileName) {
       return res.status(400).json({ error: "fileName is required" });
     }
@@ -6734,7 +6947,7 @@ async function registerRoutes(app2) {
         filePublicUrl = publicUrl;
       } else {
         try {
-          filePublicUrl = resolveUploadPublicUrlForKey(req, key);
+          filePublicUrl = resolveUploadPublicUrlForKey(req2, key);
         } catch {
           return res.status(500).json({
             error: "Cannot build a browser-loadable file URL. Set R2_PUBLIC_BASE_URL or ensure reverse-proxy forwards Host / X-Forwarded-* headers.",
@@ -6769,20 +6982,20 @@ async function registerRoutes(app2) {
     limit: R2_PROXY_MAX_BYTES,
     type: "application/octet-stream"
   });
-  app2.post("/api/upload-file", uploadFileBodyParser, async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/upload-file", uploadFileBodyParser, async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const rawName = req.header("x-upload-file-name");
+    const rawName = req2.header("x-upload-file-name");
     const fileName = rawName ? decodeURIComponent(rawName) : `upload_${Date.now()}.bin`;
     if (fileName.length > 240) return res.status(400).json({ error: "fileName is too long" });
-    const rawCt = req.header("x-upload-content-type") || "application/octet-stream";
+    const rawCt = req2.header("x-upload-content-type") || "application/octet-stream";
     const contentType = rawCt.split(";")[0].trim();
     const ctLower = contentType.toLowerCase();
     const allowed = /^image\/(jpeg|png|webp|gif)$/i.test(contentType) || /^video\//i.test(contentType) || ctLower === "application/octet-stream";
     if (!allowed) {
       return res.status(400).json({ error: "Unsupported content type for this upload" });
     }
-    const buf = req.body;
+    const buf = req2.body;
     if (!Buffer.isBuffer(buf) || buf.length === 0) {
       return res.status(400).json({ error: "Empty upload body" });
     }
@@ -6804,7 +7017,7 @@ async function registerRoutes(app2) {
     }
     let filePublicUrl;
     try {
-      filePublicUrl = resolveUploadPublicUrlForKey(req, key);
+      filePublicUrl = resolveUploadPublicUrlForKey(req2, key);
     } catch {
       return res.status(500).json({
         error: "Cannot build a browser-loadable file URL. Set R2_PUBLIC_BASE_URL or ensure reverse-proxy forwards Host / X-Forwarded-* headers.",
@@ -6813,10 +7026,10 @@ async function registerRoutes(app2) {
     }
     res.json({ key, url: filePublicUrl, fileUrl: filePublicUrl });
   });
-  app2.get("/api/videos", async (req, res) => {
+  app2.get("/api/videos", async (req2, res) => {
     res.setHeader("Cache-Control", "private, no-store");
-    const genreId = req.query?.genre;
-    const communityIdParam = req.query?.communityId;
+    const genreId = req2.query?.genre;
+    const communityIdParam = req2.query?.communityId;
     let rows = await db.select().from(videos).where(and5(eq6(videos.isRanked, false), eq6(videos.hidden, false))).orderBy(desc2(videos.createdAt));
     rows = rows.filter((r) => r.visibility !== "draft" && r.visibility !== "my_page_only");
     const names = Array.from(new Set(rows.map((r) => r.creator)));
@@ -6838,17 +7051,17 @@ async function registerRoutes(app2) {
     });
     res.json(withCreator);
   });
-  app2.get("/api/videos/my", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/videos/my", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const rows = await db.select().from(videos).where(or(eq6(videos.creator, user.displayName), eq6(videos.userId, user.id))).orderBy(desc2(videos.createdAt));
     const filtered = rows.filter((r) => !r.hidden);
     res.json(filtered);
   });
-  app2.delete("/api/videos/mine", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.delete("/api/videos/mine", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const raw = typeof req.query.postType === "string" ? req.query.postType : "";
+    const raw = typeof req2.query.postType === "string" ? req2.query.postType : "";
     if (!["work", "daily", "all"].includes(raw)) {
       return res.status(400).json({ error: "Query postType must be work, daily, or all" });
     }
@@ -6873,8 +7086,8 @@ async function registerRoutes(app2) {
     const rows = await db.select().from(videos).where(and5(eq6(videos.postType, "work"), eq6(videos.hidden, false))).orderBy(asc3(videos.rank));
     res.json(rows);
   });
-  app2.get("/api/videos/saved", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/videos/saved", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const rows = await db.select({
       id: videos.id,
@@ -6891,9 +7104,9 @@ async function registerRoutes(app2) {
     }));
     res.json(timeAgoList);
   });
-  app2.get("/api/videos/:id", async (req, res) => {
-    const id = paramNum(req, "id");
-    const authUser = await getAuthUser(req);
+  app2.get("/api/videos/:id", async (req2, res) => {
+    const id = paramNum(req2, "id");
+    const authUser = await getAuthUser(req2);
     const [row] = await db.select().from(videos).where(eq6(videos.id, id));
     if (!row || row.hidden) return res.status(404).json({ message: "Not found" });
     const vis = row.visibility;
@@ -6907,8 +7120,8 @@ async function registerRoutes(app2) {
     const creatorId = row.userId ?? creatorUser?.id ?? null;
     res.json({ ...row, timeAgo, creatorType, creatorId, creatorLiverProfileId: creatorLiver?.id ?? null });
   });
-  app2.get("/api/videos/:id/comments", async (req, res) => {
-    const videoId = paramNum(req, "id");
+  app2.get("/api/videos/:id/comments", async (req2, res) => {
+    const videoId = paramNum(req2, "id");
     const rows = await db.select({
       id: videoComments.id,
       videoId: videoComments.videoId,
@@ -6920,19 +7133,19 @@ async function registerRoutes(app2) {
     }).from(videoComments).leftJoin(users, eq6(users.id, videoComments.userId)).where(and5(eq6(videoComments.videoId, videoId), eq6(videoComments.hidden, false))).orderBy(asc3(videoComments.createdAt));
     res.json(rows);
   });
-  app2.post("/api/videos/:id/comments", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/videos/:id/comments", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const videoId = paramNum(req, "id");
-    const text2 = req.body.text?.trim();
+    const videoId = paramNum(req2, "id");
+    const text2 = req2.body.text?.trim();
     if (!text2) return res.status(400).json({ error: "Comment text is required" });
     const [row] = await db.insert(videoComments).values({ videoId, userId: user.id, text: text2 }).returning();
     res.status(201).json(row);
   });
-  app2.post("/api/videos", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/videos", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const { title, community, communityId, duration, price, thumbnail, description, concertId, visibility, videoUrl, youtubeId, postType, complianceAcknowledged } = req.body;
+    const { title, community, communityId, duration, price, thumbnail, description, concertId, visibility, videoUrl, youtubeId, postType, complianceAcknowledged } = req2.body;
     if (complianceAcknowledged !== true) {
       return res.status(400).json({
         message: "Confirm community guidelines and rights before posting",
@@ -6968,15 +7181,15 @@ async function registerRoutes(app2) {
     }).returning();
     res.status(201).json(row);
   });
-  app2.patch("/api/videos/:id", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.patch("/api/videos/:id", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const id = paramNum(req, "id");
+    const id = paramNum(req2, "id");
     const [video] = await db.select().from(videos).where(eq6(videos.id, id));
     if (!video) return res.status(404).json({ message: "Not found" });
     const isOwner = isVideoOwner(video, user);
     if (!isOwner) return res.status(403).json({ error: "You do not have permission to edit" });
-    const { title, visibility, communityId, community, price, videoUrl, duration } = req.body;
+    const { title, visibility, communityId, community, price, videoUrl, duration } = req2.body;
     const updates = {};
     if (title !== void 0) {
       const newTitle = title?.trim();
@@ -7007,10 +7220,10 @@ async function registerRoutes(app2) {
     const [updated] = await db.update(videos).set(updates).where(eq6(videos.id, id)).returning();
     res.json(updated);
   });
-  app2.delete("/api/videos/:id", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.delete("/api/videos/:id", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const id = paramNum(req, "id");
+    const id = paramNum(req2, "id");
     const [video] = await db.select().from(videos).where(eq6(videos.id, id));
     if (!video) return res.status(404).json({ message: "Not found" });
     const isOwner = isVideoOwner(video, user);
@@ -7019,10 +7232,10 @@ async function registerRoutes(app2) {
     await db.delete(videos).where(eq6(videos.id, id));
     res.json({ ok: true });
   });
-  app2.post("/api/videos/:id/save", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/videos/:id/save", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const videoId = paramNum(req, "id");
+    const videoId = paramNum(req2, "id");
     const [video] = await db.select().from(videos).where(eq6(videos.id, videoId));
     if (!video || video.hidden) return res.status(404).json({ message: "Not found" });
     const vis = video.visibility;
@@ -7035,22 +7248,22 @@ async function registerRoutes(app2) {
     }
     res.json({ ok: true });
   });
-  app2.delete("/api/videos/:id/save", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.delete("/api/videos/:id/save", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const videoId = paramNum(req, "id");
+    const videoId = paramNum(req2, "id");
     await db.delete(savedVideos).where(and5(eq6(savedVideos.userId, user.id), eq6(savedVideos.videoId, videoId)));
     res.json({ ok: true });
   });
-  app2.get("/api/videos/:id/saved", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/videos/:id/saved", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.json({ saved: false });
-    const videoId = paramNum(req, "id");
+    const videoId = paramNum(req2, "id");
     const [row] = await db.select().from(savedVideos).where(and5(eq6(savedVideos.userId, user.id), eq6(savedVideos.videoId, videoId)));
     res.json({ saved: !!row });
   });
-  app2.get("/api/users/:id/posts", async (req, res) => {
-    const userId = paramNum(req, "id");
+  app2.get("/api/users/:id/posts", async (req2, res) => {
+    const userId = paramNum(req2, "id");
     const [targetUser] = await db.select({ id: users.id, displayName: users.displayName }).from(users).where(eq6(users.id, userId));
     if (!targetUser) return res.status(404).json({ message: "Not found" });
     const rows = await db.select().from(videos).where(
@@ -7108,24 +7321,24 @@ async function registerRoutes(app2) {
     const rows = await db.select().from(creators).orderBy(asc3(creators.rank));
     res.json(rows);
   });
-  app2.get("/api/booking-sessions", async (req, res) => {
-    const category = queryStr(req, "category");
+  app2.get("/api/booking-sessions", async (req2, res) => {
+    const category = queryStr(req2, "category");
     const rows = category && category !== "all" ? await db.select().from(bookingSessions).where(eq6(bookingSessions.category, category)) : await db.select().from(bookingSessions);
     res.json(rows);
   });
-  app2.post("/api/booking-sessions/:id/book", async (req, res) => {
-    const id = paramNum(req, "id");
+  app2.post("/api/booking-sessions/:id/book", async (req2, res) => {
+    const id = paramNum(req2, "id");
     const [session] = await db.select().from(bookingSessions).where(eq6(bookingSessions.id, id));
     if (!session) return res.status(404).json({ message: "Not found" });
     if (session.spotsLeft <= 0) return res.status(400).json({ message: "Fully booked" });
     const [updated] = await db.update(bookingSessions).set({ spotsLeft: session.spotsLeft - 1 }).where(eq6(bookingSessions.id, id)).returning();
     res.json(updated);
   });
-  app2.post("/api/dm/open", async (req, res) => {
+  app2.post("/api/dm/open", async (req2, res) => {
     await ensureDmThreadTables();
-    const me = await getAuthUser(req);
+    const me = await getAuthUser(req2);
     if (!me) return res.status(401).json({ error: "Not authenticated" });
-    const raw = req.body?.peerUserId;
+    const raw = req2.body?.peerUserId;
     const peer = typeof raw === "number" && Number.isFinite(raw) ? Math.floor(raw) : typeof raw === "string" ? parseInt(raw, 10) : NaN;
     if (!Number.isFinite(peer) || peer < 1) {
       return res.status(400).json({ error: "peerUserId is required" });
@@ -7141,9 +7354,9 @@ async function registerRoutes(app2) {
     }
     res.json({ threadId: th.id });
   });
-  app2.get("/api/dm-messages", async (req, res) => {
+  app2.get("/api/dm-messages", async (req2, res) => {
     await ensureDmThreadTables();
-    const me = await getAuthUser(req);
+    const me = await getAuthUser(req2);
     if (!me) return res.json([]);
     const threads = await db.select().from(dmThreads).where(or(eq6(dmThreads.user1Id, me.id), eq6(dmThreads.user2Id, me.id))).orderBy(desc2(dmThreads.updatedAt));
     const out = [];
@@ -7157,19 +7370,15 @@ async function registerRoutes(app2) {
         avatar: peer.profileImageUrl ?? "",
         lastMessage: t.lastMessagePreview ?? "",
         time: formatDmThreadTime(t.updatedAt ?? void 0),
-        unread: 0,
+        unread: await dmThreadPeerUnreadCount(t.id, me.id, t),
         online: false,
         otherUserId: peerId
       });
     }
     const opsDm = await ensureOperationsDmRow();
-    const [{ welcomeDmSentAt, operationsDmOpenedAt }] = await db.select({
-      welcomeDmSentAt: users.welcomeDmSentAt,
-      operationsDmOpenedAt: users.operationsDmOpenedAt
-    }).from(users).where(eq6(users.id, me.id));
     if (opsDm) {
       const preview = (opsDm.lastMessage ?? "").split("\n").find((line) => line.trim().length > 0) ?? opsDm.lastMessage ?? "";
-      const opsUnread = welcomeDmSentAt && !operationsDmOpenedAt ? 1 : 0;
+      const opsUnread = await operationsGuideDmUnreadForUser(me.id);
       out.unshift({
         id: -opsDm.id,
         name: opsDm.name,
@@ -7183,11 +7392,18 @@ async function registerRoutes(app2) {
     }
     res.json(out);
   });
-  app2.post("/api/dm-messages/:id/read", async (req, res) => {
-    await ensureDmThreadTables();
-    const rawId = paramNum(req, "id");
-    const legacyDmId = rawId < 0 ? -rawId : rawId;
+  app2.get("/api/dm-messages/unread-count", async (_req, res) => {
+    res.setHeader("Cache-Control", "private, no-store");
     const me = await getAuthUser(req);
+    if (!me) return res.json({ count: 0 });
+    const count2 = await totalDmUnreadForUser(me.id);
+    res.json({ count: count2 });
+  });
+  app2.post("/api/dm-messages/:id/read", async (req2, res) => {
+    await ensureDmThreadTables();
+    const rawId = paramNum(req2, "id");
+    const legacyDmId = rawId < 0 ? -rawId : rawId;
+    const me = await getAuthUser(req2);
     if (me && rawId > 0) {
       const [th] = await db.select().from(dmThreads).where(
         and5(
@@ -7195,7 +7411,10 @@ async function registerRoutes(app2) {
           or(eq6(dmThreads.user1Id, me.id), eq6(dmThreads.user2Id, me.id))
         )
       );
-      if (th) return res.json({ ok: true });
+      if (th) {
+        await markDmThreadRead(rawId, me.id);
+        return res.json({ ok: true });
+      }
     }
     const [updated] = await db.update(dmMessages).set({ unread: 0 }).where(eq6(dmMessages.id, legacyDmId)).returning();
     if (me) {
@@ -7211,8 +7430,8 @@ async function registerRoutes(app2) {
     const [{ count: count2 }] = await db.select({ count: sql5`count(*)::int` }).from(notifications).where(eq6(notifications.isRead, false));
     res.json({ count: count2 ?? 0 });
   });
-  app2.get("/api/notifications", async (req, res) => {
-    const type = queryStr(req, "type");
+  app2.get("/api/notifications", async (req2, res) => {
+    const type = queryStr(req2, "type");
     const rows = type && type !== "all" ? await db.select().from(notifications).where(eq6(notifications.type, type)).orderBy(desc2(notifications.createdAt)) : await db.select().from(notifications).orderBy(desc2(notifications.createdAt));
     res.json(rows);
   });
@@ -7220,30 +7439,30 @@ async function registerRoutes(app2) {
     await db.update(notifications).set({ isRead: true });
     res.json({ ok: true });
   });
-  app2.post("/api/notifications/:id/read", async (req, res) => {
-    const id = paramNum(req, "id");
+  app2.post("/api/notifications/:id/read", async (req2, res) => {
+    const id = paramNum(req2, "id");
     const [updated] = await db.update(notifications).set({ isRead: true }).where(eq6(notifications.id, id)).returning();
     res.json(updated);
   });
-  app2.get("/api/live-streams/:id", async (req, res) => {
-    const id = paramNum(req, "id");
+  app2.get("/api/live-streams/:id", async (req2, res) => {
+    const id = paramNum(req2, "id");
     if (!id) return res.status(400).json({ error: "Invalid id" });
-    const payload = await viewerStreamPayload(id, req);
+    const payload = await viewerStreamPayload(id, req2);
     if (!payload) return res.status(404).json({ error: "Not found" });
     return res.json(payload);
   });
-  app2.get("/api/live-streams/:id/chat", async (req, res) => {
-    const me = await getAuthUser(req);
+  app2.get("/api/live-streams/:id/chat", async (req2, res) => {
+    const me = await getAuthUser(req2);
     if (!me) return res.status(401).json({ error: "Not authenticated" });
-    const id = paramNum(req, "id");
+    const id = paramNum(req2, "id");
     const msgs = await db.select().from(liveStreamChat).where(eq6(liveStreamChat.streamId, id)).orderBy(asc3(liveStreamChat.createdAt));
     res.json(msgs);
   });
-  app2.post("/api/live-streams/:id/chat", async (req, res) => {
-    const me = await getAuthUser(req);
+  app2.post("/api/live-streams/:id/chat", async (req2, res) => {
+    const me = await getAuthUser(req2);
     if (!me) return res.status(401).json({ error: "Not authenticated" });
-    const id = paramNum(req, "id");
-    const { username, avatar, message, isGift, giftAmount } = req.body;
+    const id = paramNum(req2, "id");
+    const { username, avatar, message, isGift, giftAmount } = req2.body;
     if (!isGift && message) {
       const modResult = await moderateContent(message);
       if (modResult.allowed === false) {
@@ -7260,10 +7479,10 @@ async function registerRoutes(app2) {
     }).returning();
     res.json(msg);
   });
-  app2.get("/api/dm-messages/:id/peer", async (req, res) => {
+  app2.get("/api/dm-messages/:id/peer", async (req2, res) => {
     await ensureDmThreadTables();
-    const rawId = paramNum(req, "id");
-    const me = await getAuthUser(req);
+    const rawId = paramNum(req2, "id");
+    const me = await getAuthUser(req2);
     if (!me) return res.status(401).json({ error: "Not authenticated" });
     const legacyDmId = rawId < 0 ? -rawId : rawId;
     if (rawId > 0) {
@@ -7289,10 +7508,10 @@ async function registerRoutes(app2) {
       otherUserId: 0
     });
   });
-  app2.get("/api/dm-messages/:id/conversation", async (req, res) => {
+  app2.get("/api/dm-messages/:id/conversation", async (req2, res) => {
     await ensureDmThreadTables();
-    const rawId = paramNum(req, "id");
-    const me = await getAuthUser(req);
+    const rawId = paramNum(req2, "id");
+    const me = await getAuthUser(req2);
     if (!me) return res.status(401).json({ error: "Not authenticated" });
     const legacyDmId = rawId < 0 ? -rawId : rawId;
     if (rawId > 0) {
@@ -7301,6 +7520,7 @@ async function registerRoutes(app2) {
       );
       if (th) {
         const rows = await db.select().from(dmThreadMessages).where(eq6(dmThreadMessages.threadId, rawId)).orderBy(asc3(dmThreadMessages.createdAt));
+        await markDmThreadRead(rawId, me.id);
         return res.json(
           rows.map((m) => {
             const raw = String(m.text ?? "");
@@ -7340,13 +7560,13 @@ async function registerRoutes(app2) {
       })
     );
   });
-  app2.post("/api/dm-messages/:id/conversation", async (req, res) => {
+  app2.post("/api/dm-messages/:id/conversation", async (req2, res) => {
     await ensureDmThreadTables();
-    const rawId = paramNum(req, "id");
+    const rawId = paramNum(req2, "id");
     const legacyDmId = rawId < 0 ? -rawId : rawId;
-    const me = await getAuthUser(req);
+    const me = await getAuthUser(req2);
     if (!me) return res.status(401).json({ error: "Not authenticated" });
-    const body = req.body;
+    const body = req2.body;
     const text2 = typeof body?.text === "string" ? body.text.trim() : "";
     const attachmentUrl = typeof body?.attachmentUrl === "string" ? body.attachmentUrl.trim() : "";
     const attachmentOk = /^https?:\/\//i.test(attachmentUrl);
@@ -7439,10 +7659,10 @@ ${text2}` : ""}` : text2;
     }));
     res.json({ active, recruiting });
   });
-  app2.get("/api/jukebox/:communityId", async (req, res) => {
-    const communityId = paramNum(req, "communityId");
+  app2.get("/api/jukebox/:communityId", async (req2, res) => {
+    const communityId = paramNum(req2, "communityId");
     await ensureStationJukeboxCommunity(communityId);
-    const rawViewer = typeof req.query.viewer === "string" ? req.query.viewer.trim() : "";
+    const rawViewer = typeof req2.query.viewer === "string" ? req2.query.viewer.trim() : "";
     if (rawViewer && isValidJukeboxPollViewerId(rawViewer)) {
       await jukeboxPollTouch(communityId, rawViewer);
     }
@@ -7525,8 +7745,8 @@ ${text2}` : ""}` : text2;
       chat
     });
   });
-  app2.get("/api/jukebox/:communityId/stream", async (req, res) => {
-    const communityId = paramNum(req, "communityId");
+  app2.get("/api/jukebox/:communityId/stream", async (req2, res) => {
+    const communityId = paramNum(req2, "communityId");
     await ensureStationJukeboxCommunity(communityId);
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache, no-transform");
@@ -7572,7 +7792,7 @@ data: ${data}
       } catch {
       }
     }, 15e3);
-    req.on("close", () => {
+    req2.on("close", () => {
       unsubscribe();
       clearInterval(pingInterval);
       void jukeboxSseDisconnect(communityId).then(() => broadcastJukeboxWatchersState(communityId));
@@ -7609,8 +7829,8 @@ data: ${data}
     }
     return true;
   }
-  app2.post("/api/debug/cf-stream-test", async (req, res) => {
-    const { token, accountId, liveInputId } = req.body;
+  app2.post("/api/debug/cf-stream-test", async (req2, res) => {
+    const { token, accountId, liveInputId } = req2.body;
     const testToken = token ?? CLOUDFLARE_STREAM_TOKEN;
     const testAccountId = accountId ?? CLOUDFLARE_ACCOUNT_ID;
     const testLiveInputId = liveInputId ?? "3e77a8086bdf3e67ea8af0bd764b350b";
@@ -7643,7 +7863,7 @@ data: ${data}
       return res.status(500).json({ ok: false, error: err.message, cfUrl });
     }
   });
-  app2.post("/api/stream/create", async (req, res) => {
+  app2.post("/api/stream/create", async (req2, res) => {
     debugIngestServer({
       sessionId: "88cb7d",
       runId: "initial",
@@ -7653,7 +7873,7 @@ data: ${data}
       data: {
         hasCloudflareAccountId: Boolean(CLOUDFLARE_ACCOUNT_ID),
         hasCloudflareStreamToken: Boolean(CLOUDFLARE_STREAM_TOKEN),
-        bodyKeys: Object.keys(req.body ?? {})
+        bodyKeys: Object.keys(req2.body ?? {})
       },
       timestamp: Date.now()
     });
@@ -7661,7 +7881,7 @@ data: ${data}
     if (!CLOUDFLARE_ACCOUNT_ID || !cfAuthHeaders) {
       return res.status(500).json({ error: "Cloudflare Stream is not configured" });
     }
-    const user = await getAuthUser(req);
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const {
       name,
@@ -7669,7 +7889,7 @@ data: ${data}
       visibility: visIn,
       restrictedCommunityId: rcIn,
       ticketPrice: ticketPriceIn
-    } = req.body ?? {};
+    } = req2.body ?? {};
     const visibility = normalizeStreamVisibility(visIn);
     let restrictedCommunityId = null;
     let ticketPrice = null;
@@ -7768,7 +7988,7 @@ data: ${data}
       res.status(500).json({ error: "Cloudflare Stream API request failed" });
     }
   });
-  async function viewerStreamPayload(id, req) {
+  async function viewerStreamPayload(id, req2) {
     const [srow] = await db.select().from(streams).where(eq6(streams.id, id));
     if (srow) {
       let creator = "Host";
@@ -7780,7 +8000,7 @@ data: ${data}
           avatar = u2.profileImageUrl ?? "";
         }
       }
-      const viewer = await getAuthUser(req);
+      const viewer = await getAuthUser(req2);
       const playbackOk = await canViewerAccessLiveStream(srow, viewer);
       const vis = srow.visibility ?? "public";
       const streamAccessDenied = !playbackOk;
@@ -7824,7 +8044,7 @@ data: ${data}
     }
     const [live] = await db.select().from(liveStreams).where(eq6(liveStreams.id, id));
     if (!live) return null;
-    const legacyViewer = await getAuthUser(req);
+    const legacyViewer = await getAuthUser(req2);
     const legacyDenied = !legacyViewer;
     return {
       id: live.id,
@@ -7850,17 +8070,17 @@ data: ${data}
       isFollowingHost: false
     };
   }
-  app2.get("/api/stream/:id", async (req, res) => {
-    const id = paramNum(req, "id");
+  app2.get("/api/stream/:id", async (req2, res) => {
+    const id = paramNum(req2, "id");
     if (!id) return res.status(400).json({ error: "Invalid id" });
-    const payload = await viewerStreamPayload(id, req);
+    const payload = await viewerStreamPayload(id, req2);
     if (!payload) return res.status(404).json({ error: "Not found" });
     return res.json(payload);
   });
-  app2.post("/api/stream/:id/start", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/stream/:id/start", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const id = paramNum(req, "id");
+    const id = paramNum(req2, "id");
     const [row] = await db.select().from(streams).where(eq6(streams.id, id));
     if (!row) return res.status(404).json({ error: "Not found" });
     if (row.hostUserId != null && row.hostUserId !== user.id) {
@@ -7875,10 +8095,10 @@ data: ${data}
     }).where(eq6(streams.id, id)).returning();
     res.json(updated);
   });
-  app2.post("/api/stream/:id/end", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/stream/:id/end", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const id = paramNum(req, "id");
+    const id = paramNum(req2, "id");
     const [row] = await db.select().from(streams).where(eq6(streams.id, id));
     if (!row) return res.status(404).json({ error: "Not found" });
     if (row.hostUserId != null && row.hostUserId !== user.id) {
@@ -7891,11 +8111,11 @@ data: ${data}
     }).where(eq6(streams.id, id)).returning();
     res.json(updated);
   });
-  app2.post("/api/stream/:id/join", async (req, res) => {
-    const id = paramNum(req, "id");
+  app2.post("/api/stream/:id/join", async (req2, res) => {
+    const id = paramNum(req2, "id");
     const [srow] = await db.select().from(streams).where(eq6(streams.id, id));
     if (srow) {
-      const viewer = await getAuthUser(req);
+      const viewer = await getAuthUser(req2);
       const allowed = await canViewerAccessLiveStream(srow, viewer);
       if (!allowed) {
         if (!viewer) {
@@ -7922,7 +8142,7 @@ data: ${data}
     }
     const [live] = await db.select().from(liveStreams).where(eq6(liveStreams.id, id));
     if (!live) return res.status(404).json({ error: "Not found" });
-    const legacyJoinUser = await getAuthUser(req);
+    const legacyJoinUser = await getAuthUser(req2);
     if (!legacyJoinUser) {
       return res.status(401).json({ error: "Sign in required to watch live streams", code: "STREAM_AUTH_REQUIRED" });
     }
@@ -7930,10 +8150,10 @@ data: ${data}
     await db.update(liveStreams).set({ viewers: next }).where(eq6(liveStreams.id, id));
     return res.json({ viewerCount: next, currentViewers: next });
   });
-  app2.post("/api/stream/:id/join-paid", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/stream/:id/join-paid", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const id = paramNum(req, "id");
+    const id = paramNum(req2, "id");
     const [srow] = await db.select().from(streams).where(eq6(streams.id, id));
     if (!srow) return res.status(404).json({ error: "Not found" });
     if ((srow.visibility ?? "public") !== "paid") {
@@ -8006,8 +8226,8 @@ data: ${data}
       return res.status(500).json({ error: e?.message ?? "Failed to join paid stream" });
     }
   });
-  app2.post("/api/stream/:id/leave", async (req, res) => {
-    const id = paramNum(req, "id");
+  app2.post("/api/stream/:id/leave", async (req2, res) => {
+    const id = paramNum(req2, "id");
     const [srow] = await db.select().from(streams).where(eq6(streams.id, id));
     if (srow) {
       const next2 = Math.max(0, srow.currentViewers - 1);
@@ -8020,11 +8240,11 @@ data: ${data}
     await db.update(liveStreams).set({ viewers: next }).where(eq6(liveStreams.id, id));
     return res.json({ viewerCount: next, currentViewers: next });
   });
-  app2.post("/api/jukebox/:communityId/add", async (req, res) => {
-    const communityId = paramNum(req, "communityId");
+  app2.post("/api/jukebox/:communityId/add", async (req2, res) => {
+    const communityId = paramNum(req2, "communityId");
     await ensureStationJukeboxCommunity(communityId);
-    const { videoId, videoTitle, videoThumbnail, videoDurationSecs, addedBy, addedByAvatar, youtubeId } = req.body;
-    const authUser = await getAuthUser(req);
+    const { videoId, videoTitle, videoThumbnail, videoDurationSecs, addedBy, addedByAvatar, youtubeId } = req2.body;
+    const authUser = await getAuthUser(req2);
     const existing = await db.select().from(jukeboxQueue).where(eq6(jukeboxQueue.communityId, communityId)).orderBy(desc2(jukeboxQueue.position));
     const nextPos = existing.length > 0 ? existing[0].position + 1 : 1;
     const [item] = await db.insert(jukeboxQueue).values({
@@ -8081,15 +8301,15 @@ data: ${data}
     }
     res.json(item);
   });
-  app2.post("/api/jukebox/:communityId/next", async (req, res) => {
-    const communityId = paramNum(req, "communityId");
+  app2.post("/api/jukebox/:communityId/next", async (req2, res) => {
+    const communityId = paramNum(req2, "communityId");
     await ensureStationJukeboxCommunity(communityId);
-    const advanceSource = typeof req.body?.source === "string" && req.body.source === "ended" ? "ended" : "manual";
+    const advanceSource = typeof req2.body?.source === "string" && req2.body.source === "ended" ? "ended" : "manual";
     const [stateRaw] = await db.select().from(jukeboxState).where(eq6(jukeboxState.communityId, communityId));
     const queue = await db.select().from(jukeboxQueue).where(and5(eq6(jukeboxQueue.communityId, communityId), eq6(jukeboxQueue.isPlayed, false))).orderBy(asc3(jukeboxQueue.position));
     const isPlayingNow = !!(stateRaw?.isPlaying && (stateRaw.currentVideoYoutubeId || stateRaw.currentVideoId != null));
     if (advanceSource === "manual") {
-      const user = await getAuthUser(req);
+      const user = await getAuthUser(req2);
       if (!user) {
         return res.status(401).json({ error: "Please sign in to control playback." });
       }
@@ -8174,10 +8394,10 @@ data: ${data}
     });
     res.json({ ok: true });
   });
-  app2.patch("/api/jukebox/:communityId/duration", async (req, res) => {
-    const communityId = paramNum(req, "communityId");
+  app2.patch("/api/jukebox/:communityId/duration", async (req2, res) => {
+    const communityId = paramNum(req2, "communityId");
     await ensureStationJukeboxCommunity(communityId);
-    const { durationSecs } = req.body;
+    const { durationSecs } = req2.body;
     if (!durationSecs || typeof durationSecs !== "number" || durationSecs <= 0) {
       return res.status(400).json({ error: "durationSecs must be a positive number" });
     }
@@ -8189,10 +8409,10 @@ data: ${data}
     await db.update(jukeboxState).set({ currentVideoDurationSecs: durationSecs }).where(eq6(jukeboxState.communityId, communityId));
     res.json({ ok: true, updated: true });
   });
-  app2.post("/api/jukebox/:communityId/chat", async (req, res) => {
-    const communityId = paramNum(req, "communityId");
+  app2.post("/api/jukebox/:communityId/chat", async (req2, res) => {
+    const communityId = paramNum(req2, "communityId");
     await ensureStationJukeboxCommunity(communityId);
-    const { username, avatar, message } = req.body;
+    const { username, avatar, message } = req2.body;
     if (!message || !message.trim()) return res.status(400).json({ error: "Please enter a message" });
     const modResult = await moderateContent(message);
     if (modResult.allowed === false) {
@@ -8210,11 +8430,12 @@ data: ${data}
     });
     res.json(msg);
   });
-  app2.delete("/api/jukebox/:communityId/queue/:itemId", async (req, res) => {
-    const communityId = paramNum(req, "communityId");
+  app2.delete("/api/jukebox/:communityId/queue/:itemId", async (req2, res) => {
+    const communityId = paramNum(req2, "communityId");
     await ensureStationJukeboxCommunity(communityId);
-    const itemId = paramNum(req, "itemId");
-    const addedBy = req.query.addedBy || req.body?.addedBy || null;
+    const itemId = paramNum(req2, "itemId");
+    const authUser = await getAuthUser(req2);
+    if (!authUser) return res.status(401).json({ error: "Login required" });
     const [item] = await db.select().from(jukeboxQueue).where(and5(eq6(jukeboxQueue.communityId, communityId), eq6(jukeboxQueue.id, itemId)));
     if (!item) return res.status(404).json({ error: "Item not found" });
     const [stateRow] = await db.select().from(jukeboxState).where(eq6(jukeboxState.communityId, communityId));
@@ -8222,14 +8443,16 @@ data: ${data}
     if (isCurrentlyPlaying) {
       return res.status(400).json({ error: "Cannot remove the currently playing track" });
     }
-    if (addedBy && item.addedBy !== addedBy) {
+    const isOwnerByUserId = item.addedByUserId != null && item.addedByUserId === authUser.id;
+    const isOwnerByLegacyName = item.addedByUserId == null && item.addedBy === authUser.displayName;
+    if (!isOwnerByUserId && !isOwnerByLegacyName) {
       return res.status(403).json({ error: "You can only remove your own requests" });
     }
     await db.delete(jukeboxQueue).where(eq6(jukeboxQueue.id, itemId));
     res.json({ ok: true });
   });
-  app2.get("/api/mentor/session/:id", async (req, res) => {
-    const id = paramNum(req, "id");
+  app2.get("/api/mentor/session/:id", async (req2, res) => {
+    const id = paramNum(req2, "id");
     if (!id) return res.status(400).json({ error: "invalid_session_id" });
     const [session] = await db.select().from(mentorSessions).where(and5(eq6(mentorSessions.id, id), eq6(mentorSessions.isActive, true)));
     if (!session) return res.status(404).json({ error: "session_not_found" });
@@ -8238,16 +8461,16 @@ data: ${data}
       userId: session.creatorId
     });
   });
-  app2.get("/api/availability/:userId", async (req, res) => {
-    const userId = paramNum(req, "userId");
+  app2.get("/api/availability/:userId", async (req2, res) => {
+    const userId = paramNum(req2, "userId");
     if (!userId) return res.status(400).json({ error: "invalid_user_id" });
     const rows = await db.select().from(liverAvailability).where(eq6(liverAvailability.liverId, userId)).orderBy(asc3(liverAvailability.date), asc3(liverAvailability.startTime));
     return res.json(rows);
   });
-  app2.post("/api/mentor/bookings", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/mentor/bookings", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { sessionId, slotId, scheduledAt } = req.body;
+    const { sessionId, slotId, scheduledAt } = req2.body;
     const sid = typeof sessionId === "number" && Number.isFinite(sessionId) ? sessionId : parseInt(String(sessionId ?? ""), 10);
     if (!sid) return res.status(400).json({ error: "session_not_found" });
     if (!scheduledAt) return res.status(400).json({ error: "scheduled_at_required" });
@@ -8354,19 +8577,19 @@ data: ${data}
       res.status(500).json({ error: e.message });
     }
   });
-  app2.get("/api/mentor/:streamId/bookings", async (req, res) => {
-    const streamId = paramNum(req, "streamId");
+  app2.get("/api/mentor/:streamId/bookings", async (req2, res) => {
+    const streamId = paramNum(req2, "streamId");
     const rows = await db.select().from(mentorBookings).where(eq6(mentorBookings.streamId, streamId)).orderBy(asc3(mentorBookings.queuePosition));
     res.json(rows);
   });
-  app2.get("/api/mentor/:streamId/queue-count", async (req, res) => {
-    const streamId = paramNum(req, "streamId");
+  app2.get("/api/mentor/:streamId/queue-count", async (req2, res) => {
+    const streamId = paramNum(req2, "streamId");
     const [{ total }] = await db.select({ total: count() }).from(mentorBookings).where(sql5`stream_id = ${streamId} AND status IN ('paid','waiting','notified')`);
     res.json({ count: Number(total) });
   });
-  app2.post("/api/mentor/:streamId/checkout", async (req, res) => {
-    const streamId = paramNum(req, "streamId");
-    const { userName, userAvatar, price = 3e3 } = req.body;
+  app2.post("/api/mentor/:streamId/checkout", async (req2, res) => {
+    const streamId = paramNum(req2, "streamId");
+    const { userName, userAvatar, price = 3e3 } = req2.body;
     if (!userName) return res.status(400).json({ error: "userName required" });
     try {
       const stripe = await getUncachableStripeClient();
@@ -8420,8 +8643,8 @@ data: ${data}
       res.status(500).json({ error: e.message });
     }
   });
-  app2.post("/api/mentor/confirm-payment", async (req, res) => {
-    const { sessionId } = req.body;
+  app2.post("/api/mentor/confirm-payment", async (req2, res) => {
+    const { sessionId } = req2.body;
     if (!sessionId) return res.status(400).json({ error: "sessionId required" });
     try {
       const stripe = await getUncachableStripeClient();
@@ -8483,19 +8706,19 @@ data: ${data}
       res.status(500).json({ error: e.message });
     }
   });
-  app2.post("/api/mentor/:bookingId/notify", async (req, res) => {
-    const bookingId = paramNum(req, "bookingId");
+  app2.post("/api/mentor/:bookingId/notify", async (req2, res) => {
+    const bookingId = paramNum(req2, "bookingId");
     await db.update(mentorBookings).set({ status: "notified", notifiedAt: /* @__PURE__ */ new Date() }).where(eq6(mentorBookings.id, bookingId));
     res.json({ ok: true });
   });
-  app2.post("/api/mentor/:bookingId/complete", async (req, res) => {
-    const bookingId = paramNum(req, "bookingId");
+  app2.post("/api/mentor/:bookingId/complete", async (req2, res) => {
+    const bookingId = paramNum(req2, "bookingId");
     await db.update(mentorBookings).set({ status: "completed", completedAt: /* @__PURE__ */ new Date() }).where(eq6(mentorBookings.id, bookingId));
     res.json({ ok: true });
   });
-  app2.post("/api/mentor/:bookingId/cancel", async (req, res) => {
-    const bookingId = paramNum(req, "bookingId");
-    const { reason, isSelfCancel } = req.body;
+  app2.post("/api/mentor/:bookingId/cancel", async (req2, res) => {
+    const bookingId = paramNum(req2, "bookingId");
+    const { reason, isSelfCancel } = req2.body;
     await db.update(mentorBookings).set({
       status: "cancelled",
       cancelledAt: /* @__PURE__ */ new Date(),
@@ -8504,13 +8727,13 @@ data: ${data}
     }).where(eq6(mentorBookings.id, bookingId));
     res.json({ ok: true });
   });
-  app2.get("/api/mentor/my-sessions", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/mentor/my-sessions", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const rows = await db.select().from(mentorSessions).where(eq6(mentorSessions.creatorId, user.id)).orderBy(desc2(mentorSessions.createdAt));
     res.json(rows);
   });
-  app2.get("/api/mentor/sessions", async (req, res) => {
+  app2.get("/api/mentor/sessions", async (req2, res) => {
     const rows = await db.select({
       id: mentorSessions.id,
       creatorId: mentorSessions.creatorId,
@@ -8526,10 +8749,10 @@ data: ${data}
     }).from(mentorSessions).innerJoin(users, eq6(users.id, mentorSessions.creatorId)).where(eq6(mentorSessions.isActive, true)).orderBy(desc2(mentorSessions.createdAt));
     res.json(rows);
   });
-  app2.post("/api/mentor/sessions", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/mentor/sessions", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { title, category, description, price, duration, maxParticipants } = req.body;
+    const { title, category, description, price, duration, maxParticipants } = req2.body;
     if (!title || !price) return res.status(400).json({ error: "title and price are required" });
     const [row] = await db.insert(mentorSessions).values({
       creatorId: user.id,
@@ -8543,13 +8766,13 @@ data: ${data}
     }).returning();
     res.json(row);
   });
-  app2.put("/api/mentor/sessions/:id", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.put("/api/mentor/sessions/:id", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const id = paramNum(req, "id");
+    const id = paramNum(req2, "id");
     const [existing] = await db.select().from(mentorSessions).where(eq6(mentorSessions.id, id));
     if (!existing || existing.creatorId !== user.id) return res.status(403).json({ error: "Forbidden" });
-    const { title, category, description, price, duration, maxParticipants } = req.body;
+    const { title, category, description, price, duration, maxParticipants } = req2.body;
     const [row] = await db.update(mentorSessions).set({
       title: title ?? existing.title,
       category: category ?? existing.category,
@@ -8561,17 +8784,17 @@ data: ${data}
     }).where(eq6(mentorSessions.id, id)).returning();
     res.json(row);
   });
-  app2.delete("/api/mentor/sessions/:id", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.delete("/api/mentor/sessions/:id", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const id = paramNum(req, "id");
+    const id = paramNum(req2, "id");
     const [existing] = await db.select().from(mentorSessions).where(eq6(mentorSessions.id, id));
     if (!existing || existing.creatorId !== user.id) return res.status(403).json({ error: "Forbidden" });
     await db.update(mentorSessions).set({ isActive: false, updatedAt: /* @__PURE__ */ new Date() }).where(eq6(mentorSessions.id, id));
     res.json({ ok: true });
   });
-  app2.get("/api/mentor/creator-bookings", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/mentor/creator-bookings", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const mySessions = await db.select({ id: mentorSessions.id }).from(mentorSessions).where(eq6(mentorSessions.creatorId, user.id));
     if (mySessions.length === 0) return res.json([]);
@@ -8589,10 +8812,10 @@ data: ${data}
     }));
     res.json(result);
   });
-  app2.post("/api/mentor/bookings/:bookingId/start", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/mentor/bookings/:bookingId/start", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const bookingId = paramNum(req, "bookingId");
+    const bookingId = paramNum(req2, "bookingId");
     const [booking] = await db.select().from(mentorBookings).where(eq6(mentorBookings.id, bookingId));
     if (!booking) return res.status(404).json({ error: "Booking not found" });
     if (booking.whipUrl) {
@@ -8639,17 +8862,17 @@ data: ${data}
     await db.update(mentorBookings).set({ status: "in_progress", whipUrl, whepUrl, cfStreamUid: uid }).where(eq6(mentorBookings.id, bookingId));
     res.json({ whipUrl, whepUrl });
   });
-  app2.get("/api/mentor/bookings/:bookingId/join", async (req, res) => {
-    const bookingId = paramNum(req, "bookingId");
+  app2.get("/api/mentor/bookings/:bookingId/join", async (req2, res) => {
+    const bookingId = paramNum(req2, "bookingId");
     const [booking] = await db.select().from(mentorBookings).where(eq6(mentorBookings.id, bookingId));
     if (!booking) return res.status(404).json({ error: "Booking not found" });
     if (!booking.whepUrl) return res.status(409).json({ error: "Session not started yet" });
     res.json({ whepUrl: booking.whepUrl });
   });
-  app2.post("/api/mentor/bookings/:bookingId/end", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/mentor/bookings/:bookingId/end", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const bookingId = paramNum(req, "bookingId");
+    const bookingId = paramNum(req2, "bookingId");
     const [booking] = await db.select().from(mentorBookings).where(eq6(mentorBookings.id, bookingId));
     if (!booking) return res.status(404).json({ error: "Booking not found" });
     const cfAuthHeaders = buildCloudflareAuthHeaders();
@@ -8666,10 +8889,10 @@ data: ${data}
     await db.update(mentorBookings).set({ status: "completed", completedAt: /* @__PURE__ */ new Date() }).where(eq6(mentorBookings.id, bookingId));
     res.json({ ok: true });
   });
-  app2.post("/api/revenue/record", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/revenue/record", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Sign-in required" });
-    const { amount, source, referenceId } = req.body;
+    const { amount, source, referenceId } = req2.body;
     if (!amount || amount <= 0) return res.status(400).json({ error: "amount must be a positive number" });
     const src = source ?? "tip";
     if (!["tip", "paid_live", "mentor"].includes(src)) {
@@ -8680,8 +8903,8 @@ data: ${data}
     await recordRevenue(walletId, user.id, creatorRow?.id ?? null, amount, src, referenceId ?? null);
     res.status(201).json({ ok: true, amount, source: src });
   });
-  app2.get("/api/revenue/summary", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/revenue/summary", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Sign-in required" });
     const userId = `user-${user.id}`;
     const earningRows = await db.select().from(earnings).where(eq6(earnings.userId, userId));
@@ -8704,21 +8927,21 @@ data: ${data}
     }
     res.json({ totalEarned, totalWithdrawn, pendingWithdrawal, available, monthly, withdrawalFeePolicy });
   });
-  app2.get("/api/revenue/earnings", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/revenue/earnings", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Sign-in required" });
     const userId = `user-${user.id}`;
     const rows = await db.select().from(earnings).where(eq6(earnings.userId, userId)).orderBy(desc2(earnings.createdAt));
     res.json(rows);
   });
-  app2.get("/api/revenue/monthly-rank", async (req, res) => {
-    const month = req.query.month ?? "";
+  app2.get("/api/revenue/monthly-rank", async (req2, res) => {
+    const month = req2.query.month ?? "";
     const match = /^(\d{4})-(\d{2})$/.exec(month);
     if (!match) {
       return res.status(400).json({ error: "month must be in YYYY-MM format" });
     }
-    const kind = queryStr(req, "kind") || "overall";
-    if (queryStr(req, "refresh") === "1") {
+    const kind = queryStr(req2, "kind") || "overall";
+    if (queryStr(req2, "refresh") === "1") {
       await runMonthlyCreatorAggregation(month);
     }
     if (kind === "overall" || kind === "paid_live") {
@@ -8728,18 +8951,18 @@ data: ${data}
     const rankings = await getMonthlyRevenueRank(month);
     res.json({ month, kind: "revenue", rankings });
   });
-  app2.get("/api/revenue/withdrawals", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/revenue/withdrawals", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Sign-in required" });
     const userId = `user-${user.id}`;
     const rows = await db.select().from(withdrawals).where(eq6(withdrawals.userId, userId)).orderBy(desc2(withdrawals.requestedAt));
     res.json(rows);
   });
-  app2.post("/api/revenue/withdraw", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/revenue/withdraw", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Authentication required" });
     const userId = `user-${user.id}`;
-    const { amount, bankName, bankBranch, accountType, accountNumber, accountName } = req.body;
+    const { amount, bankName, bankBranch, accountType, accountNumber, accountName } = req2.body;
     const amountUsdCents = Number(amount);
     if (!Number.isInteger(amountUsdCents) || amountUsdCents < 1e3) {
       return res.status(400).json({ error: "Minimum withdrawal amount is 1000 USD cents" });
@@ -8833,13 +9056,13 @@ data: ${data}
     }));
     res.json(out);
   });
-  app2.get("/api/livers", async (req, res) => {
-    const name = queryStr(req, "name");
-    const minScore = queryStr(req, "minScore");
-    const category = queryStr(req, "category");
-    const date = queryStr(req, "date");
-    const rankingType = queryStr(req, "rankingType") || "overall";
-    const month = queryStr(req, "month") || getYearMonth();
+  app2.get("/api/livers", async (req2, res) => {
+    const name = queryStr(req2, "name");
+    const minScore = queryStr(req2, "minScore");
+    const category = queryStr(req2, "category");
+    const date = queryStr(req2, "date");
+    const rankingType = queryStr(req2, "rankingType") || "overall";
+    const month = queryStr(req2, "month") || getYearMonth();
     let rows = await db.select().from(creators).orderBy(asc3(creators.rank));
     if (rankingType === "weekly") {
       rows = [...rows].sort((a, b) => {
@@ -8884,27 +9107,27 @@ data: ${data}
     }
     res.json({ rankingType, month, rows });
   });
-  app2.get("/api/livers/me", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/livers/me", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const [creator] = await db.select({ id: creators.id, name: creators.name, category: creators.category }).from(creators).where(eq6(creators.name, user.displayName));
     if (!creator) return res.status(404).json({ error: "Creator profile not found" });
     res.json(creator);
   });
-  app2.get("/api/livers/:id", async (req, res) => {
-    const id = paramNum(req, "id");
+  app2.get("/api/livers/:id", async (req2, res) => {
+    const id = paramNum(req2, "id");
     const [liver] = await db.select().from(creators).where(eq6(creators.id, id));
     if (!liver) return res.status(404).json({ error: "Not found" });
     res.json(liver);
   });
-  app2.get("/api/livers/me/level-progress", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/livers/me/level-progress", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Sign-in required" });
     const [creator] = await db.select().from(creators).where(eq6(creators.name, user.displayName));
     if (!creator) {
       return res.status(404).json({ error: "Creator registration required" });
     }
-    const month = queryStr(req, "month") || getYearMonth();
+    const month = queryStr(req2, "month") || getYearMonth();
     await ensureDefaultLevelThresholds();
     const [score] = await db.select().from(creatorMonthlyScores).where(and5(eq6(creatorMonthlyScores.creatorId, creator.id), eq6(creatorMonthlyScores.yearMonth, month)));
     const tipGrossThisMonth = score?.tipGross ?? 0;
@@ -8931,8 +9154,8 @@ data: ${data}
       remainingStreamCount
     });
   });
-  app2.post("/api/livers/me/streams/record", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/livers/me/streams/record", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Sign-in required" });
     const [creator] = await db.select().from(creators).where(eq6(creators.name, user.displayName));
     if (!creator) return res.status(404).json({ error: "Creator registration required" });
@@ -8954,18 +9177,18 @@ data: ${data}
     const newLevel = await syncCreatorLevelFromMonthlyProgress(creator.id, month);
     res.status(201).json({ ok: true, month, currentLevel: newLevel });
   });
-  app2.get("/api/profile/roles", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/profile/roles", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const rows = await db.select().from(creators).where(eq6(creators.name, user.displayName));
     const isEditor = rows.some((r) => r.category === "editor");
     const isMentor = rows.some((r) => r.category === "mentor");
     res.json({ isEditor, isMentor });
   });
-  app2.post("/api/profile/register-role", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/profile/register-role", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const { role } = req.body;
+    const { role } = req2.body;
     if (role !== "editor" && role !== "mentor") {
       return res.status(400).json({ error: "role must be editor or mentor" });
     }
@@ -8999,14 +9222,14 @@ data: ${data}
     }).returning();
     res.status(201).json({ ok: true, creator: created });
   });
-  app2.get("/api/livers/:id/reviews", async (req, res) => {
-    const id = paramNum(req, "id");
+  app2.get("/api/livers/:id/reviews", async (req2, res) => {
+    const id = paramNum(req2, "id");
     const rows = await db.select().from(liverReviews).where(eq6(liverReviews.liverId, id)).orderBy(desc2(liverReviews.createdAt));
     res.json(rows);
   });
-  app2.post("/api/livers/:id/reviews", async (req, res) => {
-    const id = paramNum(req, "id");
-    const { userId, userName, userAvatar, satisfactionScore, streamCountScore, attendanceScore, comment, sessionDate } = req.body;
+  app2.post("/api/livers/:id/reviews", async (req2, res) => {
+    const id = paramNum(req2, "id");
+    const { userId, userName, userAvatar, satisfactionScore, streamCountScore, attendanceScore, comment, sessionDate } = req2.body;
     if (!userName || !comment) return res.status(400).json({ error: "Please fill in all required fields" });
     const overall = ((satisfactionScore ?? 5) + (streamCountScore ?? 5) + (attendanceScore ?? 5)) / 3;
     const [row] = await db.insert(liverReviews).values({
@@ -9036,17 +9259,17 @@ data: ${data}
     const [row] = await db.select({ id: creators.id }).from(creators).where(and5(eq6(creators.id, liverId), eq6(creators.name, user.displayName)));
     return !!row;
   }
-  app2.get("/api/livers/:id/availability", async (req, res) => {
-    const id = paramNum(req, "id");
+  app2.get("/api/livers/:id/availability", async (req2, res) => {
+    const id = paramNum(req2, "id");
     const rows = await db.select().from(liverAvailability).where(eq6(liverAvailability.liverId, id)).orderBy(asc3(liverAvailability.date), asc3(liverAvailability.startTime));
     res.json(rows);
   });
-  app2.post("/api/livers/:id/availability", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/livers/:id/availability", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const id = paramNum(req, "id");
+    const id = paramNum(req2, "id");
     if (!await userOwnsLiverId(id, user)) return res.status(403).json({ error: "Not allowed" });
-    const { date, startTime, endTime, maxSlots, note } = req.body;
+    const { date, startTime, endTime, maxSlots, note } = req2.body;
     if (!date || !startTime || !endTime) return res.status(400).json({ error: "Please enter date and time" });
     const [row] = await db.insert(liverAvailability).values({
       liverId: id,
@@ -9059,15 +9282,15 @@ data: ${data}
     }).returning();
     res.status(201).json(row);
   });
-  app2.patch("/api/livers/:id/availability/:slotId", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.patch("/api/livers/:id/availability/:slotId", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const liverId = paramNum(req, "id");
-    const slotId = paramNum(req, "slotId");
+    const liverId = paramNum(req2, "id");
+    const slotId = paramNum(req2, "slotId");
     if (!await userOwnsLiverId(liverId, user)) return res.status(403).json({ error: "Not allowed" });
     const [slot] = await db.select().from(liverAvailability).where(and5(eq6(liverAvailability.id, slotId), eq6(liverAvailability.liverId, liverId)));
     if (!slot) return res.status(404).json({ error: "Slot not found" });
-    const { startTime, endTime, maxSlots, note } = req.body;
+    const { startTime, endTime, maxSlots, note } = req2.body;
     const updates = {};
     if (startTime !== void 0) updates.startTime = startTime;
     if (endTime !== void 0) updates.endTime = endTime;
@@ -9084,11 +9307,11 @@ data: ${data}
     const [updated] = await db.update(liverAvailability).set(updates).where(eq6(liverAvailability.id, slotId)).returning();
     res.json(updated);
   });
-  app2.delete("/api/livers/:id/availability/:slotId", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.delete("/api/livers/:id/availability/:slotId", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
-    const liverId = paramNum(req, "id");
-    const slotId = paramNum(req, "slotId");
+    const liverId = paramNum(req2, "id");
+    const slotId = paramNum(req2, "slotId");
     if (!await userOwnsLiverId(liverId, user)) return res.status(403).json({ error: "Not allowed" });
     const [slot] = await db.select().from(liverAvailability).where(and5(eq6(liverAvailability.id, slotId), eq6(liverAvailability.liverId, liverId)));
     if (!slot) return res.status(404).json({ error: "Not found" });
@@ -9104,18 +9327,18 @@ data: ${data}
     return res.status(410).json({ error: "Demo seed-editors has been removed." });
   });
   const FREE_REQUESTS_PER_DAY = 20;
-  app2.get("/api/coins/balance", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/coins/balance", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const userId = String(user.id);
     const rows = await db.select().from(coinBalances).where(eq6(coinBalances.userId, userId)).limit(1);
     const balance = rows[0]?.balance ?? 0;
     return res.json({ balance });
   });
-  app2.get("/api/coins/request-count", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/coins/request-count", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const communityId = parseInt(req.query.communityId);
+    const communityId = parseInt(req2.query.communityId);
     if (isNaN(communityId)) return res.status(400).json({ error: "communityId required" });
     const userId = String(user.id);
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
@@ -9128,10 +9351,10 @@ data: ${data}
     const freeRemaining = Math.max(0, FREE_REQUESTS_PER_DAY - count2);
     return res.json({ count: count2, freeRemaining, freeLimit: FREE_REQUESTS_PER_DAY });
   });
-  app2.post("/api/coins/spend-jukebox", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/coins/spend-jukebox", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { communityId, queueItemId } = req.body;
+    const { communityId, queueItemId } = req2.body;
     if (!communityId) return res.status(400).json({ error: "communityId required" });
     const userId = String(user.id);
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
@@ -9162,10 +9385,10 @@ data: ${data}
     }
     return res.json({ success: true, newBalance: currentBalance - 1 });
   });
-  app2.post("/api/coins/record-free-request", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/coins/record-free-request", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { communityId } = req.body;
+    const { communityId } = req2.body;
     if (!communityId) return res.status(400).json({ error: "communityId required" });
     const userId = String(user.id);
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
@@ -9181,10 +9404,10 @@ data: ${data}
     }
     return res.json({ success: true });
   });
-  app2.post("/api/coins/use-revenue", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/coins/use-revenue", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { communityId, queueItemId } = req.body;
+    const { communityId, queueItemId } = req2.body;
     if (!communityId) return res.status(400).json({ error: "communityId required" });
     const userId = String(user.id);
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
@@ -9214,10 +9437,10 @@ data: ${data}
     }
     return res.json({ success: true, newWalletBalance: walletBalance - COIN_PRICE_USD });
   });
-  app2.post("/api/coins/create-checkout", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/coins/create-checkout", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { packageId, origin } = req.body;
+    const { packageId, origin } = req2.body;
     const COIN_PACKAGES = {
       "pack-1": { coins: 1, priceUSD: 30, label: "1 Coin" },
       "pack-5": { coins: 5, priceUSD: 150, label: "5 Coins" },
@@ -9256,10 +9479,10 @@ data: ${data}
       return res.status(500).json({ error: "Failed to create checkout session" });
     }
   });
-  app2.post("/api/coins/verify-purchase", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/coins/verify-purchase", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { sessionId } = req.body;
+    const { sessionId } = req2.body;
     if (!sessionId) return res.status(400).json({ error: "sessionId required" });
     try {
       const stripe = await getUncachableStripeClient();
@@ -9303,18 +9526,18 @@ data: ${data}
   const FREE_JUKEBOX_PER_DAY = 20;
   const TICKETS_PER_JUKEBOX = 10;
   const MENTOR_TICKET_PRICE = 500;
-  app2.get("/api/tickets/balance", async (req, res) => {
+  app2.get("/api/tickets/balance", async (req2, res) => {
     res.setHeader("Cache-Control", "private, no-store");
-    const user = await getAuthUser(req);
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const userId = String(user.id);
     const rows = await db.select().from(ticketBalances).where(eq6(ticketBalances.userId, userId)).limit(1);
     return res.json({ balance: rows[0]?.balance ?? 0 });
   });
-  app2.get("/api/tickets/request-count", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/tickets/request-count", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const communityId = parseInt(req.query.communityId);
+    const communityId = parseInt(req2.query.communityId);
     if (isNaN(communityId)) return res.status(400).json({ error: "communityId required" });
     const userId = String(user.id);
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
@@ -9327,10 +9550,10 @@ data: ${data}
     const freeRemaining = Math.max(0, FREE_JUKEBOX_PER_DAY - count2);
     return res.json({ count: count2, freeRemaining, freeLimit: FREE_JUKEBOX_PER_DAY, ticketsPerRequest: TICKETS_PER_JUKEBOX });
   });
-  app2.post("/api/tickets/record-free-request", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/tickets/record-free-request", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { communityId } = req.body;
+    const { communityId } = req2.body;
     if (!communityId) return res.status(400).json({ error: "communityId required" });
     const userId = String(user.id);
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
@@ -9346,10 +9569,10 @@ data: ${data}
     }
     return res.json({ success: true });
   });
-  app2.post("/api/tickets/spend-jukebox", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/tickets/spend-jukebox", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { communityId, queueItemId } = req.body;
+    const { communityId, queueItemId } = req2.body;
     if (!communityId) return res.status(400).json({ error: "communityId required" });
     const userId = String(user.id);
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
@@ -9357,9 +9580,10 @@ data: ${data}
       let newBalance = 0;
       await db.transaction(async (tx) => {
         const [comm] = await tx.select().from(communities).where(eq6(communities.id, communityId)).limit(1);
-        const creatorUserId = comm?.ownerId ?? comm?.adminId;
+        let creatorUserId = comm?.ownerId ?? comm?.adminId ?? null;
         if (!creatorUserId) {
-          throw new Error("COMMUNITY_NO_OWNER");
+          const [adminUser] = await tx.select({ id: users.id }).from(users).where(eq6(users.role, "ADMIN")).limit(1);
+          creatorUserId = adminUser?.id ?? null;
         }
         const balRows = await tx.select().from(ticketBalances).where(eq6(ticketBalances.userId, userId)).limit(1);
         const currentBalance = balRows[0]?.balance ?? 0;
@@ -9381,17 +9605,19 @@ data: ${data}
           referenceId: queueItemId ? String(queueItemId) : null,
           description: `Jukebox request in community ${communityId}`
         }).returning({ id: ticketTransactions.id });
-        const walletId = await getOrCreateUserWallet(creatorUserId, tx);
-        const creatorRow = await creatorRowForUserId(tx, creatorUserId);
-        await recordRevenue(
-          walletId,
-          creatorUserId,
-          creatorRow?.id ?? null,
-          TICKETS_PER_JUKEBOX,
-          "paid_live",
-          String(spendTx.id),
-          tx
-        );
+        if (creatorUserId) {
+          const walletId = await getOrCreateUserWallet(creatorUserId, tx);
+          const creatorRow = await creatorRowForUserId(tx, creatorUserId);
+          await recordRevenue(
+            walletId,
+            creatorUserId,
+            creatorRow?.id ?? null,
+            TICKETS_PER_JUKEBOX,
+            "paid_live",
+            String(spendTx.id),
+            tx
+          );
+        }
         const countRows = await tx.select().from(jukeboxRequestCounts).where(
           and5(
             eq6(jukeboxRequestCounts.userId, userId),
@@ -9415,17 +9641,14 @@ data: ${data}
           required: meta.required ?? TICKETS_PER_JUKEBOX
         });
       }
-      if (e?.message === "COMMUNITY_NO_OWNER") {
-        return res.status(400).json({ error: "Community has no owner for revenue" });
-      }
       console.error("[tickets/spend-jukebox] failed:", e);
       return res.status(500).json({ error: "Failed to spend tickets" });
     }
   });
-  app2.post("/api/tickets/spend", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/tickets/spend", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { amount, type, referenceId, description, creatorId: rawCreatorId, videoId: rawVideoId } = req.body;
+    const { amount, type, referenceId, description, creatorId: rawCreatorId, videoId: rawVideoId } = req2.body;
     if (!amount || amount <= 0) return res.status(400).json({ error: "amount must be positive" });
     if (!type) return res.status(400).json({ error: "type required" });
     const userId = String(user.id);
@@ -9530,10 +9753,10 @@ data: ${data}
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Use POST /api/tickets/create-checkout with JSON body { tickets, origin }" });
   });
-  app2.post("/api/tickets/create-checkout", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/tickets/create-checkout", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { tickets, origin } = req.body;
+    const { tickets, origin } = req2.body;
     const ticketCount = Number(tickets);
     if (!Number.isInteger(ticketCount) || ticketCount < 100) {
       return res.status(400).json({ error: "Minimum purchase is 100 tickets" });
@@ -9568,10 +9791,10 @@ data: ${data}
       return res.status(500).json({ error: "Failed to create checkout session" });
     }
   });
-  app2.post("/api/tickets/verify-purchase", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/tickets/verify-purchase", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { sessionId } = req.body;
+    const { sessionId } = req2.body;
     if (!sessionId) return res.status(400).json({ error: "sessionId required" });
     try {
       const stripe = await getUncachableStripeClient();
@@ -9605,11 +9828,11 @@ data: ${data}
       res.status(500).json({ error: e.message });
     }
   });
-  app2.post("/api/platform-banners", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/platform-banners", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     if (user.role !== "ADMIN") return res.status(403).json({ error: "Only admins can perform this action" });
-    const { title, imageUrl, linkUrl, description, displayOrder } = req.body;
+    const { title, imageUrl, linkUrl, description, displayOrder } = req2.body;
     if (!title) return res.status(400).json({ error: "title is required" });
     try {
       const [row] = await db.insert(bannerAds).values({
@@ -9625,12 +9848,12 @@ data: ${data}
       res.status(500).json({ error: e.message });
     }
   });
-  app2.patch("/api/platform-banners/:id", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.patch("/api/platform-banners/:id", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     if (user.role !== "ADMIN") return res.status(403).json({ error: "Only admins can perform this action" });
-    const id = paramNum(req, "id");
-    const { title, imageUrl, linkUrl, description, isActive, displayOrder } = req.body;
+    const id = paramNum(req2, "id");
+    const { title, imageUrl, linkUrl, description, isActive, displayOrder } = req2.body;
     try {
       const updates = { updatedAt: /* @__PURE__ */ new Date() };
       if (title !== void 0) updates.title = title;
@@ -9646,11 +9869,11 @@ data: ${data}
       res.status(500).json({ error: e.message });
     }
   });
-  app2.delete("/api/platform-banners/:id", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.delete("/api/platform-banners/:id", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     if (user.role !== "ADMIN") return res.status(403).json({ error: "Only admins can perform this action" });
-    const id = paramNum(req, "id");
+    const id = paramNum(req2, "id");
     try {
       await db.delete(bannerAds).where(eq6(bannerAds.id, id));
       res.json({ success: true });
@@ -9658,8 +9881,8 @@ data: ${data}
       res.status(500).json({ error: e.message });
     }
   });
-  app2.post("/api/daily-login", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/daily-login", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     try {
@@ -9750,10 +9973,10 @@ data: ${data}
       });
     })();
   }
-  app2.post("/api/ai-edit/jobs", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/ai-edit/jobs", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const { planMinutes, videoUrls, logoUrl, telop, targetAudience, tone, prompt, spec } = req.body;
+    const { planMinutes, videoUrls, logoUrl, telop, targetAudience, tone, prompt, spec } = req2.body;
     let videoSpecJson = null;
     if (spec !== void 0 && spec !== null) {
       const normalized = normalizeVideoSpecPayload(spec);
@@ -9816,10 +10039,10 @@ data: ${data}
     const [finalJob] = await db.select({ status: aiEditJobs.status }).from(aiEditJobs).where(eq6(aiEditJobs.id, job.id));
     res.json({ id: job.id, status: finalJob?.status ?? job.status });
   });
-  app2.get("/api/ai-edit/jobs/:id", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.get("/api/ai-edit/jobs/:id", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const id = paramNum(req, "id");
+    const id = paramNum(req2, "id");
     const [job] = await db.select().from(aiEditJobs).where(eq6(aiEditJobs.id, id));
     if (!job) return res.status(404).json({ error: "Job not found" });
     if (job.userId !== user.id) {
@@ -9861,14 +10084,14 @@ data: ${data}
     const u2 = process.env.TEMPLATED_WEBHOOK_BASE_URL?.trim() || process.env.FRONTEND_URL?.trim() || "https://rawstock.live";
     return u2.replace(/\/$/, "");
   }
-  app2.post("/api/ai-edit/jobs/:id/render", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/ai-edit/jobs/:id/render", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const apiKey = (process.env.TEMPLATED_API_KEY ?? "").trim();
     if (!apiKey) {
       return res.status(503).json({ error: "Templated is not configured (TEMPLATED_API_KEY)" });
     }
-    const id = paramNum(req, "id");
+    const id = paramNum(req2, "id");
     const [job] = await db.select().from(aiEditJobs).where(eq6(aiEditJobs.id, id));
     if (!job) return res.status(404).json({ error: "Job not found" });
     if (job.userId !== user.id) {
@@ -9945,8 +10168,8 @@ data: ${data}
       url: renderRes.url ?? null
     });
   });
-  app2.post("/api/webhooks/templated", async (req, res) => {
-    const body = req.body;
+  app2.post("/api/webhooks/templated", async (req2, res) => {
+    const body = req2.body;
     try {
       const statusRaw = typeof body.status === "string" ? body.status.toLowerCase() : "";
       const output = body.output && typeof body.output === "object" && body.output !== null ? body.output : null;
@@ -10003,10 +10226,10 @@ data: ${data}
       return res.status(200).json({ ok: false });
     }
   });
-  app2.post("/api/ai-edit/jobs/:id/approve", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/ai-edit/jobs/:id/approve", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const id = paramNum(req, "id");
+    const id = paramNum(req2, "id");
     const [job] = await db.select().from(aiEditJobs).where(eq6(aiEditJobs.id, id));
     if (!job) return res.status(404).json({ error: "Job not found" });
     if (job.userId !== user.id) {
@@ -10018,11 +10241,11 @@ data: ${data}
     await db.update(aiEditJobs).set({ status: "approved", updatedAt: /* @__PURE__ */ new Date() }).where(eq6(aiEditJobs.id, id));
     res.json({ ok: true, id, status: "approved" });
   });
-  app2.post("/api/ai-edit/jobs/:id/revise", async (req, res) => {
-    const user = await getAuthUser(req);
+  app2.post("/api/ai-edit/jobs/:id/revise", async (req2, res) => {
+    const user = await getAuthUser(req2);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const id = paramNum(req, "id");
-    const { revisionPrompt } = req.body;
+    const id = paramNum(req2, "id");
+    const { revisionPrompt } = req2.body;
     const [job] = await db.select().from(aiEditJobs).where(eq6(aiEditJobs.id, id));
     if (!job) return res.status(404).json({ error: "Job not found" });
     if (job.userId !== user.id) {
@@ -10076,11 +10299,11 @@ data: ${data}
       status: reviseFinal?.status
     });
   });
-  app2.post("/api/ai-edit/jobs/:id/deliver", async (req, res) => {
-    const editor = await getAuthUser(req);
+  app2.post("/api/ai-edit/jobs/:id/deliver", async (req2, res) => {
+    const editor = await getAuthUser(req2);
     if (!editor) return res.status(401).json({ error: "Unauthorized" });
-    const id = paramNum(req, "id");
-    const { deliveredUrl } = req.body;
+    const id = paramNum(req2, "id");
+    const { deliveredUrl } = req2.body;
     if (!deliveredUrl?.trim()) {
       return res.status(400).json({ error: "deliveredUrl is required" });
     }
@@ -10115,16 +10338,26 @@ data: ${data}
     }
     res.json({ ok: true, id, status: "delivered", deliveredUrl: deliveredUrl.trim() });
   });
-  app2.get("/api/cron/ai-edit-process", async (req, res) => {
+  app2.get("/api/email/unsubscribe", async (req2, res) => {
+    const { email, token } = req2.query;
+    if (!email || !token || !verifyUnsubscribeToken(email, token)) {
+      return res.status(400).send("\u7121\u52B9\u306A\u30EA\u30F3\u30AF\u3067\u3059\u3002URL\u304C\u6B63\u3057\u3044\u304B\u3054\u78BA\u8A8D\u304F\u3060\u3055\u3044\u3002");
+    }
+    await db.insert(emailUnsubscribes).values({ email: email.toLowerCase() }).onConflictDoNothing({ target: [emailUnsubscribes.email] });
+    res.send(
+      "<!DOCTYPE html><html lang='ja'><head><meta charset='UTF-8'><title>\u914D\u4FE1\u505C\u6B62\u5B8C\u4E86</title></head><body style='font-family:sans-serif;max-width:480px;margin:80px auto;text-align:center'><h2>\u914D\u4FE1\u505C\u6B62\u304C\u5B8C\u4E86\u3057\u307E\u3057\u305F</h2><p>\u4EE5\u964D\u3001\u3053\u306E\u30E1\u30FC\u30EB\u30A2\u30C9\u30EC\u30B9\u3078\u306E\u30AD\u30E3\u30F3\u30DA\u30FC\u30F3\u30E1\u30FC\u30EB\u306F\u9001\u4FE1\u3055\u308C\u307E\u305B\u3093\u3002</p></body></html>"
+    );
+  });
+  app2.get("/api/cron/ai-edit-process", async (req2, res) => {
     const expected = process.env.CRON_SECRET?.trim() || process.env.AI_EDIT_CRON_SECRET?.trim() || "";
     if (!expected) {
       return res.status(503).json({ error: "CRON_SECRET or AI_EDIT_CRON_SECRET is not configured" });
     }
-    const auth = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
+    const auth = typeof req2.headers.authorization === "string" ? req2.headers.authorization : "";
     if (auth !== `Bearer ${expected}`) {
       return res.status(401).json({ error: "Unauthorized" });
     }
-    const limit = Math.min(15, Math.max(1, parseInt(String(req.query.limit ?? "5"), 10) || 5));
+    const limit = Math.min(15, Math.max(1, parseInt(String(req2.query.limit ?? "5"), 10) || 5));
     let processed = 0;
     for (let i = 0; i < limit; i++) {
       const r = await claimAndProcessNextPendingAIEditJob();
@@ -10138,8 +10371,8 @@ data: ${data}
 // server/middleware.ts
 import express2 from "express";
 function setupCors(app2) {
-  app2.use((req, res, next) => {
-    const origin = req.header("origin");
+  app2.use((req2, res, next) => {
+    const origin = req2.header("origin");
     const frontendUrl = process.env.FRONTEND_URL?.replace(/\/$/, "");
     const isLocalhost = origin?.startsWith("http://localhost:") || origin?.startsWith("http://127.0.0.1:");
     const isAllowedOrigin = origin && isLocalhost || origin && frontendUrl && origin === frontendUrl;
@@ -10155,7 +10388,7 @@ function setupCors(app2) {
       );
       res.header("Access-Control-Allow-Credentials", "true");
     }
-    if (req.method === "OPTIONS") {
+    if (req2.method === "OPTIONS") {
       return res.sendStatus(200);
     }
     next();
@@ -10164,8 +10397,8 @@ function setupCors(app2) {
 function setupBodyParsing(app2) {
   app2.use(
     express2.json({
-      verify: (req, _res, buf) => {
-        req.rawBody = buf;
+      verify: (req2, _res, buf) => {
+        req2.rawBody = buf;
       }
     })
   );
@@ -10173,9 +10406,9 @@ function setupBodyParsing(app2) {
 }
 var log = console.log;
 function setupRequestLogging(app2) {
-  app2.use((req, res, next) => {
+  app2.use((req2, res, next) => {
     const start = Date.now();
-    const path2 = req.path;
+    const path2 = req2.path;
     let capturedJsonResponse = void 0;
     const originalResJson = res.json;
     res.json = function(bodyJson, ...args) {
@@ -10185,7 +10418,7 @@ function setupRequestLogging(app2) {
     res.on("finish", () => {
       if (!path2.startsWith("/api")) return;
       const duration = Date.now() - start;
-      let logLine = `${req.method} ${path2} ${res.statusCode} in ${duration}ms`;
+      let logLine = `${req2.method} ${path2} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
@@ -10250,15 +10483,15 @@ var RAWSTOCK_LP_FEATURE_IMG_GLOBAL_PLACEHOLDER = "RAWSTOCK_LP_FEATURE_IMG_GLOBAL
 var app = express3();
 var log2 = console.log;
 var LP_HTML_CACHE_CONTROL = "private, no-store, max-age=0, must-revalidate";
-function canonicalAppOriginFromReq(req) {
-  const forwardedProto = req.header("x-forwarded-proto");
-  const protocol = forwardedProto || req.protocol || "https";
-  const forwardedHost = req.header("x-forwarded-host");
-  const host = forwardedHost || req.get("host") || "localhost";
+function canonicalAppOriginFromReq(req2) {
+  const forwardedProto = req2.header("x-forwarded-proto");
+  const protocol = forwardedProto || req2.protocol || "https";
+  const forwardedHost = req2.header("x-forwarded-host");
+  const host = forwardedHost || req2.get("host") || "localhost";
   return `${protocol}://${host}`;
 }
-function injectLpMarketingHtml(html, canonicalUrl, req) {
-  const appOrigin = canonicalAppOriginFromReq(req);
+function injectLpMarketingHtml(html, canonicalUrl, req2) {
+  const appOrigin = canonicalAppOriginFromReq(req2);
   let out = html.split(RAWSTOCK_LOGO_URL_PLACEHOLDER).join(RAWSTOCK_LOGO_URL).split(RAWSTOCK_HERO_VIDEO_URL_PLACEHOLDER).join(RAWSTOCK_HERO_VIDEO_URL).split(RAWSTOCK_HERO_POSTER_URL_PLACEHOLDER).join(RAWSTOCK_HERO_POSTER_URL).split(LP_CANONICAL_URL_PLACEHOLDER).join(canonicalUrl).split(LP_APP_ORIGIN_PLACEHOLDER).join(appOrigin).split(RAWSTOCK_LP_STEP_IMG_SHOOT_PLACEHOLDER).join(RAWSTOCK_LP_STEP_IMG_SHOOT).split(RAWSTOCK_LP_STEP_IMG_EDIT_PLACEHOLDER).join(RAWSTOCK_LP_STEP_IMG_EDIT).split(RAWSTOCK_LP_STEP_IMG_SELL_PLACEHOLDER).join(RAWSTOCK_LP_STEP_IMG_SELL).split(RAWSTOCK_LP_STEP_IMG_PROMO_PLACEHOLDER).join(RAWSTOCK_LP_STEP_IMG_PROMO).split(RAWSTOCK_LP_FEATURE_IMG_JUKE_PLACEHOLDER).join(RAWSTOCK_LP_FEATURE_IMG_JUKE).split(RAWSTOCK_LP_FEATURE_IMG_AI_PLACEHOLDER).join(RAWSTOCK_LP_FEATURE_IMG_AI).split(RAWSTOCK_LP_FEATURE_IMG_DISTRICT_PLACEHOLDER).join(RAWSTOCK_LP_FEATURE_IMG_DISTRICT).split(RAWSTOCK_LP_FEATURE_IMG_LIVE_PLACEHOLDER).join(RAWSTOCK_LP_FEATURE_IMG_LIVE).split(RAWSTOCK_LP_FEATURE_IMG_GLOBAL_PLACEHOLDER).join(RAWSTOCK_LP_FEATURE_IMG_GLOBAL);
   const weglotKey = process.env.WEGLOT_API_KEY?.trim();
   if (weglotKey) {
@@ -10271,11 +10504,11 @@ function injectLpMarketingHtml(html, canonicalUrl, req) {
   }
   return out;
 }
-function canonicalPageUrlFromReq(req, pathname) {
-  const forwardedProto = req.header("x-forwarded-proto");
-  const protocol = forwardedProto || req.protocol || "https";
-  const forwardedHost = req.header("x-forwarded-host");
-  const host = forwardedHost || req.get("host") || "localhost";
+function canonicalPageUrlFromReq(req2, pathname) {
+  const forwardedProto = req2.header("x-forwarded-proto");
+  const protocol = forwardedProto || req2.protocol || "https";
+  const forwardedHost = req2.header("x-forwarded-host");
+  const host = forwardedHost || req2.get("host") || "localhost";
   const path2 = pathname.startsWith("/") ? pathname : `/${pathname}`;
   return `${protocol}://${host}${path2}`;
 }
@@ -10304,12 +10537,12 @@ function configureExpoAndLanding(app2) {
   const lpViteRoot = path.resolve(process.cwd(), "dist", "lp");
   const lpViteIndex = path.join(lpViteRoot, "index.html");
   const hasLpViteApp = fs.existsSync(lpViteIndex);
-  function serveLpStandalone(req, res, canonicalPath) {
+  function serveLpStandalone(req2, res, canonicalPath) {
     if (!fs.existsSync(lpStandalonePath)) {
       return res.status(404).send("lp-standalone.html not found");
     }
     const raw = fs.readFileSync(lpStandalonePath, "utf-8");
-    const html = injectLpMarketingHtml(raw, canonicalPageUrlFromReq(req, canonicalPath), req);
+    const html = injectLpMarketingHtml(raw, canonicalPageUrlFromReq(req2, canonicalPath), req2);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
     return res.status(200).send(html);
@@ -10328,26 +10561,26 @@ function configureExpoAndLanding(app2) {
     );
   }
   if (!hasLpViteApp) {
-    app2.get("/lp", (req, res) => {
-      return serveLpStandalone(req, res, "/lp");
+    app2.get("/lp", (req2, res) => {
+      return serveLpStandalone(req2, res, "/lp");
     });
   }
-  app2.get("/lp-standalone.html", (req, res) => {
+  app2.get("/lp-standalone.html", (req2, res) => {
     return res.redirect(302, "/lp");
   });
-  app2.get("/lp-static", (req, res) => {
+  app2.get("/lp-static", (req2, res) => {
     return res.redirect(302, "/lp");
   });
   const teamzPath = path.resolve(process.cwd(), "public/teamz.html");
-  app2.get("/teamz", (req, res) => {
+  app2.get("/teamz", (req2, res) => {
     if (!fs.existsSync(teamzPath)) {
       return res.status(404).send("teamz.html not found");
     }
     const raw = fs.readFileSync(teamzPath, "utf-8");
     const html = injectLpMarketingHtml(
       raw,
-      canonicalPageUrlFromReq(req, "/teamz"),
-      req
+      canonicalPageUrlFromReq(req2, "/teamz"),
+      req2
     );
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
@@ -10357,16 +10590,16 @@ function configureExpoAndLanding(app2) {
     const logoPath = path.resolve(process.cwd(), "assets/logo-200x70-v2.png");
     res.sendFile(logoPath);
   });
-  app2.use((req, res, next) => {
-    if (req.path.startsWith("/api")) {
+  app2.use((req2, res, next) => {
+    if (req2.path.startsWith("/api")) {
       return next();
     }
-    if (req.path === "/lp" || req.path.startsWith("/lp/") || req.path === "/teamz" || req.path === "/lp-static" || req.path === "/lp-standalone.html") {
+    if (req2.path === "/lp" || req2.path.startsWith("/lp/") || req2.path === "/teamz" || req2.path === "/lp-static" || req2.path === "/lp-standalone.html") {
       return next();
     }
-    const platform = req.header("expo-platform");
+    const platform = req2.header("expo-platform");
     if (platform && (platform === "ios" || platform === "android")) {
-      if (req.path === "/" || req.path === "/manifest") {
+      if (req2.path === "/" || req2.path === "/manifest") {
         return serveExpoManifest(platform, res);
       }
     }
@@ -10393,21 +10626,21 @@ function configureExpoAndLanding(app2) {
         }
       }
     });
-    app2.use((req, res, next) => {
-      if (req.path.startsWith("/api")) return next();
-      if (req.path === "/lp" || req.path.startsWith("/lp/")) return next();
-      const platform = req.header("expo-platform");
+    app2.use((req2, res, next) => {
+      if (req2.path.startsWith("/api")) return next();
+      if (req2.path === "/lp" || req2.path.startsWith("/lp/")) return next();
+      const platform = req2.header("expo-platform");
       if (platform && (platform === "ios" || platform === "android")) return next();
-      return expoProxy(req, res, next);
+      return expoProxy(req2, res, next);
     });
   } else {
     const distPath = path.resolve(process.cwd(), "dist");
     if (fs.existsSync(distPath)) {
       log2(`Serving Expo web export from: ${distPath}`);
       app2.use(express3.static(distPath));
-      app2.use((req, res, next) => {
-        if (req.path.startsWith("/api")) return next();
-        if (req.path === "/lp" || req.path.startsWith("/lp/")) return next();
+      app2.use((req2, res, next) => {
+        if (req2.path.startsWith("/api")) return next();
+        if (req2.path === "/lp" || req2.path.startsWith("/lp/")) return next();
         const indexPath = path.join(distPath, "index.html");
         if (fs.existsSync(indexPath)) {
           res.sendFile(indexPath);
@@ -10417,8 +10650,8 @@ function configureExpoAndLanding(app2) {
       });
     } else {
       log2("WARNING: dist/ directory not found. Run 'npx expo export --platform web' to build.");
-      app2.use((req, res, next) => {
-        if (req.path.startsWith("/api")) return next();
+      app2.use((req2, res, next) => {
+        if (req2.path.startsWith("/api")) return next();
         res.status(404).send("Web app not built. Please run the build command.");
       });
     }

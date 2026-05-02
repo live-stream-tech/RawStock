@@ -75,6 +75,9 @@ import {
   or,
   gte,
   lte,
+  gt,
+  ne,
+  max,
   isNull,
   inArray,
   isNotNull,
@@ -660,7 +663,85 @@ async function ensureDmThreadTables(): Promise<void> {
       created_at timestamp DEFAULT now()
     )
   `);
+  await db.execute(
+    sql`ALTER TABLE dm_threads ADD COLUMN IF NOT EXISTS user_1_last_read_message_id integer`,
+  );
+  await db.execute(
+    sql`ALTER TABLE dm_threads ADD COLUMN IF NOT EXISTS user_2_last_read_message_id integer`,
+  );
   dmThreadTablesEnsured = true;
+}
+
+async function markDmThreadRead(threadId: number, meId: number): Promise<void> {
+  const [th] = await db.select().from(dmThreads).where(eq(dmThreads.id, threadId));
+  if (!th) return;
+  const [agg] = await db
+    .select({ maxId: max(dmThreadMessages.id) })
+    .from(dmThreadMessages)
+    .where(eq(dmThreadMessages.threadId, threadId));
+  const maxId = Number(agg?.maxId ?? 0);
+  const isU1 = meId === th.user1Id;
+  if (isU1) {
+    await db
+      .update(dmThreads)
+      .set({ user1LastReadMessageId: maxId } as Partial<InferSelectModel<typeof dmThreads>>)
+      .where(eq(dmThreads.id, threadId));
+  } else {
+    await db
+      .update(dmThreads)
+      .set({ user2LastReadMessageId: maxId } as Partial<InferSelectModel<typeof dmThreads>>)
+      .where(eq(dmThreads.id, threadId));
+  }
+}
+
+async function dmThreadPeerUnreadCount(
+  threadId: number,
+  meId: number,
+  th: InferSelectModel<typeof dmThreads>,
+): Promise<number> {
+  const lastRead =
+    meId === th.user1Id ? th.user1LastReadMessageId ?? null : th.user2LastReadMessageId ?? null;
+  const peerFilter =
+    lastRead === null
+      ? and(eq(dmThreadMessages.threadId, threadId), ne(dmThreadMessages.senderUserId, meId))
+      : and(
+          eq(dmThreadMessages.threadId, threadId),
+          ne(dmThreadMessages.senderUserId, meId),
+          gt(dmThreadMessages.id, lastRead),
+        );
+  const [{ c }] = await db
+    .select({ c: sql<number>`count(*)::int` })
+    .from(dmThreadMessages)
+    .where(peerFilter);
+  return c ?? 0;
+}
+
+/** Ops welcome guide row unread (legacy dm_messages). Does not create the ops row (safe for polling). */
+async function operationsGuideDmUnreadForUser(meId: number): Promise<number> {
+  const [opsDm] = await db.select().from(dmMessages).where(eq(dmMessages.name, OPERATIONS_DM_NAME));
+  if (!opsDm) return 0;
+  const [{ welcomeDmSentAt, operationsDmOpenedAt }] = await db
+    .select({
+      welcomeDmSentAt: users.welcomeDmSentAt,
+      operationsDmOpenedAt: users.operationsDmOpenedAt,
+    })
+    .from(users)
+    .where(eq(users.id, meId));
+  return welcomeDmSentAt && !operationsDmOpenedAt ? 1 : 0;
+}
+
+async function totalDmUnreadForUser(meId: number): Promise<number> {
+  await ensureDmThreadTables();
+  const threads = await db
+    .select()
+    .from(dmThreads)
+    .where(or(eq(dmThreads.user1Id, meId), eq(dmThreads.user2Id, meId)));
+  let total = 0;
+  for (const t of threads) {
+    total += await dmThreadPeerUnreadCount(t.id, meId, t);
+  }
+  total += await operationsGuideDmUnreadForUser(meId);
+  return total;
 }
 
 const SYSTEM_WALLET_KINDS = ["MODERATOR", "ADMIN", "EVENT_RESERVE", "PLATFORM"] as const;
@@ -5579,23 +5660,16 @@ export async function registerRoutes(app: Express): Promise<void> {
         avatar: peer.profileImageUrl ?? "",
         lastMessage: t.lastMessagePreview ?? "",
         time: formatDmThreadTime(t.updatedAt ?? undefined),
-        unread: 0,
+        unread: await dmThreadPeerUnreadCount(t.id, me.id, t),
         online: false,
         otherUserId: peerId,
       });
     }
     const opsDm = await ensureOperationsDmRow();
-    const [{ welcomeDmSentAt, operationsDmOpenedAt }] = await db
-      .select({
-        welcomeDmSentAt: users.welcomeDmSentAt,
-        operationsDmOpenedAt: users.operationsDmOpenedAt,
-      })
-      .from(users)
-      .where(eq(users.id, me.id));
     if (opsDm) {
       const preview =
         (opsDm.lastMessage ?? "").split("\n").find((line) => line.trim().length > 0) ?? opsDm.lastMessage ?? "";
-      const opsUnread = welcomeDmSentAt && !operationsDmOpenedAt ? 1 : 0;
+      const opsUnread = await operationsGuideDmUnreadForUser(me.id);
       out.unshift({
         id: -opsDm.id,
         name: opsDm.name,
@@ -5608,6 +5682,14 @@ export async function registerRoutes(app: Express): Promise<void> {
       });
     }
     res.json(out);
+  });
+
+  app.get("/api/dm-messages/unread-count", async (_req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "private, no-store");
+    const me = await getAuthUser(req);
+    if (!me) return res.json({ count: 0 });
+    const count = await totalDmUnreadForUser(me.id);
+    res.json({ count });
   });
 
   app.post("/api/dm-messages/:id/read", async (req: Request, res: Response) => {
@@ -5625,7 +5707,10 @@ export async function registerRoutes(app: Express): Promise<void> {
             or(eq(dmThreads.user1Id, me.id), eq(dmThreads.user2Id, me.id)),
           ),
         );
-      if (th) return res.json({ ok: true });
+      if (th) {
+        await markDmThreadRead(rawId, me.id);
+        return res.json({ ok: true });
+      }
     }
     const [updated] = await db
       .update(dmMessages)
@@ -5774,6 +5859,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           .from(dmThreadMessages)
           .where(eq(dmThreadMessages.threadId, rawId))
           .orderBy(asc(dmThreadMessages.createdAt));
+        await markDmThreadRead(rawId, me.id);
         return res.json(
           rows.map((m) => {
             const raw = String(m.text ?? "");

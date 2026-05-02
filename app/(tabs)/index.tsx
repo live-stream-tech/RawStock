@@ -35,6 +35,14 @@ function useUnreadCount() {
   return data?.count ?? 0;
 }
 
+function useDmUnreadCount() {
+  const { data } = useQuery<{ count: number }>({
+    queryKey: ["/api/dm-messages/unread-count"],
+    refetchInterval: 30_000,
+  });
+  return data?.count ?? 0;
+}
+
 function formatNumber(n: number): string {
   if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
   if (n >= 1000) return (n / 1000).toFixed(1) + "K";
@@ -344,6 +352,7 @@ export default function HomeScreen() {
 
   const insets = useSafeAreaInsets();
   const unreadCount = useUnreadCount();
+  const dmUnreadCount = useDmUnreadCount();
   const { jukeboxIsActive, jukeboxCommunityId } = usePlayingVideo();
   const { pulse: jukePulse } = useJukeboxPulse();
 
@@ -393,6 +402,11 @@ export default function HomeScreen() {
           </Pressable>
           <Pressable style={styles.iconBtn} onPress={() => router.push("/dm" as any)}>
             <Ionicons name="chatbubble-outline" size={22} color={C.text} />
+            {dmUnreadCount > 0 && (
+              <View style={styles.notifBadge} pointerEvents="none">
+                <Text style={styles.notifBadgeText}>{dmUnreadCount > 9 ? "9+" : dmUnreadCount}</Text>
+              </View>
+            )}
           </Pressable>
         </View>
       </View>
