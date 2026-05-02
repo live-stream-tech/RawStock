@@ -675,12 +675,16 @@ function QueueRow({
 
   return (
     <View style={[styles.queueSection, isVertical && styles.queueSectionVertical]}>
-      <View style={styles.queueHeader}>
+      <View style={[styles.queueHeader, showAddInHeader && styles.queueHeaderWithAdd]}>
         <Ionicons name="list" size={14} color={C.accent} />
         <Text style={styles.queueHeaderText}>UP NEXT</Text>
         <Text style={styles.queueCount}>{upcoming.length}</Text>
         {showAddInHeader ? (
-          <Pressable style={styles.queueAddHeaderBtn} onPress={onAdd} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          <Pressable
+            style={styles.queueAddHeaderBtn}
+            onPress={onAdd}
+            hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
+          >
             <Ionicons name="add" size={14} color={C.accent} />
             <Text style={styles.queueAddHeaderText}>Add</Text>
           </Pressable>
@@ -699,14 +703,18 @@ function QueueRow({
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={scrollShowsHorizontal}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
+          nestedScrollEnabled
           contentContainerStyle={styles.queueScroll}
         >
           {itemNodes}
-          <Pressable style={styles.addQueueBtn} onPress={onAdd} hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}>
-            <Ionicons name="add" size={24} color={C.accent} />
-            <Text style={styles.addQueueText}>Add Video</Text>
-          </Pressable>
+          {/* When header shows Add, omit trailing tile — horizontal ScrollView often steals taps on mobile */}
+          {!showAddInHeader ? (
+            <Pressable style={styles.addQueueBtn} onPress={onAdd} hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}>
+              <Ionicons name="add" size={24} color={C.accent} />
+              <Text style={styles.addQueueText}>Add Video</Text>
+            </Pressable>
+          ) : null}
         </ScrollView>
       )}
     </View>
@@ -1329,7 +1337,7 @@ export default function JukeboxScreen() {
               <ScrollView
                 style={webScrollStyle(styles.ytPlaylistItemsScroll)}
                 showsVerticalScrollIndicator={scrollShowsVertical}
-                keyboardShouldPersistTaps="handled"
+                keyboardShouldPersistTaps="always"
                 nestedScrollEnabled
               >
                 {ytPlaylistItems.map((item) => {
@@ -1350,7 +1358,12 @@ export default function JukeboxScreen() {
                       onPress={() => addMutation.mutate(video)}
                       disabled={addMutation.isPending}
                     >
-                      <Image source={{ uri: item.thumbnail }} style={styles.modalThumb} contentFit="cover" />
+                      <Image
+                        source={{ uri: item.thumbnail }}
+                        style={styles.modalThumb}
+                        contentFit="cover"
+                        pointerEvents="none"
+                      />
                       <View style={styles.modalItemInfo}>
                         <Text style={styles.modalItemTitle} numberOfLines={2}>
                           {item.title}
@@ -1360,7 +1373,9 @@ export default function JukeboxScreen() {
                           <Text style={styles.modalItemMetaText}>playlist から追加</Text>
                         </View>
                       </View>
-                      <Ionicons name="add-circle" size={24} color={C.accent} />
+                      <View pointerEvents="none">
+                        <Ionicons name="add-circle" size={24} color={C.accent} />
+                      </View>
                     </Pressable>
                   );
                 })}
@@ -1390,7 +1405,7 @@ export default function JukeboxScreen() {
         style={webScrollStyle(styles.modalList)}
         showsVerticalScrollIndicator={scrollShowsVertical}
         contentContainerStyle={styles.modalListContent}
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
         nestedScrollEnabled
       >
         {ytResults.length > 0 && (
@@ -1414,7 +1429,12 @@ export default function JukeboxScreen() {
                   onPress={() => addMutation.mutate(video)}
                   disabled={addMutation.isPending}
                 >
-                  <Image source={{ uri: r.thumbnail }} style={styles.modalThumb} contentFit="cover" />
+                  <Image
+                    source={{ uri: r.thumbnail }}
+                    style={styles.modalThumb}
+                    contentFit="cover"
+                    pointerEvents="none"
+                  />
                   <View style={styles.modalItemInfo}>
                     <Text style={styles.modalItemTitle} numberOfLines={2}>
                       {r.title}
@@ -1424,7 +1444,9 @@ export default function JukeboxScreen() {
                       <Text style={styles.modalItemMetaText}>YouTube から追加</Text>
                     </View>
                   </View>
-                  <Ionicons name="add-circle" size={24} color={C.accent} />
+                  <View pointerEvents="none">
+                    <Ionicons name="add-circle" size={24} color={C.accent} />
+                  </View>
                 </Pressable>
               );
             })}
@@ -1439,7 +1461,12 @@ export default function JukeboxScreen() {
             onPress={() => addMutation.mutate(video)}
             disabled={addMutation.isPending}
           >
-            <Image source={{ uri: video.thumbnail }} style={styles.modalThumb} contentFit="cover" />
+            <Image
+              source={{ uri: video.thumbnail }}
+              style={styles.modalThumb}
+              contentFit="cover"
+              pointerEvents="none"
+            />
             <View style={styles.modalItemInfo}>
               <Text style={styles.modalItemTitle} numberOfLines={2}>
                 {video.title}
@@ -1449,7 +1476,9 @@ export default function JukeboxScreen() {
                 <Text style={styles.modalItemMetaText}>Purchased · 🎟{video.price?.toLocaleString()}</Text>
               </View>
             </View>
-            <Ionicons name="add-circle" size={24} color={C.accent} />
+            <View pointerEvents="none">
+              <Ionicons name="add-circle" size={24} color={C.accent} />
+            </View>
           </Pressable>
         ))}
         {uploadedVideos.length > 0 && (
@@ -1462,7 +1491,12 @@ export default function JukeboxScreen() {
                 onPress={() => addMutation.mutate(video)}
                 disabled={addMutation.isPending}
               >
-                <Image source={{ uri: video.thumbnail }} style={styles.modalThumb} contentFit="cover" />
+                <Image
+                  source={{ uri: video.thumbnail }}
+                  style={styles.modalThumb}
+                  contentFit="cover"
+                  pointerEvents="none"
+                />
                 <View style={styles.modalItemInfo}>
                   <Text style={styles.modalItemTitle} numberOfLines={2}>
                     {video.title}
@@ -1474,7 +1508,9 @@ export default function JukeboxScreen() {
                     </Text>
                   </View>
                 </View>
-                <Ionicons name="add-circle" size={24} color={C.accent} />
+                <View pointerEvents="none">
+                  <Ionicons name="add-circle" size={24} color={C.accent} />
+                </View>
               </Pressable>
             ))}
           </>
@@ -1774,6 +1810,7 @@ export default function JukeboxScreen() {
                 if (!user) { router.push("/auth/login"); return; }
                 setShowAddModal(true);
               }}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             >
               <Ionicons name="add" size={20} color="#fff" />
             </Pressable>
@@ -1931,6 +1968,7 @@ const styles = StyleSheet.create({
   portraitPlayerSlot: {
     position: "relative",
     zIndex: 0,
+    overflow: "hidden",
   },
   portraitBelowPlayer: {
     flex: 1,
@@ -2276,18 +2314,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginBottom: 8,
   },
+  /** Keep "Add" above the video layer on small screens (Android z-order) */
+  queueHeaderWithAdd: {
+    zIndex: 4,
+    ...(Platform.OS === "android" ? { elevation: 6 } : {}),
+  },
   queueHeaderText: { color: C.accent, fontSize: 11, fontWeight: "800", flex: 1 },
   queueCount: { color: C.textMuted, fontSize: 11 },
   queueAddHeaderBtn: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 4,
     backgroundColor: "rgba(41,182,207,0.14)",
     borderWidth: 1,
     borderColor: C.accent + "66",
     borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 10,
+    minHeight: 40,
+    paddingVertical: 6,
   },
   queueAddHeaderText: { color: C.accent, fontSize: 11, fontWeight: "700" },
   queueScroll: { paddingHorizontal: 16, gap: 8, paddingBottom: 10 },
@@ -2423,13 +2468,14 @@ const styles = StyleSheet.create({
   },
   landscapeAddBtn: {
     position: "absolute",
-    zIndex: 50,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    zIndex: 60,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "rgba(0,0,0,0.5)",
     alignItems: "center",
     justifyContent: "center",
+    ...(Platform.OS === "android" ? { elevation: 12 } : {}),
   },
   landscapeChatBar: {
     position: "absolute",
@@ -2596,8 +2642,11 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: C.border,
+    alignSelf: "stretch",
+    width: "100%",
   },
-  modalThumb: { width: 64, height: 40, borderRadius: 6 },
+  /** Slightly larger tap target for thumbnails on phones */
+  modalThumb: { width: 72, height: 48, borderRadius: 6 },
   modalItemInfo: { flex: 1, gap: 3 },
   modalItemTitle: { color: C.text, fontSize: 13, fontWeight: "600", lineHeight: 17 },
   modalItemMeta: { flexDirection: "row", alignItems: "center", gap: 4 },
