@@ -13,6 +13,7 @@ import {
   Animated,
   Dimensions,
   useWindowDimensions,
+  ActivityIndicator,
 } from "react-native";
 import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
@@ -132,6 +133,41 @@ function fmtSecs(s: number): string {
   const sec = Math.floor(s % 60);
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
+
+function JukeboxChatListEmptyView() {
+  return (
+    <View style={jukeboxChatListEmptyStyles.wrap} accessible accessibilityLabel="No comments yet. Type below to post.">
+      <Ionicons name="chatbubble-outline" size={30} color={C.textMuted} importantForAccessibility="no" />
+      <Text style={jukeboxChatListEmptyStyles.title} importantForAccessibility="no">
+        No comments yet
+      </Text>
+      <Text style={jukeboxChatListEmptyStyles.sub} importantForAccessibility="no">
+        Type below to join the party
+      </Text>
+    </View>
+  );
+}
+
+const jukeboxChatListEmptyStyles = StyleSheet.create({
+  wrap: {
+    paddingVertical: 28,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    gap: 8,
+  },
+  title: {
+    color: C.textMuted,
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  sub: {
+    color: C.textSec,
+    fontSize: 11,
+    textAlign: "center",
+    lineHeight: 15,
+  },
+});
 
 /** On iPhone/iPad Safari (including PWA), avoid keyboard-driven layout shifts. */
 function isIosLikeWebClient(): boolean {
@@ -562,8 +598,11 @@ function NowPlaying({
               onAdvance("manual");
             }}
             disabled={!allowManualSkip}
+            accessibilityRole="button"
+            accessibilityLabel={allowManualSkip ? "Skip to next track" : "Skip unavailable"}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Ionicons name="play-skip-forward" size={14} color={C.textMuted} />
+            <Ionicons name="play-skip-forward" size={16} color={C.textMuted} />
             <Text style={[styles.nextBtnText, !allowManualSkip && styles.nextBtnTextDisabled]}>Skip</Text>
           </Pressable>
         </View>
@@ -684,8 +723,10 @@ function QueueRow({
             style={styles.queueAddHeaderBtn}
             onPress={onAdd}
             hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
+            accessibilityRole="button"
+            accessibilityLabel="Add video to queue"
           >
-            <Ionicons name="add" size={14} color={C.accent} />
+            <Ionicons name="add" size={16} color={C.accent} />
             <Text style={styles.queueAddHeaderText}>Add</Text>
           </Pressable>
         ) : null}
@@ -697,7 +738,20 @@ function QueueRow({
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.queueVerticalContent}
         >
-          {itemNodes}
+          {upcoming.length === 0 ? (
+            <Pressable
+              onPress={onAdd}
+              style={styles.queueEmptyVertical}
+              accessibilityRole="button"
+              accessibilityLabel="Queue is empty. Add a video."
+            >
+              <Ionicons name="add-circle-outline" size={36} color={C.accent} />
+              <Text style={styles.queueEmptyTitle}>Nothing queued yet</Text>
+              <Text style={styles.queueEmptyHint}>Tap here or Add above</Text>
+            </Pressable>
+          ) : (
+            itemNodes
+          )}
         </ScrollView>
       ) : (
         <ScrollView
@@ -707,14 +761,35 @@ function QueueRow({
           nestedScrollEnabled
           contentContainerStyle={styles.queueScroll}
         >
-          {itemNodes}
-          {/* When header shows Add, omit trailing tile — horizontal ScrollView often steals taps on mobile */}
-          {!showAddInHeader ? (
-            <Pressable style={styles.addQueueBtn} onPress={onAdd} hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}>
-              <Ionicons name="add" size={24} color={C.accent} />
-              <Text style={styles.addQueueText}>Add Video</Text>
+          {upcoming.length === 0 ? (
+            <Pressable
+              onPress={onAdd}
+              style={styles.queueEmptyHorizontal}
+              accessibilityRole="button"
+              accessibilityLabel="Queue is empty. Add a video."
+            >
+              <Ionicons name="add-circle-outline" size={32} color={C.accent} />
+              <Text style={styles.queueEmptyTitleH}>Nothing queued yet</Text>
+              <Text style={styles.queueEmptyHintH}>Tap or use Add above</Text>
             </Pressable>
-          ) : null}
+          ) : (
+            <>
+              {itemNodes}
+              {/* When header shows Add, omit trailing tile — horizontal ScrollView often steals taps on mobile */}
+              {!showAddInHeader ? (
+                <Pressable
+                  style={styles.addQueueBtn}
+                  onPress={onAdd}
+                  hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add video to queue"
+                >
+                  <Ionicons name="add" size={24} color={C.accent} />
+                  <Text style={styles.addQueueText}>Add Video</Text>
+                </Pressable>
+              ) : null}
+            </>
+          )}
         </ScrollView>
       )}
     </View>
@@ -727,6 +802,7 @@ export default function JukeboxScreen() {
   const insets = useSafeAreaInsets();
   const qc = useQueryClient();
   const flatListRef = useRef<FlatList>(null);
+  const desktopAddScrollRef = useRef<ScrollView>(null);
   const { user } = useAuth();
   const { width: winW, height: winH } = useWindowDimensions();
   const isDesktopWebJukebox = Platform.OS === "web" && winW >= 900;
@@ -755,8 +831,8 @@ export default function JukeboxScreen() {
   /** Disable KAV inside Add modal to avoid iframe playback interruption. */
   const kavDisabledOnIosWeb = Platform.OS === "web" && isIosLikeWebClient();
   /**
-   * Main layout (including chat): behavior="height" can collapse input on Android.
-   * Use padding on native and iOS web; use height on desktop web only.
+   * Main layout (including chat): on wide web use height; on iPhone/iPad Safari use padding
+   * to reduce layout jump when the virtual keyboard opens.
    */
   const jukeboxKeyboardBehavior: "padding" | "height" =
     Platform.OS === "web" && !kavDisabledOnIosWeb ? "height" : "padding";
@@ -1019,6 +1095,17 @@ export default function JukeboxScreen() {
       return result;
     },
     onSuccess: () => {
+      if (Platform.OS !== "web") {
+        try {
+          const Haptics = require("expo-haptics") as {
+            notificationAsync: (t: number) => Promise<void>;
+            NotificationFeedbackType: { Success: number };
+          };
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch {
+          /* noop */
+        }
+      }
       setYtUrl("");
       setShowAddModal(false);
       qc.invalidateQueries({ queryKey: jukeboxKey });
@@ -1278,6 +1365,8 @@ export default function JukeboxScreen() {
             style={[styles.ytSearchButton, (ytSearching || !ytQuery.trim()) && styles.ytSearchButtonDisabled]}
             onPress={handleSearchYouTube}
             disabled={ytSearching || !ytQuery.trim()}
+            accessibilityRole="button"
+            accessibilityLabel={ytSearching ? "Searching YouTube" : "Search YouTube"}
           >
             <Ionicons name="search" size={16} color="#fff" />
             <Text style={styles.ytSearchButtonText}>{ytSearching ? "Searching..." : "Search"}</Text>
@@ -1300,6 +1389,8 @@ export default function JukeboxScreen() {
             style={[styles.ytAddButton, !ytUrl.trim() && styles.ytAddButtonDisabled]}
             onPress={handleAddYouTube}
             disabled={!ytUrl.trim()}
+            accessibilityRole="button"
+            accessibilityLabel="Add video from this YouTube URL"
           >
             <Ionicons name="logo-youtube" size={16} color="#fff" />
             <Text style={styles.ytAddButtonText}>Add this URL</Text>
@@ -1525,7 +1616,12 @@ export default function JukeboxScreen() {
       <View style={{ flex: 1, backgroundColor: C.bg, flexDirection: "row" }}>
         <View style={styles.desktopMainCol}>
           <View style={[styles.header, { paddingTop: topInset + 8 }]}>
-            <Pressable style={styles.backBtn} onPress={() => router.back()}>
+            <Pressable
+              style={styles.backBtn}
+              onPress={() => router.back()}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+            >
               <Ionicons name="chevron-back" size={22} color="#fff" />
             </Pressable>
             <View style={styles.headerCenter}>
@@ -1537,6 +1633,8 @@ export default function JukeboxScreen() {
                 onPress={() => !stationLabel && router.push(`/community/${communityId}`)}
                 style={styles.headerCommunityNamePressable}
                 hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel={`Open community ${communityDisplayName}`}
               >
                 <Text style={styles.headerCommunityName} numberOfLines={2}>
                   {communityDisplayName}
@@ -1573,7 +1671,10 @@ export default function JukeboxScreen() {
               userName={user?.name}
               userId={user?.id ?? null}
               onDelete={(id) => deleteMutation.mutate(id)}
-              onAdd={() => {}}
+              showAddInHeader
+              onAdd={() => {
+                desktopAddScrollRef.current?.scrollTo({ y: 0, animated: true });
+              }}
             />
           </View>
           <View style={styles.desktopChatBlock}>
@@ -1586,7 +1687,11 @@ export default function JukeboxScreen() {
               data={chat}
               keyExtractor={(item) => item.id.toString()}
               style={styles.desktopChatList}
-              contentContainerStyle={styles.chatListContent}
+              contentContainerStyle={[
+                styles.chatListContent,
+                chat.length === 0 && styles.chatListContentWhenEmpty,
+              ]}
+              ListEmptyComponent={JukeboxChatListEmptyView}
               showsVerticalScrollIndicator={scrollShowsVertical}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="none"
@@ -1632,6 +1737,8 @@ export default function JukeboxScreen() {
                 style={[styles.sendBtn, (!chatInput.trim() || chatMutation.isPending) && styles.sendBtnDisabled]}
                 onPress={sendChat}
                 disabled={!chatInput.trim() || chatMutation.isPending}
+                accessibilityRole="button"
+                accessibilityLabel="Send comment"
               >
                 <Ionicons name="send" size={16} color="#fff" />
               </Pressable>
@@ -1643,6 +1750,7 @@ export default function JukeboxScreen() {
             keyboardVerticalOffset={0}
           >
             <ScrollView
+              ref={desktopAddScrollRef}
               style={webScrollStyle(undefined)}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={scrollShowsVertical}
@@ -1661,14 +1769,18 @@ export default function JukeboxScreen() {
       style={{ flex: 1, backgroundColor: C.bg }}
       behavior={jukeboxKeyboardBehavior as "padding" | "height"}
       keyboardVerticalOffset={0}
-      /** On native, KAV padding animation can conflict with TextInput focus. Web only. */
-      enabled={Platform.OS === "web" && !showAddModal}
+      enabled={!showAddModal}
     >
       <View style={[styles.container]}>
         {/* Header: portrait only */}
         {!isLandscape && (
           <View style={[styles.header, { paddingTop: topInset + 8 }]}>
-            <Pressable style={styles.backBtn} onPress={() => router.back()}>
+            <Pressable
+              style={styles.backBtn}
+              onPress={() => router.back()}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+            >
               <Ionicons name="chevron-back" size={22} color="#fff" />
             </Pressable>
             <View style={styles.headerCenter}>
@@ -1680,6 +1792,8 @@ export default function JukeboxScreen() {
                 onPress={() => !stationLabel && router.push(`/community/${communityId}`)}
                 style={styles.headerCommunityNamePressable}
                 hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel={`Open community ${communityDisplayName}`}
               >
                 <Text style={styles.headerCommunityName} numberOfLines={2}>
                   {communityDisplayName}
@@ -1733,7 +1847,11 @@ export default function JukeboxScreen() {
                 data={chat}
                 keyExtractor={(item) => item.id.toString()}
                 style={styles.chatList}
-                contentContainerStyle={styles.chatListContent}
+                contentContainerStyle={[
+                  styles.chatListContent,
+                  chat.length === 0 && styles.chatListContentWhenEmpty,
+                ]}
+                ListEmptyComponent={JukeboxChatListEmptyView}
                 showsVerticalScrollIndicator={scrollShowsVertical}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="none"
@@ -1773,7 +1891,7 @@ export default function JukeboxScreen() {
             <View style={[styles.inputRow, { paddingBottom: bottomInset + 8 }]}>
               <TextInput
                 style={styles.input}
-                placeholder="Add a comment..."
+                placeholder="コメントを追加..."
                 placeholderTextColor={C.textMuted}
                 value={chatInput}
                 onChangeText={setChatInput}
@@ -1787,6 +1905,8 @@ export default function JukeboxScreen() {
                 style={[styles.sendBtn, (!chatInput.trim() || chatMutation.isPending) && styles.sendBtnDisabled]}
                 onPress={sendChat}
                 disabled={!chatInput.trim() || chatMutation.isPending}
+                accessibilityRole="button"
+                accessibilityLabel="Send comment"
               >
                 <Ionicons name="send" size={16} color="#fff" />
               </Pressable>
@@ -1797,12 +1917,14 @@ export default function JukeboxScreen() {
         {/* Landscape: chrome only (NowPlaying already mounted above). */}
         {isLandscape && (
           <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
-            <Pressable
-              style={[styles.landscapeBackBtn, { top: insets.top + 8, left: insets.left + 8 }]}
-              onPress={() => router.back()}
-            >
-              <Ionicons name="chevron-back" size={22} color="#fff" />
-            </Pressable>
+          <Pressable
+            style={[styles.landscapeBackBtn, { top: insets.top + 8, left: insets.left + 8 }]}
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
+            <Ionicons name="chevron-back" size={22} color="#fff" />
+          </Pressable>
 
             <Pressable
               style={[styles.landscapeAddBtn, { top: insets.top + 8, right: insets.right + 8 }]}
@@ -1811,8 +1933,10 @@ export default function JukeboxScreen() {
                 setShowAddModal(true);
               }}
               hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              accessibilityRole="button"
+              accessibilityLabel="Add video to queue"
             >
-              <Ionicons name="add" size={20} color="#fff" />
+              <Ionicons name="add" size={22} color="#fff" />
             </Pressable>
 
             <Pressable
@@ -1821,6 +1945,8 @@ export default function JukeboxScreen() {
                 { top: insets.top + 8, left: insets.left + 52, right: insets.right + 52 },
               ]}
               onPress={() => router.push(`/community/${communityId}`)}
+              accessibilityRole="button"
+              accessibilityLabel={`Open community ${communityDisplayName}`}
             >
               <Ionicons name="people-outline" size={13} color={C.accent} />
               <Text style={styles.landscapeCommunityPillText} numberOfLines={1}>
@@ -1841,6 +1967,8 @@ export default function JukeboxScreen() {
               <Pressable
                 style={[styles.landscapeChatBar, { bottom: insets.bottom + 8, left: insets.left + 12, right: insets.right + 12 }]}
                 onPress={() => setChatPanelOpen(true)}
+                accessibilityRole="button"
+                accessibilityLabel={latestChat ? "Open comments" : "Open comments, no messages yet"}
               >
                 <Ionicons name="chatbubbles" size={13} color={C.accent} />
                 {latestChat ? (
@@ -1865,7 +1993,12 @@ export default function JukeboxScreen() {
                 <View style={styles.landscapeChatPanelHeader}>
                   <Ionicons name="chatbubbles" size={14} color={C.accent} />
                   <Text style={styles.chatHeaderText}>Comments</Text>
-                  <Pressable onPress={() => setChatPanelOpen(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Pressable
+                    onPress={() => setChatPanelOpen(false)}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Close comments"
+                  >
                     <Ionicons name="chevron-down" size={18} color={C.textMuted} />
                   </Pressable>
                 </View>
@@ -1874,7 +2007,11 @@ export default function JukeboxScreen() {
                   data={chat}
                   keyExtractor={(item) => item.id.toString()}
                   style={{ flex: 1 }}
-                  contentContainerStyle={styles.chatListContent}
+                  contentContainerStyle={[
+                    styles.chatListContent,
+                    chat.length === 0 && styles.chatListContentWhenEmpty,
+                  ]}
+                  ListEmptyComponent={JukeboxChatListEmptyView}
                   showsVerticalScrollIndicator={scrollShowsVertical}
                   keyboardShouldPersistTaps="handled"
                   keyboardDismissMode="none"
@@ -1926,6 +2063,8 @@ export default function JukeboxScreen() {
                     style={[styles.sendBtn, (!chatInput.trim() || chatMutation.isPending) && styles.sendBtnDisabled]}
                     onPress={sendChat}
                     disabled={!chatInput.trim() || chatMutation.isPending}
+                    accessibilityRole="button"
+                    accessibilityLabel="Send comment"
                   >
                     <Ionicons name="send" size={16} color="#fff" />
                   </Pressable>
@@ -1942,16 +2081,37 @@ export default function JukeboxScreen() {
           style={{ flex: 1 }}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
-          /** Android + Modal often mis-measures; rely on windowSoftInputMode + scroll taps instead. */
-          enabled={Platform.OS === "android" ? false : !kavDisabledOnIosWeb}
+          /** iOS WebKit: optional; desktop web runs full behavior. */
+          enabled={!kavDisabledOnIosWeb}
         >
         <View style={styles.modalBg} pointerEvents="box-none">
           <Pressable
             style={[StyleSheet.absoluteFillObject, styles.modalBackdrop]}
-            onPress={() => setShowAddModal(false)}
+            onPress={() => !addMutation.isPending && setShowAddModal(false)}
+            accessibilityLabel="Dismiss"
           />
           <View style={styles.modalSheet}>
-            <View style={styles.modalHandle} />
+            <View style={styles.modalSheetTopRow}>
+              <View style={styles.modalSheetTopSide} />
+              <View style={styles.modalHandle} />
+              <View style={[styles.modalSheetTopSide, styles.modalSheetTopSideEnd]}>
+                <Pressable
+                  onPress={() => !addMutation.isPending && setShowAddModal(false)}
+                  style={styles.modalCloseBtn}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close"
+                  disabled={addMutation.isPending}
+                >
+                  <Ionicons name="close" size={26} color={C.textSec} />
+                </Pressable>
+              </View>
+            </View>
+            {addMutation.isPending ? (
+              <View style={styles.modalPendingOverlay} pointerEvents="auto">
+                <ActivityIndicator size="large" color={C.accent} />
+              </View>
+            ) : null}
             {jukeboxAddPanelCore}
           </View>
         </View>
@@ -2263,6 +2423,7 @@ const styles = StyleSheet.create({
   },
   nextBtnDisabled: {
     opacity: 0.38,
+    backgroundColor: "transparent",
   },
   nextBtnTextDisabled: {
     opacity: 0.65,
@@ -2270,7 +2431,14 @@ const styles = StyleSheet.create({
   nextBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    justifyContent: "center",
+    gap: 6,
+    minHeight: 44,
+    minWidth: 88,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: "rgba(0,0,0,0.35)",
   },
   nextBtnText: { color: C.textMuted, fontSize: 11 },
 
@@ -2325,14 +2493,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
+    gap: 5,
     backgroundColor: "rgba(41,182,207,0.14)",
     borderWidth: 1,
     borderColor: C.accent + "66",
     borderRadius: 999,
-    paddingHorizontal: 10,
-    minHeight: 40,
-    paddingVertical: 6,
+    paddingHorizontal: 14,
+    minHeight: 44,
+    minWidth: 72,
+    paddingVertical: 8,
   },
   queueAddHeaderText: { color: C.accent, fontSize: 11, fontWeight: "700" },
   queueScroll: { paddingHorizontal: 16, gap: 8, paddingBottom: 10 },
@@ -2400,6 +2569,8 @@ const styles = StyleSheet.create({
   chatHeaderText: { color: C.accent, fontSize: 11, fontWeight: "700" },
   chatList: { flex: 1 },
   chatListContent: { paddingHorizontal: 12, gap: 8, paddingVertical: 6 },
+  /** Centers `ListEmptyComponent` when the thread has no rows. */
+  chatListContentWhenEmpty: { flexGrow: 1, justifyContent: "center", minHeight: 100 },
   chatMsg: {
     flexDirection: "row",
     alignItems: "flex-end",
@@ -2436,9 +2607,57 @@ const styles = StyleSheet.create({
     zIndex: 6,
     ...(Platform.OS === "android" ? { elevation: 8 } : {}),
   },
+  queueEmptyVertical: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 20,
+    paddingHorizontal: 16,
+    gap: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderStyle: "dashed",
+    backgroundColor: C.surface2,
+  },
+  queueEmptyHorizontal: {
+    width: 220,
+    minHeight: 90,
+    marginRight: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    gap: 4,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: C.accent + "44",
+    backgroundColor: C.surface2,
+  },
+  queueEmptyTitle: {
+    color: C.text,
+    fontSize: 13,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  queueEmptyHint: {
+    color: C.textMuted,
+    fontSize: 11,
+    textAlign: "center",
+  },
+  queueEmptyTitleH: {
+    color: C.text,
+    fontSize: 12,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  queueEmptyHintH: {
+    color: C.textMuted,
+    fontSize: 10,
+    textAlign: "center",
+  },
+
   input: {
     flex: 1,
-    height: 40,
+    height: 44,
     backgroundColor: C.surface,
     borderRadius: 20,
     paddingHorizontal: 16,
@@ -2446,9 +2665,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   sendBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: C.accent,
     alignItems: "center",
     justifyContent: "center",
@@ -2523,6 +2742,7 @@ const styles = StyleSheet.create({
     zIndex: 0,
   },
   modalSheet: {
+    position: "relative",
     backgroundColor: C.surface,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
@@ -2535,13 +2755,34 @@ const styles = StyleSheet.create({
       default: {},
     }),
   },
+  modalSheetTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+    minHeight: 32,
+  },
+  modalSheetTopSide: { flex: 1 },
+  modalSheetTopSideEnd: { alignItems: "flex-end" },
+  modalCloseBtn: { padding: 2 },
+  /** Covers form while add request is in flight (sheet keeps natural height). */
+  modalPendingOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 44,
+    bottom: 0,
+    backgroundColor: "rgba(10,18,28,0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 50,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+  },
   modalHandle: {
     width: 36,
     height: 4,
     borderRadius: 2,
     backgroundColor: C.border,
-    alignSelf: "center",
-    marginBottom: 14,
   },
   modalTitle: {
     color: C.text,
