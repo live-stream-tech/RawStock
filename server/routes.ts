@@ -138,7 +138,7 @@ import {
   jukeboxSseDisconnect,
   isValidJukeboxPollViewerId,
 } from "./jukeboxWatchers";
-import { ensureJukeboxQueueSchema, ensureUserFollowsSchema } from "./runtimeSchemaGuards";
+import { ensureJukeboxQueueSchema, ensureUserFollowsSchema, ensureJukeboxRequestCountsSchema } from "./runtimeSchemaGuards";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import type Stripe from "stripe";
@@ -668,6 +668,12 @@ async function ensureDmThreadTables(): Promise<void> {
   );
   await db.execute(
     sql`ALTER TABLE dm_threads ADD COLUMN IF NOT EXISTS user_2_last_read_message_id integer`,
+  );
+  await db.execute(
+    sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS welcome_dm_sent_at timestamp`,
+  );
+  await db.execute(
+    sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS operations_dm_opened_at timestamp`,
   );
   dmThreadTablesEnsured = true;
 }
@@ -8607,6 +8613,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   /** GET /api/tickets/request-count?communityId=X */
   app.get("/api/tickets/request-count", async (req: Request, res: Response) => {
+    await ensureJukeboxRequestCountsSchema();
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const communityId = parseInt(req.query.communityId as string);
@@ -8626,6 +8633,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   /** POST /api/tickets/record-free-request */
   app.post("/api/tickets/record-free-request", async (req: Request, res: Response) => {
+    await ensureJukeboxRequestCountsSchema();
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const { communityId } = req.body as { communityId: number };

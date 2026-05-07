@@ -3,6 +3,7 @@ import { db } from "./db";
 
 let jukeboxQueueUserColumnReady = false;
 let userFollowsSchemaReady = false;
+let jukeboxRequestCountsReady = false;
 
 /**
  * Production DBs may not have run every SQL migration from the repo.
@@ -57,5 +58,36 @@ export async function ensureUserFollowsSchema(): Promise<void> {
     userFollowsSchemaReady = true;
   } catch (e) {
     console.error("[runtimeSchemaGuards] user_follows / streams visibility:", e);
+  }
+}
+
+/** Ensures jukebox_request_counts table and required columns exist (idempotent). */
+export async function ensureJukeboxRequestCountsSchema(): Promise<void> {
+  if (jukeboxRequestCountsReady) return;
+  try {
+    await db.execute(
+      sql.raw(`
+        CREATE TABLE IF NOT EXISTS "jukebox_request_counts" (
+          id serial PRIMARY KEY NOT NULL,
+          user_id text NOT NULL,
+          community_id integer NOT NULL,
+          date text NOT NULL,
+          count integer DEFAULT 0 NOT NULL,
+          updated_at timestamp DEFAULT now()
+        )
+      `),
+    );
+    await db.execute(
+      sql.raw(`ALTER TABLE "jukebox_request_counts" ADD COLUMN IF NOT EXISTS "date" text`),
+    );
+    await db.execute(
+      sql.raw(`ALTER TABLE "jukebox_request_counts" ADD COLUMN IF NOT EXISTS "count" integer DEFAULT 0`),
+    );
+    await db.execute(
+      sql.raw(`ALTER TABLE "jukebox_request_counts" ADD COLUMN IF NOT EXISTS "updated_at" timestamp DEFAULT now()`),
+    );
+    jukeboxRequestCountsReady = true;
+  } catch (e) {
+    console.error("[runtimeSchemaGuards] jukebox_request_counts:", e);
   }
 }
