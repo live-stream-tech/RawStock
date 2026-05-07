@@ -30,7 +30,13 @@ import { useAuth } from "@/lib/auth";
  * Imperatively mounts a <video> element to avoid React #418 hydration mismatch.
  * Exposes the underlying HTMLVideoElement via videoRef so WHEP can set srcObject.
  */
-function WhepVideoPlayer({ videoRef }: { videoRef: React.MutableRefObject<HTMLVideoElement | null> }) {
+function WhepVideoPlayer({
+  videoRef,
+  muted,
+}: {
+  videoRef: React.MutableRefObject<HTMLVideoElement | null>;
+  muted: boolean;
+}) {
   const hostRef = useRef<View | null>(null);
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -38,7 +44,7 @@ function WhepVideoPlayer({ videoRef }: { videoRef: React.MutableRefObject<HTMLVi
     if (!host) return;
     const v = document.createElement("video");
     v.autoplay = true;
-    v.muted = true;
+    v.muted = muted;
     v.playsInline = true;
     v.setAttribute("playsinline", "true");
     v.style.cssText =
@@ -51,6 +57,16 @@ function WhepVideoPlayer({ videoRef }: { videoRef: React.MutableRefObject<HTMLVi
       videoRef.current = null;
     };
   }, [videoRef]);
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || typeof document === "undefined") return;
+    v.muted = muted;
+    if (muted) v.setAttribute("muted", "true");
+    else v.removeAttribute("muted");
+    void v.play().catch(() => {});
+  }, [muted, videoRef]);
+
   return <View ref={hostRef} style={StyleSheet.absoluteFill} collapsable={false} pointerEvents="none" />;
 }
 
@@ -156,6 +172,11 @@ export default function LiveStreamScreen() {
   const [showGiftModal, setShowGiftModal] = useState(false);
   const [showMentorNotif, setShowMentorNotif] = useState(false);
   const notifAnim = useRef(new Animated.Value(0)).current;
+  /** Start muted for autoplay; user can tap to hear audio (Safari/PWA). */
+  const [isMuted, setIsMuted] = useState(true);
+  const [hasAudioTrack, setHasAudioTrack] = useState(false);
+  const isMutedRef = useRef(true);
+  isMutedRef.current = isMuted;
 
   // WHEP WebRTC viewer
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -264,8 +285,14 @@ export default function LiveStreamScreen() {
 
   const { data: chat = [] } = useQuery<ChatMsg[]>({
     queryKey: [`/api/live-streams/${streamId}/chat`],
+    queryFn: async () => {
+      const r = await viewerApiFetch(`/api/live-streams/${streamId}/chat`);
+      if (r.status === 403 || r.status === 404) return [];
+      if (!r.ok) return [];
+      return (await r.json()) as ChatMsg[];
+    },
     refetchInterval: 3000,
-    enabled: !!user,
+    enabled: streamMetaFetched && streamAccessDenied !== true && Number.isFinite(streamId) && streamId > 0,
   });
 
   const { data: myBooking } = useQuery<MentorBooking[], Error, MentorBooking | null>({
@@ -283,6 +310,11 @@ export default function LiveStreamScreen() {
     }
   }, [myBookingTyped?.status, notifAnim, showMentorNotif]);
 
+  useEffect(() => {
+    setHasAudioTrack(false);
+    setIsMuted(true);
+  }, [streamId]);
+
   // WHEP connection (viewer-side WebRTC)
   const connectWHEP = useCallback(async (whepUrl: string) => {
     if (Platform.OS !== "web") return;
@@ -297,12 +329,20 @@ export default function LiveStreamScreen() {
       pc.addTransceiver("audio", { direction: "recvonly" });
 
       pc.ontrack = (e) => {
-        if (videoRef.current && e.streams[0]) {
+        const ms = e.streams[0];
+        if (videoRef.current && ms) {
           trackAttachedRef.current = true;
-          videoRef.current.srcObject = e.streams[0];
-          videoRef.current.muted = true; // Safari/PWA blocks autoplay with audio unless muted
-          videoRef.current.setAttribute("muted", "true");
-          videoRef.current.play().catch(() => {});
+          videoRef.current.srcObject = ms;
+          videoRef.current.muted = isMutedRef.current;
+          if (isMutedRef.current) {
+            videoRef.current.setAttribute("muted", "true");
+          } else {
+            videoRef.current.removeAttribute("muted");
+          }
+          void videoRef.current.play().catch(() => {});
+          if (ms.getAudioTracks().some((t) => t.readyState !== "ended")) {
+            setHasAudioTrack(true);
+          }
         }
       };
 
@@ -342,6 +382,7 @@ export default function LiveStreamScreen() {
 
   useEffect(() => {
     if (whepUrl && streamLive && Platform.OS === "web") {
+      setHasAudioTrack(false);
       void connectWHEP(whepUrl);
       const timeout = setTimeout(() => {
         // If SDP exchange succeeded but no media track arrives, surface an explicit error.
@@ -353,6 +394,7 @@ export default function LiveStreamScreen() {
           pcRef.current.close();
           pcRef.current = null;
         }
+        setHasAudioTrack(false);
       };
     }
     return () => {
@@ -370,7 +412,17 @@ export default function LiveStreamScreen() {
         avatar: user?.avatar ?? user?.profileImageUrl ?? null,
         message, isGift: isGift ?? false, giftAmount: giftAmount ?? null,
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: [`/api/live-streams/${streamId}/chat`] }),
+    onSuccess: () => {
+      setChatInput("");
+      void qc.invalidateQueries({ queryKey: [`/api/live-streams/${streamId}/chat`] });
+    },
+    onError: (err) => {
+      if (err instanceof ApiError && err.status === 401) {
+        void requireAuth("comment");
+        return;
+      }
+      Alert.alert("Comment", formatUserFacingApiError(err));
+    },
   });
 
   const giftSpendMutation = useMutation({
@@ -392,7 +444,6 @@ export default function LiveStreamScreen() {
     const msg = chatInput.trim();
     if (!msg) return;
     if (!requireAuth("comment")) return;
-    setChatInput("");
     chatMutation.mutate({ message: msg });
   }, [chatInput, requireAuth, chatMutation]);
 
@@ -401,8 +452,10 @@ export default function LiveStreamScreen() {
       if (!requireAuth("send gifts")) return;
       if (!canSendTips || tipRecipientUserId == null) {
         Alert.alert(
-          "投げ銭不可",
-          "This stream does not support tips yet, or stream details are still loading. Try again in a moment.",
+          "Tips",
+          streamMetaFetched && tipRecipientUserId == null
+            ? "Tips are not available for this stream yet."
+            : "Stream details are still loading. Try again in a moment.",
         );
         return;
       }
@@ -434,7 +487,7 @@ export default function LiveStreamScreen() {
         },
       );
     },
-    [canSendTips, tipRecipientUserId, chatMutation, giftSpendMutation, requireAuth],
+    [canSendTips, tipRecipientUserId, chatMutation, giftSpendMutation, requireAuth, streamMetaFetched],
   );
 
   useEffect(() => {
@@ -468,7 +521,7 @@ export default function LiveStreamScreen() {
           {/* Thumbnail — always shown as fallback behind the video */}
           <Image source={{ uri: stream.thumbnail }} style={StyleSheet.absoluteFill} contentFit="cover" />
           {/* WHEP video player — imperatively mounted to avoid React #418 hydration mismatch */}
-          {Platform.OS === "web" && <WhepVideoPlayer videoRef={videoRef} />}
+          {Platform.OS === "web" && <WhepVideoPlayer videoRef={videoRef} muted={isMuted} />}
           {whepError && (
             <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.6)" }}>
               <Ionicons name="wifi-outline" size={40} color="#ffffff88" />
@@ -533,6 +586,23 @@ export default function LiveStreamScreen() {
             </View>
           )}
           <View style={styles.playerDimmer} />
+
+          {Platform.OS === "web" &&
+            streamLive &&
+            !whepError &&
+            hasAudioTrack &&
+            isMuted &&
+            !streamAccessDenied && (
+              <Pressable
+                style={styles.unmutePill}
+                onPress={() => setIsMuted(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Tap to unmute"
+              >
+                <Ionicons name="volume-mute" size={16} color="#000" />
+                <Text style={styles.unmutePillText}>Tap to unmute</Text>
+              </Pressable>
+            )}
 
           {/* Top bar */}
           <View style={[styles.playerTop, { paddingTop: topInset + 8 }]}>
@@ -731,10 +801,10 @@ export default function LiveStreamScreen() {
             onPress={() => {
               if (!canSendTips) {
                 Alert.alert(
-                  "投げ銭不可",
-                  streamMetaFetched
-                    ? "この配信は投げ銭に対応していません（配信者アカウント未連携）。"
-                    : "配信情報を読み込み中です。少し待ってから再試行してください。",
+                  "Tips",
+                  streamMetaFetched && tipRecipientUserId == null
+                    ? "Tips are not available for this stream yet."
+                    : "Loading stream details… Try again in a moment.",
                 );
                 return;
               }
@@ -753,10 +823,15 @@ export default function LiveStreamScreen() {
             returnKeyType="send"
           />
           <Pressable
-            style={[styles.sendBtn, !chatInput.trim() && styles.sendBtnOff]}
+            style={[styles.sendBtn, (!chatInput.trim() || chatMutation.isPending) && styles.sendBtnOff]}
             onPress={sendChat}
+            disabled={chatMutation.isPending}
           >
-            <Ionicons name="send" size={15} color="#fff" />
+            {chatMutation.isPending ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Ionicons name="send" size={15} color="#fff" />
+            )}
           </Pressable>
         </View>
 
@@ -798,6 +873,20 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.45)",
   },
+  unmutePill: {
+    position: "absolute",
+    right: 12,
+    bottom: 120,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: C.accent,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 20,
+    zIndex: 5,
+  },
+  unmutePillText: { color: "#000", fontSize: 13, fontWeight: "800" },
   playerTop: {
     position: "absolute",
     top: 0,

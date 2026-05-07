@@ -22,6 +22,14 @@ export type BroadcastCopy = {
   stopStream: string;
   goLive: string;
   allowCameraFirst: string;
+  /** Broadcaster panel while live */
+  visibilityPublic: string;
+  visibilityFollowers: string;
+  visibilityCommunity: string;
+  visibilityPaid: string;
+  liveStatusPrefix: string;
+  liveChatTitle: string;
+  liveChatEmpty: string;
 };
 
 const COPY: BroadcastCopy = {
@@ -49,6 +57,13 @@ const COPY: BroadcastCopy = {
   stopStream: "End broadcast",
   goLive: "Go live",
   allowCameraFirst: "Allow camera first",
+  visibilityPublic: "Public",
+  visibilityFollowers: "Followers only",
+  visibilityCommunity: "Community only",
+  visibilityPaid: "Paid stream",
+  liveStatusPrefix: "Live",
+  liveChatTitle: "Live chat",
+  liveChatEmpty: "No comments yet",
 };
 
 /** Broadcast UI copy (English only). */

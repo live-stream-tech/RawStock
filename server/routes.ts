@@ -5775,9 +5775,13 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   app.get("/api/live-streams/:id/chat", async (req: Request, res: Response) => {
-    const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "Not authenticated" });
     const id = paramNum(req, "id");
+    if (!id) return res.status(400).json({ error: "Invalid id", code: "invalid_id" });
+    const payload = await viewerStreamPayload(id, req);
+    if (!payload) return res.status(404).json({ error: "Not found", code: "not_found" });
+    if (payload.streamAccessDenied === true) {
+      return res.status(403).json({ error: "Access denied", code: "stream_access_denied" });
+    }
     const msgs = await db.select().from(liveStreamChat)
       .where(eq(liveStreamChat.streamId, id))
       .orderBy(asc(liveStreamChat.createdAt));
@@ -5786,14 +5790,18 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.post("/api/live-streams/:id/chat", async (req: Request, res: Response) => {
     const me = await getAuthUser(req);
-    if (!me) return res.status(401).json({ error: "Not authenticated" });
+    if (!me) return res.status(401).json({ error: "Not authenticated", code: "auth_required" });
     const id = paramNum(req, "id");
+    if (!id) return res.status(400).json({ error: "Invalid id", code: "invalid_id" });
     const { username, avatar, message, isGift, giftAmount } = req.body;
     // Gift messages skip moderation (amount only); normal messages moderated
     if (!isGift && message) {
       const modResult = await moderateContent(message);
       if (modResult.allowed === false) {
-        return res.status(400).json({ error: modResult.reason ?? "This content is not allowed" });
+        return res.status(400).json({
+          error: modResult.reason ?? "This content is not allowed",
+          code: "moderated",
+        });
       }
     }
     const [msg] = await db.insert(liveStreamChat).values({

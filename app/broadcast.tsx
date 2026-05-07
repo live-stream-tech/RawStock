@@ -8,11 +8,13 @@ import {
   TextInput,
   Animated,
   ActivityIndicator,
+  ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Image } from "expo-image";
 import { C } from "@/constants/colors";
 import { connectWHIP } from "@/lib/live/whip";
 import {
@@ -34,6 +36,32 @@ import { useAuth } from "@/lib/auth";
 function parseRouteVisibility(v: string | undefined): LiveStreamVisibility {
   if (v === "followers" || v === "community" || v === "paid") return v;
   return "public";
+}
+
+type BroadcastChatMsg = {
+  id: number;
+  username: string;
+  avatar: string | null;
+  message: string;
+  isGift: boolean;
+  giftAmount: number | null;
+  createdAt: string;
+};
+
+function broadcastVisibilityLabel(
+  vis: LiveStreamVisibility,
+  t: ReturnType<typeof getBroadcastStrings>,
+): string {
+  switch (vis) {
+    case "followers":
+      return t.visibilityFollowers;
+    case "community":
+      return t.visibilityCommunity;
+    case "paid":
+      return t.visibilityPaid;
+    default:
+      return t.visibilityPublic;
+  }
 }
 
 /**
@@ -406,6 +434,18 @@ function BroadcastWeb() {
   const topInset = 67;
   const bottomInset = 34;
 
+  const { data: liveChatMessages = [] } = useQuery<BroadcastChatMsg[]>({
+    queryKey: ["broadcast-live-chat", streamId],
+    queryFn: async () => {
+      if (streamId == null) return [];
+      const r = await fetch(`/api/live-streams/${streamId}/chat`, { credentials: "include" });
+      if (r.status === 403 || r.status === 404 || !r.ok) return [];
+      return (await r.json()) as BroadcastChatMsg[];
+    },
+    enabled: isLive && streamId != null,
+    refetchInterval: 3000,
+  });
+
   const goLiveDisabled =
     isLoading ||
     webPreviewLoading ||
@@ -515,6 +555,72 @@ function BroadcastWeb() {
 
         {isLive ? (
           <View style={styles.liveControls}>
+            {user ? (
+              <View style={styles.broadcasterPanel}>
+                <Text style={styles.broadcasterName} numberOfLines={1}>
+                  {user.displayName?.trim() || user.name}
+                </Text>
+                {title.trim() ? (
+                  <Text style={styles.broadcasterStreamTitle} numberOfLines={2}>
+                    {title.trim()}
+                  </Text>
+                ) : null}
+                <Text style={styles.broadcasterStatus}>
+                  {t.liveStatusPrefix} · {broadcastVisibilityLabel(routeVisibility, t)}
+                  {routeVisibility === "paid" && Number.isFinite(routeTicketPrice)
+                    ? ` · ${routeTicketPrice.toLocaleString()} tickets`
+                    : ""}
+                </Text>
+              </View>
+            ) : null}
+
+            <View style={styles.liveChatPanel}>
+              <Text style={styles.liveChatHeader}>{t.liveChatTitle}</Text>
+              {liveChatMessages.length === 0 ? (
+                <Text style={styles.liveChatEmpty}>{t.liveChatEmpty}</Text>
+              ) : (
+                <ScrollView
+                  style={styles.liveChatScroll}
+                  contentContainerStyle={styles.liveChatScrollContent}
+                  nestedScrollEnabled
+                  showsVerticalScrollIndicator
+                >
+                  {liveChatMessages.map((m) =>
+                    m.isGift ? (
+                      <View key={m.id} style={styles.liveChatGiftRow}>
+                        {m.avatar ? (
+                          <Image source={{ uri: m.avatar }} style={styles.liveChatAvatar} contentFit="cover" />
+                        ) : (
+                          <View style={[styles.liveChatAvatar, styles.liveChatAvatarPlaceholder]} />
+                        )}
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.liveChatGiftUser}>{m.username}</Text>
+                          <Text style={styles.liveChatGiftMsg}>{m.message}</Text>
+                          {m.giftAmount != null ? (
+                            <Text style={styles.liveChatGiftAmount}>🎟{m.giftAmount.toLocaleString()}</Text>
+                          ) : null}
+                        </View>
+                      </View>
+                    ) : (
+                      <View key={m.id} style={styles.liveChatRow}>
+                        {m.avatar ? (
+                          <Image source={{ uri: m.avatar }} style={styles.liveChatAvatar} contentFit="cover" />
+                        ) : (
+                          <View style={[styles.liveChatAvatar, styles.liveChatAvatarPlaceholder]} />
+                        )}
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <Text style={styles.liveChatUser}>{m.username}</Text>
+                          <Text style={styles.liveChatText} numberOfLines={4}>
+                            {m.message}
+                          </Text>
+                        </View>
+                      </View>
+                    ),
+                  )}
+                </ScrollView>
+              )}
+            </View>
+
             <View style={styles.statsRow}>
               <View style={styles.statItem}>
                 <Ionicons name="people" size={16} color={C.accent} />
@@ -712,6 +818,50 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   liveControls: { gap: 12 },
+  broadcasterPanel: {
+    backgroundColor: C.surface,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+    gap: 4,
+  },
+  broadcasterName: { color: C.text, fontSize: 16, fontWeight: "800" },
+  broadcasterStreamTitle: { color: C.textMuted, fontSize: 13, lineHeight: 18 },
+  broadcasterStatus: { color: C.accent, fontSize: 12, fontWeight: "700", marginTop: 2 },
+  liveChatPanel: {
+    backgroundColor: C.surface,
+    borderRadius: 14,
+    paddingTop: 10,
+    paddingHorizontal: 12,
+    paddingBottom: 8,
+    borderWidth: 1,
+    borderColor: C.border,
+    maxHeight: 200,
+    gap: 6,
+  },
+  liveChatHeader: { color: C.accent, fontSize: 12, fontWeight: "800" },
+  liveChatEmpty: { color: C.textMuted, fontSize: 12, paddingVertical: 8 },
+  liveChatScroll: { maxHeight: 160 },
+  liveChatScrollContent: { paddingBottom: 6 },
+  liveChatRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginBottom: 8 },
+  liveChatGiftRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    backgroundColor: "rgba(255,140,0,0.08)",
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 8,
+  },
+  liveChatAvatar: { width: 26, height: 26, borderRadius: 13 },
+  liveChatAvatarPlaceholder: { backgroundColor: C.surface3 },
+  liveChatUser: { color: C.accent, fontSize: 11, fontWeight: "700", marginBottom: 2 },
+  liveChatText: { color: C.text, fontSize: 12, lineHeight: 16 },
+  liveChatGiftUser: { color: C.orange, fontSize: 11, fontWeight: "700" },
+  liveChatGiftMsg: { color: C.text, fontSize: 12, lineHeight: 16 },
+  liveChatGiftAmount: { color: C.orange, fontSize: 13, fontWeight: "800", marginTop: 2 },
   statsRow: {
     flexDirection: "row",
     backgroundColor: C.surface,

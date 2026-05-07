@@ -14,6 +14,7 @@ import {
   Dimensions,
   useWindowDimensions,
   ActivityIndicator,
+  Keyboard,
 } from "react-native";
 import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
@@ -840,6 +841,15 @@ export default function JukeboxScreen() {
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
+  // Track soft keyboard visibility to collapse queue row when keyboard is open,
+  // freeing vertical space so the comment input stays above the keyboard.
+  const [keyboardShown, setKeyboardShown] = useState(false);
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardDidShow", () => setKeyboardShown(true));
+    const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardShown(false));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
+
   // Landscape chat panel animation.
   useEffect(() => {
     Animated.spring(chatPanelAnim, {
@@ -1217,6 +1227,7 @@ export default function JukeboxScreen() {
     } finally {
       setYtSearching(false);
       setInteractionResumeNonce((n) => n + 1);
+      Keyboard.dismiss();
     }
   };
 
@@ -1832,10 +1843,13 @@ export default function JukeboxScreen() {
         {/* Portrait: queue + chat; keep above video layer for WebKit stability */}
         {!isLandscape && (
           <View style={styles.portraitBelowPlayer}>
-            <QueueRow items={queue} state={state} userName={user?.name} userId={user?.id ?? null} onDelete={(id) => deleteMutation.mutate(id)} onAdd={() => {
-              if (!user) { router.push("/auth/login"); return; }
-              setShowAddModal(true);
-            }} showAddInHeader />
+            {/* Hide queue row when keyboard is open so the comment input stays visible */}
+            {!keyboardShown && (
+              <QueueRow items={queue} state={state} userName={user?.name} userId={user?.id ?? null} onDelete={(id) => deleteMutation.mutate(id)} onAdd={() => {
+                if (!user) { router.push("/auth/login"); return; }
+                setShowAddModal(true);
+              }} showAddInHeader />
+            )}
 
             <View style={styles.chatSection}>
               <View style={styles.chatHeader}>
@@ -2090,7 +2104,10 @@ export default function JukeboxScreen() {
             onPress={() => !addMutation.isPending && setShowAddModal(false)}
             accessibilityLabel="Dismiss"
           />
-          <View style={styles.modalSheet}>
+          <View style={[
+            styles.modalSheet,
+            Platform.OS !== "web" && { height: Math.round(winH * 0.82) },
+          ]}>
             <View style={styles.modalSheetTopRow}>
               <View style={styles.modalSheetTopSide} />
               <View style={styles.modalHandle} />
@@ -2112,7 +2129,15 @@ export default function JukeboxScreen() {
                 <ActivityIndicator size="large" color={C.accent} />
               </View>
             ) : null}
-            {jukeboxAddPanelCore}
+            <ScrollView
+              style={styles.modalPanelScroll}
+              keyboardShouldPersistTaps="always"
+              showsVerticalScrollIndicator={false}
+              nestedScrollEnabled
+              contentContainerStyle={styles.modalPanelScrollContent}
+            >
+              {jukeboxAddPanelCore}
+            </ScrollView>
           </View>
         </View>
         </KeyboardAvoidingView>
@@ -2748,7 +2773,8 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     paddingTop: 12,
     paddingHorizontal: 16,
-    maxHeight: Platform.OS === "web" ? 560 : "65%",
+    maxHeight: Platform.OS === "web" ? 560 : "82%",
+    overflow: "hidden",
     zIndex: 1,
     ...Platform.select({
       android: { elevation: 24 },
@@ -2778,6 +2804,8 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 20,
     borderBottomRightRadius: 20,
   },
+  modalPanelScroll: { flex: 1 },
+  modalPanelScrollContent: { paddingBottom: 20 },
   modalHandle: {
     width: 36,
     height: 4,
