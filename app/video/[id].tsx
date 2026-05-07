@@ -50,7 +50,7 @@ function formatRelativeTime(dateStr: string | Date | null | undefined): string {
   const diffMin = Math.floor(diffSec / 60);
   const diffHour = Math.floor(diffMin / 60);
   const diffDay = Math.floor(diffHour / 24);
-  if (diffSec < 60) return "たった今";
+  if (diffSec < 60) return "Just now";
   if (diffMin < 60) return `${diffMin}m ago`;
   if (diffHour < 24) return `${diffHour}h ago`;
   if (diffDay < 7) return `${diffDay}d ago`;
@@ -94,10 +94,10 @@ export default function VideoDetailScreen() {
   }, [apiVideo, (apiVideo as any)?.price]);
 
   const REPORT_REASONS: { value: string; label: string }[] = [
-    { value: "spam", label: "スパム" },
-    { value: "harassment", label: "嫌がらせ" },
-    { value: "inappropriate", label: "不適切な内容" },
-    { value: "other", label: "その他" },
+    { value: "spam", label: "Spam" },
+    { value: "harassment", label: "Harassment" },
+    { value: "inappropriate", label: "Inappropriate content" },
+    { value: "other", label: "Other" },
   ];
 
   const isDemo = demo === "1" || demo === "true";
@@ -165,7 +165,7 @@ export default function VideoDetailScreen() {
       setCommentText("");
       await qc.invalidateQueries({ queryKey: [`/api/videos/${id}/comments`] });
     } catch {
-      Alert.alert("エラー", "コメント投稿に失敗しました。");
+      Alert.alert("Error", "Failed to post comment.");
     }
   }
 
@@ -178,7 +178,7 @@ export default function VideoDetailScreen() {
   async function saveEdit() {
     const newTitle = editTitle.trim();
     if (!newTitle) {
-      Alert.alert("", "タイトルを入力してください。");
+      Alert.alert("", "Enter a title.");
       return;
     }
     if (!requireAuth("Edit")) return;
@@ -188,16 +188,16 @@ export default function VideoDetailScreen() {
       await qc.invalidateQueries({ queryKey: ["/api/videos/my"] });
       setEditMode(false);
     } catch {
-      Alert.alert("エラー", "投稿の更新に失敗しました。");
+      Alert.alert("Error", "Failed to update post.");
     }
   }
 
   function confirmDelete() {
     if (!isOwner) return;
-    Alert.alert("投稿を削除", "この投稿を削除しますか？", [
-      { text: "キャンセル", style: "cancel" },
+    Alert.alert("Delete post", "Are you sure you want to delete this post?", [
+      { text: "Cancel", style: "cancel" },
       {
-        text: "削除",
+        text: "Delete",
         style: "destructive",
         onPress: deletePost,
       },
@@ -214,7 +214,7 @@ export default function VideoDetailScreen() {
       await qc.invalidateQueries({ queryKey: ["/api/videos/ranked"] });
       router.replace("/profile");
     } catch {
-      Alert.alert("エラー", "投稿の削除に失敗しました。");
+      Alert.alert("Error", "Failed to delete post.");
     }
   }
 
@@ -255,15 +255,15 @@ export default function VideoDetailScreen() {
     } catch (err: any) {
       if (err?.status === 402) {
         Alert.alert(
-          "チケット不足 🎟",
+          "Insufficient tickets 🎟",
           `This content costs ${video.price} 🎟. Top up your balance to unlock it.`,
           [
-            { text: "キャンセル", style: "cancel" },
-            { text: "チケット購入", onPress: () => router.push("/tickets") },
+            { text: "Cancel", style: "cancel" },
+            { text: "Buy tickets", onPress: () => router.push("/tickets") },
           ]
         );
       } else {
-        Alert.alert("エラー", "購入に失敗しました。時間をおいて再試行してください。");
+        Alert.alert("Error", "Purchase failed. Please try again later.");
       }
     } finally {
       setPurchaseLoading(false);
@@ -287,12 +287,12 @@ export default function VideoDetailScreen() {
         reason: reportReason,
       });
       setReportTarget(null);
-      Alert.alert("送信完了", "通報を受け付けました。内容を確認します。");
+      Alert.alert("Submitted", "Your report has been received and will be reviewed.");
       await qc.invalidateQueries({ queryKey: [`/api/videos/${id}`] });
       await qc.invalidateQueries({ queryKey: [`/api/videos/${id}/comments`] });
       await qc.invalidateQueries({ queryKey: ["/api/videos"] });
     } catch (e: any) {
-      Alert.alert("エラー", e?.message ?? "通報の送信に失敗しました。");
+      Alert.alert("Error", e?.message ?? "Failed to submit report.");
     } finally {
       setReportSubmitting(false);
     }
@@ -360,14 +360,14 @@ export default function VideoDetailScreen() {
                 onPress={async () => {
                   const canOpen = await Linking.canOpenURL(youtubeWatchUrl);
                   if (!canOpen) {
-                    Alert.alert("起動失敗", "この動画のYouTubeを開けませんでした。");
+                    Alert.alert("Open failed", "Could not open this video on YouTube.");
                     return;
                   }
                   await Linking.openURL(youtubeWatchUrl);
                 }}
               >
                 <Ionicons name="logo-youtube" size={14} color="#fff" />
-                <Text style={styles.youtubeOpenBtnText}>YouTubeで開く</Text>
+                <Text style={styles.youtubeOpenBtnText}>Open on YouTube</Text>
               </Pressable>
             )}
             {/* Show lock only for paid content */}
@@ -395,7 +395,7 @@ export default function VideoDetailScreen() {
                 style={styles.editTitleInput}
                 value={editTitle}
                 onChangeText={setEditTitle}
-                placeholder="タイトルを編集"
+                placeholder="Edit title"
                 placeholderTextColor={C.textMuted}
               />
             ) : (
@@ -405,27 +405,27 @@ export default function VideoDetailScreen() {
               <View style={styles.postActionsRow}>
                 <Pressable style={styles.postActionBtn} onPress={openEdit}>
                   <Ionicons name="pencil-outline" size={14} color={C.textSec} />
-                  <Text style={styles.postActionText}>編集</Text>
+                  <Text style={styles.postActionText}>Edit</Text>
                 </Pressable>
                 <Pressable style={styles.postActionBtn} onPress={confirmDelete}>
                   <Ionicons name="trash-outline" size={14} color={C.textSec} />
-                  <Text style={styles.postActionText}>削除</Text>
+                  <Text style={styles.postActionText}>Delete</Text>
                 </Pressable>
               </View>
             )}
             {!editMode && apiVideo && (
               <Pressable style={styles.postActionBtn} onPress={() => openReportModal("video", Number(id))}>
                 <Ionicons name="flag-outline" size={14} color={C.textSec} />
-                <Text style={styles.postActionText}>通報</Text>
+                <Text style={styles.postActionText}>Report</Text>
               </Pressable>
             )}
             {editMode && (
               <View style={styles.postActionsRow}>
                 <Pressable style={styles.postActionBtn} onPress={() => setEditMode(false)}>
-                  <Text style={styles.postActionText}>キャンセル</Text>
+                  <Text style={styles.postActionText}>Cancel</Text>
                 </Pressable>
                 <Pressable style={styles.postActionBtn} onPress={saveEdit}>
-                  <Text style={[styles.postActionText, { color: C.accent }]}>保存</Text>
+                  <Text style={[styles.postActionText, { color: C.accent }]}>Save</Text>
                 </Pressable>
               </View>
             )}
@@ -499,7 +499,7 @@ export default function VideoDetailScreen() {
                   />
                 </Pressable>
                 <View style={styles.commentContent}>
-                  <Text style={styles.commentName}>{c.displayName ?? "ユーザー"}</Text>
+                  <Text style={styles.commentName}>{c.displayName ?? "User"}</Text>
                   <Text style={styles.commentText} numberOfLines={1}>
                     {c.text}
                   </Text>
@@ -515,7 +515,7 @@ export default function VideoDetailScreen() {
             <View style={styles.commentInputRow}>
               <TextInput
                 style={styles.commentInput}
-                placeholder="コメントを入力..."
+                placeholder="Enter a comment..."
                 placeholderTextColor={C.textMuted}
                 value={commentText}
                 onChangeText={setCommentText}
@@ -576,7 +576,7 @@ export default function VideoDetailScreen() {
               <Text style={styles.creatorCommunity}>{video.community}</Text>
             </View>
             <Pressable style={styles.followBtn} onPress={(e) => e.stopPropagation()}>
-              <Text style={styles.followBtnText}>フォロー</Text>
+              <Text style={styles.followBtnText}>Follow</Text>
             </Pressable>
           </Pressable>
         </View>
@@ -590,7 +590,7 @@ export default function VideoDetailScreen() {
           <View style={styles.metaItem}>
             <Ionicons name="time-outline" size={16} color={C.textSec} />
             <Text style={styles.metaText}>
-              {(video as any).timeAgo ?? (video as any).time_ago ?? formatRelativeTime((video as any).createdAt ?? (video as any).created_at) ?? "たった今"}
+              {(video as any).timeAgo ?? (video as any).time_ago ?? formatRelativeTime((video as any).createdAt ?? (video as any).created_at) ?? "Just now"}
             </Text>
           </View>
           {user && !isDemo && (
@@ -608,17 +608,17 @@ export default function VideoDetailScreen() {
                 color={isSaved ? C.accent : C.textSec}
               />
               <Text style={[styles.metaText, isSaved && { color: C.accent }]}>
-                保存
+                Save
               </Text>
             </Pressable>
           )}
           <View style={styles.metaItem}>
             <Ionicons name="heart-outline" size={16} color={C.textSec} />
-            <Text style={styles.metaText}>いいね</Text>
+            <Text style={styles.metaText}>Like</Text>
           </View>
           <View style={styles.metaItem}>
             <Ionicons name="share-outline" size={16} color={C.textSec} />
-            <Text style={styles.metaText}>共有</Text>
+            <Text style={styles.metaText}>Share</Text>
           </View>
         </View>
 
@@ -636,7 +636,7 @@ export default function VideoDetailScreen() {
             }}
           >
             <Ionicons name="sparkles" size={15} color="#000" />
-            <Text style={styles.aiEditBtnText}>AI編集アシスタント</Text>
+            <Text style={styles.aiEditBtnText}>AI edit assistant</Text>
             <Ionicons name="chevron-forward" size={13} color="#000" style={{ marginLeft: "auto" }} />
           </Pressable>
         )}
@@ -648,9 +648,9 @@ export default function VideoDetailScreen() {
       <Modal visible={!!reportTarget} transparent animationType="fade">
         <Pressable style={styles.reportModalOverlay} onPress={() => !reportSubmitting && setReportTarget(null)}>
           <Pressable style={styles.reportModalBox} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.reportModalTitle}>通報</Text>
+            <Text style={styles.reportModalTitle}>Report</Text>
             <Text style={styles.reportModalSub}>
-              この{reportTarget?.type === "video" ? "投稿" : "コメント"}を通報する理由を選んでください。
+              Select a reason for reporting this {reportTarget?.type === "video" ? "post" : "comment"}.
             </Text>
             <Text style={styles.reportFlowNote}>
               After submission, AI moderation will review the content. Clear violations are removed immediately. Borderline cases are reviewed by an admin. Content found to be compliant remains visible.
@@ -666,14 +666,14 @@ export default function VideoDetailScreen() {
             ))}
             <View style={styles.reportModalActions}>
               <Pressable style={styles.reportCancelBtn} onPress={() => setReportTarget(null)} disabled={reportSubmitting}>
-                <Text style={styles.reportCancelText}>キャンセル</Text>
+                <Text style={styles.reportCancelText}>Cancel</Text>
               </Pressable>
               <Pressable
                 style={[styles.reportSubmitBtn, (!reportReason || reportSubmitting) && styles.reportSubmitBtnDisabled]}
                 disabled={!reportReason || reportSubmitting}
                 onPress={submitReport}
               >
-                {reportSubmitting ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.reportSubmitText}>送信</Text>}
+                {reportSubmitting ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.reportSubmitText}>Submit</Text>}
               </Pressable>
             </View>
           </Pressable>
@@ -687,7 +687,7 @@ export default function VideoDetailScreen() {
             <View style={styles.leaveModalIconRow}>
               <Ionicons name="play-circle" size={28} color={C.accent} />
             </View>
-            <Text style={styles.leaveModalTitle}>再生中</Text>
+            <Text style={styles.leaveModalTitle}>Now playing</Text>
             <Text style={styles.leaveModalMsg}>
               Keep playing while you navigate?{"\n"}
               A mini player will appear at the bottom.
@@ -701,7 +701,7 @@ export default function VideoDetailScreen() {
                   router.back();
                 }}
               >
-                <Text style={styles.leaveModalBtnSecondaryText}>停止して戻る</Text>
+                <Text style={styles.leaveModalBtnSecondaryText}>Stop and go back</Text>
               </Pressable>
               <Pressable
                 style={[styles.leaveModalBtn, styles.leaveModalBtnPrimary]}
@@ -711,7 +711,7 @@ export default function VideoDetailScreen() {
                 }}
               >
                 <Ionicons name="play" size={14} color={C.bg} />
-                <Text style={styles.leaveModalBtnPrimaryText}>視聴を続ける</Text>
+                <Text style={styles.leaveModalBtnPrimaryText}>Keep watching</Text>
               </Pressable>
             </View>
           </View>

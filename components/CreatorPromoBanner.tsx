@@ -18,11 +18,11 @@ type Props = {
 export function CreatorPromoBanner({ style }: Props) {
   return (
     <View
-      accessibilityLabel="広告募集中バナー"
+      accessibilityLabel="Advertising banner"
       style={[styles.creatorBanner, style]}
     >
       <View style={styles.bannerInner}>
-        <Text style={styles.bannerText}>広告募集中</Text>
+        <Text style={styles.bannerText}>Advertising slots available</Text>
       </View>
     </View>
   );

@@ -1025,7 +1025,7 @@ export default function JukeboxScreen() {
       if (Platform.OS !== "web") qc.invalidateQueries({ queryKey: jukeboxKey });
     },
     onError: (e: Error & { body?: string }) => {
-      let detail = e.message ?? "メッセージ送信に失敗しました";
+      let detail = e.message ?? "Failed to send message";
       try {
         if (e.body) {
           const j = JSON.parse(e.body) as { error?: string };
@@ -1141,11 +1141,11 @@ export default function JukeboxScreen() {
       } else if (err instanceof ApiError && err.status === 401) {
         Alert.alert(
           "Login required",
-          "ログインの有効期限が切れている可能性があります。再度 Sign in してからお試しください。",
+          "Your sign-in session may have expired. Please sign in again and retry.",
           [{ text: "OK", onPress: () => router.push("/auth/login") }]
         );
       } else {
-        Alert.alert("Error", "Queue への追加に失敗しました。もう一度お試しください。");
+        Alert.alert("Error", "Failed to add to queue. Please try again.");
       }
     },
   });
@@ -1160,7 +1160,7 @@ export default function JukeboxScreen() {
     },
     onError: (err) => {
       const msg = formatUserFacingApiError(err);
-      Alert.alert("削除できませんでした", msg);
+      Alert.alert("Could not delete", msg);
     },
   });
 
@@ -1171,7 +1171,7 @@ export default function JukeboxScreen() {
     if (!idPart) {
       showJukeboxAlert(
         "Invalid link",
-        "YouTube link / Shorts URL を使うか、11文字の video id を貼り付けてください。",
+        "Use a YouTube link / Shorts URL, or paste an 11-character video ID.",
       );
       return;
     }
@@ -1213,14 +1213,14 @@ export default function JukeboxScreen() {
       }[];
       setYtResults(data);
     } catch (e: unknown) {
-      let msg = "YouTube 検索に失敗しました。時間をおいて再試行してください。";
+      let msg = "YouTube search failed. Please try again later.";
       if (e instanceof ApiError) {
         try {
           const j = JSON.parse(e.body) as { error?: string };
           if (j?.error) msg = j.error;
-          else msg = `YouTube 検索に失敗しました (${e.status})。`;
+          else msg = `YouTube search failed (${e.status}).`;
         } catch {
-          msg = `YouTube 検索に失敗しました (${e.status})。`;
+          msg = `YouTube search failed (${e.status}).`;
         }
       }
       showJukeboxAlert("YouTube", msg);
@@ -1356,16 +1356,16 @@ export default function JukeboxScreen() {
 
   const jukeboxAddPanelCore = (
     <>
-      <Text style={styles.modalTitle}>Jukebox に追加</Text>
+      <Text style={styles.modalTitle}>Add to Jukebox</Text>
       <Text style={styles.addPanelIntro}>
-        YouTube 検索・link 貼り付け・playlist 選択で曲を追加できます。曲は順番に再生され、終了または Skip されるまで流れます。
+        Add songs by searching YouTube, pasting a link, or selecting a playlist. Tracks play in order until they end or are skipped.
       </Text>
         <View style={styles.ytInputSection}>
-        <Text style={styles.ytLabel}>YouTube を検索</Text>
+        <Text style={styles.ytLabel}>Search YouTube</Text>
         <View style={[styles.ytRow, Platform.OS !== "web" && styles.ytRowNative]}>
           <TextInput
             style={styles.ytInput}
-            placeholder="曲名または channel 名で検索"
+            placeholder="Search by song title or channel name"
             placeholderTextColor={C.textMuted}
             value={ytQuery}
             onChangeText={setYtQuery}
@@ -1385,7 +1385,7 @@ export default function JukeboxScreen() {
         </View>
       </View>
         <View style={styles.ytInputSection}>
-        <Text style={styles.ytLabel}>YouTube URL から追加</Text>
+        <Text style={styles.ytLabel}>Add from YouTube URL</Text>
         <View style={[styles.ytRow, Platform.OS !== "web" && styles.ytRowNative]}>
           <TextInput
             style={styles.ytInput}
@@ -1426,7 +1426,7 @@ export default function JukeboxScreen() {
               }}
             >
               <Ionicons name="logo-youtube" size={18} color="#FF0000" />
-              <Text style={styles.ytPlaylistLoginText}>playlist を表示するには Google で Sign in</Text>
+              <Text style={styles.ytPlaylistLoginText}>Sign in with Google to view playlists</Text>
             </Pressable>
           ) : ytPlaylistsLoading ? (
             <Text style={styles.ytPlaylistLoading}>Loading...</Text>
@@ -1472,7 +1472,7 @@ export default function JukeboxScreen() {
                         </Text>
                         <View style={styles.modalItemMeta}>
                           <Ionicons name="list" size={12} color={C.accent} />
-                          <Text style={styles.modalItemMetaText}>playlist から追加</Text>
+                          <Text style={styles.modalItemMetaText}>Added from playlist</Text>
                         </View>
                       </View>
                       <View pointerEvents="none">
@@ -1499,7 +1499,7 @@ export default function JukeboxScreen() {
               ))}
             </HorizontalScroll>
           ) : (
-            <Text style={styles.ytPlaylistEmpty}>playlist が見つかりません</Text>
+            <Text style={styles.ytPlaylistEmpty}>No playlists found</Text>
           )}
         </View>
       )}
@@ -1543,7 +1543,7 @@ export default function JukeboxScreen() {
                     </Text>
                     <View style={styles.modalItemMeta}>
                       <Ionicons name="logo-youtube" size={12} color="#FF0000" />
-                      <Text style={styles.modalItemMetaText}>YouTube から追加</Text>
+                      <Text style={styles.modalItemMetaText}>Added from YouTube</Text>
                     </View>
                   </View>
                   <View pointerEvents="none">
@@ -1555,7 +1555,7 @@ export default function JukeboxScreen() {
           </>
         )}
         <Text style={styles.modalSubtitle}>My Purchased Videos</Text>
-        {purchasedVideos.length === 0 && <Text style={styles.emptyPurchasedText}>購入済み動画はまだありません</Text>}
+        {purchasedVideos.length === 0 && <Text style={styles.emptyPurchasedText}>No purchased videos yet</Text>}
         {purchasedVideos.map((video) => (
           <Pressable
             key={video.id}
@@ -1606,7 +1606,7 @@ export default function JukeboxScreen() {
                   <View style={styles.modalItemMeta}>
                     <Ionicons name="person-circle" size={12} color={C.accent} />
                     <Text style={styles.modalItemMetaText}>
-                      My post · {video.price ? `🎟${video.price.toLocaleString()}` : "無料"}
+                      My post · {video.price ? `🎟${video.price.toLocaleString()}` : "Free"}
                     </Text>
                   </View>
                 </View>
@@ -1736,7 +1736,7 @@ export default function JukeboxScreen() {
             <View style={[styles.inputRow, { paddingBottom: bottomInset + 8 }]}>
               <TextInput
                 style={styles.input}
-                placeholder="コメントを追加..."
+                placeholder="Add a comment..."
                 placeholderTextColor={C.textMuted}
                 value={chatInput}
                 onChangeText={setChatInput}
@@ -1905,7 +1905,7 @@ export default function JukeboxScreen() {
             <View style={[styles.inputRow, { paddingBottom: bottomInset + 8 }]}>
               <TextInput
                 style={styles.input}
-                placeholder="コメントを追加..."
+                placeholder="Add a comment..."
                 placeholderTextColor={C.textMuted}
                 value={chatInput}
                 onChangeText={setChatInput}
@@ -1991,7 +1991,7 @@ export default function JukeboxScreen() {
                     {latestChat.message}
                   </Text>
                 ) : (
-                  <Text style={styles.landscapeChatBarText}>コメントを見る</Text>
+                  <Text style={styles.landscapeChatBarText}>View comments</Text>
                 )}
                 <Ionicons name="chevron-up" size={13} color="rgba(255,255,255,0.5)" />
               </Pressable>
@@ -2063,7 +2063,7 @@ export default function JukeboxScreen() {
                 <View style={[styles.inputRow, { paddingBottom: bottomInset + 8 }]}>
                   <TextInput
                     style={styles.input}
-                    placeholder="コメントを追加..."
+                    placeholder="Add a comment..."
                     placeholderTextColor={C.textMuted}
                     value={chatInput}
                     onChangeText={setChatInput}

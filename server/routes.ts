@@ -4951,7 +4951,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           const token = generateUnsubscribeToken(email);
           const publicBase = APP_URL || resolvePublicAppOrigin();
           const unsubUrl = `${publicBase}/api/email/unsubscribe?email=${encodeURIComponent(email)}&token=${token}`;
-          const html = `${bodyHtml}<br><br><hr style="border:none;border-top:1px solid #eee"><p style="color:#999;font-size:11px">このメールの配信停止は<a href="${unsubUrl}" style="color:#999">こちら</a></p>`;
+          const html = `${bodyHtml}<br><br><hr style="border:none;border-top:1px solid #eee"><p style="color:#999;font-size:11px">To unsubscribe from these emails, click <a href="${unsubUrl}" style="color:#999">here</a>.</p>`;
 
           try {
             await sendEmail({ to: email, subject, html });
@@ -9662,21 +9662,21 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json({ ok: true, id, status: "delivered", deliveredUrl: deliveredUrl.trim() });
   });
 
-  /** メール配信停止（公開エンドポイント）。HMAC トークンで検証してからリストに追加。 */
+  /** Public unsubscribe endpoint (HMAC token verified before insertion). */
   app.get("/api/email/unsubscribe", async (req: Request, res: Response) => {
     const { email, token } = req.query as { email?: string; token?: string };
     if (!email || !token || !verifyUnsubscribeToken(email, token)) {
-      return res.status(400).send("無効なリンクです。URLが正しいかご確認ください。");
+      return res.status(400).send("Invalid link. Please check that the URL is correct.");
     }
     await db
       .insert(emailUnsubscribes)
       .values({ email: email.toLowerCase() })
       .onConflictDoNothing({ target: [emailUnsubscribes.email] });
     res.send(
-      "<!DOCTYPE html><html lang='ja'><head><meta charset='UTF-8'><title>配信停止完了</title></head>" +
+      "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><title>Unsubscribed</title></head>" +
         "<body style='font-family:sans-serif;max-width:480px;margin:80px auto;text-align:center'>" +
-        "<h2>配信停止が完了しました</h2>" +
-        "<p>以降、このメールアドレスへのキャンペーンメールは送信されません。</p>" +
+        "<h2>You have been unsubscribed</h2>" +
+        "<p>Campaign emails will no longer be sent to this address.</p>" +
         "</body></html>",
     );
   });

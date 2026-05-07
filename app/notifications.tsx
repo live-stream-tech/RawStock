@@ -30,10 +30,10 @@ type Notif = {
 };
 
 const FILTERS = [
-  { id: "all", label: "すべて" },
-  { id: "purchase", label: "購入" },
-  { id: "follow", label: "フォロー" },
-  { id: "comment", label: "コメント" },
+  { id: "all", label: "All" },
+  { id: "purchase", label: "Purchases" },
+  { id: "follow", label: "Follows" },
+  { id: "comment", label: "Comments" },
 ];
 
 const TYPE_ICON: Record<string, { name: string; color: string; bg: string }> = {
@@ -82,11 +82,11 @@ function NotifItem({ item, onRead }: { item: Notif; onRead: (id: number) => void
               )}
             </View>
             <View style={styles.purchaseInfo}>
-              <Text style={styles.videoTitle} numberOfLines={1}>「{item.body}」</Text>
+              <Text style={styles.videoTitle} numberOfLines={1}>{item.body}</Text>
               <View style={styles.revenueBox}>
                 <Ionicons name="cash-outline" size={12} color={C.green} />
                 <Text style={styles.revenueAmount}>🎟{revenue.toLocaleString()}</Text>
-                <Text style={styles.revenueLabel}>受取</Text>
+                <Text style={styles.revenueLabel}>Received</Text>
               </View>
             </View>
           </View>
@@ -140,10 +140,10 @@ export default function NotificationsScreen() {
         <Pressable style={styles.backBtn} onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={24} color={C.text} />
         </Pressable>
-        <Text style={styles.headerTitle}>通知</Text>
+        <Text style={styles.headerTitle}>Notifications</Text>
         {unreadCount > 0 ? (
           <Pressable style={styles.readAllBtn} onPress={() => readAllMutation.mutate()}>
-            <Text style={styles.readAllText}>すべて既読</Text>
+            <Text style={styles.readAllText}>Mark all read</Text>
           </Pressable>
         ) : (
           <View style={{ width: 64 }} />
@@ -195,7 +195,7 @@ export default function NotificationsScreen() {
         {filteredNotifs.length === 0 ? (
           <View style={styles.empty}>
             <Ionicons name="notifications-off-outline" size={40} color={C.textMuted} />
-            <Text style={styles.emptyText}>通知はまだありません</Text>
+            <Text style={styles.emptyText}>No notifications yet</Text>
           </View>
         ) : (
           filteredNotifs.map((item) => (

@@ -189,7 +189,7 @@ export default function LiveStreamScreen() {
   const { user, requireAuth } = useAuth();
 
   const myUserId = user ? `user-${user.id}` : "guest";
-  const myUsername = user?.name ?? "ゲスト";
+  const myUsername = user?.name ?? "Guest";
 
   const { data: apiStream, isFetched: streamMetaFetched } = useQuery<LiveStream | null>({
     queryKey: ["stream-viewer", streamId],
@@ -270,7 +270,7 @@ export default function LiveStreamScreen() {
       if (e.message === "AUTH_REQUIRED") return;
       if (e.status === 402) {
         Alert.alert(
-          "チケット不足",
+          "Insufficient tickets",
           `You need 🎟${(e.required ?? 0).toLocaleString()} to watch this stream.`,
           [
             { text: "Cancel", style: "cancel" },
@@ -473,7 +473,7 @@ export default function LiveStreamScreen() {
           onError: (err) => {
             if (err instanceof ApiError && err.status === 402) {
               Alert.alert(
-                "チケット不足",
+                "Insufficient tickets",
                 `You need 🎟${amount.toLocaleString()} to send this gift. Please top up your tickets.`,
                 [
                   { text: "Cancel", style: "cancel" },
@@ -482,7 +482,7 @@ export default function LiveStreamScreen() {
               );
               return;
             }
-            Alert.alert("ギフト送信失敗", formatUserFacingApiError(err));
+            Alert.alert("Gift failed", formatUserFacingApiError(err));
           },
         },
       );
@@ -503,7 +503,7 @@ export default function LiveStreamScreen() {
           <Ionicons name="chevron-back" size={22} color="#fff" />
         </Pressable>
         <View style={styles.loading}>
-          <Text style={styles.loadingText}>読み込み中...</Text>
+          <Text style={styles.loadingText}>Loading...</Text>
         </View>
       </View>
     );
@@ -525,7 +525,7 @@ export default function LiveStreamScreen() {
           {whepError && (
             <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.6)" }}>
               <Ionicons name="wifi-outline" size={40} color="#ffffff88" />
-              <Text style={{ color: "#fff", marginTop: 8, fontSize: 13 }}>配信の読み込みに失敗しました</Text>
+              <Text style={{ color: "#fff", marginTop: 8, fontSize: 13 }}>Failed to load stream</Text>
             </View>
           )}
           {streamAccessDenied && (
@@ -544,18 +544,18 @@ export default function LiveStreamScreen() {
             >
               <Ionicons name="lock-closed-outline" size={40} color="#ffffffaa" />
               <Text style={{ color: "#fff", marginTop: 12, fontSize: 15, fontWeight: "700", textAlign: "center" }}>
-                {authRequiredForStream ? "ログインが必要です" : "この配信を視聴する権限がありません。"}
+                {authRequiredForStream ? "Sign-in required" : "You do not have access to this stream."}
               </Text>
               <Text style={{ color: "#ffffffb3", marginTop: 8, fontSize: 13, textAlign: "center" }}>
                 {authRequiredForStream
-                  ? "RawStockアカウントでログインすると視聴できます。"
+                  ? "Sign in with your RawStock account to watch."
                   : apiStream?.visibility === "followers"
-                    ? "この配信者をフォローすると視聴できます。"
+                    ? "Follow this creator to watch this stream."
                     : apiStream?.visibility === "community"
-                      ? "指定のコミュニティに参加すると視聴できます。"
+                      ? "Join the required community to watch this stream."
                       : apiStream?.visibility === "paid"
-                        ? "有料配信です。チケットで解放すると視聴できます。"
-                        : "条件を満たしたうえで、再度お試しください。"}
+                        ? "This is a paid stream. Unlock it with tickets to continue."
+                        : "Please satisfy the requirements and try again."}
               </Text>
               {authRequiredForStream ? (
                 <Pressable
@@ -567,7 +567,7 @@ export default function LiveStreamScreen() {
                     router.push("/auth/login");
                   }}
                 >
-                  <Text style={{ color: "#000", fontSize: 13, fontWeight: "800" }}>ログイン</Text>
+                  <Text style={{ color: "#000", fontSize: 13, fontWeight: "800" }}>Sign in</Text>
                 </Pressable>
               ) : null}
               {paidTicketRequired ? (
@@ -578,7 +578,7 @@ export default function LiveStreamScreen() {
                 >
                   <Text style={{ color: "#000", fontSize: 13, fontWeight: "800" }}>
                     {unlockPaidStreamMutation.isPending
-                      ? "解放中..."
+                      ? "Unlocking..."
                       : `Unlock for 🎟${(apiStream?.price ?? 0).toLocaleString()}`}
                   </Text>
                 </Pressable>

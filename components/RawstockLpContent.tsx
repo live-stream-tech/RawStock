@@ -49,7 +49,7 @@ export function RawstockLpContent() {
     return (
       <View style={{ flex: 1, padding: 24, justifyContent: "center", alignItems: "center", backgroundColor: "#07090f" }}>
         <Text style={{ color: "#fff", textAlign: "center" }}>
-          ランディングページは Web ブラウザで開いてください。
+          Open the landing page in a web browser.
         </Text>
       </View>
     );

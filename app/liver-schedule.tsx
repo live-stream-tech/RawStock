@@ -201,7 +201,7 @@ export default function LiverScheduleScreen() {
 
   function handleSaveModal() {
     if (newEnd <= newStart) {
-      Alert.alert("時間エラー", "End time は Start time より後に設定してください。");
+      Alert.alert("Time error", "Set the end time later than the start time.");
       return;
     }
     const maxN = parseInt(newMaxSlots, 10) || 3;
@@ -213,7 +213,7 @@ export default function LiverScheduleScreen() {
           : NaN
         : null;
     if (newSlotKind === "paid" && !Number.isFinite(ticketPrice as number)) {
-      Alert.alert("料金エラー", "Paid の場合は ticket 料金を入力してください。");
+      Alert.alert("Pricing error", "Enter a ticket price for paid slots.");
       return;
     }
     const encodedNote = buildSlotNote(newSlotKind, ticketPrice as number | null, newNote);
@@ -312,7 +312,7 @@ export default function LiverScheduleScreen() {
       <View style={styles.infoBanner}>
         <Ionicons name="information-circle-outline" size={16} color={C.accent} />
         <Text style={styles.infoText}>
-          Slot ごとに Open / Paid を告知できます。Paid は ticket 料金を事前表示できます。時間は24時間表記で設定できます。
+          Each slot can be marked Open or Paid. Paid slots show ticket pricing in advance. Time uses 24-hour format.
         </Text>
       </View>
 

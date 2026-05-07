@@ -275,7 +275,7 @@ export default function StationScreen() {
             <Ionicons name="search-outline" size={14} color={C.textMuted} style={{ marginLeft: 10 }} />
             <TextInput
               style={styles.searchInput}
-              placeholder="コミュニティを検索…"
+              placeholder="Search communities..."
               placeholderTextColor={C.textMuted}
               value={query}
               onChangeText={setQuery}
@@ -292,7 +292,7 @@ export default function StationScreen() {
             }
           >
             <Ionicons name="add" size={16} color="#000" />
-            <Text style={styles.createBtnText}>作成</Text>
+            <Text style={styles.createBtnText}>Create</Text>
           </Pressable>
         </View>
 
@@ -321,7 +321,7 @@ export default function StationScreen() {
                   <Text style={styles.jukeboxPillText}>JUKEBOX</Text>
                 </View>
               </View>
-              <Text style={styles.jukeboxLabel}>{station.name} の同時視聴ルームを開く</Text>
+              <Text style={styles.jukeboxLabel}>Open {station.name} watch-along room</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={C.accent} />
           </View>
@@ -330,7 +330,7 @@ export default function StationScreen() {
         {/* Popular Communities */}
         <View style={styles.sectionGap} />
         <SectionHeader
-          title="人気コミュニティ"
+          title="Popular communities"
           right={
             <Pressable onPress={() => router.push("/community" as any)}>
               <Text style={styles.viewAll}>ALL</Text>
@@ -346,7 +346,7 @@ export default function StationScreen() {
             ))}
             {filteredCommunities.length === 0 && (
               <View style={styles.emptyCard}>
-                <Text style={styles.emptyText}>コミュニティが見つかりません</Text>
+                <Text style={styles.emptyText}>No communities found</Text>
               </View>
             )}
           </HorizontalScroll>
@@ -358,7 +358,7 @@ export default function StationScreen() {
             <View style={styles.sectionGap} />
             <View style={styles.sectionDivider} />
             <View style={styles.sectionGap} />
-            <SectionHeader title="人気動画" />
+            <SectionHeader title="Popular videos" />
             <HorizontalScroll contentContainerStyle={styles.hScroll}>
               {videos.map((item, i) => (
                 <VideoRankCard key={item.id} item={item} rank={i + 1} />
