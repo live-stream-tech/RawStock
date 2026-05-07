@@ -22,6 +22,9 @@ export type BroadcastCopy = {
   stopStream: string;
   goLive: string;
   allowCameraFirst: string;
+  openSettings: string;
+  settingsGuideTitle: string;
+  settingsGuideBody: string;
   /** Broadcaster panel while live */
   visibilityPublic: string;
   visibilityFollowers: string;
@@ -57,6 +60,10 @@ const COPY: BroadcastCopy = {
   stopStream: "End broadcast",
   goLive: "Go live",
   allowCameraFirst: "Allow camera first",
+  openSettings: "Open settings",
+  settingsGuideTitle: "Enable camera permission",
+  settingsGuideBody:
+    "If permission was blocked, allow Camera and Microphone for this site in your browser settings, then return and tap Try again.",
   visibilityPublic: "Public",
   visibilityFollowers: "Followers only",
   visibilityCommunity: "Community only",

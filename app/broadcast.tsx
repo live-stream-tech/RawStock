@@ -156,6 +156,7 @@ function BroadcastWeb() {
   /** Default to raw camera on web for stable startup; face filter can be re-enabled later. */
   const [skipFaceFilter, setSkipFaceFilter] = useState(true);
   const [lastLiveError, setLastLiveError] = useState<string | null>(null);
+  const [showOpenSettings, setShowOpenSettings] = useState(false);
   const blinkAnim = useRef(new Animated.Value(1)).current;
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const viewersPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -283,6 +284,7 @@ function BroadcastWeb() {
     setWebPreviewLoading(true);
     setCameraError(false);
     setLastLiveError(null);
+    setShowOpenSettings(false);
     setSkipFaceFilter(true);
     try {
       const raw = await acquireBroadcastMediaStream();
@@ -292,12 +294,33 @@ function BroadcastWeb() {
       setCameraStream(raw);
       setPhase("ready");
       setJeelizSourceStream(null);
-    } catch {
+      setShowOpenSettings(false);
+    } catch (error: any) {
       setCameraError(true);
+      const message = error?.message ?? "";
+      const denied =
+        error?.name === "NotAllowedError" ||
+        /permission|denied|not allowed/i.test(message);
+      if (denied) {
+        setShowOpenSettings(true);
+        setLastLiveError(t.cameraPermissionPWA);
+      } else {
+        setLastLiveError(t.cameraPermissionShort);
+      }
     } finally {
       setWebPreviewLoading(false);
     }
   };
+
+  const openCameraSettings = useCallback(() => {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      // Desktop browsers usually block direct deep-links to camera settings.
+      // Show actionable guidance so users can recover from permanently denied permission.
+      alertMessage(t.settingsGuideTitle, t.settingsGuideBody);
+      return;
+    }
+    alertMessage(t.settingsGuideTitle, t.settingsGuideBody);
+  }, [t.settingsGuideBody, t.settingsGuideTitle]);
 
   const cleanup = async () => {
     try {
@@ -476,10 +499,15 @@ function BroadcastWeb() {
             <Pressable style={styles.pwaCameraRetryBtn} onPress={() => void startWebCamera()}>
               <Text style={styles.pwaCameraRetryText}>{t.cameraRetry}</Text>
             </Pressable>
+            {showOpenSettings ? (
+              <Pressable style={styles.pwaCameraSettingsBtn} onPress={openCameraSettings}>
+                <Text style={styles.pwaCameraSettingsText}>{t.openSettings}</Text>
+              </Pressable>
+            ) : null}
           </View>
         )}
 
-        {webNeedsCameraTap && !jeelizSourceStream && !cameraError && (
+        {webNeedsCameraTap && !cameraStream && !cameraError && (
           <View style={styles.pwaCameraGate}>
             {webPreviewLoading ? (
               <ActivityIndicator color="#fff" size="large" />
@@ -658,7 +686,7 @@ function BroadcastWeb() {
                 <>
                   <View style={styles.goLiveDot} />
                   <Text style={styles.goLiveBtnText}>
-                    {webNeedsCameraTap && !jeelizSourceStream ? t.allowCameraFirst : t.goLive}
+                    {webNeedsCameraTap && !cameraStream ? t.allowCameraFirst : t.goLive}
                   </Text>
                 </>
               )}
@@ -726,6 +754,15 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.15)",
   },
   pwaCameraRetryText: { color: "#fff", fontSize: 15, fontWeight: "700" },
+  pwaCameraSettingsBtn: {
+    marginTop: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.4)",
+  },
+  pwaCameraSettingsText: { color: "#fff", fontSize: 13, fontWeight: "700" },
   cameraErrorOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
