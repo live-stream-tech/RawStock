@@ -5690,7 +5690,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json(out);
   });
 
-  app.get("/api/dm-messages/unread-count", async (_req: Request, res: Response) => {
+  app.get("/api/dm-messages/unread-count", async (req: Request, res: Response) => {
     res.setHeader("Cache-Control", "private, no-store");
     const me = await getAuthUser(req);
     if (!me) return res.json({ count: 0 });
