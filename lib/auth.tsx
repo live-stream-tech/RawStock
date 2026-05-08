@@ -26,6 +26,8 @@ export type User = {
   pinnedCommunityIds?: number[];
   /** Language inferred from recent content (ISO 639-1); null if unknown */
   lastContentLang?: string | null;
+  /** User-selected UI/translation target language (ISO 639-1) */
+  preferredLanguage?: string | null;
   /** Current Terms / Privacy versions required by the server (constants/legalVersions) */
   currentTermsVersion?: string;
   currentPrivacyVersion?: string;
@@ -139,6 +141,7 @@ function normalizeMe(me: Record<string, unknown>): User {
     phoneNumber: (me.phoneNumber ?? null) as string | null,
     pinnedCommunityIds: (me.pinnedCommunityIds ?? []) as number[],
     lastContentLang: (me.lastContentLang ?? null) as string | null,
+    preferredLanguage: (me.preferredLanguage ?? null) as string | null,
     currentTermsVersion: me.currentTermsVersion as string | undefined,
     currentPrivacyVersion: me.currentPrivacyVersion as string | undefined,
     termsAcceptedVersion: (me.termsAcceptedVersion ?? null) as string | null,

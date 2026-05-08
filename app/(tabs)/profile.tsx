@@ -259,8 +259,34 @@ export default function ProfileScreen() {
   const [editAvatar, setEditAvatar] = useState("");
   const [profileSaving, setProfileSaving] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const [languageSaving, setLanguageSaving] = useState(false);
+  const [preferredLanguage, setPreferredLanguage] = useState("en");
   /** Main header avatar: pick image and save without opening the edit modal */
   const [headerAvatarUploading, setHeaderAvatarUploading] = useState(false);
+
+  useEffect(() => {
+    setPreferredLanguage((user?.preferredLanguage ?? "en").toLowerCase());
+  }, [user?.preferredLanguage]);
+
+  async function updatePreferredLanguage(nextLanguage: "en" | "ja") {
+    if (!user || languageSaving || preferredLanguage === nextLanguage) return;
+    setLanguageSaving(true);
+    try {
+      await apiRequest("PATCH", "/api/translate/preferred-language", {
+        preferredLanguage: nextLanguage,
+      });
+      setPreferredLanguage(nextLanguage);
+      if (token) {
+        await loginWithToken(token);
+      }
+      queryClient.invalidateQueries();
+    } catch (e: unknown) {
+      const message = formatUserFacingApiError(e);
+      Alert.alert("Could not update language", message);
+    } finally {
+      setLanguageSaving(false);
+    }
+  }
 
   // Role / creator registration state
   const { data: roleStatus, refetch: refetchRoles } = useQuery<{ isEditor: boolean; isMentor: boolean } | null>({
@@ -839,6 +865,29 @@ export default function ProfileScreen() {
             <Ionicons name="radio-outline" size={15} color={C.accent} />
             <Text style={styles.quickActionText}>Live</Text>
           </Pressable>
+        </View>
+        <View style={styles.languageRow}>
+          <Text style={styles.languageLabel}>App language</Text>
+          <View style={styles.languagePills}>
+            <Pressable
+              style={[styles.languagePill, preferredLanguage === "en" && styles.languagePillActive]}
+              onPress={() => void updatePreferredLanguage("en")}
+              disabled={languageSaving}
+            >
+              <Text style={[styles.languagePillText, preferredLanguage === "en" && styles.languagePillTextActive]}>
+                English
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.languagePill, preferredLanguage === "ja" && styles.languagePillActive]}
+              onPress={() => void updatePreferredLanguage("ja")}
+              disabled={languageSaving}
+            >
+              <Text style={[styles.languagePillText, preferredLanguage === "ja" && styles.languagePillTextActive]}>
+                Japanese
+              </Text>
+            </Pressable>
+          </View>
         </View>
         <View style={styles.followRow}>
           <Pressable style={styles.followStat} onPress={() => router.push(`/user/${user?.id}/followers`)}>
@@ -1620,6 +1669,29 @@ const styles = StyleSheet.create({
     backgroundColor: C.live,
     marginLeft: 2,
   },
+  languageRow: {
+    paddingHorizontal: 16,
+    marginBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  languageLabel: { color: C.textSec, fontSize: 12, fontWeight: "700" },
+  languagePills: { flexDirection: "row", alignItems: "center", gap: 8 },
+  languagePill: {
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: C.surface,
+  },
+  languagePillActive: {
+    borderColor: C.accent,
+    backgroundColor: "rgba(0,255,204,0.12)",
+  },
+  languagePillText: { color: C.textSec, fontSize: 11, fontWeight: "700" },
+  languagePillTextActive: { color: C.accent },
   socialLinksRow: {
     flexDirection: "row",
     alignItems: "center",

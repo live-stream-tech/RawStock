@@ -414,6 +414,28 @@ export default function HomeScreen() {
       <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
         <View style={styles.sectionGap} />
 
+        {/* ── Creator Tools ── */}
+        <View style={styles.creatorToolsRow}>
+          <Pressable style={[styles.creatorToolCard, styles.creatorToolCardPrimary]} onPress={() => router.push("/ai-edit" as any)}>
+            <View style={styles.creatorToolIconWrap}>
+              <Ionicons name="sparkles-outline" size={16} color="#fff" />
+            </View>
+            <View style={styles.creatorToolTextWrap}>
+              <Text style={styles.creatorToolTitle}>AI Edit</Text>
+              <Text style={styles.creatorToolSub}>Auto-generate edits from your footage</Text>
+            </View>
+          </Pressable>
+          <Pressable style={[styles.creatorToolCard, styles.creatorToolCardSecondary]} onPress={() => router.push("/editors" as any)}>
+            <View style={[styles.creatorToolIconWrap, styles.creatorToolIconWrapSecondary]}>
+              <Ionicons name="cut-outline" size={16} color={C.accent} />
+            </View>
+            <View style={styles.creatorToolTextWrap}>
+              <Text style={styles.creatorToolTitle}>Video Edit Request</Text>
+              <Text style={styles.creatorToolSub}>Find an editor and request your video</Text>
+            </View>
+          </Pressable>
+        </View>
+
         {/* ── Jukebox Banner ── */}
         <Pressable
           style={[styles.jukeBannerOuter, Platform.OS === "web" ? styles.jukeBannerOuterWeb : styles.jukeBannerOuterNative]}
@@ -588,6 +610,51 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
 
   // Jukebox Banner
+  creatorToolsRow: {
+    marginHorizontal: 16,
+    marginBottom: 4,
+    gap: 10,
+  },
+  creatorToolCard: {
+    borderRadius: 6,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  creatorToolCardPrimary: {
+    backgroundColor: "rgba(108,92,231,0.14)",
+    borderColor: "rgba(108,92,231,0.6)",
+  },
+  creatorToolCardSecondary: {
+    backgroundColor: C.surface,
+    borderColor: "rgba(0,255,204,0.35)",
+  },
+  creatorToolIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(108,92,231,0.75)",
+  },
+  creatorToolIconWrapSecondary: {
+    backgroundColor: "rgba(0,255,204,0.12)",
+  },
+  creatorToolTextWrap: { flex: 1, minWidth: 0 },
+  creatorToolTitle: {
+    color: C.text,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  creatorToolSub: {
+    color: C.textSec,
+    fontSize: 11,
+    marginTop: 2,
+    fontFamily: F.mono,
+  },
   jukeBannerOuter: {
     marginHorizontal: 16,
     marginTop: 12,
