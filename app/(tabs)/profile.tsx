@@ -45,6 +45,14 @@ function useUnreadCount() {
   return data?.count ?? 0;
 }
 
+function useDmUnreadCount() {
+  const { data } = useQuery<{ count: number }>({
+    queryKey: ["/api/dm-messages/unread-count"],
+    refetchInterval: 30_000,
+  });
+  return data?.count ?? 0;
+}
+
 type MyVideo = {
   id: number;
   title: string;
@@ -221,6 +229,7 @@ export default function ProfileScreen() {
   const topInset = getTabTopInset(insets);
   const bottomInset = getTabBottomInset(insets);
   const unreadCount = useUnreadCount();
+  const dmUnreadCount = useDmUnreadCount();
   const { user, token, loading: authLoading, logout, updateProfile, loginWithToken } = useAuth();
   const queryClient = useQueryClient();
 
@@ -708,7 +717,7 @@ export default function ProfileScreen() {
       <View style={[styles.header, { paddingTop: topInset + 12 }]}>
         <AppLogo height={36} />
         <View style={styles.headerRight}>
-          <Pressable style={styles.notifButton} onPress={() => router.push("/notifications?filter=purchase")}>
+          <Pressable style={styles.notifButton} onPress={() => router.push("/notifications?filter=all")}>
             <Ionicons name="notifications-outline" size={22} color={C.text} />
             {unreadCount > 0 && (
               <View style={styles.notifBadge}>
@@ -819,6 +828,7 @@ export default function ProfileScreen() {
           <Pressable style={styles.quickActionBtn} onPress={() => router.push("/dm")}>
             <Ionicons name="paper-plane-outline" size={15} color={C.accent} />
             <Text style={styles.quickActionText}>DM</Text>
+            {dmUnreadCount > 0 && <View style={styles.dmUnreadDot} />}
           </Pressable>
           <Pressable
             style={styles.quickActionBtn}
@@ -1603,6 +1613,13 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface,
   },
   quickActionText: { color: C.textSec, fontSize: 12, fontWeight: "700" },
+  dmUnreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: C.live,
+    marginLeft: 2,
+  },
   socialLinksRow: {
     flexDirection: "row",
     alignItems: "center",

@@ -11,7 +11,7 @@ import { scrollShowsHorizontal, scrollShowsVertical } from "@/lib/web-scroll-ind
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { router , useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/query-client";
 import { C } from "@/constants/colors";
@@ -19,9 +19,10 @@ import { webScrollStyle } from "@/constants/layout";
 
 type Notif = {
   id: number;
-  type: "purchase" | "follow" | "comment" | "live";
+  type: "purchase" | "follow" | "comment" | "live" | "mentor_update" | "editor_update";
   title: string;
   body: string;
+  targetPath?: string | null;
   amount: number | null;
   avatar: string | null;
   thumbnail: string | null;
@@ -32,6 +33,7 @@ type Notif = {
 const FILTERS = [
   { id: "all", label: "All" },
   { id: "purchase", label: "Purchases" },
+  { id: "update", label: "Updates" },
   { id: "follow", label: "Follows" },
   { id: "comment", label: "Comments" },
 ];
@@ -41,16 +43,18 @@ const TYPE_ICON: Record<string, { name: string; color: string; bg: string }> = {
   follow: { name: "person-add", color: "#fff", bg: C.accent },
   comment: { name: "chatbubble", color: "#fff", bg: C.orange },
   live:    { name: "trophy", color: "#fff", bg: "#7C4DFF" },
+  mentor_update: { name: "calendar", color: "#fff", bg: "#2E7D32" },
+  editor_update: { name: "create", color: "#fff", bg: "#1565C0" },
 };
 
-function NotifItem({ item, onRead }: { item: Notif; onRead: (id: number) => void }) {
+function NotifItem({ item, onRead }: { item: Notif; onRead: (item: Notif) => void }) {
   const icon = TYPE_ICON[item.type] ?? TYPE_ICON.purchase;
   const revenue = item.amount !== null ? Math.floor(item.amount) : null;
 
   return (
     <Pressable
       style={[styles.item, !item.isRead && styles.itemUnread]}
-      onPress={() => onRead(item.id)}
+      onPress={() => onRead(item)}
     >
       {!item.isRead && <View style={styles.unreadBar} />}
 
@@ -116,6 +120,8 @@ export default function NotificationsScreen() {
 
   const filteredNotifs = filter === "all"
     ? notifs
+    : filter === "update"
+    ? notifs.filter((n) => n.type === "mentor_update" || n.type === "editor_update")
     : notifs.filter((n) => n.type === filter);
 
   const unreadCount = notifs.filter((n) => !n.isRead).length;
@@ -129,6 +135,15 @@ export default function NotificationsScreen() {
     mutationFn: () => apiRequest("POST", "/api/notifications/read-all"),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/notifications"] }),
   });
+
+  const openNotificationTarget = async (item: Notif) => {
+    if (!item.isRead) {
+      await readMutation.mutateAsync(item.id);
+    }
+    if (item.targetPath && item.targetPath.startsWith("/")) {
+      router.push(item.targetPath as any);
+    }
+  };
 
   const totalRevenue = notifs
     .filter((n) => n.type === "purchase" && n.amount !== null)
@@ -202,7 +217,7 @@ export default function NotificationsScreen() {
             <NotifItem
               key={item.id}
               item={item}
-              onRead={(id) => { if (!item.isRead) readMutation.mutate(id); }}
+              onRead={openNotificationTarget}
             />
           ))
         )}

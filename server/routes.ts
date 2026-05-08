@@ -534,6 +534,37 @@ const WELCOME_DM_TEXT = [
   "Questions? Reply to this DM anytime.",
 ].join("\n");
 
+async function notifyFollowersOfCreatorUpdate(args: {
+  actorUserId: number;
+  type: string;
+  title: string;
+  body: string;
+  targetPath?: string | null;
+  avatar?: string | null;
+  thumbnail?: string | null;
+}) {
+  const followers = await db
+    .select({ followerId: userFollows.followerId })
+    .from(userFollows)
+    .where(eq(userFollows.followingId, args.actorUserId));
+  if (followers.length === 0) return;
+
+  const nowTimeAgo = "Just now";
+  await db.insert(notifications).values(
+    followers.map((f) => ({
+      userId: f.followerId,
+      type: args.type,
+      title: args.title,
+      body: args.body,
+      targetPath: args.targetPath ?? null,
+      amount: null,
+      avatar: args.avatar ?? null,
+      thumbnail: args.thumbnail ?? null,
+      timeAgo: nowTimeAgo,
+    }) satisfies typeof notifications.$inferInsert),
+  );
+}
+
 /** Allow opening ops DM guide from list even when no ops DM row exists. */
 async function ensureOperationsDmRow() {
   const [existing] = await db.select().from(dmMessages).where(eq(dmMessages.name, OPERATIONS_DM_NAME));
@@ -3551,6 +3582,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       });
 
       await db.insert(notifications).values({
+        userId: editor.userId ?? null,
         type: "editor_request",
         title: `Edit request from ${requestUserName}`,
         body: `${title} (editor ID: ${editorId})`,
@@ -3701,6 +3733,14 @@ export async function registerRoutes(app: Express): Promise<void> {
       .where(eq(videoEditors.id, id));
 
     const [updated] = await db.select().from(videoEditors).where(eq(videoEditors.id, id));
+    await notifyFollowersOfCreatorUpdate({
+      actorUserId: user.id,
+      type: "editor_update",
+      title: `${updated?.name ?? user.displayName} updated editor profile`,
+      body: "New pricing, styles, or delivery details may be available.",
+      targetPath: `/user/${user.id}`,
+      avatar: updated?.avatar ?? user.profileImageUrl ?? null,
+    });
     return res.json(updated);
   });
 
@@ -5739,34 +5779,47 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   // ── Notifications ─────────────────────────────────────────────────
-  app.get("/api/notifications/unread-count", async (_req: Request, res: Response) => {
+  app.get("/api/notifications/unread-count", async (req: Request, res: Response) => {
+    const me = await getAuthUser(req);
+    if (!me) return res.json({ count: 0 });
     res.setHeader("Cache-Control", "private, no-store");
     const [{ count }] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(notifications)
-      .where(eq(notifications.isRead, false));
+      .where(and(eq(notifications.isRead, false), eq(notifications.userId, me.id)));
     res.json({ count: count ?? 0 });
   });
 
   app.get("/api/notifications", async (req: Request, res: Response) => {
+    const me = await getAuthUser(req);
+    if (!me) return res.json([]);
     const type = queryStr(req, "type");
-    const rows = type && type !== "all"
-      ? await db.select().from(notifications).where(eq(notifications.type, type)).orderBy(desc(notifications.createdAt))
-      : await db.select().from(notifications).orderBy(desc(notifications.createdAt));
+    const whereClause = and(
+      eq(notifications.userId, me.id),
+      type && type !== "all" ? eq(notifications.type, type) : undefined,
+    );
+    const rows = await db.select().from(notifications).where(whereClause).orderBy(desc(notifications.createdAt));
     res.json(rows);
   });
 
-  app.post("/api/notifications/read-all", async (_req: Request, res: Response) => {
-    await db.update(notifications).set({ isRead: true } as Partial<InferSelectModel<typeof notifications>>);
+  app.post("/api/notifications/read-all", async (req: Request, res: Response) => {
+    const me = await getAuthUser(req);
+    if (!me) return res.status(401).json({ error: "Unauthorized" });
+    await db
+      .update(notifications)
+      .set({ isRead: true } as Partial<InferSelectModel<typeof notifications>>)
+      .where(eq(notifications.userId, me.id));
     res.json({ ok: true });
   });
 
   app.post("/api/notifications/:id/read", async (req: Request, res: Response) => {
+    const me = await getAuthUser(req);
+    if (!me) return res.status(401).json({ error: "Unauthorized" });
     const id = paramNum(req, "id");
     const [updated] = await db
       .update(notifications)
       .set({ isRead: true } as Partial<InferSelectModel<typeof notifications>>)
-      .where(eq(notifications.id, id))
+      .where(and(eq(notifications.id, id), eq(notifications.userId, me.id)))
       .returning();
     res.json(updated);
   });
@@ -7590,6 +7643,14 @@ export async function registerRoutes(app: Express): Promise<void> {
         isActive: true,
       } as typeof mentorSessions.$inferInsert)
       .returning();
+    await notifyFollowersOfCreatorUpdate({
+      actorUserId: user.id,
+      type: "mentor_update",
+      title: `${user.displayName} posted a new mentor session`,
+      body: String(row.title ?? "A new mentor session is now available."),
+      targetPath: `/user/${user.id}`,
+      avatar: user.profileImageUrl ?? null,
+    });
     res.json(row);
   });
 
@@ -7614,6 +7675,14 @@ export async function registerRoutes(app: Express): Promise<void> {
       } as Partial<InferSelectModel<typeof mentorSessions>>)
       .where(eq(mentorSessions.id, id))
       .returning();
+    await notifyFollowersOfCreatorUpdate({
+      actorUserId: user.id,
+      type: "mentor_update",
+      title: `${user.displayName} updated a mentor session`,
+      body: String(row.title ?? "Session details were updated."),
+      targetPath: `/user/${user.id}`,
+      avatar: user.profileImageUrl ?? null,
+    });
     res.json(row);
   });
 
@@ -9409,6 +9478,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       try {
         const [owner] = await db.select().from(users).where(eq(users.id, job.userId));
         await db.insert(notifications).values({
+          userId: job.userId,
           type: "ai_edit_delivered",
           title: "Your edited video is ready",
           body: `Your AI Edit job #${job.id}${job.planMinutes ? ` (${job.planMinutes}-min plan)` : ""} has been delivered. Tap to download.`,
@@ -9498,6 +9568,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       try {
         const [owner] = await db.select().from(users).where(eq(users.id, job.userId));
         await db.insert(notifications).values({
+          userId: job.userId,
           type: "ai_edit_delivered",
           title: "Your edited video is ready",
           body: `Your AI Edit job #${job.id}${job.planMinutes ? ` (${job.planMinutes}-min plan)` : ""} has been delivered. Tap to download.`,
@@ -9654,6 +9725,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     try {
       const [owner] = await db.select().from(users).where(eq(users.id, job.userId));
       await db.insert(notifications).values({
+        userId: job.userId,
         type: "ai_edit_delivered",
         title: "Your edited video is ready",
         body: `Your AI Edit job #${job.id}${job.planMinutes ? ` (${job.planMinutes}-min plan)` : ""} has been delivered. Tap to download.`,

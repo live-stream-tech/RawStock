@@ -220,6 +220,8 @@ function NowPlaying({
   const [needsTap, setNeedsTap] = useState(true);
   /** When server is playing but WebKit reports PAUSED/CUED/UNSTARTED. */
   const [needsResumeTap, setNeedsResumeTap] = useState(false);
+  /** If YT player init fails, avoid crashing the tree and fall back to thumbnail. */
+  const [ytInitFailed, setYtInitFailed] = useState(false);
   // IFrame API player reference.
   const ytPlayerRef = useRef<any>(null);
   const ytContainerIdRef = useRef<string>(`jb-yt-${Math.random().toString(36).slice(2)}`);
@@ -302,6 +304,7 @@ function NowPlaying({
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     if (!state?.currentVideoYoutubeId) return;
+    setYtInitFailed(false);
 
     const startSec =
       state.elapsedSecs && state.elapsedSecs > 0
@@ -325,6 +328,15 @@ function NowPlaying({
     let cancelled = false;
     ensureYouTubeApi().then((YT: any) => {
       if (cancelled) return;
+      const containerId = ytContainerIdRef.current;
+      const mountNode = typeof document !== "undefined" ? document.getElementById(containerId) : null;
+      if (!mountNode) {
+        // Layout may not have mounted yet on the first transition into playing state.
+        setTimeout(() => {
+          if (!cancelled) scheduleTryResume();
+        }, 60);
+        return;
+      }
       if (ytPlayerRef.current) {
         // Track switch: use loadVideoById without destroying player.
         try {
@@ -341,63 +353,69 @@ function NowPlaying({
       }
       if (!ytPlayerRef.current) {
         // Create player instance.
-        const containerId = ytContainerIdRef.current;
-        ytPlayerRef.current = new YT.Player(containerId, {
-          videoId: state.currentVideoYoutubeId,
-          width: '100%',
-          height: '100%',
-          playerVars: {
-            autoplay: 1,
-            mute: 0,
-            controls: 0,
-            rel: 0,
-            disablekb: 1,
-            playsinline: 1,
-            start: Math.floor(startSec),
-          },
-          events: {
-            onReady: (event: any) => {
-              if (cancelled) return;
-              try {
-                event.target?.unMute?.();
-                event.target?.setVolume?.(100);
-                event.target?.playVideo?.();
-                setNeedsTap(false); // Autoplay succeeded (Android/Desktop)
-              } catch {}
+        try {
+          ytPlayerRef.current = new YT.Player(containerId, {
+            videoId: state.currentVideoYoutubeId,
+            width: '100%',
+            height: '100%',
+            playerVars: {
+              autoplay: 1,
+              mute: 0,
+              controls: 0,
+              rel: 0,
+              disablekb: 1,
+              playsinline: 1,
+              start: Math.floor(startSec),
             },
-            onStateChange: (event: any) => {
-              try {
-                const w = window as any;
-                const YT = w.YT;
-                if (!YT?.PlayerState) return;
-                const ps = event.data;
-                if (ps === YT.PlayerState.ENDED) {
-                  onAdvanceRef.current("ended");
-                  setNeedsResumeTap(false);
-                  return;
-                }
-                if (ps === YT.PlayerState.PLAYING) {
-                  hasUserInteractedRef.current = true;
-                  setNeedsTap(false);
-                  setNeedsResumeTap(false);
-                  return;
-                }
-                const srv = stateRef.current;
-                if (
-                  srv?.isPlaying &&
-                  srv?.currentVideoYoutubeId &&
-                  (ps === YT.PlayerState.PAUSED ||
-                    ps === YT.PlayerState.CUED ||
-                    ps === YT.PlayerState.UNSTARTED)
-                ) {
-                  setNeedsResumeTap(true);
-                }
-              } catch {}
+            events: {
+              onReady: (event: any) => {
+                if (cancelled) return;
+                try {
+                  event.target?.unMute?.();
+                  event.target?.setVolume?.(100);
+                  event.target?.playVideo?.();
+                  setNeedsTap(false); // Autoplay succeeded (Android/Desktop)
+                } catch {}
+              },
+              onStateChange: (event: any) => {
+                try {
+                  const w = window as any;
+                  const YT = w.YT;
+                  if (!YT?.PlayerState) return;
+                  const ps = event.data;
+                  if (ps === YT.PlayerState.ENDED) {
+                    onAdvanceRef.current("ended");
+                    setNeedsResumeTap(false);
+                    return;
+                  }
+                  if (ps === YT.PlayerState.PLAYING) {
+                    hasUserInteractedRef.current = true;
+                    setNeedsTap(false);
+                    setNeedsResumeTap(false);
+                    return;
+                  }
+                  const srv = stateRef.current;
+                  if (
+                    srv?.isPlaying &&
+                    srv?.currentVideoYoutubeId &&
+                    (ps === YT.PlayerState.PAUSED ||
+                      ps === YT.PlayerState.CUED ||
+                      ps === YT.PlayerState.UNSTARTED)
+                  ) {
+                    setNeedsResumeTap(true);
+                  }
+                } catch {}
+              },
             },
-          },
-        });
+          });
+        } catch {
+          ytPlayerRef.current = null;
+          setYtInitFailed(true);
+        }
       }
-    }).catch(() => {});
+    }).catch(() => {
+      if (!cancelled) setYtInitFailed(true);
+    });
 
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- loadVideoById handles in-player sync; avoid remounting on elapsed/startedAt ticks
@@ -515,7 +533,7 @@ function NowPlaying({
   return (
     <View style={[styles.nowPlaying, videoStyle]}>
       {/* YouTube IFrame API player container (audio + video) */}
-      {Platform.OS === "web" && state?.currentVideoYoutubeId ? (
+      {Platform.OS === "web" && state?.currentVideoYoutubeId && !ytInitFailed ? (
         <View
           nativeID={ytContainerIdRef.current}
           collapsable={false}
