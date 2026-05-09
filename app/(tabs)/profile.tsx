@@ -737,6 +737,7 @@ export default function ProfileScreen() {
     : 0;
   const overallProgressRatio = Math.min(1, (tipProgressRatio + streamProgressRatio) / 2);
   const progressPercent = Math.round(overallProgressRatio * 100);
+  const isCreatorMode = Boolean(roleStatus?.isEditor || roleStatus?.isMentor);
 
   return (
     <View style={[styles.container, { paddingBottom: bottomInset }]}>
@@ -928,62 +929,205 @@ export default function ProfileScreen() {
             ) : null}
           </View>
         ) : null}
-
-
-
-        {/* Supporter Level */}
-        <View style={styles.supporterCard}>
-          <View style={styles.supporterHeader}>
-            <Ionicons name="trending-up" size={16} color={C.accent} />
-            <Text style={styles.supporterTitle}>
-              {levelProgress ? `CREATOR LEVEL ${levelProgress.currentLevel}` : "CREATOR LEVEL"}
-            </Text>
-            <View style={styles.activeBadge}>
-              <Text style={styles.activeText}>{`${progressPercent}%`}</Text>
+        {isCreatorMode ? (
+          <>
+            <View style={styles.modeSectionHeader}>
+              <Text style={styles.modeSectionTitle}>Creator Manage</Text>
+              <Text style={styles.modeSectionSub}>Operations and monetization tools for creators</Text>
             </View>
-          </View>
-          <View style={styles.progressBar}>
-            <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
-            <Ionicons name="trophy-outline" size={14} color={C.orange} style={styles.trophyIcon} />
-          </View>
-          {levelProgress ? (
-            <>
-              <Text style={styles.supporterSub}>
-                TIP BACK RATE: {Math.round(levelProgress.tipBackRate * 100)}% / PAID LIVE: 90%
+            {/* Supporter Level */}
+            <View style={styles.supporterCard}>
+              <View style={styles.supporterHeader}>
+                <Ionicons name="trending-up" size={16} color={C.accent} />
+                <Text style={styles.supporterTitle}>
+                  {levelProgress ? `CREATOR LEVEL ${levelProgress.currentLevel}` : "CREATOR LEVEL"}
+                </Text>
+                <View style={styles.activeBadge}>
+                  <Text style={styles.activeText}>{`${progressPercent}%`}</Text>
+                </View>
+              </View>
+              <View style={styles.progressBar}>
+                <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
+                <Ionicons name="trophy-outline" size={14} color={C.orange} style={styles.trophyIcon} />
+              </View>
+              {levelProgress ? (
+                <>
+                  <Text style={styles.supporterSub}>
+                    TIP BACK RATE: {Math.round(levelProgress.tipBackRate * 100)}% / PAID LIVE: 90%
+                  </Text>
+                  <Text style={styles.supporterHint}>
+                    {levelProgress.remainingStreamCount} more streams or ¥
+                    {levelProgress.remainingTipGross.toLocaleString()} more in tips to next level
+                  </Text>
+                </>
+              ) : (
+                <Text style={styles.supporterHint}>Register as a creator to see your level progress.</Text>
+              )}
+            </View>
+
+            {/* Ticket Balance */}
+            {user && (
+              <Pressable style={styles.ticketBalanceRow} onPress={() => router.push("/tickets")}>
+                <Text style={styles.ticketEmoji}>🎟</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.ticketBalanceLabel}>TICKET BALANCE</Text>
+                  <Text style={styles.ticketBalanceValue}>{ticketBalance.toLocaleString()} Tickets</Text>
+                </View>
+                <View style={styles.ticketTopUpBtn}>
+                  <Text style={styles.ticketTopUpText}>Top Up</Text>
+                </View>
+              </Pressable>
+            )}
+
+            <Pressable style={styles.revenueBtn} onPress={() => router.push("/revenue")}>
+              <Ionicons name="wallet-outline" size={16} color="#050505" />
+              <Text style={styles.revenueBtnText}>REVENUE MANAGEMENT</Text>
+            </Pressable>
+
+            <Pressable style={styles.adReviewBtn} onPress={() => router.push("/community/ad-review")}>
+              <Ionicons name="megaphone-outline" size={16} color="#050505" />
+              <Text style={styles.adReviewBtnText}>Ad Review (Admins & Mods)</Text>
+            </Pressable>
+
+            {/* Creator / mentor session registration */}
+            <View style={styles.roleCard}>
+              <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.roleTitle}>Creator Registration</Text>
+                  <Text style={styles.roleSub}>
+                    Register as a Video Editor or Session Liver to appear in creator listings.
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.roleButtonsRow}>
+                <Pressable
+                  style={[
+                    styles.roleButton,
+                    roleStatus?.isEditor && styles.roleButtonActive,
+                  ]}
+                  disabled={!!roleStatus?.isEditor || roleLoading === "editor"}
+                  onPress={() => registerRole("editor")}
+                >
+                  <Ionicons
+                    name="color-wand-outline"
+                    size={16}
+                    color={roleStatus?.isEditor ? "#050505" : C.textSec}
+                  />
+                  <Text
+                    style={[
+                      styles.roleButtonText,
+                      roleStatus?.isEditor && styles.roleButtonTextActive,
+                    ]}
+                  >
+                    Video Editor
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.roleButton,
+                    roleStatus?.isMentor && styles.roleButtonActive,
+                  ]}
+                  disabled={!!roleStatus?.isMentor || roleLoading === "mentor"}
+                  onPress={() => registerRole("mentor")}
+                >
+                  <Ionicons
+                    name="camera-outline"
+                    size={16}
+                    color={roleStatus?.isMentor ? "#050505" : C.textSec}
+                  />
+                  <Text
+                    style={[
+                      styles.roleButtonText,
+                      roleStatus?.isMentor && styles.roleButtonTextActive,
+                    ]}
+                  >
+                    Session Liver
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+
+            <View style={styles.creatorManageCard}>
+              <Text style={styles.creatorManageTitle}>Creator dashboard</Text>
+              <Text style={styles.creatorManageSub}>
+                Open your management screens without leaving My Page.
               </Text>
-              <Text style={styles.supporterHint}>
-                {levelProgress.remainingStreamCount} more streams or ¥
-                {levelProgress.remainingTipGross.toLocaleString()} more in tips to next level
-              </Text>
-            </>
-          ) : (
-            <Text style={styles.supporterHint}>Register as a creator to see your level progress.</Text>
-          )}
-        </View>
-
-        {/* Ticket Balance */}
-        {user && (
-          <Pressable style={styles.ticketBalanceRow} onPress={() => router.push("/tickets")}>
-            <Text style={styles.ticketEmoji}>🎟</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.ticketBalanceLabel}>TICKET BALANCE</Text>
-              <Text style={styles.ticketBalanceValue}>{ticketBalance.toLocaleString()} Tickets</Text>
+              {roleStatus?.isMentor ? (
+                <>
+                  <Pressable
+                    style={styles.creatorManageRow}
+                    onPress={() => router.push("/mentor-manage" as any)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Mentor sessions and bookings"
+                  >
+                    <View style={styles.creatorManageIcon}>
+                      <Ionicons name="videocam-outline" size={18} color={C.accent} />
+                    </View>
+                    <View style={styles.creatorManageRowBody}>
+                      <Text style={styles.creatorManageRowTitle}>Mentor sessions & bookings</Text>
+                      <Text style={styles.creatorManageRowSub}>Products, reservations, and video calls</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
+                  </Pressable>
+                  <Pressable
+                    style={styles.creatorManageRow}
+                    onPress={() => router.push("/liver-schedule" as any)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Availability schedule"
+                  >
+                    <View style={styles.creatorManageIcon}>
+                      <Ionicons name="calendar-outline" size={18} color={C.accent} />
+                    </View>
+                    <View style={styles.creatorManageRowBody}>
+                      <Text style={styles.creatorManageRowTitle}>Availability schedule</Text>
+                      <Text style={styles.creatorManageRowSub}>Open slots and ticketed sessions</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
+                  </Pressable>
+                </>
+              ) : null}
+              {roleStatus?.isEditor ? (
+                <>
+                  <Pressable
+                    style={styles.creatorManageRow}
+                    onPress={() => router.push("/editor-profile" as any)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Editor listing"
+                  >
+                    <View style={styles.creatorManageIcon}>
+                      <Ionicons name="color-wand-outline" size={18} color={C.accent} />
+                    </View>
+                    <View style={styles.creatorManageRowBody}>
+                      <Text style={styles.creatorManageRowTitle}>Editor listing</Text>
+                      <Text style={styles.creatorManageRowSub}>Profile, pricing, and delivery settings</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
+                  </Pressable>
+                  <Pressable
+                    style={styles.creatorManageRow}
+                    onPress={() => router.push("/editor-inbox" as any)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Edit requests inbox"
+                  >
+                    <View style={styles.creatorManageIcon}>
+                      <Ionicons name="mail-outline" size={18} color={C.accent} />
+                    </View>
+                    <View style={styles.creatorManageRowBody}>
+                      <Text style={styles.creatorManageRowTitle}>Edit requests inbox</Text>
+                      <Text style={styles.creatorManageRowSub}>Incoming jobs from clients</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
+                  </Pressable>
+                </>
+              ) : null}
             </View>
-            <View style={styles.ticketTopUpBtn}>
-              <Text style={styles.ticketTopUpText}>Top Up</Text>
-            </View>
-          </Pressable>
+          </>
+        ) : (
+          <View style={styles.modeSectionHeader}>
+            <Text style={styles.modeSectionTitle}>Enjoy</Text>
+            <Text style={styles.modeSectionSub}>Discover communities, save favorites, and share your daily moments</Text>
+          </View>
         )}
-
-        <Pressable style={styles.revenueBtn} onPress={() => router.push("/revenue")}>
-          <Ionicons name="wallet-outline" size={16} color="#050505" />
-          <Text style={styles.revenueBtnText}>REVENUE MANAGEMENT</Text>
-        </Pressable>
-
-        <Pressable style={styles.adReviewBtn} onPress={() => router.push("/community/ad-review")}>
-          <Ionicons name="megaphone-outline" size={16} color="#050505" />
-          <Text style={styles.adReviewBtnText}>Ad Review (Admins & Mods)</Text>
-        </Pressable>
 
         {(user?.role ?? "").toUpperCase() === "ADMIN" && (
           <Pressable style={styles.adminPanelBtn} onPress={() => router.push("/admin")}>
@@ -991,64 +1135,6 @@ export default function ProfileScreen() {
             <Text style={styles.adminPanelBtnText}>Admin Panel</Text>
           </Pressable>
         )}
-
-        {/* Creator / mentor session registration */}
-        <View style={styles.roleCard}>
-          <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.roleTitle}>Creator Registration</Text>
-              <Text style={styles.roleSub}>
-                Register as a Video Editor or Session Liver to appear in creator listings.
-              </Text>
-            </View>
-          </View>
-          <View style={styles.roleButtonsRow}>
-            <Pressable
-              style={[
-                styles.roleButton,
-                roleStatus?.isEditor && styles.roleButtonActive,
-              ]}
-              disabled={!!roleStatus?.isEditor || roleLoading === "editor"}
-              onPress={() => registerRole("editor")}
-            >
-              <Ionicons
-                name="color-wand-outline"
-                size={16}
-                color={roleStatus?.isEditor ? "#050505" : C.textSec}
-              />
-              <Text
-                style={[
-                  styles.roleButtonText,
-                  roleStatus?.isEditor && styles.roleButtonTextActive,
-                ]}
-              >
-                Video Editor
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[
-                styles.roleButton,
-                roleStatus?.isMentor && styles.roleButtonActive,
-              ]}
-              disabled={!!roleStatus?.isMentor || roleLoading === "mentor"}
-              onPress={() => registerRole("mentor")}
-            >
-              <Ionicons
-                name="camera-outline"
-                size={16}
-                color={roleStatus?.isMentor ? "#050505" : C.textSec}
-              />
-              <Text
-                style={[
-                  styles.roleButtonText,
-                  roleStatus?.isMentor && styles.roleButtonTextActive,
-                ]}
-              >
-                Session Liver
-              </Text>
-            </Pressable>
-          </View>
-        </View>
 
         {/* Search results */}
         {searchDebounced.length > 0 && searchResults.length > 0 && (
@@ -1745,6 +1831,13 @@ const styles = StyleSheet.create({
   trophyIcon: { position: "absolute", right: 0, top: -3 },
   supporterSub: { color: C.accent, fontSize: 10, fontWeight: "700", letterSpacing: 0.5 },
   supporterHint: { color: C.textMuted, fontSize: 11, lineHeight: 16 },
+  modeSectionHeader: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    marginTop: 4,
+  },
+  modeSectionTitle: { color: C.text, fontSize: 14, fontWeight: "800" },
+  modeSectionSub: { color: C.textMuted, fontSize: 11, marginTop: 3, lineHeight: 16 },
   roleCard: {
     marginHorizontal: 16,
     backgroundColor: C.surface,
@@ -1776,6 +1869,37 @@ const styles = StyleSheet.create({
   },
   roleButtonText: { color: C.textSec, fontSize: 12, fontWeight: "700" },
   roleButtonTextActive: { color: "#050505" },
+  creatorManageCard: {
+    marginHorizontal: 16,
+    backgroundColor: C.surface,
+    borderRadius: 3,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: C.border,
+    gap: 4,
+  },
+  creatorManageTitle: { color: C.text, fontSize: 13, fontWeight: "800" },
+  creatorManageSub: { color: C.textMuted, fontSize: 11, lineHeight: 16, marginBottom: 6 },
+  creatorManageRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: C.border,
+  },
+  creatorManageIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 3,
+    backgroundColor: C.surface2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  creatorManageRowBody: { flex: 1, minWidth: 0 },
+  creatorManageRowTitle: { color: C.text, fontSize: 13, fontWeight: "700" },
+  creatorManageRowSub: { color: C.textMuted, fontSize: 11, marginTop: 2 },
   ticketBalanceRow: {
     marginHorizontal: 16,
     marginBottom: 10,
