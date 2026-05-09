@@ -901,6 +901,9 @@ export default function JukeboxScreen() {
     queryKey: jukeboxKey,
     queryFn: () => fetchJukeboxJson<JukeboxData>(communityId, jukeboxPollViewerId),
     refetchOnWindowFocus: false,
+    // Native clients use poll presence. Periodic refetch keeps viewer presence alive
+    // (server TTL is 90s) and updates watchers count with near-real-time accuracy.
+    refetchInterval: Platform.OS === "web" ? false : 25_000,
     staleTime: 0,
   });
 

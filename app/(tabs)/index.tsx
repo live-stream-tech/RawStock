@@ -414,25 +414,6 @@ export default function HomeScreen() {
       <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
         <View style={styles.sectionGap} />
 
-        {/* ── Creator banner (same layout as before: one card + two buttons) ── */}
-        <View style={styles.creatorBanner}>
-          <View style={styles.creatorBannerText}>
-            <Text style={styles.creatorBannerTitle}>Get your live footage edited and published.</Text>
-            <Text style={styles.creatorBannerSub}>
-              Earn 90% of every sale. Your raw content, professionally packaged.
-            </Text>
-          </View>
-          <View style={styles.creatorBannerBtns}>
-            <Pressable style={styles.creatorBtnPrimary} onPress={() => router.push("/editors" as any)}>
-              <Text style={styles.creatorBtnPrimaryText}>Video Edit Request</Text>
-            </Pressable>
-            <Pressable style={styles.creatorBtnSecondary} onPress={() => router.push("/ai-edit" as any)}>
-              <Ionicons name="sparkles-outline" size={12} color={C.accent} />
-              <Text style={styles.creatorBtnSecondaryText}>AI Edit</Text>
-            </Pressable>
-          </View>
-        </View>
-
         {/* ── Jukebox Banner ── */}
         <Pressable
           style={[styles.jukeBannerOuter, Platform.OS === "web" ? styles.jukeBannerOuterWeb : styles.jukeBannerOuterNative]}
@@ -509,6 +490,25 @@ export default function HomeScreen() {
         <PaidHeroSection videos={paidVideos} isDemo={usingDemoPaid} heroCardWidth={heroCardW} />
 
         <CreatorPromoBanner />
+
+        {/* ── Creator banner (same layout as before: one card + two buttons) ── */}
+        <View style={styles.creatorBanner}>
+          <View style={styles.creatorBannerText}>
+            <Text style={styles.creatorBannerTitle}>Get your live footage edited and published.</Text>
+            <Text style={styles.creatorBannerSub}>
+              Earn 90% of every sale. Your raw content, professionally packaged.
+            </Text>
+          </View>
+          <View style={styles.creatorBannerBtns}>
+            <Pressable style={styles.creatorBtnPrimary} onPress={() => router.push("/editors" as any)}>
+              <Text style={styles.creatorBtnPrimaryText}>Video Edit Request</Text>
+            </Pressable>
+            <Pressable style={styles.creatorBtnSecondary} onPress={() => router.push("/ai-edit" as any)}>
+              <Ionicons name="sparkles-outline" size={12} color={C.accent} />
+              <Text style={styles.creatorBtnSecondaryText}>AI Edit</Text>
+            </Pressable>
+          </View>
+        </View>
 
         {/* ── Now Live ── */}
         <View style={styles.sectionGap} />
