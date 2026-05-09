@@ -414,26 +414,23 @@ export default function HomeScreen() {
       <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
         <View style={styles.sectionGap} />
 
-        {/* ── Creator Tools ── */}
-        <View style={styles.creatorToolsRow}>
-          <Pressable style={[styles.creatorToolCard, styles.creatorToolCardPrimary]} onPress={() => router.push("/ai-edit" as any)}>
-            <View style={styles.creatorToolIconWrap}>
-              <Ionicons name="sparkles-outline" size={16} color="#fff" />
-            </View>
-            <View style={styles.creatorToolTextWrap}>
-              <Text style={styles.creatorToolTitle}>AI Edit</Text>
-              <Text style={styles.creatorToolSub}>Auto-generate edits from your footage</Text>
-            </View>
-          </Pressable>
-          <Pressable style={[styles.creatorToolCard, styles.creatorToolCardSecondary]} onPress={() => router.push("/editors" as any)}>
-            <View style={[styles.creatorToolIconWrap, styles.creatorToolIconWrapSecondary]}>
-              <Ionicons name="cut-outline" size={16} color={C.accent} />
-            </View>
-            <View style={styles.creatorToolTextWrap}>
-              <Text style={styles.creatorToolTitle}>Video Edit Request</Text>
-              <Text style={styles.creatorToolSub}>Find an editor and request your video</Text>
-            </View>
-          </Pressable>
+        {/* ── Creator banner (same layout as before: one card + two buttons) ── */}
+        <View style={styles.creatorBanner}>
+          <View style={styles.creatorBannerText}>
+            <Text style={styles.creatorBannerTitle}>Get your live footage edited and published.</Text>
+            <Text style={styles.creatorBannerSub}>
+              Earn 90% of every sale. Your raw content, professionally packaged.
+            </Text>
+          </View>
+          <View style={styles.creatorBannerBtns}>
+            <Pressable style={styles.creatorBtnPrimary} onPress={() => router.push("/editors" as any)}>
+              <Text style={styles.creatorBtnPrimaryText}>Video Edit Request</Text>
+            </Pressable>
+            <Pressable style={styles.creatorBtnSecondary} onPress={() => router.push("/ai-edit" as any)}>
+              <Ionicons name="sparkles-outline" size={12} color={C.accent} />
+              <Text style={styles.creatorBtnSecondaryText}>AI Edit</Text>
+            </Pressable>
+          </View>
         </View>
 
         {/* ── Jukebox Banner ── */}
@@ -609,52 +606,45 @@ const styles = StyleSheet.create({
 
   scroll: { flex: 1 },
 
-  // Jukebox Banner
-  creatorToolsRow: {
+  // Creator banner (restored from earlier Top layout)
+  creatorBanner: {
     marginHorizontal: 16,
-    marginBottom: 4,
-    gap: 10,
+    marginTop: 14,
+    marginBottom: 0,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderWidth: 1.5,
+    borderColor: C.accent,
+    backgroundColor: "rgba(108,92,231,0.07)",
+    gap: 12,
   },
-  creatorToolCard: {
-    borderRadius: 6,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+  creatorBannerText: { gap: 4 },
+  creatorBannerTitle: { color: C.text, fontSize: 13, fontWeight: "800", lineHeight: 18 },
+  creatorBannerSub: { color: C.textSec, fontSize: 11, lineHeight: 16 },
+  creatorBannerBtns: { flexDirection: "row", gap: 8 },
+  creatorBtnPrimary: {
+    flex: 1,
+    backgroundColor: C.accent,
+    borderRadius: 7,
+    paddingVertical: 9,
+    alignItems: "center",
+  },
+  creatorBtnPrimaryText: { color: "#fff", fontSize: 12, fontWeight: "800" },
+  creatorBtnSecondary: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: C.accent,
+    borderRadius: 7,
+    paddingVertical: 9,
+    alignItems: "center",
     flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  creatorToolCardPrimary: {
-    backgroundColor: "rgba(108,92,231,0.14)",
-    borderColor: "rgba(108,92,231,0.6)",
-  },
-  creatorToolCardSecondary: {
-    backgroundColor: C.surface,
-    borderColor: "rgba(0,255,204,0.35)",
-  },
-  creatorToolIconWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(108,92,231,0.75)",
+    gap: 5,
   },
-  creatorToolIconWrapSecondary: {
-    backgroundColor: "rgba(0,255,204,0.12)",
-  },
-  creatorToolTextWrap: { flex: 1, minWidth: 0 },
-  creatorToolTitle: {
-    color: C.text,
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  creatorToolSub: {
-    color: C.textSec,
-    fontSize: 11,
-    marginTop: 2,
-    fontFamily: F.mono,
-  },
+  creatorBtnSecondaryText: { color: C.accent, fontSize: 12, fontWeight: "800" },
+
+  // Jukebox Banner
   jukeBannerOuter: {
     marginHorizontal: 16,
     marginTop: 12,
