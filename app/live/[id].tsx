@@ -412,31 +412,31 @@ export default function LiveStreamScreen() {
         avatar: user?.avatar ?? user?.profileImageUrl ?? null,
         message, isGift: isGift ?? false, giftAmount: giftAmount ?? null,
       }),
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       setChatInput("");
       void qc.invalidateQueries({ queryKey: [`/api/live-streams/${streamId}/chat`] });
+      if (vars?.isGift) {
+        void qc.invalidateQueries({ queryKey: ["/api/tickets/balance"] });
+      }
     },
-    onError: (err) => {
+    onError: (err, vars) => {
       if (err instanceof ApiError && err.status === 401) {
-        void requireAuth("comment");
+        void requireAuth(vars?.isGift ? "send gifts" : "comment");
         return;
       }
-      Alert.alert("Comment", formatUserFacingApiError(err));
-    },
-  });
-
-  const giftSpendMutation = useMutation({
-    mutationFn: async ({ amount, creatorId }: { amount: number; creatorId: number }) => {
-      await apiRequest("POST", "/api/tickets/spend", {
-        amount,
-        type: "spend_tip",
-        creatorId,
-        referenceId: String(streamId),
-        description: `Live gift for stream ${streamId}`,
-      });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/tickets/balance"] });
+      if (vars?.isGift && err instanceof ApiError && err.status === 402) {
+        const amount = vars.giftAmount ?? 0;
+        Alert.alert(
+          "Insufficient tickets",
+          `You need 🎟${amount.toLocaleString()} to send this gift. Please top up your tickets.`,
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Get Tickets", onPress: () => router.push("/tickets") },
+          ],
+        );
+        return;
+      }
+      Alert.alert(vars?.isGift ? "Gift" : "Comment", formatUserFacingApiError(err));
     },
   });
 
@@ -448,7 +448,7 @@ export default function LiveStreamScreen() {
   }, [chatInput, requireAuth, chatMutation]);
 
   const sendGift = useCallback(
-    (amount: number, emoji: string) => {
+    (amount: number, _emoji: string) => {
       if (!requireAuth("send gifts")) return;
       if (!canSendTips || tipRecipientUserId == null) {
         Alert.alert(
@@ -460,34 +460,13 @@ export default function LiveStreamScreen() {
         return;
       }
       setShowGiftModal(false);
-      giftSpendMutation.mutate(
-        { amount, creatorId: tipRecipientUserId },
-        {
-          onSuccess: () => {
-            chatMutation.mutate({
-              message: `${emoji} Sent a 🎟${amount.toLocaleString()} gift!`,
-              isGift: true,
-              giftAmount: amount,
-            });
-          },
-          onError: (err) => {
-            if (err instanceof ApiError && err.status === 402) {
-              Alert.alert(
-                "Insufficient tickets",
-                `You need 🎟${amount.toLocaleString()} to send this gift. Please top up your tickets.`,
-                [
-                  { text: "Cancel", style: "cancel" },
-                  { text: "Get Tickets", onPress: () => router.push("/tickets") },
-                ],
-              );
-              return;
-            }
-            Alert.alert("Gift failed", formatUserFacingApiError(err));
-          },
-        },
-      );
+      chatMutation.mutate({
+        message: `${_emoji} Sent a 🎟${amount.toLocaleString()} gift!`,
+        isGift: true,
+        giftAmount: amount,
+      });
     },
-    [canSendTips, tipRecipientUserId, chatMutation, giftSpendMutation, requireAuth, streamMetaFetched],
+    [canSendTips, tipRecipientUserId, chatMutation, requireAuth, streamMetaFetched],
   );
 
   useEffect(() => {

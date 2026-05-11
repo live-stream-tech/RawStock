@@ -1126,6 +1126,30 @@ async function resolveVideoSellerUserId(executor: DbOrTx, videoId: number): Prom
   return creatorUser?.id ?? null;
 }
 
+/** Tip recipient: Cloudflare `streams.host_user_id`, else legacy `live_streams.creator` → users.displayName. */
+async function resolveLiveStreamHostUserId(streamId: number, executor: DbOrTx = db): Promise<number | null> {
+  const [srow] = await executor
+    .select({ hostUserId: streams.hostUserId })
+    .from(streams)
+    .where(eq(streams.id, streamId))
+    .limit(1);
+  if (srow?.hostUserId != null && Number.isInteger(srow.hostUserId) && srow.hostUserId > 0) {
+    return srow.hostUserId;
+  }
+  const [live] = await executor
+    .select({ creator: liveStreams.creator })
+    .from(liveStreams)
+    .where(eq(liveStreams.id, streamId))
+    .limit(1);
+  if (!live?.creator?.trim()) return null;
+  const [u] = await executor
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.displayName, live.creator.trim()))
+    .limit(1);
+  return u?.id ?? null;
+}
+
 export async function registerRoutes(app: Express): Promise<void> {
   await promoteAdminByEmail();
 
@@ -5853,19 +5877,136 @@ export async function registerRoutes(app: Express): Promise<void> {
     const id = paramNum(req, "id");
     if (!id) return res.status(400).json({ error: "Invalid id", code: "invalid_id" });
     const { username, avatar, message, isGift, giftAmount } = req.body;
-    // Gift messages skip moderation (amount only); normal messages moderated
-    if (!isGift && message) {
-      const modResult = await moderateContent(message);
-      if (modResult.allowed === false) {
+
+    const LIVE_GIFT_AMOUNTS = new Set([100, 500, 1000, 5000]);
+    const LIVE_GIFT_EMOJI: Record<number, string> = { 100: "🌸", 500: "⭐", 1000: "💎", 5000: "👑" };
+    const wantsGift =
+      isGift === true &&
+      giftAmount != null &&
+      Number.isFinite(Number(giftAmount)) &&
+      LIVE_GIFT_AMOUNTS.has(Math.round(Number(giftAmount)));
+
+    if (isGift === true && !wantsGift) {
+      return res.status(400).json({
+        error: "Invalid or missing gift amount",
+        code: "invalid_gift_amount",
+      });
+    }
+
+    if (wantsGift) {
+      const amount = Math.round(Number(giftAmount));
+      const payload = await viewerStreamPayload(id, req);
+      if (!payload) {
+        return res.status(404).json({ error: "Not found", code: "not_found" });
+      }
+      if (payload.streamAccessDenied === true) {
+        return res.status(403).json({ error: "Access denied", code: "stream_access_denied" });
+      }
+      const rawHost = payload.hostUserId as number | string | null | undefined;
+      let recipientId: number | null = null;
+      if (typeof rawHost === "number" && Number.isInteger(rawHost) && rawHost > 0) recipientId = rawHost;
+      else if (typeof rawHost === "string" && /^\d+$/.test(rawHost.trim())) recipientId = parseInt(rawHost.trim(), 10);
+      if (!recipientId || recipientId === me.id) {
         return res.status(400).json({
-          error: modResult.reason ?? "This content is not allowed",
-          code: "moderated",
+          error: "Tips are not available for this stream yet.",
+          code: "tips_unavailable",
         });
       }
+
+      const giftEmoji = LIVE_GIFT_EMOJI[amount] ?? "🎁";
+      const giftMessage = `${giftEmoji} Sent a 🎟${amount.toLocaleString()} gift!`;
+
+      try {
+        const msg = await db.transaction(async (tx) => {
+          const userId = String(me.id);
+          const balRows = await tx.select().from(ticketBalances).where(eq(ticketBalances.userId, userId)).limit(1);
+          const currentBalance = balRows[0]?.balance ?? 0;
+          if (currentBalance < amount) {
+            const err = new Error("INSUFFICIENT_TICKETS");
+            (err as any).meta = { balance: currentBalance, required: amount };
+            throw err;
+          }
+
+          const newBalance = currentBalance - amount;
+          if (balRows.length === 0) {
+            await tx.insert(ticketBalances).values({ userId, balance: newBalance });
+          } else {
+            await tx
+              .update(ticketBalances)
+              .set({ balance: newBalance, updatedAt: new Date() })
+              .where(eq(ticketBalances.userId, userId));
+          }
+
+          const [spendTx] = await tx
+            .insert(ticketTransactions)
+            .values({
+              userId,
+              amount: -amount,
+              type: "spend_tip",
+              referenceId: String(id),
+              description: `Live gift for stream ${id}`,
+            } as typeof ticketTransactions.$inferInsert)
+            .returning({ id: ticketTransactions.id });
+
+          const walletId = await getOrCreateUserWallet(recipientId, tx);
+          const creatorRow = await creatorRowForUserId(tx, recipientId);
+          await recordRevenue(
+            walletId,
+            recipientId,
+            creatorRow?.id ?? null,
+            amount,
+            "tip",
+            String(spendTx.id),
+            tx,
+          );
+
+          const [row] = await tx
+            .insert(liveStreamChat)
+            .values({
+              streamId: id,
+              username: me.displayName ?? (typeof username === "string" ? username : "You"),
+              avatar: me.profileImageUrl ?? me.avatar ?? (typeof avatar === "string" ? avatar : null),
+              message: giftMessage,
+              isGift: true,
+              giftAmount: amount,
+            } as typeof liveStreamChat.$inferInsert)
+            .returning();
+          return row;
+        });
+        return res.json(msg);
+      } catch (e: any) {
+        if (e?.message === "INSUFFICIENT_TICKETS") {
+          const meta = e?.meta ?? {};
+          return res.status(402).json({
+            error: "Insufficient tickets",
+            balance: meta.balance ?? 0,
+            required: meta.required ?? amount,
+            code: "insufficient_tickets",
+          });
+        }
+        console.error("[live-streams chat gift] failed:", e);
+        return res.status(500).json({ error: "Failed to send gift", code: "gift_failed" });
+      }
+    }
+
+    const text = String(message ?? "").trim();
+    if (!text) {
+      return res.status(400).json({ error: "Please enter a message", code: "message_required" });
+    }
+    const modResult = await moderateContent(text);
+    if (modResult.allowed === false) {
+      return res.status(400).json({
+        error: modResult.reason ?? "This content is not allowed",
+        code: "moderated",
+      });
     }
     const [msg] = await db.insert(liveStreamChat).values({
-      streamId: id, username: username ?? "You", avatar, message,
-      isGift: isGift ?? false, giftAmount: giftAmount ?? null,
+      streamId: id,
+      username: (typeof username === "string" && username.trim()) || me.displayName || "You",
+      avatar: typeof avatar === "string" ? avatar : me.profileImageUrl ?? me.avatar,
+      message: text,
+      isGift: false,
+      giftAmount: null,
     } as typeof liveStreamChat.$inferInsert).returning();
     res.json(msg);
   });
@@ -6648,6 +6789,15 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (!live) return null;
     const legacyViewer = await getAuthUser(req);
     const legacyDenied = !legacyViewer;
+    const resolvedHostUserId = await resolveLiveStreamHostUserId(id, db);
+    let isFollowingHostLegacy = false;
+    if (legacyViewer && resolvedHostUserId != null && legacyViewer.id !== resolvedHostUserId) {
+      const [f] = await db
+        .select({ id: userFollows.id })
+        .from(userFollows)
+        .where(and(eq(userFollows.followerId, legacyViewer.id), eq(userFollows.followingId, resolvedHostUserId)));
+      isFollowingHostLegacy = !!f;
+    }
     return {
       id: live.id,
       title: live.title,
@@ -6668,8 +6818,11 @@ export async function registerRoutes(app: Express): Promise<void> {
       visibility: "public",
       streamAccessDenied: legacyDenied,
       streamAccessDeniedReason: legacyDenied ? "auth_required" : undefined,
-      hostUserId: null,
-      isFollowingHost: false,
+      hostUserId: resolvedHostUserId,
+      isFollowingHost:
+        legacyViewer && resolvedHostUserId != null && legacyViewer.id !== resolvedHostUserId
+          ? isFollowingHostLegacy
+          : false,
     };
   }
 
