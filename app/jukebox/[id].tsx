@@ -33,7 +33,7 @@ import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { TranslateButton } from "@/components/TranslateButton";
 import { webScrollStyle } from "@/constants/layout";
 import { jukeboxElapsedSeconds } from "@/lib/jukeboxElapsed";
-import { fetchJukeboxJson, makeJukeboxPollViewerId } from "@/lib/jukebox-presence";
+import { fetchJukeboxJson, getOrCreateJukeboxViewerSessionId } from "@/lib/jukebox-presence";
 
 type JukeboxState = {
   communityId: number;
@@ -577,7 +577,7 @@ function NowPlaying({
         </View>
         <View style={styles.watchersChip}>
           <Ionicons name="people" size={12} color="#fff" />
-          <Text style={styles.watchersText}>{state.watchersCount}</Text>
+          <Text style={styles.watchersText}>{state.watchersCount ?? 0}</Text>
         </View>
       </View>
 
@@ -880,10 +880,7 @@ export default function JukeboxScreen() {
 
   const jukeboxKey = useMemo(() => [`/api/jukebox/${communityId}`] as const, [communityId]);
 
-  const jukeboxPollViewerId = useMemo(
-    () => (Platform.OS === "web" ? null : makeJukeboxPollViewerId()),
-    []
-  );
+  const jukeboxPollViewerId = useMemo(() => getOrCreateJukeboxViewerSessionId(), []);
 
   const { data: communityRow } = useQuery<{ id: number; name: string }>({
     queryKey: [`/api/communities/${communityId}`],
@@ -903,7 +900,7 @@ export default function JukeboxScreen() {
     refetchOnWindowFocus: false,
     // Native clients use poll presence. Periodic refetch keeps viewer presence alive
     // (server TTL is 90s) and updates watchers count with near-real-time accuracy.
-    refetchInterval: Platform.OS === "web" ? false : 25_000,
+    refetchInterval: 25_000,
     staleTime: 0,
   });
 
@@ -911,7 +908,7 @@ export default function JukeboxScreen() {
   useEffect(() => {
     if (Platform.OS !== "web") return; // Native falls back to polling.
     const baseUrl = getApiUrl().replace(/\/$/, "");
-    const sseUrl = `${baseUrl}/api/jukebox/${communityId}/stream`;
+    const sseUrl = `${baseUrl}/api/jukebox/${communityId}/stream?viewer=${encodeURIComponent(jukeboxPollViewerId)}`;
     let es: EventSource | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let closed = false;
@@ -925,14 +922,19 @@ export default function JukeboxScreen() {
         try {
           retryCount = 0;
           const payload = JSON.parse(e.data) as { data: JukeboxState };
-          qc.setQueryData<JukeboxData>(jukeboxKey, (prev) =>
-            prev
-              ? {
-                  ...prev,
-                  state: prev.state ? { ...prev.state, ...payload.data } : payload.data,
-                }
-              : prev
-          );
+          qc.setQueryData<JukeboxData>(jukeboxKey, (prev) => {
+            if (!prev) {
+              return {
+                state: payload.data,
+                queue: [],
+                chat: [],
+              };
+            }
+            return {
+              ...prev,
+              state: prev.state ? { ...prev.state, ...payload.data } : payload.data,
+            };
+          });
         } catch {}
       });
 
@@ -977,7 +979,7 @@ export default function JukeboxScreen() {
       es?.close();
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [communityId, qc, jukeboxKey]);
+  }, [communityId, qc, jukeboxKey, jukeboxPollViewerId]);
 
   const { data: myVideos = [] } = useQuery<Video[]>({
     queryKey: ["/api/videos/my"],

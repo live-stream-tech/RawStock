@@ -12,7 +12,7 @@ import { Image } from "expo-image";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { C } from "@/constants/colors";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
-import { fetchJukeboxJson, makeJukeboxPollViewerId } from "@/lib/jukebox-presence";
+import { fetchJukeboxJson, getOrCreateJukeboxViewerSessionId } from "@/lib/jukebox-presence";
 import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY } from "@/lib/useJukeboxPulse";
 import { jukeboxElapsedSeconds } from "@/lib/jukeboxElapsed";
@@ -98,6 +98,7 @@ export function GlobalJukeboxPlayer() {
   }, [pathname]);
 
   const qc = useQueryClient();
+  const jukeboxPollViewerId = useMemo(() => getOrCreateJukeboxViewerSessionId(), []);
 
   // SSE live updates (web only; skip on jukebox route to avoid duplicate connections)
   useEffect(() => {
@@ -106,7 +107,7 @@ export function GlobalJukeboxPlayer() {
     if (isOnJukeboxPage) return; // jukebox page already opens its own SSE stream
 
     const baseUrl = getApiUrl().replace(/\/$/, "");
-    const sseUrl = `${baseUrl}/api/jukebox/${communityId}/stream`;
+    const sseUrl = `${baseUrl}/api/jukebox/${communityId}/stream?viewer=${encodeURIComponent(jukeboxPollViewerId)}`;
     let es: EventSource | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let closed = false;
@@ -118,14 +119,15 @@ export function GlobalJukeboxPlayer() {
         try {
           retryCount = 0;
           const payload = JSON.parse(e.data) as { data: JukeboxState };
-          qc.setQueryData<JukeboxData>([`/api/jukebox/${communityId}`], (prev) =>
-            prev
-              ? {
-                  ...prev,
-                  state: prev.state ? { ...prev.state, ...payload.data } : payload.data,
-                }
-              : prev
-          );
+          qc.setQueryData<JukeboxData>([`/api/jukebox/${communityId}`], (prev) => {
+            if (!prev) {
+              return { state: payload.data, queue: [], chat: [] };
+            }
+            return {
+              ...prev,
+              state: prev.state ? { ...prev.state, ...payload.data } : payload.data,
+            };
+          });
         } catch {}
       });
       es.addEventListener("queue_update", (e: MessageEvent) => {
@@ -153,12 +155,7 @@ export function GlobalJukeboxPlayer() {
       es?.close();
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [communityId, isOnJukeboxPage, qc]);
-
-  const jukeboxPollViewerId = useMemo(
-    () => (Platform.OS === "web" ? null : makeJukeboxPollViewerId()),
-    []
-  );
+  }, [communityId, isOnJukeboxPage, qc, jukeboxPollViewerId]);
 
   const { data } = useQuery<JukeboxData>({
     queryKey: communityId ? [`/api/jukebox/${communityId}`] : ["jukebox:none"],

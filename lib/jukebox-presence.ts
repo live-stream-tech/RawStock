@@ -1,7 +1,33 @@
+import { Platform } from "react-native";
 import { fetch } from "expo/fetch";
 import { getApiUrl, readAuthToken, throwIfResNotOk } from "./query-client";
 
-/** Session id for JUKEBOX polling presence (`?viewer=`); not used when the client only uses SSE. */
+const WEB_VIEWER_STORAGE_KEY = "rawstock_jukebox_viewer_v1";
+
+function isLikelyValidViewerId(raw: string): boolean {
+  return /^[a-zA-Z0-9_-]{8,64}$/.test(raw);
+}
+
+/**
+ * Stable per-tab viewer id for jukebox presence (`?viewer=` on GET + SSE).
+ * Web: persisted in sessionStorage. Native: new id each call — memoize at the call site with `useMemo`.
+ */
+export function getOrCreateJukeboxViewerSessionId(): string {
+  if (Platform.OS === "web" && typeof globalThis.sessionStorage !== "undefined") {
+    try {
+      const existing = sessionStorage.getItem(WEB_VIEWER_STORAGE_KEY);
+      if (existing && isLikelyValidViewerId(existing)) return existing;
+      const created = makeJukeboxPollViewerId();
+      sessionStorage.setItem(WEB_VIEWER_STORAGE_KEY, created);
+      return created;
+    } catch {
+      return makeJukeboxPollViewerId();
+    }
+  }
+  return makeJukeboxPollViewerId();
+}
+
+/** Session id for JUKEBOX polling presence (`?viewer=`). */
 export function makeJukeboxPollViewerId(): string {
   try {
     if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();

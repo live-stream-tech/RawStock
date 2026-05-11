@@ -3118,17 +3118,8 @@ function subscribeJukeboxEvents(communityId, callback) {
 
 // server/jukeboxWatchers.ts
 var POLL_TTL_MS = 9e4;
-var sseRedisKey = (communityId) => `jukebox:sse:${communityId}`;
 var pollRedisKey = (communityId) => `jukebox:poll:${communityId}`;
-var localSseByCommunity = /* @__PURE__ */ new Map();
 var localPollByCommunity = /* @__PURE__ */ new Map();
-function localSseIncr(communityId) {
-  localSseByCommunity.set(communityId, (localSseByCommunity.get(communityId) ?? 0) + 1);
-}
-function localSseDecr(communityId) {
-  const next = Math.max(0, (localSseByCommunity.get(communityId) ?? 0) - 1);
-  localSseByCommunity.set(communityId, next);
-}
 function localPollPruneAndTouch(communityId, sessionId, now) {
   let m = localPollByCommunity.get(communityId);
   if (!m) {
@@ -3151,31 +3142,6 @@ function localPollCountAfterPrune(communityId, now) {
 function isValidJukeboxPollViewerId(raw) {
   return /^[a-zA-Z0-9_-]{8,64}$/.test(raw);
 }
-async function jukeboxSseConnect(communityId) {
-  if (isUpstashRedisConfigured) {
-    try {
-      await redis.incr(sseRedisKey(communityId));
-    } catch (e) {
-      console.error("[jukeboxWatchers] sse incr:", e);
-    }
-    return;
-  }
-  localSseIncr(communityId);
-}
-async function jukeboxSseDisconnect(communityId) {
-  if (isUpstashRedisConfigured) {
-    try {
-      const v = await redis.decr(sseRedisKey(communityId));
-      if (typeof v === "number" && v < 0) {
-        await redis.set(sseRedisKey(communityId), "0");
-      }
-    } catch (e) {
-      console.error("[jukeboxWatchers] sse decr:", e);
-    }
-    return;
-  }
-  localSseDecr(communityId);
-}
 async function jukeboxPollTouch(communityId, sessionId) {
   if (!isValidJukeboxPollViewerId(sessionId)) return;
   const now = Date.now();
@@ -3196,22 +3162,16 @@ async function getJukeboxLiveViewerCount(communityId) {
   const now = Date.now();
   if (isUpstashRedisConfigured) {
     try {
-      const sseKey = sseRedisKey(communityId);
       const pollKey = pollRedisKey(communityId);
-      const sseRaw = await redis.get(sseKey);
       await redis.zremrangebyscore(pollKey, "-inf", now);
       const pollCard = await redis.zcard(pollKey);
-      const sse2 = typeof sseRaw === "string" ? Math.max(0, parseInt(sseRaw, 10) || 0) : typeof sseRaw === "number" ? Math.max(0, sseRaw) : 0;
-      const poll2 = typeof pollCard === "number" ? Math.max(0, pollCard) : 0;
-      return sse2 + poll2;
+      return typeof pollCard === "number" ? Math.max(0, pollCard) : 0;
     } catch (e) {
       console.error("[jukeboxWatchers] get count:", e);
       return 0;
     }
   }
-  const sse = Math.max(0, localSseByCommunity.get(communityId) ?? 0);
-  const poll = localPollCountAfterPrune(communityId, now);
-  return sse + poll;
+  return localPollCountAfterPrune(communityId, now);
 }
 
 // server/runtimeSchemaGuards.ts
@@ -7863,6 +7823,18 @@ ${text2}` : ""}` : text2;
       console.error("[jukebox] broadcast watchers state:", e);
     }
   }
+  const jukeboxWatcherBroadcastTimers = /* @__PURE__ */ new Map();
+  function scheduleDebouncedJukeboxWatchersBroadcast(communityId) {
+    const existing = jukeboxWatcherBroadcastTimers.get(communityId);
+    if (existing) clearTimeout(existing);
+    jukeboxWatcherBroadcastTimers.set(
+      communityId,
+      setTimeout(() => {
+        jukeboxWatcherBroadcastTimers.delete(communityId);
+        void broadcastJukeboxWatchersState(communityId);
+      }, 700)
+    );
+  }
   app2.get("/api/jukebox/active-sessions", async (_req, res) => {
     const playingRows = await db.select({
       communityId: jukeboxState.communityId,
@@ -7891,6 +7863,7 @@ ${text2}` : ""}` : text2;
     const rawViewer = typeof req.query.viewer === "string" ? req.query.viewer.trim() : "";
     if (rawViewer && isValidJukeboxPollViewerId(rawViewer)) {
       await jukeboxPollTouch(communityId, rawViewer);
+      scheduleDebouncedJukeboxWatchersBroadcast(communityId);
     }
     const now = /* @__PURE__ */ new Date();
     const [stateRaw] = await db.select().from(jukeboxState).where(eq6(jukeboxState.communityId, communityId));
@@ -7974,13 +7947,23 @@ ${text2}` : ""}` : text2;
   app2.get("/api/jukebox/:communityId/stream", async (req, res) => {
     const communityId = paramNum(req, "communityId");
     await ensureStationJukeboxCommunity(communityId);
+    const streamViewerRaw = typeof req.query.viewer === "string" ? req.query.viewer.trim() : "";
+    const streamViewerOk = streamViewerRaw && isValidJukeboxPollViewerId(streamViewerRaw);
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders();
     res.write("event: ping\ndata: {}\n\n");
-    await jukeboxSseConnect(communityId);
+    if (streamViewerOk) {
+      await jukeboxPollTouch(communityId, streamViewerRaw);
+      scheduleDebouncedJukeboxWatchersBroadcast(communityId);
+    }
+    const pollTouchInterval = streamViewerOk ? setInterval(() => {
+      void jukeboxPollTouch(communityId, streamViewerRaw).then(
+        () => scheduleDebouncedJukeboxWatchersBroadcast(communityId)
+      );
+    }, 45e3) : null;
     try {
       const [currentState] = await db.select().from(jukeboxState).where(eq6(jukeboxState.communityId, communityId));
       if (currentState) {
@@ -8000,7 +7983,7 @@ data: ${JSON.stringify({ type: "queue_update", data: currentQueue, ts: Date.now(
     } catch (e) {
       console.error("[SSE] initial snapshot error:", e);
     }
-    void broadcastJukeboxWatchersState(communityId);
+    scheduleDebouncedJukeboxWatchersBroadcast(communityId);
     const unsubscribe = subscribeJukeboxEvents(communityId, (event) => {
       try {
         const eventType = event.type ?? "message";
@@ -8021,7 +8004,8 @@ data: ${data}
     req.on("close", () => {
       unsubscribe();
       clearInterval(pingInterval);
-      void jukeboxSseDisconnect(communityId).then(() => broadcastJukeboxWatchersState(communityId));
+      if (pollTouchInterval) clearInterval(pollTouchInterval);
+      scheduleDebouncedJukeboxWatchersBroadcast(communityId);
     });
   });
   function normalizeStreamVisibility(v) {

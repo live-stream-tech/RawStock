@@ -134,8 +134,6 @@ import { publishJukeboxEvent, redis, jukeboxChannel, subscribeJukeboxEvents } fr
 import {
   getJukeboxLiveViewerCount,
   jukeboxPollTouch,
-  jukeboxSseConnect,
-  jukeboxSseDisconnect,
   isValidJukeboxPollViewerId,
 } from "./jukeboxWatchers";
 import { ensureJukeboxQueueSchema, ensureUserFollowsSchema, ensureJukeboxRequestCountsSchema } from "./runtimeSchemaGuards";
@@ -6290,6 +6288,19 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
   }
 
+  const jukeboxWatcherBroadcastTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  function scheduleDebouncedJukeboxWatchersBroadcast(communityId: number): void {
+    const existing = jukeboxWatcherBroadcastTimers.get(communityId);
+    if (existing) clearTimeout(existing);
+    jukeboxWatcherBroadcastTimers.set(
+      communityId,
+      setTimeout(() => {
+        jukeboxWatcherBroadcastTimers.delete(communityId);
+        void broadcastJukeboxWatchersState(communityId);
+      }, 700),
+    );
+  }
+
   /** Top banner: communities live/waiting (define before :communityId). */
   app.get("/api/jukebox/active-sessions", async (_req: Request, res: Response) => {
     const playingRows = await db
@@ -6336,6 +6347,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     const rawViewer = typeof req.query.viewer === "string" ? req.query.viewer.trim() : "";
     if (rawViewer && isValidJukeboxPollViewerId(rawViewer)) {
       await jukeboxPollTouch(communityId, rawViewer);
+      scheduleDebouncedJukeboxWatchersBroadcast(communityId);
     }
     const now = new Date();
 
@@ -6480,6 +6492,9 @@ export async function registerRoutes(app: Express): Promise<void> {
     const communityId = paramNum(req, "communityId");
     await ensureStationJukeboxCommunity(communityId);
 
+    const streamViewerRaw = typeof req.query.viewer === "string" ? req.query.viewer.trim() : "";
+    const streamViewerOk = streamViewerRaw && isValidJukeboxPollViewerId(streamViewerRaw);
+
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
@@ -6488,7 +6503,19 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     res.write("event: ping\ndata: {}\n\n");
 
-    await jukeboxSseConnect(communityId);
+    if (streamViewerOk) {
+      await jukeboxPollTouch(communityId, streamViewerRaw);
+      scheduleDebouncedJukeboxWatchersBroadcast(communityId);
+    }
+
+    const pollTouchInterval =
+      streamViewerOk
+        ? setInterval(() => {
+            void jukeboxPollTouch(communityId, streamViewerRaw).then(() =>
+              scheduleDebouncedJukeboxWatchersBroadcast(communityId),
+            );
+          }, 45_000)
+        : null;
 
     try {
       const [currentState] = await db.select().from(jukeboxState).where(eq(jukeboxState.communityId, communityId));
@@ -6509,7 +6536,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       console.error("[SSE] initial snapshot error:", e);
     }
 
-    void broadcastJukeboxWatchersState(communityId);
+    scheduleDebouncedJukeboxWatchersBroadcast(communityId);
 
     const unsubscribe = subscribeJukeboxEvents(communityId, (event) => {
       try {
@@ -6528,7 +6555,8 @@ export async function registerRoutes(app: Express): Promise<void> {
     req.on("close", () => {
       unsubscribe();
       clearInterval(pingInterval);
-      void jukeboxSseDisconnect(communityId).then(() => broadcastJukeboxWatchersState(communityId));
+      if (pollTouchInterval) clearInterval(pollTouchInterval);
+      scheduleDebouncedJukeboxWatchersBroadcast(communityId);
     });
   });
 
