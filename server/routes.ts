@@ -1101,6 +1101,75 @@ async function recordRevenue(
   }
 }
 
+/** Undo REVENUE + creator aggregates from recordRevenue when refunding a jukebox ticket spend. */
+async function reversePaidLiveRevenueForTicketSpend(
+  executor: DbOrTx,
+  ticketSpendTransactionId: number,
+): Promise<void> {
+  const ref = String(ticketSpendTransactionId);
+  const [rev] = await executor
+    .select()
+    .from(transactions)
+    .where(and(eq(transactions.referenceId, ref), eq(transactions.type, "REVENUE")))
+    .limit(1);
+  if (!rev || rev.status === "CANCELLED") return;
+
+  await executor
+    .update(transactions)
+    .set({ status: "CANCELLED" } as Partial<InferSelectModel<typeof transactions>>)
+    .where(eq(transactions.id, rev.id));
+
+  const gross = rev.amount;
+  const source = rev.source as RevenueSource;
+  const yearMonth = rev.yearMonth;
+  const creatorId = rev.creatorId;
+
+  const [walletRow] = await executor
+    .select({ userId: wallets.userId })
+    .from(wallets)
+    .where(eq(wallets.id, rev.walletId))
+    .limit(1);
+  if (walletRow?.userId != null) {
+    await executor.insert(earnings).values({
+      userId: `user-${walletRow.userId}`,
+      type: source,
+      title: source === "tip" ? "Tip revenue reversal" : "Paid live revenue reversal",
+      amount: -gross,
+      revenueShare: Math.round(Number(rev.backRate) * 100),
+      netAmount: -rev.netAmount,
+    } as typeof earnings.$inferInsert);
+  }
+
+  if (creatorId && yearMonth) {
+    const [creator] = await executor.select().from(creators).where(eq(creators.id, creatorId));
+    if (creator) {
+      await executor
+        .update(creators)
+        .set({
+          revenue: Math.max(0, creator.revenue - gross),
+        } as Partial<InferSelectModel<typeof creators>>)
+        .where(eq(creators.id, creatorId));
+    }
+    const [cms] = await executor
+      .select()
+      .from(creatorMonthlyScores)
+      .where(and(eq(creatorMonthlyScores.creatorId, creatorId), eq(creatorMonthlyScores.yearMonth, yearMonth)));
+    if (cms) {
+      const nextTip = source === "tip" ? Math.max(0, cms.tipGross - gross) : cms.tipGross;
+      const nextPaid = source === "tip" ? cms.paidLiveGross : Math.max(0, cms.paidLiveGross - gross);
+      await executor
+        .update(creatorMonthlyScores)
+        .set({
+          tipGross: nextTip,
+          paidLiveGross: nextPaid,
+          updatedAt: new Date(),
+        } as Partial<InferSelectModel<typeof creatorMonthlyScores>>)
+        .where(eq(creatorMonthlyScores.id, cms.id));
+    }
+    await syncCreatorLevelFromMonthlyProgress(creatorId, yearMonth, executor);
+  }
+}
+
 /** Resolve creators row from users.id (mentor_sessions.creator_id, etc.; creators.name ↔ users.displayName). */
 async function creatorRowForUserId(executor: DbOrTx, userId: number) {
   const [u] = await executor
@@ -8879,6 +8948,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   /** POST /api/tickets/spend-jukebox — deduct TICKETS_PER_JUKEBOX for a paid jukebox request */
   app.post("/api/tickets/spend-jukebox", async (req: Request, res: Response) => {
+    await ensureJukeboxRequestCountsSchema();
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     const { communityId, queueItemId } = req.body as { communityId: number; queueItemId?: number };
@@ -8888,6 +8958,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     try {
       let newBalance = 0;
+      let spendTicketTxId: number | undefined;
       await db.transaction(async (tx) => {
         const [comm] = await tx.select().from(communities).where(eq(communities.id, communityId)).limit(1);
         let creatorUserId: number | null = (comm?.ownerId ?? comm?.adminId) ?? null;
@@ -8924,6 +8995,7 @@ export async function registerRoutes(app: Express): Promise<void> {
             description: `Jukebox request in community ${communityId}`,
           })
           .returning({ id: ticketTransactions.id });
+        spendTicketTxId = spendTx.id;
 
         if (creatorUserId) {
           const walletId = await getOrCreateUserWallet(creatorUserId, tx);
@@ -8959,7 +9031,7 @@ export async function registerRoutes(app: Express): Promise<void> {
             .where(eq(jukeboxRequestCounts.id, countRows[0].id));
         }
       });
-      return res.json({ success: true, newBalance });
+      return res.json({ success: true, newBalance, transactionId: spendTicketTxId });
     } catch (e: any) {
       if (e?.message === "INSUFFICIENT_TICKETS") {
         const meta = e?.meta ?? {};
@@ -8971,6 +9043,117 @@ export async function registerRoutes(app: Express): Promise<void> {
       }
       console.error("[tickets/spend-jukebox] failed:", e);
       return res.status(500).json({ error: "Failed to spend tickets" });
+    }
+  });
+
+  /** POST /api/tickets/refund-jukebox-spend — restore tickets when jukebox add fails after spend */
+  app.post("/api/tickets/refund-jukebox-spend", async (req: Request, res: Response) => {
+    await ensureJukeboxRequestCountsSchema();
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const rawBody = req.body as { communityId?: unknown; spendTransactionId?: unknown };
+    const communityIdParsed =
+      typeof rawBody.communityId === "number" && Number.isFinite(rawBody.communityId)
+        ? rawBody.communityId
+        : parseInt(String(rawBody.communityId ?? ""), 10);
+    const spendTransactionIdParsed =
+      typeof rawBody.spendTransactionId === "number" && Number.isInteger(rawBody.spendTransactionId)
+        ? rawBody.spendTransactionId
+        : parseInt(String(rawBody.spendTransactionId ?? ""), 10);
+    if (!Number.isFinite(communityIdParsed) || communityIdParsed <= 0) {
+      return res.status(400).json({ error: "communityId required" });
+    }
+    if (!Number.isFinite(spendTransactionIdParsed) || spendTransactionIdParsed <= 0) {
+      return res.status(400).json({ error: "spendTransactionId required" });
+    }
+    const communityId = communityIdParsed;
+    const spendTransactionId = spendTransactionIdParsed;
+    const userId = String(user.id);
+    const today = new Date().toISOString().slice(0, 10);
+
+    try {
+      let newBalance = 0;
+      await db.transaction(async (tx) => {
+        const [dup] = await tx
+          .select()
+          .from(ticketTransactions)
+          .where(
+            and(
+              eq(ticketTransactions.userId, userId),
+              eq(ticketTransactions.type, "refund_jukebox"),
+              eq(ticketTransactions.referenceId, String(spendTransactionId)),
+            ),
+          )
+          .limit(1);
+        if (dup) {
+          const balRowsDup = await tx.select().from(ticketBalances).where(eq(ticketBalances.userId, userId)).limit(1);
+          newBalance = balRowsDup[0]?.balance ?? 0;
+          return;
+        }
+
+        const [orig] = await tx
+          .select()
+          .from(ticketTransactions)
+          .where(eq(ticketTransactions.id, spendTransactionId))
+          .limit(1);
+        if (!orig || orig.userId !== userId) {
+          throw new Error("INVALID_SPEND_REF");
+        }
+        if (orig.type !== "spend_jukebox" || orig.amount !== -TICKETS_PER_JUKEBOX) {
+          throw new Error("INVALID_SPEND_TYPE");
+        }
+
+        await reversePaidLiveRevenueForTicketSpend(tx, spendTransactionId);
+
+        const balRows = await tx.select().from(ticketBalances).where(eq(ticketBalances.userId, userId)).limit(1);
+        const currentBalance = balRows[0]?.balance ?? 0;
+        newBalance = currentBalance + TICKETS_PER_JUKEBOX;
+        if (balRows.length === 0) {
+          await tx.insert(ticketBalances).values({ userId, balance: newBalance });
+        } else {
+          await tx
+            .update(ticketBalances)
+            .set({ balance: newBalance, updatedAt: new Date() })
+            .where(eq(ticketBalances.userId, userId));
+        }
+
+        await tx.insert(ticketTransactions).values({
+          userId,
+          amount: TICKETS_PER_JUKEBOX,
+          type: "refund_jukebox",
+          referenceId: String(spendTransactionId),
+          description: `Refund: jukebox add failed after spend (community ${communityId})`,
+        } as typeof ticketTransactions.$inferInsert);
+
+        const countRows = await tx
+          .select()
+          .from(jukeboxRequestCounts)
+          .where(
+            and(
+              eq(jukeboxRequestCounts.userId, userId),
+              eq(jukeboxRequestCounts.communityId, communityId),
+              eq(jukeboxRequestCounts.date, today),
+            ),
+          )
+          .limit(1);
+        if (countRows.length > 0 && countRows[0].count > 0) {
+          await tx
+            .update(jukeboxRequestCounts)
+            .set({ count: countRows[0].count - 1, updatedAt: new Date() })
+            .where(eq(jukeboxRequestCounts.id, countRows[0].id));
+        }
+      });
+
+      return res.json({ success: true, newBalance });
+    } catch (e: any) {
+      if (e?.message === "INVALID_SPEND_REF") {
+        return res.status(404).json({ error: "Spend transaction not found" });
+      }
+      if (e?.message === "INVALID_SPEND_TYPE") {
+        return res.status(400).json({ error: "Not a jukebox spend transaction" });
+      }
+      console.error("[tickets/refund-jukebox-spend] failed:", e);
+      return res.status(500).json({ error: "Failed to refund tickets" });
     }
   });
 

@@ -1089,28 +1089,41 @@ export default function JukeboxScreen() {
           }
         }
       } else {
-        // Paid request — deduct tickets first
+        // Paid request — spend tickets first, then add; refund spend if add fails
         const currentBalance = ticketData?.balance ?? 0;
         if (currentBalance < ticketsPerRequest) {
           throw { code: "insufficient_tickets", balance: currentBalance, required: ticketsPerRequest };
         }
-        const addRes = await apiRequest("POST", `/api/jukebox/${communityId}/add`, {
-          videoId: video.id,
-          videoTitle: video.title,
-          videoThumbnail: video.thumbnail,
-          videoDurationSecs: (video as any).durationSecs ?? 0,
-          youtubeId: (video as any).youtubeId ?? null,
-          addedBy: user?.name ?? "Guest",
-          addedByAvatar: user?.avatar ?? "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=80&h=80&fit=crop",
-        });
-        const item = await addRes.json();
-        await apiRequest("POST", "/api/tickets/spend-jukebox", {
-          communityId,
-          queueItemId: item?.id ?? null,
-        });
-        await refetchTickets();
-        await refetchReqCount();
-        return addRes;
+        const spendRes = await apiRequest("POST", "/api/tickets/spend-jukebox", { communityId });
+        const spendJson = (await spendRes.json()) as { transactionId?: number };
+        const spendTxId = spendJson.transactionId;
+        if (spendTxId == null || !Number.isFinite(spendTxId)) {
+          throw new Error("Ticket spend did not return a transaction id. Please try again.");
+        }
+        try {
+          const addRes = await apiRequest("POST", `/api/jukebox/${communityId}/add`, {
+            videoId: video.id,
+            videoTitle: video.title,
+            videoThumbnail: video.thumbnail,
+            videoDurationSecs: (video as any).durationSecs ?? 0,
+            youtubeId: (video as any).youtubeId ?? null,
+            addedBy: user?.name ?? "Guest",
+            addedByAvatar: user?.avatar ?? "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=80&h=80&fit=crop",
+          });
+          await refetchTickets();
+          await refetchReqCount();
+          return addRes;
+        } catch (addErr) {
+          try {
+            await apiRequest("POST", "/api/tickets/refund-jukebox-spend", {
+              communityId,
+              spendTransactionId: spendTxId,
+            });
+          } catch (refundErr) {
+            console.error("[jukebox] refund after failed add failed:", refundErr);
+          }
+          throw addErr;
+        }
       }
 
       const result = await apiRequest("POST", `/api/jukebox/${communityId}/add`, {
@@ -1151,22 +1164,33 @@ export default function JukeboxScreen() {
               `/api/tickets/request-count?communityId=${communityId}`,
             ]) as { freeLimit?: number } | undefined
           )?.freeLimit ?? 20;
-        Alert.alert(
-          "Not Enough Tickets 🎟",
-          `You've used your ${freeLimit} free requests today.\n\nYou need ${err.required} 🎟 to add more songs but only have ${err.balance} 🎟.`,
-          [
+        const body = `You've used your ${freeLimit} free requests today.\n\nYou need ${err.required} 🎟 to add more songs but only have ${err.balance} 🎟.`;
+        if (Platform.OS === "web" && typeof window !== "undefined") {
+          if (window.confirm(`${body}\n\nOpen Tickets page?`)) {
+            router.push("/tickets");
+          }
+        } else {
+          Alert.alert("Not Enough Tickets 🎟", body, [
             { text: "Cancel", style: "cancel" },
             { text: "Get Tickets", onPress: () => router.push("/tickets") },
-          ]
-        );
+          ]);
+        }
       } else if (err instanceof ApiError && err.status === 401) {
-        Alert.alert(
-          "Login required",
-          "Your sign-in session may have expired. Please sign in again and retry.",
-          [{ text: "OK", onPress: () => router.push("/auth/login") }]
-        );
+        if (Platform.OS === "web" && typeof window !== "undefined") {
+          if (window.confirm("Your sign-in session may have expired.\n\nGo to sign in?")) {
+            router.push("/auth/login");
+          }
+        } else {
+          Alert.alert("Login required", "Your sign-in session may have expired. Please sign in again and retry.", [
+            { text: "OK", onPress: () => router.push("/auth/login") },
+          ]);
+        }
       } else {
-        Alert.alert("Error", "Failed to add to queue. Please try again.");
+        const detail = formatUserFacingApiError(err);
+        showJukeboxAlert(
+          "Could not add to queue",
+          detail || "Something went wrong. Please try again.",
+        );
       }
     },
   });
@@ -1180,8 +1204,7 @@ export default function JukeboxScreen() {
       qc.invalidateQueries({ queryKey: JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY });
     },
     onError: (err) => {
-      const msg = formatUserFacingApiError(err);
-      Alert.alert("Could not delete", msg);
+      showJukeboxAlert("Could not delete", formatUserFacingApiError(err));
     },
   });
 
