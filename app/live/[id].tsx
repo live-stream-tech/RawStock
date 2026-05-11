@@ -26,6 +26,27 @@ import { saveLoginReturn } from "@/lib/login-return";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/lib/auth";
 
+function webOrNativeAlert(title: string, message?: string) {
+  if (Platform.OS === "web" && typeof window !== "undefined") {
+    window.alert(message ? `${title}\n\n${message}` : title);
+  } else {
+    Alert.alert(title, message);
+  }
+}
+
+function insufficientTicketsPrompt(message: string) {
+  if (Platform.OS === "web" && typeof window !== "undefined") {
+    if (window.confirm(`${message}\n\nOpen Tickets page?`)) {
+      router.push("/tickets");
+    }
+  } else {
+    Alert.alert("Insufficient tickets", message, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Get Tickets", onPress: () => router.push("/tickets") },
+    ]);
+  }
+}
+
 /**
  * Imperatively mounts a <video> element to avoid React #418 hydration mismatch.
  * Exposes the underlying HTMLVideoElement via videoRef so WHEP can set srcObject.
@@ -232,7 +253,7 @@ export default function LiveStreamScreen() {
       void qc.invalidateQueries({ queryKey: ["stream-viewer", streamId] });
     },
     onError: (e: Error) => {
-      Alert.alert("Follow", e.message);
+      webOrNativeAlert("Follow", e.message);
     },
   });
 
@@ -269,17 +290,12 @@ export default function LiveStreamScreen() {
     onError: (e: Error & { status?: number; required?: number; balance?: number }) => {
       if (e.message === "AUTH_REQUIRED") return;
       if (e.status === 402) {
-        Alert.alert(
-          "Insufficient tickets",
+        insufficientTicketsPrompt(
           `You need 🎟${(e.required ?? 0).toLocaleString()} to watch this stream.`,
-          [
-            { text: "Cancel", style: "cancel" },
-            { text: "Get Tickets", onPress: () => router.push("/tickets") },
-          ],
         );
         return;
       }
-      Alert.alert("Paid Stream", e.message);
+      webOrNativeAlert("Paid Stream", e.message);
     },
   });
 
@@ -426,17 +442,12 @@ export default function LiveStreamScreen() {
       }
       if (vars?.isGift && err instanceof ApiError && err.status === 402) {
         const amount = vars.giftAmount ?? 0;
-        Alert.alert(
-          "Insufficient tickets",
+        insufficientTicketsPrompt(
           `You need 🎟${amount.toLocaleString()} to send this gift. Please top up your tickets.`,
-          [
-            { text: "Cancel", style: "cancel" },
-            { text: "Get Tickets", onPress: () => router.push("/tickets") },
-          ],
         );
         return;
       }
-      Alert.alert(vars?.isGift ? "Gift" : "Comment", formatUserFacingApiError(err));
+      webOrNativeAlert(vars?.isGift ? "Gift" : "Comment", formatUserFacingApiError(err));
     },
   });
 
@@ -451,7 +462,7 @@ export default function LiveStreamScreen() {
     (amount: number, _emoji: string) => {
       if (!requireAuth("send gifts")) return;
       if (!canSendTips || tipRecipientUserId == null) {
-        Alert.alert(
+        webOrNativeAlert(
           "Tips",
           streamMetaFetched && tipRecipientUserId == null
             ? "Tips are not available for this stream yet."
@@ -779,7 +790,7 @@ export default function LiveStreamScreen() {
             style={[styles.giftBtn, !canSendTips && styles.giftBtnDisabled]}
             onPress={() => {
               if (!canSendTips) {
-                Alert.alert(
+                webOrNativeAlert(
                   "Tips",
                   streamMetaFetched && tipRecipientUserId == null
                     ? "Tips are not available for this stream yet."

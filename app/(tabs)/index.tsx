@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Pressable,
   Platform,
+  Alert,
   useWindowDimensions,
 } from "react-native";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
@@ -510,9 +511,21 @@ export default function HomeScreen() {
             <Pressable style={styles.creatorBtnPrimary} onPress={() => router.push("/editors" as any)}>
               <Text style={styles.creatorBtnPrimaryText}>{isJaUi ? "動画編集を依頼" : "Video Edit Request"}</Text>
             </Pressable>
-            <Pressable style={styles.creatorBtnSecondary} onPress={() => router.push("/ai-edit" as any)}>
+            <Pressable
+              style={styles.creatorBtnSecondary}
+              onPress={() =>
+                Alert.alert(
+                  "COMING SOON",
+                  isJaUi
+                    ? "AI編集機能は現在開発中です。公開までもうしばらくお待ちください。"
+                    : "AI Edit is currently in development. Please check back soon.",
+                )
+              }
+            >
               <Ionicons name="sparkles-outline" size={12} color={C.accent} />
-              <Text style={styles.creatorBtnSecondaryText}>{isJaUi ? "AI編集" : "AI Edit"}</Text>
+              <Text style={styles.creatorBtnSecondaryText}>
+                {isJaUi ? "AI編集 (COMING SOON)" : "AI Edit (COMING SOON)"}
+              </Text>
             </Pressable>
           </View>
         </View>
