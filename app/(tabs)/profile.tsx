@@ -280,6 +280,12 @@ export default function ProfileScreen() {
         await loginWithToken(token);
       }
       queryClient.invalidateQueries();
+      Alert.alert(
+        nextLanguage === "ja" ? "言語設定を保存しました" : "Language preference saved",
+        nextLanguage === "ja"
+          ? "日本語表示に切り替えました。"
+          : "Switched to English UI.",
+      );
     } catch (e: unknown) {
       const message = formatUserFacingApiError(e);
       Alert.alert("Could not update language", message);
@@ -709,7 +715,7 @@ export default function ProfileScreen() {
           <View style={styles.guestLogoWrap}>
             <AppLogo height={36} />
           </View>
-          <Text style={styles.guestSub}>Sign in to view your profile</Text>
+          <Text style={styles.guestSub}>{ui.signInToProfile}</Text>
           <Pressable style={styles.googleLoginBtn} onPress={handleGoogleLogin}>
             <Image source={{ uri: "https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" }} style={styles.googleIcon} contentFit="contain" />
             <Text style={styles.googleLoginText}>Sign in with Google</Text>
@@ -738,6 +744,70 @@ export default function ProfileScreen() {
   const overallProgressRatio = Math.min(1, (tipProgressRatio + streamProgressRatio) / 2);
   const progressPercent = Math.round(overallProgressRatio * 100);
   const isCreatorMode = Boolean(roleStatus?.isEditor || roleStatus?.isMentor);
+  const isJaUi = preferredLanguage === "ja";
+  const ui = isJaUi
+    ? {
+        signInToProfile: "サインインしてマイページを表示",
+        searchPlaceholder: "アーティスト・クリエイターを検索",
+        live: "ライブ",
+        appLanguage: "アプリ表示言語",
+        followers: "フォロワー",
+        following: "フォロー中",
+        creatorManage: "クリエイター管理",
+        creatorManageSub: "運用・収益化に関する機能",
+        creatorLevel: "クリエイターレベル",
+        creatorLevelHint: "クリエイター登録後にレベル進捗を表示します。",
+        ticketBalance: "チケット残高",
+        topUp: "チャージ",
+        revenueManagement: "収益管理",
+        creatorRegistration: "クリエイター登録",
+        creatorRegistrationSub: "動画編集者またはセッションライバーとして掲載できます。",
+        videoEditor: "動画編集者",
+        sessionLiver: "セッションライバー",
+        creatorDashboard: "クリエイターダッシュボード",
+        creatorDashboardSub: "マイページから管理画面へ移動できます。",
+        mentorSessionsBookings: "メンター枠・予約管理",
+        mentorSessionsBookingsSub: "商品、予約、ビデオ通話",
+        availabilitySchedule: "スケジュール管理",
+        availabilityScheduleSub: "空き枠・チケット枠の設定",
+        editorListing: "編集者プロフィール",
+        editorListingSub: "プロフィール、料金、納期設定",
+        editRequestsInbox: "編集依頼Inbox",
+        editRequestsInboxSub: "クライアントからの依頼一覧",
+        enjoy: "楽しむ",
+        enjoySub: "コミュニティを見つけて、お気に入りを保存し、日常をシェア",
+      }
+    : {
+        signInToProfile: "Sign in to view your profile",
+        searchPlaceholder: "Search artists & creators",
+        live: "Live",
+        appLanguage: "App language",
+        followers: "Followers",
+        following: "Following",
+        creatorManage: "Creator Manage",
+        creatorManageSub: "Operations and monetization tools for creators",
+        creatorLevel: "CREATOR LEVEL",
+        creatorLevelHint: "Register as a creator to see your level progress.",
+        ticketBalance: "TICKET BALANCE",
+        topUp: "Top Up",
+        revenueManagement: "REVENUE MANAGEMENT",
+        creatorRegistration: "Creator Registration",
+        creatorRegistrationSub: "Register as a Video Editor or Session Liver to appear in creator listings.",
+        videoEditor: "Video Editor",
+        sessionLiver: "Session Liver",
+        creatorDashboard: "Creator dashboard",
+        creatorDashboardSub: "Open your management screens without leaving My Page.",
+        mentorSessionsBookings: "Mentor sessions & bookings",
+        mentorSessionsBookingsSub: "Products, reservations, and video calls",
+        availabilitySchedule: "Availability schedule",
+        availabilityScheduleSub: "Open slots and ticketed sessions",
+        editorListing: "Editor listing",
+        editorListingSub: "Profile, pricing, and delivery settings",
+        editRequestsInbox: "Edit requests inbox",
+        editRequestsInboxSub: "Incoming jobs from clients",
+        enjoy: "Enjoy",
+        enjoySub: "Discover communities, save favorites, and share your daily moments",
+      };
 
   return (
     <View style={[styles.container, { paddingBottom: bottomInset }]}>
@@ -760,7 +830,7 @@ export default function ProfileScreen() {
         <Ionicons name="search" size={16} color={C.textMuted} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search artists & creators"
+          placeholder={ui.searchPlaceholder}
           placeholderTextColor={C.textMuted}
           value={searchText}
           onChangeText={setSearchText}
@@ -864,11 +934,16 @@ export default function ProfileScreen() {
             accessibilityRole="button"
           >
             <Ionicons name="radio-outline" size={15} color={C.accent} />
-            <Text style={styles.quickActionText}>Live</Text>
+            <Text style={styles.quickActionText}>{ui.live}</Text>
           </Pressable>
         </View>
         <View style={styles.languageRow}>
-          <Text style={styles.languageLabel}>App language</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.languageLabel}>{ui.appLanguage}</Text>
+            <Text style={styles.languageHint}>
+              {isJaUi ? "一部の画面は段階的に日本語化されています。" : "Some screens are localized to your selected language."}
+            </Text>
+          </View>
           <View style={styles.languagePills}>
             <Pressable
               style={[styles.languagePill, preferredLanguage === "en" && styles.languagePillActive]}
@@ -893,11 +968,11 @@ export default function ProfileScreen() {
         <View style={styles.followRow}>
           <Pressable style={styles.followStat} onPress={() => router.push(`/user/${user?.id}/followers`)}>
             <Text style={styles.followStatValue}>{user?.followersCount ?? 0}</Text>
-            <Text style={styles.followStatLabel}>Followers</Text>
+            <Text style={styles.followStatLabel}>{ui.followers}</Text>
           </Pressable>
           <Pressable style={styles.followStat} onPress={() => router.push(`/user/${user?.id}/following`)}>
             <Text style={styles.followStatValue}>{user?.followingCount ?? 0}</Text>
-            <Text style={styles.followStatLabel}>Following</Text>
+            <Text style={styles.followStatLabel}>{ui.following}</Text>
           </Pressable>
         </View>
 
@@ -932,15 +1007,15 @@ export default function ProfileScreen() {
         {isCreatorMode ? (
           <>
             <View style={styles.modeSectionHeader}>
-              <Text style={styles.modeSectionTitle}>Creator Manage</Text>
-              <Text style={styles.modeSectionSub}>Operations and monetization tools for creators</Text>
+              <Text style={styles.modeSectionTitle}>{ui.creatorManage}</Text>
+              <Text style={styles.modeSectionSub}>{ui.creatorManageSub}</Text>
             </View>
             {/* Supporter Level */}
             <View style={styles.supporterCard}>
               <View style={styles.supporterHeader}>
                 <Ionicons name="trending-up" size={16} color={C.accent} />
                 <Text style={styles.supporterTitle}>
-                  {levelProgress ? `CREATOR LEVEL ${levelProgress.currentLevel}` : "CREATOR LEVEL"}
+                  {levelProgress ? `${ui.creatorLevel} ${levelProgress.currentLevel}` : ui.creatorLevel}
                 </Text>
                 <View style={styles.activeBadge}>
                   <Text style={styles.activeText}>{`${progressPercent}%`}</Text>
@@ -961,7 +1036,7 @@ export default function ProfileScreen() {
                   </Text>
                 </>
               ) : (
-                <Text style={styles.supporterHint}>Register as a creator to see your level progress.</Text>
+                <Text style={styles.supporterHint}>{ui.creatorLevelHint}</Text>
               )}
             </View>
 
@@ -970,18 +1045,18 @@ export default function ProfileScreen() {
               <Pressable style={styles.ticketBalanceRow} onPress={() => router.push("/tickets")}>
                 <Text style={styles.ticketEmoji}>🎟</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.ticketBalanceLabel}>TICKET BALANCE</Text>
+                  <Text style={styles.ticketBalanceLabel}>{ui.ticketBalance}</Text>
                   <Text style={styles.ticketBalanceValue}>{ticketBalance.toLocaleString()} Tickets</Text>
                 </View>
                 <View style={styles.ticketTopUpBtn}>
-                  <Text style={styles.ticketTopUpText}>Top Up</Text>
+                  <Text style={styles.ticketTopUpText}>{ui.topUp}</Text>
                 </View>
               </Pressable>
             )}
 
             <Pressable style={styles.revenueBtn} onPress={() => router.push("/revenue")}>
               <Ionicons name="wallet-outline" size={16} color="#050505" />
-              <Text style={styles.revenueBtnText}>REVENUE MANAGEMENT</Text>
+              <Text style={styles.revenueBtnText}>{ui.revenueManagement}</Text>
             </Pressable>
 
             <Pressable style={styles.adReviewBtn} onPress={() => router.push("/community/ad-review")}>
@@ -993,10 +1068,8 @@ export default function ProfileScreen() {
             <View style={styles.roleCard}>
               <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.roleTitle}>Creator Registration</Text>
-                  <Text style={styles.roleSub}>
-                    Register as a Video Editor or Session Liver to appear in creator listings.
-                  </Text>
+                  <Text style={styles.roleTitle}>{ui.creatorRegistration}</Text>
+                  <Text style={styles.roleSub}>{ui.creatorRegistrationSub}</Text>
                 </View>
               </View>
               <View style={styles.roleButtonsRow}>
@@ -1019,7 +1092,7 @@ export default function ProfileScreen() {
                       roleStatus?.isEditor && styles.roleButtonTextActive,
                     ]}
                   >
-                    Video Editor
+                    {ui.videoEditor}
                   </Text>
                 </Pressable>
                 <Pressable
@@ -1041,17 +1114,15 @@ export default function ProfileScreen() {
                       roleStatus?.isMentor && styles.roleButtonTextActive,
                     ]}
                   >
-                    Session Liver
+                    {ui.sessionLiver}
                   </Text>
                 </Pressable>
               </View>
             </View>
 
             <View style={styles.creatorManageCard}>
-              <Text style={styles.creatorManageTitle}>Creator dashboard</Text>
-              <Text style={styles.creatorManageSub}>
-                Open your management screens without leaving My Page.
-              </Text>
+              <Text style={styles.creatorManageTitle}>{ui.creatorDashboard}</Text>
+              <Text style={styles.creatorManageSub}>{ui.creatorDashboardSub}</Text>
               {roleStatus?.isMentor ? (
                 <>
                   <Pressable
@@ -1064,8 +1135,8 @@ export default function ProfileScreen() {
                       <Ionicons name="videocam-outline" size={18} color={C.accent} />
                     </View>
                     <View style={styles.creatorManageRowBody}>
-                      <Text style={styles.creatorManageRowTitle}>Mentor sessions & bookings</Text>
-                      <Text style={styles.creatorManageRowSub}>Products, reservations, and video calls</Text>
+                      <Text style={styles.creatorManageRowTitle}>{ui.mentorSessionsBookings}</Text>
+                      <Text style={styles.creatorManageRowSub}>{ui.mentorSessionsBookingsSub}</Text>
                     </View>
                     <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
                   </Pressable>
@@ -1079,8 +1150,8 @@ export default function ProfileScreen() {
                       <Ionicons name="calendar-outline" size={18} color={C.accent} />
                     </View>
                     <View style={styles.creatorManageRowBody}>
-                      <Text style={styles.creatorManageRowTitle}>Availability schedule</Text>
-                      <Text style={styles.creatorManageRowSub}>Open slots and ticketed sessions</Text>
+                      <Text style={styles.creatorManageRowTitle}>{ui.availabilitySchedule}</Text>
+                      <Text style={styles.creatorManageRowSub}>{ui.availabilityScheduleSub}</Text>
                     </View>
                     <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
                   </Pressable>
@@ -1098,8 +1169,8 @@ export default function ProfileScreen() {
                       <Ionicons name="color-wand-outline" size={18} color={C.accent} />
                     </View>
                     <View style={styles.creatorManageRowBody}>
-                      <Text style={styles.creatorManageRowTitle}>Editor listing</Text>
-                      <Text style={styles.creatorManageRowSub}>Profile, pricing, and delivery settings</Text>
+                      <Text style={styles.creatorManageRowTitle}>{ui.editorListing}</Text>
+                      <Text style={styles.creatorManageRowSub}>{ui.editorListingSub}</Text>
                     </View>
                     <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
                   </Pressable>
@@ -1113,8 +1184,8 @@ export default function ProfileScreen() {
                       <Ionicons name="mail-outline" size={18} color={C.accent} />
                     </View>
                     <View style={styles.creatorManageRowBody}>
-                      <Text style={styles.creatorManageRowTitle}>Edit requests inbox</Text>
-                      <Text style={styles.creatorManageRowSub}>Incoming jobs from clients</Text>
+                      <Text style={styles.creatorManageRowTitle}>{ui.editRequestsInbox}</Text>
+                      <Text style={styles.creatorManageRowSub}>{ui.editRequestsInboxSub}</Text>
                     </View>
                     <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
                   </Pressable>
@@ -1124,8 +1195,8 @@ export default function ProfileScreen() {
           </>
         ) : (
           <View style={styles.modeSectionHeader}>
-            <Text style={styles.modeSectionTitle}>Enjoy</Text>
-            <Text style={styles.modeSectionSub}>Discover communities, save favorites, and share your daily moments</Text>
+            <Text style={styles.modeSectionTitle}>{ui.enjoy}</Text>
+            <Text style={styles.modeSectionSub}>{ui.enjoySub}</Text>
           </View>
         )}
 
@@ -1761,8 +1832,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 10,
   },
   languageLabel: { color: C.textSec, fontSize: 12, fontWeight: "700" },
+  languageHint: { color: C.textMuted, fontSize: 10, marginTop: 3 },
   languagePills: { flexDirection: "row", alignItems: "center", gap: 8 },
   languagePill: {
     borderWidth: 1,

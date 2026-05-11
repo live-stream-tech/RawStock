@@ -16,6 +16,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/query-client";
 import { C } from "@/constants/colors";
 import { webScrollStyle } from "@/constants/layout";
+import { useAuth } from "@/lib/auth";
 
 type Notif = {
   id: number;
@@ -47,7 +48,15 @@ const TYPE_ICON: Record<string, { name: string; color: string; bg: string }> = {
   editor_update: { name: "create", color: "#fff", bg: "#1565C0" },
 };
 
-function NotifItem({ item, onRead }: { item: Notif; onRead: (item: Notif) => void }) {
+function NotifItem({
+  item,
+  onRead,
+  isJaUi,
+}: {
+  item: Notif;
+  onRead: (item: Notif) => void;
+  isJaUi: boolean;
+}) {
   const icon = TYPE_ICON[item.type] ?? TYPE_ICON.purchase;
   const revenue = item.amount !== null ? Math.floor(item.amount) : null;
 
@@ -90,7 +99,7 @@ function NotifItem({ item, onRead }: { item: Notif; onRead: (item: Notif) => voi
               <View style={styles.revenueBox}>
                 <Ionicons name="cash-outline" size={12} color={C.green} />
                 <Text style={styles.revenueAmount}>🎟{revenue.toLocaleString()}</Text>
-                <Text style={styles.revenueLabel}>Received</Text>
+                <Text style={styles.revenueLabel}>{isJaUi ? "受取済み" : "Received"}</Text>
               </View>
             </View>
           </View>
@@ -107,8 +116,19 @@ function NotifItem({ item, onRead }: { item: Notif; onRead: (item: Notif) => voi
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const isJaUi = (user?.preferredLanguage ?? "").toLowerCase().startsWith("ja");
   const { filter: filterParam } = useLocalSearchParams<{ filter?: string }>();
   const [filter, setFilter] = useState(filterParam ?? "all");
+  const filters = isJaUi
+    ? [
+        { id: "all", label: "すべて" },
+        { id: "purchase", label: "購入" },
+        { id: "update", label: "更新" },
+        { id: "follow", label: "フォロー" },
+        { id: "comment", label: "コメント" },
+      ]
+    : FILTERS;
 
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : 0;
@@ -155,10 +175,10 @@ export default function NotificationsScreen() {
         <Pressable style={styles.backBtn} onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={24} color={C.text} />
         </Pressable>
-        <Text style={styles.headerTitle}>Notifications</Text>
+        <Text style={styles.headerTitle}>{isJaUi ? "通知" : "Notifications"}</Text>
         {unreadCount > 0 ? (
           <Pressable style={styles.readAllBtn} onPress={() => readAllMutation.mutate()}>
-            <Text style={styles.readAllText}>Mark all read</Text>
+            <Text style={styles.readAllText}>{isJaUi ? "すべて既読" : "Mark all read"}</Text>
           </Pressable>
         ) : (
           <View style={{ width: 64 }} />
@@ -171,12 +191,12 @@ export default function NotificationsScreen() {
           <View style={styles.summaryLeft}>
             <Ionicons name="wallet-outline" size={20} color={C.green} />
             <View>
-              <Text style={styles.summaryLabel}>{"Today's Revenue"}</Text>
+              <Text style={styles.summaryLabel}>{isJaUi ? "本日の売上" : "Today's Revenue"}</Text>
               <Text style={styles.summaryAmount}>🎟{totalRevenue.toLocaleString()}</Text>
             </View>
           </View>
           <View style={styles.unreadBadge}>
-            <Text style={styles.unreadBadgeText}>{unreadCount} unread</Text>
+            <Text style={styles.unreadBadgeText}>{isJaUi ? `${unreadCount}件 未読` : `${unreadCount} unread`}</Text>
           </View>
         </View>
       )}
@@ -188,7 +208,7 @@ export default function NotificationsScreen() {
         contentContainerStyle={styles.filterScroll}
         style={styles.filterScrollView}
       >
-        {FILTERS.map((f) => (
+        {filters.map((f) => (
           <Pressable
             key={f.id}
             style={[styles.filterPill, filter === f.id && styles.filterPillActive]}
@@ -210,7 +230,7 @@ export default function NotificationsScreen() {
         {filteredNotifs.length === 0 ? (
           <View style={styles.empty}>
             <Ionicons name="notifications-off-outline" size={40} color={C.textMuted} />
-            <Text style={styles.emptyText}>No notifications yet</Text>
+            <Text style={styles.emptyText}>{isJaUi ? "通知はまだありません" : "No notifications yet"}</Text>
           </View>
         ) : (
           filteredNotifs.map((item) => (
@@ -218,6 +238,7 @@ export default function NotificationsScreen() {
               key={item.id}
               item={item}
               onRead={openNotificationTarget}
+              isJaUi={isJaUi}
             />
           ))
         )}

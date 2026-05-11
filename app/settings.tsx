@@ -57,19 +57,23 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const { user, logout } = useAuth();
+  const isJaUi = (user?.preferredLanguage ?? "").toLowerCase().startsWith("ja");
 
   async function handleDeleteAccount() {
-    const msg =
-      "Deleting your account starts erasure of your personal data in line with our Privacy Policy.\n\n" +
-      "You cannot delete while you own a community—transfer ownership or delete those communities first.\n\n" +
-      "Some data may be retained longer where required by law (for example tax or fraud prevention), for disputes, or in rolling backups, as described in the Privacy Policy.";
+    const msg = isJaUi
+      ? "アカウントを削除すると、プライバシーポリシーに基づき個人データの削除手続きが開始されます。\n\n" +
+        "コミュニティのオーナーである間は削除できません。先にオーナー権限の移譲またはコミュニティ削除を行ってください。\n\n" +
+        "税務・不正防止など法令上必要な情報、紛争対応情報、バックアップ内データはポリシー記載の期間保持される場合があります。"
+      : "Deleting your account starts erasure of your personal data in line with our Privacy Policy.\n\n" +
+        "You cannot delete while you own a community—transfer ownership or delete those communities first.\n\n" +
+        "Some data may be retained longer where required by law (for example tax or fraud prevention), for disputes, or in rolling backups, as described in the Privacy Policy.";
     const doDelete = async () => {
       try {
         await apiRequest("DELETE", "/api/auth/account");
         await AsyncStorage.removeItem("auth_token");
         logout();
       } catch (e: any) {
-        let errMsg = "Deletion failed";
+        let errMsg = isJaUi ? "削除に失敗しました" : "Deletion failed";
         if (e?.body) {
           try {
             const j = JSON.parse(e.body);
@@ -78,12 +82,12 @@ export default function SettingsScreen() {
             errMsg = e.message ?? errMsg;
           }
         } else if (e?.message) errMsg = e.message;
-        Alert.alert("Error", errMsg);
+        Alert.alert(isJaUi ? "エラー" : "Error", errMsg);
       }
     };
-    Alert.alert("Delete Account", msg, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: doDelete },
+    Alert.alert(isJaUi ? "アカウント削除" : "Delete Account", msg, [
+      { text: isJaUi ? "キャンセル" : "Cancel", style: "cancel" },
+      { text: isJaUi ? "削除する" : "Delete", style: "destructive", onPress: doDelete },
     ]);
   }
 
@@ -103,13 +107,13 @@ export default function SettingsScreen() {
       }
     };
     if (Platform.OS === "web" && typeof window !== "undefined") {
-      const ok = window.confirm("Are you sure you want to sign out?");
+      const ok = window.confirm(isJaUi ? "サインアウトしてもよろしいですか？" : "Are you sure you want to sign out?");
       if (ok) void doLogout();
       return;
     }
-    Alert.alert("Sign Out", "Are you sure you want to sign out?", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Sign Out", style: "destructive", onPress: () => void doLogout() },
+    Alert.alert(isJaUi ? "サインアウト" : "Sign Out", isJaUi ? "サインアウトしてもよろしいですか？" : "Are you sure you want to sign out?", [
+      { text: isJaUi ? "キャンセル" : "Cancel", style: "cancel" },
+      { text: isJaUi ? "サインアウト" : "Sign Out", style: "destructive", onPress: () => void doLogout() },
     ]);
   }
 
@@ -120,7 +124,7 @@ export default function SettingsScreen() {
           <Pressable style={styles.backBtn} onPress={() => router.back()}>
             <Ionicons name="chevron-back" size={22} color={C.text} />
           </Pressable>
-          <Text style={styles.headerTitle}>Settings</Text>
+          <Text style={styles.headerTitle}>{isJaUi ? "設定" : "Settings"}</Text>
           <View style={{ width: 36 }} />
         </View>
 
@@ -132,89 +136,89 @@ export default function SettingsScreen() {
               </View>
               <View style={styles.profileInfo}>
                 <Text style={styles.profileName}>{user.name}</Text>
-                <Text style={styles.profileSub}>Signed in with Google</Text>
+                <Text style={styles.profileSub}>{isJaUi ? "Googleでサインイン中" : "Signed in with Google"}</Text>
               </View>
             </View>
           )}
 
-          <SectionHeader title="Account" />
+          <SectionHeader title={isJaUi ? "アカウント" : "Account"} />
           <View style={styles.section}>
             <SettingRow
               icon="person-outline"
-              label="Edit Profile"
-              sublabel="Name, bio, avatar, social links & more"
+              label={isJaUi ? "プロフィール編集" : "Edit Profile"}
+              sublabel={isJaUi ? "名前・自己紹介・画像・SNSリンクなど" : "Name, bio, avatar, social links & more"}
               onPress={() => router.push("/account")}
             />
           </View>
 
-        <SectionHeader title="Revenue & Payments" />
+        <SectionHeader title={isJaUi ? "収益・支払い" : "Revenue & Payments"} />
         <View style={styles.section}>
           <SettingRow
             icon="wallet-outline"
-            label="Revenue Dashboard"
-            sublabel="View earnings & request payouts"
+            label={isJaUi ? "収益ダッシュボード" : "Revenue Dashboard"}
+            sublabel={isJaUi ? "売上確認と出金申請" : "View earnings & request payouts"}
             onPress={() => router.push("/revenue")}
           />
           <View style={styles.rowDivider} />
           <SettingRow
             icon="card-outline"
-            label="Payout Settings"
-            sublabel="Register or change your bank account"
+            label={isJaUi ? "出金設定" : "Payout Settings"}
+            sublabel={isJaUi ? "銀行口座の登録・変更" : "Register or change your bank account"}
             onPress={() => router.push("/payout-settings")}
           />
           <View style={styles.rowDivider} />
           <SettingRow
             icon="receipt-outline"
-            label="Transaction History"
-            sublabel="Past sales & payout records"
+            label={isJaUi ? "取引履歴" : "Transaction History"}
+            sublabel={isJaUi ? "過去の売上・出金履歴" : "Past sales & payout records"}
             onPress={() => router.push("/revenue")}
           />
         </View>
 
-        <SectionHeader title="Artist Tools" />
+        <SectionHeader title={isJaUi ? "クリエイターツール" : "Artist Tools"} />
         <View style={styles.section}>
           <SettingRow
             icon="calendar-outline"
-            label="Session Schedule"
-            sublabel="Manage your bookable slots"
+            label={isJaUi ? "セッション予定" : "Session Schedule"}
+            sublabel={isJaUi ? "予約枠の管理" : "Manage your bookable slots"}
             onPress={() => router.push("/liver-schedule")}
           />
           <View style={styles.rowDivider} />
           <SettingRow
             icon="analytics-outline"
-            label="My Score"
-            sublabel="Satisfaction, sessions & attendance"
-            onPress={() => Alert.alert("Coming Soon", "This feature will be available soon")}
+            label={isJaUi ? "マイスコア" : "My Score"}
+            sublabel={isJaUi ? "満足度・実施回数・出席率" : "Satisfaction, sessions & attendance"}
+            onPress={() => Alert.alert(isJaUi ? "準備中" : "Coming Soon", isJaUi ? "この機能は近日公開予定です" : "This feature will be available soon")}
           />
         </View>
 
-        <SectionHeader title="Notifications" />
+        <SectionHeader title={isJaUi ? "通知" : "Notifications"} />
         <View style={styles.section}>
           <SettingRow
             icon="notifications-outline"
-            label="Push Notifications"
-            onPress={() => Alert.alert("Coming Soon", "This feature will be available soon")}
+            label={isJaUi ? "プッシュ通知" : "Push Notifications"}
+            onPress={() => Alert.alert(isJaUi ? "準備中" : "Coming Soon", isJaUi ? "この機能は近日公開予定です" : "This feature will be available soon")}
           />
           <View style={styles.rowDivider} />
           <SettingRow
             icon="mail-unread-outline"
-            label="Email Notifications"
-            onPress={() => Alert.alert("Coming Soon", "This feature will be available soon")}
+            label={isJaUi ? "メール通知" : "Email Notifications"}
+            onPress={() => Alert.alert(isJaUi ? "準備中" : "Coming Soon", isJaUi ? "この機能は近日公開予定です" : "This feature will be available soon")}
           />
         </View>
 
-        <SectionHeader title="Support" />
+        <SectionHeader title={isJaUi ? "サポート" : "Support"} />
         <View style={styles.section}>
           <SettingRow
             icon="help-circle-outline"
-            label="Help & FAQ"
-            onPress={() => Alert.alert("Coming Soon", "This feature will be available soon")}
+            label={isJaUi ? "ヘルプ・FAQ" : "Help & FAQ"}
+            onPress={() => Alert.alert(isJaUi ? "準備中" : "Coming Soon", isJaUi ? "この機能は近日公開予定です" : "This feature will be available soon")}
           />
           <View style={styles.rowDivider} />
           <SettingRow
             icon="library-outline"
-            label="Legal & Policies"
-            sublabel="Terms, Privacy, DMCA, Guidelines, notices"
+            label={isJaUi ? "利用規約・ポリシー" : "Legal & Policies"}
+            sublabel={isJaUi ? "利用規約・プライバシー・DMCA・ガイドライン" : "Terms, Privacy, DMCA, Guidelines, notices"}
             onPress={() => router.push("/legal")}
           />
           {user?.role === "ADMIN" && (
@@ -222,19 +226,19 @@ export default function SettingsScreen() {
               <View style={styles.rowDivider} />
               <SettingRow
                 icon="warning-outline"
-                label="Report Management"
+                label={isJaUi ? "通報管理" : "Report Management"}
                 onPress={() => router.push("/admin/reports")}
               />
             </>
           )}
         </View>
 
-        <SectionHeader title="Danger Zone" />
+        <SectionHeader title={isJaUi ? "危険操作" : "Danger Zone"} />
         <View style={styles.section}>
           <SettingRow
             icon="trash-outline"
-            label="Delete Account"
-            sublabel="All your data will be permanently erased. Delete your communities first."
+            label={isJaUi ? "アカウント削除" : "Delete Account"}
+            sublabel={isJaUi ? "データは完全に削除されます。先にコミュニティを削除してください。" : "All your data will be permanently erased. Delete your communities first."}
             destructive
             chevron={false}
             onPress={handleDeleteAccount}
@@ -242,7 +246,7 @@ export default function SettingsScreen() {
           <View style={styles.rowDivider} />
           <SettingRow
             icon="log-out-outline"
-            label="Sign Out"
+            label={isJaUi ? "サインアウト" : "Sign Out"}
             destructive
             chevron={false}
             onPress={handleLogout}

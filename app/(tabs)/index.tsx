@@ -24,6 +24,7 @@ import { useJukeboxPulse } from "@/lib/useJukeboxPulse";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { CreatorPromoBanner } from "@/components/CreatorPromoBanner";
 import { resolvePublicMediaUri as resolveVideoMediaUri } from "@/lib/resolve-public-media-uri";
+import { useAuth } from "@/lib/auth";
 
 const MENTOR_W = 200;
 
@@ -347,6 +348,8 @@ const DUMMY_LIVE = [
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function HomeScreen() {
+  const { user } = useAuth();
+  const isJaUi = (user?.preferredLanguage ?? "").toLowerCase().startsWith("ja");
   const { width: windowWidth } = useWindowDimensions();
   const heroCardW = Platform.OS === "web" ? Math.min(windowWidth, 500) : windowWidth;
 
@@ -453,16 +456,16 @@ export default function HomeScreen() {
             <View style={styles.jukeBannerMain}>
               <View style={styles.jukeBannerBadgeRow}>
                 <View style={styles.jukePill}>
-                  <Text style={styles.jukePillText}>JUKEBOX</Text>
+                  <Text style={styles.jukePillText}>{isJaUi ? "ジュークボックス" : "JUKEBOX"}</Text>
                 </View>
                 {jukePulse.mode === "on_air" ? (
                   <View style={styles.jukeOnAirPill}>
                     <View style={styles.jukeOnAirDot} />
-                    <Text style={styles.jukeOnAirText}>ON AIR</Text>
+                    <Text style={styles.jukeOnAirText}>{isJaUi ? "配信中" : "ON AIR"}</Text>
                   </View>
                 ) : jukePulse.mode === "request_open" ? (
                   <View style={styles.jukeOpenPill}>
-                    <Text style={styles.jukeOpenText}>Requests open</Text>
+                    <Text style={styles.jukeOpenText}>{isJaUi ? "リクエスト受付中" : "Requests open"}</Text>
                   </View>
                 ) : null}
               </View>
@@ -475,7 +478,7 @@ export default function HomeScreen() {
                 </Text>
               ) : jukePulse.mode === "fallback" ? (
                 <Text style={styles.jukeBannerSub} numberOfLines={1}>
-                  Tap to open the Jukebox room
+                  {isJaUi ? "タップでJukeboxルームを開く" : "Tap to open the Jukebox room"}
                 </Text>
               ) : null}
             </View>
@@ -494,18 +497,22 @@ export default function HomeScreen() {
         {/* ── Creator banner (same layout as before: one card + two buttons) ── */}
         <View style={styles.creatorBanner}>
           <View style={styles.creatorBannerText}>
-            <Text style={styles.creatorBannerTitle}>Get your live footage edited and published.</Text>
+            <Text style={styles.creatorBannerTitle}>
+              {isJaUi ? "配信映像を編集して公開しましょう。" : "Get your live footage edited and published."}
+            </Text>
             <Text style={styles.creatorBannerSub}>
-              Earn 90% of every sale. Your raw content, professionally packaged.
+              {isJaUi
+                ? "売上の90%を獲得。素材をプロ品質でパッケージ化。"
+                : "Earn 90% of every sale. Your raw content, professionally packaged."}
             </Text>
           </View>
           <View style={styles.creatorBannerBtns}>
             <Pressable style={styles.creatorBtnPrimary} onPress={() => router.push("/editors" as any)}>
-              <Text style={styles.creatorBtnPrimaryText}>Video Edit Request</Text>
+              <Text style={styles.creatorBtnPrimaryText}>{isJaUi ? "動画編集を依頼" : "Video Edit Request"}</Text>
             </Pressable>
             <Pressable style={styles.creatorBtnSecondary} onPress={() => router.push("/ai-edit" as any)}>
               <Ionicons name="sparkles-outline" size={12} color={C.accent} />
-              <Text style={styles.creatorBtnSecondaryText}>AI Edit</Text>
+              <Text style={styles.creatorBtnSecondaryText}>{isJaUi ? "AI編集" : "AI Edit"}</Text>
             </Pressable>
           </View>
         </View>
@@ -513,11 +520,11 @@ export default function HomeScreen() {
         {/* ── Now Live ── */}
         <View style={styles.sectionGap} />
         <SectionHeader
-          title="NOW LIVE"
+          title={isJaUi ? "配信中" : "NOW LIVE"}
           accent
           right={
             <Pressable onPress={() => router.push("/live" as any)}>
-              <Text style={styles.viewAllText}>VIEW ALL</Text>
+              <Text style={styles.viewAllText}>{isJaUi ? "すべて見る" : "VIEW ALL"}</Text>
             </Pressable>
           }
         />
@@ -532,10 +539,10 @@ export default function HomeScreen() {
         <View style={styles.sectionDivider} />
         <View style={styles.sectionGap} />
         <SectionHeader
-          title="SESSIONS"
+          title={isJaUi ? "セッション" : "SESSIONS"}
           right={
             <Pressable onPress={() => router.push("/mentor-sessions" as any)}>
-              <Text style={styles.viewAllText}>VIEW ALL</Text>
+              <Text style={styles.viewAllText}>{isJaUi ? "すべて見る" : "VIEW ALL"}</Text>
             </Pressable>
           }
         />
@@ -543,7 +550,9 @@ export default function HomeScreen() {
           {sessions.length === 0 ? (
             <View style={{ paddingHorizontal: 16, paddingVertical: 12, minWidth: Math.min(heroCardW, 320) }}>
               <Text style={{ color: C.textMuted, fontSize: 12, fontFamily: F.mono }}>
-                No mentor sessions are currently available for booking.
+                {isJaUi
+                  ? "現在、予約可能なメンターセッションはありません。"
+                  : "No mentor sessions are currently available for booking."}
               </Text>
             </View>
           ) : (
@@ -555,16 +564,16 @@ export default function HomeScreen() {
           {Platform.OS === "web" ? (
             <>
               <Link href="/privacy">
-                <Text style={styles.footerLinkText}>Privacy Policy</Text>
+                <Text style={styles.footerLinkText}>{isJaUi ? "プライバシーポリシー" : "Privacy Policy"}</Text>
               </Link>
               <Text style={styles.footerLinkSeparator}> | </Text>
               <Pressable onPress={() => router.push("/legal" as any)}>
-                <Text style={styles.footerLinkText}>Legal & Policies</Text>
+                <Text style={styles.footerLinkText}>{isJaUi ? "利用規約・ポリシー" : "Legal & Policies"}</Text>
               </Pressable>
             </>
           ) : (
             <Pressable onPress={() => router.push("/legal" as any)}>
-              <Text style={styles.footerLinkText}>Legal & Policies</Text>
+              <Text style={styles.footerLinkText}>{isJaUi ? "利用規約・ポリシー" : "Legal & Policies"}</Text>
             </Pressable>
           )}
         </View>

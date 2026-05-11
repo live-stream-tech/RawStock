@@ -43,7 +43,7 @@ const MENTOR_CATEGORY_COLORS: Record<string, string> = {
   yoga: "#66BB6A",
 };
 
-function BookingCard({ session }: { session: BookingSession }) {
+function BookingCard({ session, isJaUi }: { session: BookingSession; isJaUi: boolean }) {
   const categoryColor = MENTOR_CATEGORY_COLORS[session.category] ?? C.accent;
   const spotsPercent = ((session.spotsTotal - session.spotsLeft) / session.spotsTotal) * 100;
   const isAlmostFull = session.spotsLeft <= 2;
@@ -107,9 +107,11 @@ function BookingCard({ session }: { session: BookingSession }) {
           <View style={{ flex: 1 }}>
             <View style={styles.bookingSpotsRow}>
               <Text style={[styles.bookingSpotsText, isAlmostFull && { color: C.live }]}>
-                {session.spotsLeft} spots left
+                {isJaUi ? `残り${session.spotsLeft}枠` : `${session.spotsLeft} spots left`}
               </Text>
-              <Text style={styles.bookingSpotsSub}>/ {session.spotsTotal} total</Text>
+              <Text style={styles.bookingSpotsSub}>
+                {isJaUi ? `/ 全${session.spotsTotal}枠` : `/ ${session.spotsTotal} total`}
+              </Text>
             </View>
             <View style={styles.bookingProgressBg}>
               <View style={[styles.bookingProgressFill, { width: `${spotsPercent}%` as any, backgroundColor: isAlmostFull ? C.live : categoryColor }]} />
@@ -119,7 +121,7 @@ function BookingCard({ session }: { session: BookingSession }) {
             style={[styles.bookingActionBtn, { backgroundColor: categoryColor }]}
             onPress={() => router.push(`/mentor-booking/${session.id}`)}
           >
-            <Text style={styles.bookingBtnText}>Book now</Text>
+            <Text style={styles.bookingBtnText}>{isJaUi ? "予約する" : "Book now"}</Text>
           </Pressable>
         </View>
       </View>
@@ -165,7 +167,7 @@ function mapLiverRowsToRankCards(rows: any[]): any[] {
   });
 }
 
-function CreatorRankCard({ item }: { item: any }) {
+function CreatorRankCard({ item, isJaUi }: { item: any; isJaUi: boolean }) {
   const borderColor = item.rank === 1 ? C.orange : item.rank === 2 ? C.textSec : item.rank === 3 ? "#cd7f32" : C.border;
   return (
     <Pressable
@@ -184,7 +186,7 @@ function CreatorRankCard({ item }: { item: any }) {
       </View>
       <View style={crStyles.heatRow}>
         <Ionicons name="flame" size={12} color={C.orange} />
-        <Text style={crStyles.heatLabel}>Heat score</Text>
+        <Text style={crStyles.heatLabel}>{isJaUi ? "ヒートスコア" : "Heat score"}</Text>
         <Text style={crStyles.heatValue}>{item.heatScore.toLocaleString()}B</Text>
         <View style={crStyles.payoutBadge}>
           <Text style={crStyles.payoutBadgeText}>{item.payoutRate ?? 70}%</Text>
@@ -192,9 +194,9 @@ function CreatorRankCard({ item }: { item: any }) {
       </View>
       <View style={crStyles.creatorStats}>
         {[
-          { icon: "eye-outline", label: "Total views", value: formatNumber(item.totalViews) },
-          { icon: "cash-outline", label: "Revenue", value: `🎟${item.revenue.toLocaleString()}` },
-          { icon: "people-outline", label: "Followers", value: formatNumber(item.followers) },
+          { icon: "eye-outline", label: isJaUi ? "総視聴" : "Total views", value: formatNumber(item.totalViews) },
+          { icon: "cash-outline", label: isJaUi ? "収益" : "Revenue", value: `🎟${item.revenue.toLocaleString()}` },
+          { icon: "people-outline", label: isJaUi ? "フォロワー" : "Followers", value: formatNumber(item.followers) },
         ].map((r) => (
           <View key={r.label} style={crStyles.statRow}>
             <Ionicons name={r.icon as any} size={11} color={C.textSec} />
@@ -500,6 +502,7 @@ function LiveStartModal({ visible, onClose }: { visible: boolean; onClose: () =>
 export default function LiveScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const isJaUi = (user?.preferredLanguage ?? "").toLowerCase().startsWith("ja");
   const [activeTab, setActiveTab] = useState<"now" | "booking">("now");
   const [modalVisible, setModalVisible] = useState(false);
   const [liveSearch, setLiveSearch] = useState("");
@@ -541,10 +544,10 @@ export default function LiveScreen() {
         <Pressable style={styles.backBtn} onPress={() => router.push("/livers")}>
           <Ionicons name="search-outline" size={18} color={C.text} />
         </Pressable>
-        <Text style={styles.headerTitle}>Live & bookings</Text>
+        <Text style={styles.headerTitle}>{isJaUi ? "ライブ・予約" : "Live & bookings"}</Text>
         <Pressable style={styles.startFabSmall} onPress={() => setModalVisible(true)}>
           <Ionicons name="radio" size={14} color="#fff" />
-          <Text style={styles.startFabSmallText}>Start</Text>
+          <Text style={styles.startFabSmallText}>{isJaUi ? "開始" : "Start"}</Text>
         </Pressable>
       </View>
       <MetallicLine thickness={1} style={{ marginHorizontal: 16 }} />
@@ -554,7 +557,7 @@ export default function LiveScreen() {
         <Ionicons name="search-outline" size={18} color={C.textMuted} />
         <TextInput
           style={styles.liveSearchInput}
-          placeholder="Search artists & shows"
+          placeholder={isJaUi ? "アーティスト・配信を検索" : "Search artists & shows"}
           placeholderTextColor={C.textMuted}
           value={liveSearch}
           onChangeText={setLiveSearch}
@@ -573,14 +576,14 @@ export default function LiveScreen() {
           onPress={() => setActiveTab("now")}
         >
           <Ionicons name="radio-outline" size={13} color={activeTab === "now" ? C.accent : C.textMuted} />
-          <Text style={[styles.tabText, activeTab === "now" && styles.tabTextActive]}>Free live</Text>
+          <Text style={[styles.tabText, activeTab === "now" && styles.tabTextActive]}>{isJaUi ? "無料ライブ" : "Free live"}</Text>
         </Pressable>
         <Pressable
           style={[styles.tabItem, activeTab === "booking" && styles.tabItemActive]}
           onPress={() => setActiveTab("booking")}
         >
           <Ionicons name="lock-closed-outline" size={13} color={activeTab === "booking" ? C.accent : C.textMuted} />
-          <Text style={[styles.tabText, activeTab === "booking" && styles.tabTextActive]}>Paid sessions</Text>
+          <Text style={[styles.tabText, activeTab === "booking" && styles.tabTextActive]}>{isJaUi ? "有料セッション" : "Paid sessions"}</Text>
         </Pressable>
       </View>
 
@@ -592,7 +595,7 @@ export default function LiveScreen() {
           <View>
             {filteredLiveStreams.length === 0 ? (
               <View style={styles.emptyState}>
-                <Text style={styles.emptyText}>No artists streaming right now</Text>
+                <Text style={styles.emptyText}>{isJaUi ? "現在配信中のアーティストはいません" : "No artists streaming right now"}</Text>
               </View>
             ) : (
               <View style={styles.liveList}>
@@ -601,7 +604,7 @@ export default function LiveScreen() {
                     <Image source={{ uri: stream.thumbnail }} style={styles.liveStreamThumb} contentFit="cover" />
                     <View style={styles.liveBadge}>
                       <View style={styles.liveDot} />
-                      <Text style={styles.liveBadgeText}>LIVE</Text>
+                      <Text style={styles.liveBadgeText}>{isJaUi ? "配信中" : "LIVE"}</Text>
                     </View>
                     <View style={styles.viewersBadge}>
                       <Ionicons name="people-outline" size={12} color="#fff" />
@@ -636,7 +639,9 @@ export default function LiveScreen() {
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 4 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <View style={{ width: 3, height: 20, borderRadius: 1, backgroundColor: C.accent }} />
-                <Text style={{ color: C.text, fontSize: 20, fontFamily: F.display, fontWeight: "800", letterSpacing: 1.5 }}>LIVER RANKING</Text>
+                <Text style={{ color: C.text, fontSize: 20, fontFamily: F.display, fontWeight: "800", letterSpacing: 1.5 }}>
+                  {isJaUi ? "ライバーランキング" : "LIVER RANKING"}
+                </Text>
               </View>
               <View style={{ flexDirection: "row", gap: 4 }}>
                 {(["WEEKLY", "MONTHLY", "ALL"] as const).map((f) => (
@@ -652,18 +657,24 @@ export default function LiveScreen() {
             </View>
             <Text style={{ color: C.textMuted, fontSize: 10, fontFamily: F.mono, paddingHorizontal: 16, marginBottom: 12 }}>
               {creatorFilter === "WEEKLY"
-                ? "WEEK: ranked by heat, views, then revenue (momentum)."
+                ? isJaUi
+                  ? "WEEK: ヒート・視聴・収益の順で評価（勢い重視）。"
+                  : "WEEK: ranked by heat, views, then revenue (momentum)."
                 : creatorFilter === "ALL"
-                  ? "ALL: paid-live ticket sales rank for this month."
-                  : "MONTH: monthly composite rank (satisfaction, streams, tips)."}
+                  ? isJaUi
+                    ? "ALL: 今月の有料ライブチケット売上ランキング。"
+                    : "ALL: paid-live ticket sales rank for this month."
+                  : isJaUi
+                    ? "MONTH: 満足度・配信数・投げ銭の総合ランキング。"
+                    : "MONTH: monthly composite rank (satisfaction, streams, tips)."}
             </Text>
             <HorizontalScroll contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4, gap: 12 }}>
               {liverRankCards.length === 0 ? (
                 <Text style={{ color: C.textMuted, fontSize: 12, fontFamily: F.mono, paddingVertical: 8 }}>
-                  No ranking data yet.
+                  {isJaUi ? "ランキングデータはまだありません。" : "No ranking data yet."}
                 </Text>
               ) : (
-                liverRankCards.map((c: any) => <CreatorRankCard key={c.id} item={c} />)
+                liverRankCards.map((c: any) => <CreatorRankCard key={c.id} item={c} isJaUi={isJaUi} />)
               )}
             </HorizontalScroll>
             <View style={{ height: 100 + bottomInset }} />
@@ -673,7 +684,9 @@ export default function LiveScreen() {
             {/* Paid Sessions header badge */}
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8 }}>
               <Ionicons name="lock-closed-outline" size={14} color={C.accent} />
-              <Text style={{ color: C.textSec, fontSize: 11, fontFamily: F.mono }}>Ticket-purchase required</Text>
+              <Text style={{ color: C.textSec, fontSize: 11, fontFamily: F.mono }}>
+                {isJaUi ? "チケット購入が必要です" : "Ticket-purchase required"}
+              </Text>
               <View style={{ flex: 1 }} />
               <View style={{ backgroundColor: "#00c853", borderRadius: 2, paddingHorizontal: 7, paddingVertical: 2 }}>
                 <Text style={{ color: "#000", fontSize: 10, fontWeight: "800", fontFamily: F.mono }}>90% PAYOUT</Text>
@@ -681,7 +694,7 @@ export default function LiveScreen() {
             </View>
             <View style={styles.bookingList}>
               {filteredBookings.map((session) => (
-                <BookingCard key={session.id} session={session} />
+                <BookingCard key={session.id} session={session} isJaUi={isJaUi} />
               ))}
             </View>
 
@@ -692,14 +705,16 @@ export default function LiveScreen() {
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 4 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <View style={{ width: 3, height: 20, borderRadius: 1, backgroundColor: "#00c853" }} />
-                <Text style={{ color: C.text, fontSize: 20, fontFamily: F.display, fontWeight: "800", letterSpacing: 1 }}>SESSION RANKING</Text>
+                <Text style={{ color: C.text, fontSize: 20, fontFamily: F.display, fontWeight: "800", letterSpacing: 1 }}>
+                  {isJaUi ? "セッションランキング" : "SESSION RANKING"}
+                </Text>
               </View>
               <View style={{ backgroundColor: "#00c853", borderRadius: 2, paddingHorizontal: 7, paddingVertical: 2 }}>
                 <Text style={{ color: "#000", fontSize: 9, fontWeight: "800", fontFamily: F.mono }}>90% Fixed</Text>
               </View>
             </View>
             <Text style={{ color: C.textMuted, fontSize: 10, fontFamily: F.mono, paddingHorizontal: 16, marginBottom: 12 }}>
-              Book private 1:1 sessions
+              {isJaUi ? "1対1のプライベートセッションを予約" : "Book private 1:1 sessions"}
             </Text>
             <HorizontalScroll contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4, gap: 12 }}>
               {filteredBookings.map((session: any) => (
@@ -715,7 +730,7 @@ export default function LiveScreen() {
                     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
                       <Text style={{ color: C.accent, fontSize: 11, fontWeight: "700" }}>🎟{session.price.toLocaleString()}</Text>
                       <View style={{ backgroundColor: C.accent, borderRadius: 2, paddingHorizontal: 8, paddingVertical: 3 }}>
-                        <Text style={{ color: "#000", fontSize: 10, fontWeight: "800" }}>Reserve</Text>
+                        <Text style={{ color: "#000", fontSize: 10, fontWeight: "800" }}>{isJaUi ? "予約" : "Reserve"}</Text>
                       </View>
                     </View>
                   </View>

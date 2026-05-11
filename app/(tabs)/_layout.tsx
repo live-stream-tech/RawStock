@@ -7,12 +7,15 @@ import { WEB_TAB_BAR_CONTENT_HEIGHT } from "@/constants/layout";
 import { C } from "@/constants/colors";
 import { MetallicLine } from "@/components/MetallicLine";
 import { isPwaStandalone } from "@/lib/pwa-standalone";
+import { useAuth } from "@/lib/auth";
 
 type TabBarIconProps = { color: string; size: number; focused: boolean };
 
 export default function TabLayout() {
   const isWeb = Platform.OS === "web";
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+  const isJaUi = (user?.preferredLanguage ?? "").toLowerCase().startsWith("ja");
   /** PWA: rely on safe-area inset only (avoids a thick empty band under the tab bar). Safari tab: small minimum when inset is 0. */
   const standalone = isWeb && isPwaStandalone();
   const bottomPad = standalone ? Math.max(insets.bottom, 0) : Math.max(insets.bottom, isWeb ? 8 : 0);
@@ -59,7 +62,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "Top",
+          title: isJaUi ? "トップ" : "Top",
           tabBarIcon: ({ color, size, focused }: TabBarIconProps) => (
             <Ionicons name={focused ? "flame" : "flame-outline"} size={size} color={color} />
           ),
@@ -68,7 +71,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="stations"
         options={{
-          title: "Stations",
+          title: isJaUi ? "ステーション" : "Stations",
           tabBarIcon: ({ color, size, focused }: TabBarIconProps) => (
             <Ionicons name={focused ? "map" : "map-outline"} size={size} color={color} />
           ),
@@ -83,7 +86,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="live"
         options={{
-          title: "Live",
+          title: isJaUi ? "ライブ" : "Live",
           tabBarIcon: ({ color, size, focused }: TabBarIconProps) => (
             <Ionicons name={focused ? "headset" : "headset-outline"} size={size} color={color} />
           ),
@@ -98,7 +101,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="profile"
         options={{
-          title: "Profile",
+          title: isJaUi ? "マイページ" : "Profile",
           tabBarIcon: ({ color, size }: TabBarIconProps) => (
             <Ionicons name="finger-print" size={size} color={color} />
           ),
