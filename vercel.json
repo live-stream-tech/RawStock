@@ -22,6 +22,15 @@
       ]
     },
     {
+      "source": "/lp/EN",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "private, no-store, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
       "source": "/lp-standalone.html",
       "headers": [
         {
@@ -70,6 +79,9 @@
   ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/[...path]" },
+    { "source": "/lp/EN", "destination": "/lp/index.html" },
+    { "source": "/lp/en", "destination": "/lp/index.html" },
+    { "source": "/lp/ja", "destination": "/lp/index.html" },
     { "source": "/lp-standalone.html", "destination": "/lp" },
     { "source": "/lp-static", "destination": "/lp" },
     { "source": "/teamz", "destination": "/api/[...path]" },

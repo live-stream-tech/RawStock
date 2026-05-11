@@ -6,6 +6,9 @@ export const RAWSTOCK_LP_SITE_DEFAULT = "https://rawstock.live";
 /** Canonical path for the standalone LP served by the main app (`/lp`). */
 export const RAWSTOCK_LP_PUBLIC_PATH = "/lp";
 
+/** English marketing LP when embedded under the same origin (Vite bundle at `/lp/`). */
+export const RAWSTOCK_LP_EN_PUBLIC_PATH = "/lp/EN";
+
 function trimTrailingSlash(s: string): string {
   return s.replace(/\/+$/, "");
 }

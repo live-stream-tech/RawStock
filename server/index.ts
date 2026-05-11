@@ -208,6 +208,14 @@ function configureExpoAndLanding(app: express.Application) {
         },
       }),
     );
+    // Deep links (/lp/EN, etc.): no static file — serve SPA shell
+    app.use("/lp", (req: Request, res: Response, next: NextFunction) => {
+      if (req.method !== "GET" && req.method !== "HEAD") return next();
+      res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
+      return res.sendFile(path.join(lpViteRoot, "index.html"), (err) => {
+        if (err) next(err);
+      });
+    });
   }
 
   /** `/lp` — Vite ビルドが無いときのみスタンドアロン HTML（別URLへリダイレクトしない） */

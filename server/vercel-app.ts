@@ -1,7 +1,7 @@
 import "dotenv/config";
 import "./aws-sdk-env";
 import express from "express";
-import type { Request, Response } from "express";
+import type { NextFunction, Request, Response } from "express";
 import * as fs from "fs";
 import * as path from "path";
 import {
@@ -130,6 +130,13 @@ export async function createApiApp(): Promise<express.Application> {
         },
       }),
     );
+    app.use("/lp", (req: Request, res: Response, next: NextFunction) => {
+      if (req.method !== "GET" && req.method !== "HEAD") return next();
+      res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
+      return res.sendFile(path.join(lpViteRoot, "index.html"), (err) => {
+        if (err) next(err);
+      });
+    });
   }
 
   /** `/lp` — without Vite build, serve standalone HTML (no redirect). */

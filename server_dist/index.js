@@ -10893,6 +10893,13 @@ function configureExpoAndLanding(app2) {
         }
       })
     );
+    app2.use("/lp", (req, res, next) => {
+      if (req.method !== "GET" && req.method !== "HEAD") return next();
+      res.setHeader("Cache-Control", LP_HTML_CACHE_CONTROL);
+      return res.sendFile(path.join(lpViteRoot, "index.html"), (err) => {
+        if (err) next(err);
+      });
+    });
   }
   if (!hasLpViteApp) {
     app2.get("/lp", (req, res) => {

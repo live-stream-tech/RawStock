@@ -102,6 +102,12 @@ export default function HomeJP() {
               </a>
             ))}
             <a
+              href="/lp/EN"
+              className="font-mono-body text-[10px] text-white/55 hover:text-neon transition-colors tracking-wide whitespace-nowrap"
+            >
+              English
+            </a>
+            <a
               href={LP_LINK_X}
               target="_blank"
               rel="noopener noreferrer"
@@ -147,6 +153,13 @@ export default function HomeJP() {
                 {l.label}
               </a>
             ))}
+            <a
+              href="/lp/EN"
+              className="block px-4 py-3 text-white/75 hover:text-neon border-b border-white/5"
+              onClick={() => setMenuOpen(false)}
+            >
+              English
+            </a>
             <a
               href={LP_LINK_X}
               target="_blank"

@@ -9,6 +9,7 @@ test -d "$VENDOR_LP" || {
 }
 
 node scripts/patch-rawstock-lp-for-embed.mjs "$VENDOR_LP"
+cp scripts/rawstock-lp-override/App.tsx "$VENDOR_LP/client/src/App.tsx"
 cp scripts/rawstock-lp-override/Home-JP.tsx "$VENDOR_LP/client/src/pages/Home-JP.tsx"
 (
   cd "$VENDOR_LP"
