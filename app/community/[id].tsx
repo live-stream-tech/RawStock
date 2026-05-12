@@ -39,7 +39,7 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import type { ImagePickerAsset } from "expo-image-picker";
 import { useDemoMode } from "@/lib/demo-mode";
-import { TEMP_BANNER_IMAGE_PATH, TEMP_BANNER_TARGET_URL } from "@/constants/bannerLinks";
+import { TEMP_BANNER_IMAGE_PATH, getBannerTargetRoute } from "@/constants/bannerLinks";
 import { alertError, alertMessage } from "@/lib/alertCompat";
 
 const MAX_ANNOUNCEMENT_SCREENSHOT_BYTES = 15 * 1024 * 1024;
@@ -1548,20 +1548,19 @@ export default function CommunityDetailScreen() {
           <Pressable
             style={[styles.adBanner, styles.adBannerFlex, { backgroundColor: activeAd ? C.surface : ad.bg }]}
             onPress={() => {
-              const target = activeAd?.linkUrl?.trim() || TEMP_BANNER_TARGET_URL;
-              if (/^https?:\/\//i.test(target)) void Linking.openURL(target);
+              router.push(getBannerTargetRoute(communityId) as any);
             }}
           >
             <View style={styles.adPrBadge}>
               <Text style={styles.adPrText}>PR</Text>
             </View>
-            <Image source={{ uri: activeAd?.bannerUrl?.trim() || ad.thumb }} style={styles.adThumb} contentFit="cover" />
+            <Image source={{ uri: TEMP_BANNER_IMAGE_PATH }} style={styles.adThumb} contentFit="cover" />
             <View style={styles.adBody}>
-              <Text style={styles.adTitle} numberOfLines={1}>{activeAd?.companyName?.trim() || ad.title}</Text>
-              <Text style={styles.adSub} numberOfLines={1}>{activeAd ? "Sponsored" : ad.sub}</Text>
+              <Text style={styles.adTitle} numberOfLines={1}>{isJaUi ? "広告掲載のご案内" : "Advertising options"}</Text>
+              <Text style={styles.adSub} numberOfLines={1}>{isJaUi ? "クリックで広告料金の詳細" : "Tap for ad pricing details"}</Text>
             </View>
             <View style={[styles.adCtaBtn, { backgroundColor: activeAd ? C.accent : ad.accent }]}>
-              <Text style={styles.adCtaText}>{activeAd ? "Visit" : ad.cta}</Text>
+              <Text style={styles.adCtaText}>{isJaUi ? "料金詳細" : "Pricing"}</Text>
             </View>
           </Pressable>
           <Pressable

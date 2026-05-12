@@ -6,7 +6,6 @@ import {
   StyleSheet,
   Pressable,
   ActivityIndicator,
-  Linking,
   Modal,
 } from "react-native";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
@@ -20,7 +19,7 @@ import { MetallicLine } from "@/components/MetallicLine";
 import { AppLogo } from "@/components/AppLogo";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { useQuery } from "@tanstack/react-query";
-import { TEMP_BANNER_IMAGE_PATH, TEMP_BANNER_TARGET_URL } from "@/constants/bannerLinks";
+import { TEMP_BANNER_IMAGE_PATH, getBannerTargetRoute } from "@/constants/bannerLinks";
 import { STATION_CATEGORY_LABEL } from "@/constants/stations";
 
 const COMMUNITY_X_LINK = "https://x.com/ndjtpamwu";
@@ -100,14 +99,14 @@ export default function CommunityScreen() {
             accessibilityRole="link"
             accessibilityLabel="Sponsor banner"
             onPress={() => {
-              void Linking.openURL(TEMP_BANNER_TARGET_URL);
+              router.push(getBannerTargetRoute() as any);
             }}
             style={styles.adBannerFrame}
           >
             <Image
               source={{ uri: TEMP_BANNER_IMAGE_PATH }}
               style={styles.adBannerImage}
-              contentFit="contain"
+              contentFit="cover"
               contentPosition="center"
             />
           </Pressable>

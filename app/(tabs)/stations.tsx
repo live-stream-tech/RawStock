@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, ScrollView, StyleSheet, Pressable, Linking } from "react-native";
+import { View, Text, ScrollView, StyleSheet, Pressable } from "react-native";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
@@ -9,7 +9,7 @@ import { C } from "@/constants/colors";
 import { AppLogo } from "@/components/AppLogo";
 import { MetallicLine } from "@/components/MetallicLine";
 import { STATIONS } from "@/constants/stations";
-import { TEMP_BANNER_IMAGE_PATH, TEMP_BANNER_TARGET_URL } from "@/constants/bannerLinks";
+import { TEMP_BANNER_IMAGE_PATH, getBannerTargetRoute } from "@/constants/bannerLinks";
 
 const STATION_SHORT_DESC: Record<string, string> = {
   music: "Bands, DJs, clubs, and live music creators.",
@@ -35,9 +35,9 @@ export default function StationsScreen() {
           style={styles.banner}
           accessibilityRole="link"
           accessibilityLabel="Sponsored banner"
-          onPress={() => void Linking.openURL(TEMP_BANNER_TARGET_URL)}
+          onPress={() => router.push(getBannerTargetRoute() as any)}
         >
-          <Image source={{ uri: TEMP_BANNER_IMAGE_PATH }} style={styles.bannerImage} contentFit="contain" contentPosition="center" />
+          <Image source={{ uri: TEMP_BANNER_IMAGE_PATH }} style={styles.bannerImage} contentFit="cover" contentPosition="center" />
         </Pressable>
 
         <View style={styles.sectionHeader}>

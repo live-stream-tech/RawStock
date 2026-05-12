@@ -7,7 +7,6 @@ import {
   Pressable,
   ActivityIndicator,
   TextInput,
-  Linking,
 } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -24,7 +23,7 @@ import { MetallicLine } from "@/components/MetallicLine";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { STATIONS, STATION_CATEGORY_LABEL } from "@/constants/stations";
 import { STATION_JUKEBOX_IDS } from "@/constants/stationJukebox";
-import { TEMP_BANNER_IMAGE_PATH, TEMP_BANNER_TARGET_URL } from "@/constants/bannerLinks";
+import { TEMP_BANNER_IMAGE_PATH, getBannerTargetRoute } from "@/constants/bannerLinks";
 import { resolvePublicMediaUri } from "@/lib/resolve-public-media-uri";
 
 const CATEGORY_TERMS: Record<string, string[]> = {
@@ -259,12 +258,12 @@ export default function StationScreen() {
           style={styles.banner}
           accessibilityRole="link"
           accessibilityLabel="Sponsored banner"
-          onPress={() => void Linking.openURL(TEMP_BANNER_TARGET_URL)}
+          onPress={() => router.push(getBannerTargetRoute() as any)}
         >
           <Image
             source={{ uri: TEMP_BANNER_IMAGE_PATH }}
             style={styles.bannerImage}
-            contentFit="contain"
+            contentFit="cover"
             contentPosition="center"
           />
         </Pressable>

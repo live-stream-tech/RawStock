@@ -1,14 +1,14 @@
-import React, { useState } from "react";
+import React from "react";
 import {
-  View,
-  Text,
   Pressable,
   StyleSheet,
-  Platform,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+import { Image } from "expo-image";
+import { router } from "expo-router";
 import { C } from "@/constants/colors";
+import { TEMP_BANNER_IMAGE_PATH, getBannerTargetRoute } from "@/constants/bannerLinks";
 
 type Props = {
   /** Optional outer spacing (profile vs home use different margins) */
@@ -17,14 +17,19 @@ type Props = {
 
 export function CreatorPromoBanner({ style }: Props) {
   return (
-    <View
+    <Pressable
       accessibilityLabel="Advertising banner"
+      accessibilityRole="link"
+      onPress={() => router.push(getBannerTargetRoute() as any)}
       style={[styles.creatorBanner, style]}
     >
-      <View style={styles.bannerInner}>
-        <Text style={styles.bannerText}>Advertising slots available</Text>
-      </View>
-    </View>
+      <Image
+        source={{ uri: TEMP_BANNER_IMAGE_PATH }}
+        style={styles.bannerImage}
+        contentFit="cover"
+        contentPosition="center"
+      />
+    </Pressable>
   );
 }
 
@@ -39,20 +44,10 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: "#0a0a0a",
     height: 72,
-    alignItems: "center",
-    justifyContent: "center",
   },
-  bannerInner: {
+  bannerImage: {
     width: "100%",
     height: "100%",
     backgroundColor: "#0a0a0a",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  bannerText: {
-    color: C.textMuted,
-    fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: 0.4,
   },
 });
