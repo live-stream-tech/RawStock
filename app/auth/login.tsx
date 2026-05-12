@@ -4,38 +4,93 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
 import { C } from "@/constants/colors";
+import { fontBodyForUi, fontDisplayForUi } from "@/constants/fonts";
 import { AppLogo } from "@/components/AppLogo";
 import { getApiUrl } from "@/lib/query-client";
 import { saveLoginReturn } from "@/lib/login-return";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { webScrollStyle } from "@/constants/layout";
 
-const ERROR_LABELS: Record<string, string> = {
-  invalid_state: "Authentication expired. Please try again.",
-  token_failed: "Failed to retrieve token.",
-  profile_failed: "Failed to retrieve profile.",
-  server_error: "A server error occurred. Please try again later.",
-  me_failed: "Failed to verify login. Please try again.",
-};
-const getErrorLabel = (key: string) => {
-  if (ERROR_LABELS[key]) return ERROR_LABELS[key];
-  if (key.startsWith("server_error:")) return `Server error: ${key.slice(13, 93)}`;
-  return key.length > 50 ? "An error occurred." : `Error: ${key}`;
+const ERROR_LABELS = {
+  en: {
+    invalid_state: "Authentication expired. Please try again.",
+    token_failed: "Failed to retrieve token.",
+    profile_failed: "Failed to retrieve profile.",
+    server_error: "A server error occurred. Please try again later.",
+    me_failed: "Failed to verify login. Please try again.",
+  },
+  ja: {
+    invalid_state: "認証の有効期限が切れました。もう一度お試しください。",
+    token_failed: "トークンの取得に失敗しました。",
+    profile_failed: "プロフィールの取得に失敗しました。",
+    server_error: "サーバーエラーが発生しました。しばらくしてからお試しください。",
+    me_failed: "ログイン確認に失敗しました。もう一度お試しください。",
+  },
+} as const;
+
+function detectJapaneseUi(): boolean {
+  const locale =
+    Platform.OS === "web" && typeof navigator !== "undefined"
+      ? navigator.language ?? "en"
+      : typeof Intl !== "undefined"
+        ? Intl.DateTimeFormat().resolvedOptions().locale ?? "en"
+        : "en";
+  return locale.toLowerCase().startsWith("ja");
+}
+
+const getErrorLabel = (key: string, isJaUi: boolean) => {
+  const labels = isJaUi ? ERROR_LABELS.ja : ERROR_LABELS.en;
+  if (key in labels) return labels[key as keyof typeof labels];
+  if (key.startsWith("server_error:")) {
+    return isJaUi ? `サーバーエラー: ${key.slice(13, 93)}` : `Server error: ${key.slice(13, 93)}`;
+  }
+  if (key.length > 50) return isJaUi ? "エラーが発生しました。" : "An error occurred.";
+  return isJaUi ? `エラー: ${key}` : `Error: ${key}`;
 };
 
 export default function LoginScreen() {
   const { auth_error } = useLocalSearchParams<{ auth_error?: string }>();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [agreePolicies, setAgreePolicies] = useState(false);
+  const isJaUi = detectJapaneseUi();
+  const t = isJaUi
+    ? {
+        title: "サインイン",
+        subtitle: "Googleでサインインすると、コメント、購入、投稿、プロフィール管理ができます。",
+        policyCheckbox: "利用規約とプライバシーポリシーを読み、同意しました。",
+        googleButton: "Googleでサインイン",
+        tagline: "Rawな熱量をそのまま届ける",
+        consentPrefix: "登録することで、",
+        consentJoiner: "と",
+        consentSuffix: "に同意したものとみなされます。",
+        terms: "利用規約",
+        privacy: "プライバシーポリシー",
+        continueAsGuest: "サインインせずに続ける",
+        legalNotice: "特定商取引法に基づく表記",
+      }
+    : {
+        title: "Sign In",
+        subtitle: "Sign in with Google to comment, purchase, upload, and manage your profile.",
+        policyCheckbox: "I have read and agree to the Terms of Service and Privacy Policy.",
+        googleButton: "Sign in with Google",
+        tagline: "Amplifying the Raw Heat",
+        consentPrefix: "By signing up, you agree to our",
+        consentJoiner: "and",
+        consentSuffix: ".",
+        terms: "Terms of Service",
+        privacy: "Privacy Policy",
+        continueAsGuest: "Continue without signing in",
+        legalNotice: "Legal Notice",
+      };
   useEffect(() => {
     if (auth_error && Platform.OS === "web" && typeof window !== "undefined") {
-      const msg = getErrorLabel(auth_error);
+      const msg = getErrorLabel(auth_error, isJaUi);
       setErrorMsg(msg);
       const url = new URL(window.location.href);
       url.searchParams.delete("auth_error");
       window.history.replaceState({}, "", url.toString());
     }
-  }, [auth_error]);
+  }, [auth_error, isJaUi]);
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 12 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
@@ -76,19 +131,17 @@ export default function LoginScreen() {
     >
       <View style={styles.logoWrap}>
         <AppLogo height={36} />
-        <Text style={styles.tagline}>Amplifying the Raw Heat</Text>
+        <Text style={[styles.tagline, { fontFamily: fontBodyForUi(isJaUi) }]}>{t.tagline}</Text>
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Sign In</Text>
+        <Text style={[styles.cardTitle, { fontFamily: fontDisplayForUi(isJaUi) }]}>{t.title}</Text>
         {errorMsg ? (
           <View style={styles.errorBanner}>
-            <Text style={styles.errorText}>{errorMsg}</Text>
+            <Text style={[styles.errorText, { fontFamily: fontBodyForUi(isJaUi) }]}>{errorMsg}</Text>
           </View>
         ) : null}
-        <Text style={styles.cardSub}>
-          Sign in with Google to comment, purchase, upload, and manage your profile.
-        </Text>
+        <Text style={[styles.cardSub, { fontFamily: fontBodyForUi(isJaUi) }]}>{t.subtitle}</Text>
 
         {Platform.OS === "web" ? (
           <Pressable
@@ -100,9 +153,7 @@ export default function LoginScreen() {
             <View style={[styles.policyCheckBox, agreePolicies && styles.policyCheckBoxOn]}>
               {agreePolicies ? <Text style={styles.policyCheckMark}>✓</Text> : null}
             </View>
-            <Text style={styles.policyCheckLabel}>
-              I have read and agree to the Terms of Service and Privacy Policy.
-            </Text>
+            <Text style={[styles.policyCheckLabel, { fontFamily: fontBodyForUi(isJaUi) }]}>{t.policyCheckbox}</Text>
           </Pressable>
         ) : null}
 
@@ -116,39 +167,39 @@ export default function LoginScreen() {
             style={styles.googleIcon}
             contentFit="contain"
           />
-          <Text style={styles.googleLoginText}>Sign in with Google</Text>
+          <Text style={[styles.googleLoginText, { fontFamily: fontDisplayForUi(isJaUi) }]}>{t.googleButton}</Text>
         </Pressable>
 
         <View style={styles.consentWrap}>
-          <Text style={styles.consentText}>
-            By signing up, you agree to our{" "}
+          <Text style={[styles.consentText, { fontFamily: fontBodyForUi(isJaUi) }]}>
+            {t.consentPrefix}{" "}
             <Text style={styles.consentLink} onPress={() => router.push("/terms")}>
-              Terms of Service
+              {t.terms}
             </Text>{" "}
-            and{" "}
+            {t.consentJoiner}{" "}
             <Text style={styles.consentLink} onPress={() => router.push("/privacy")}>
-              Privacy Policy
+              {t.privacy}
             </Text>
-            .
+            {t.consentSuffix}
           </Text>
         </View>
       </View>
 
       <Pressable style={styles.guestLink} onPress={() => router.replace("/community")}>
-        <Text style={styles.guestLinkText}>Continue without signing in</Text>
+        <Text style={[styles.guestLinkText, { fontFamily: fontBodyForUi(isJaUi) }]}>{t.continueAsGuest}</Text>
       </Pressable>
 
       <View style={styles.legalLinks}>
         <Pressable onPress={() => router.push("/terms")}>
-          <Text style={styles.legalLinkText}>Terms</Text>
+          <Text style={[styles.legalLinkText, { fontFamily: fontBodyForUi(isJaUi) }]}>{t.terms}</Text>
         </Pressable>
         <Text style={styles.legalSeparator}>|</Text>
         <Pressable onPress={() => router.push("/privacy")}>
-          <Text style={styles.legalLinkText}>Privacy Policy</Text>
+          <Text style={[styles.legalLinkText, { fontFamily: fontBodyForUi(isJaUi) }]}>{t.privacy}</Text>
         </Pressable>
         <Text style={styles.legalSeparator}>|</Text>
         <Pressable onPress={() => router.push("/tokusho")}>
-          <Text style={styles.legalLinkText}>Legal Notice</Text>
+          <Text style={[styles.legalLinkText, { fontFamily: fontBodyForUi(isJaUi) }]}>{t.legalNotice}</Text>
         </Pressable>
       </View>
     </ScrollView>

@@ -41,7 +41,7 @@ type VideoComment = {
   profileImageUrl?: string | null;
 };
 
-function formatRelativeTime(dateStr: string | Date | null | undefined): string {
+function formatRelativeTime(dateStr: string | Date | null | undefined, isJaUi: boolean): string {
   if (!dateStr) return "";
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return "";
@@ -51,13 +51,13 @@ function formatRelativeTime(dateStr: string | Date | null | undefined): string {
   const diffMin = Math.floor(diffSec / 60);
   const diffHour = Math.floor(diffMin / 60);
   const diffDay = Math.floor(diffHour / 24);
-  if (diffSec < 60) return "Just now";
-  if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffHour < 24) return `${diffHour}h ago`;
-  if (diffDay < 7) return `${diffDay}d ago`;
-  if (diffDay < 30) return `${Math.floor(diffDay / 7)}w ago`;
-  if (diffDay < 365) return `${Math.floor(diffDay / 30)}mo ago`;
-  return `${Math.floor(diffDay / 365)}y ago`;
+  if (diffSec < 60) return isJaUi ? "たった今" : "Just now";
+  if (diffMin < 60) return isJaUi ? `${diffMin}分前` : `${diffMin}m ago`;
+  if (diffHour < 24) return isJaUi ? `${diffHour}時間前` : `${diffHour}h ago`;
+  if (diffDay < 7) return isJaUi ? `${diffDay}日前` : `${diffDay}d ago`;
+  if (diffDay < 30) return isJaUi ? `${Math.floor(diffDay / 7)}週間前` : `${Math.floor(diffDay / 7)}w ago`;
+  if (diffDay < 365) return isJaUi ? `${Math.floor(diffDay / 30)}か月前` : `${Math.floor(diffDay / 30)}mo ago`;
+  return isJaUi ? `${Math.floor(diffDay / 365)}年前` : `${Math.floor(diffDay / 365)}y ago`;
 }
 
 export default function VideoDetailScreen() {
@@ -79,10 +79,150 @@ export default function VideoDetailScreen() {
   const [workFee, setWorkFee] = useState<"free" | "paid">("free");
   const [workTicketPrice, setWorkTicketPrice] = useState(500);
   const [savingWorkPrice, setSavingWorkPrice] = useState(false);
+  const isJaUi = (user?.preferredLanguage ?? "").toLowerCase().startsWith("ja");
+  const t = isJaUi
+    ? {
+        userFallback: "ユーザー",
+        commentAction: "コメント",
+        editAction: "編集",
+        deleteAction: "削除",
+        purchaseAction: "購入",
+        reportAction: "通報",
+        commentFailedTitle: "エラー",
+        commentFailedBody: "コメントの投稿に失敗しました。",
+        titleRequired: "タイトルを入力してください。",
+        updateFailedTitle: "エラー",
+        updateFailedBody: "投稿の更新に失敗しました。",
+        deletePostTitle: "投稿を削除",
+        deletePostBody: "この投稿を削除してもよろしいですか？",
+        cancel: "キャンセル",
+        delete: "削除",
+        deleteFailedTitle: "エラー",
+        deleteFailedBody: "投稿の削除に失敗しました。",
+        savePricingFailed: "価格の保存に失敗しました",
+        insufficientTicketsTitle: "チケット不足 🎟",
+        insufficientTicketsBody: (price: number) =>
+          `このコンテンツの視聴には${price}🎟が必要です。残高を追加して解除してください。`,
+        buyTickets: "チケットを購入",
+        purchaseFailedTitle: "購入に失敗しました",
+        purchaseFailedBody: "購入に失敗しました。しばらくしてからお試しください。",
+        reportSubmittedTitle: "送信しました",
+        reportSubmittedBody: "通報を受け付けました。確認の上で対応します。",
+        reportFailedTitle: "通報に失敗しました",
+        reportFailedBody: "通報の送信に失敗しました。",
+        openFailedTitle: "開けませんでした",
+        openFailedBody: "YouTubeでこの動画を開けませんでした。",
+        openOnYoutube: "YouTubeで開く",
+        editTitlePlaceholder: "タイトルを編集",
+        edit: "編集",
+        report: "通報",
+        save: "保存",
+        ownerPricingTitle: "動画価格（チケット）",
+        free: "無料",
+        paid: "有料",
+        savePrice: "価格を保存",
+        enterComment: "コメントを入力...",
+        purchase: (price: number) => `購入 · 🎟${price.toLocaleString()}`,
+        views: (count: number) => `${count.toLocaleString()}回視聴`,
+        ownedContent: "このコンテンツは購入済みです",
+        follow: "フォロー",
+        saveLabel: "保存",
+        like: "いいね",
+        share: "共有",
+        aiEditAssistant: "AI編集アシスタント",
+        reportModalTitle: "通報",
+        reportModalSub: (type: "video" | "comment" | undefined) =>
+          `この${type === "video" ? "投稿" : "コメント"}を通報する理由を選択してください。`,
+        reportFlowNote:
+          "送信後はAIモデレーションが内容を確認します。明確な違反は即時に削除され、判断が難しいケースは管理者が確認します。問題なしと判断されたコンテンツは公開されたままになります。",
+        reportSubmit: "送信",
+        nowPlaying: "再生中",
+        leaveModalMessage: "移動中も再生を続けますか？\n下部にミニプレイヤーが表示されます。",
+        stopAndGoBack: "停止して戻る",
+        keepWatching: "視聴を続ける",
+        spam: "スパム",
+        harassment: "嫌がらせ",
+        inappropriate: "不適切なコンテンツ",
+        other: "その他",
+      }
+    : {
+        userFallback: "User",
+        commentAction: "Comment",
+        editAction: "Edit",
+        deleteAction: "Delete",
+        purchaseAction: "Purchase",
+        reportAction: "Report",
+        commentFailedTitle: "Error",
+        commentFailedBody: "Failed to post comment.",
+        titleRequired: "Enter a title.",
+        updateFailedTitle: "Error",
+        updateFailedBody: "Failed to update post.",
+        deletePostTitle: "Delete post",
+        deletePostBody: "Are you sure you want to delete this post?",
+        cancel: "Cancel",
+        delete: "Delete",
+        deleteFailedTitle: "Error",
+        deleteFailedBody: "Failed to delete post.",
+        savePricingFailed: "Could not save pricing",
+        insufficientTicketsTitle: "Insufficient tickets 🎟",
+        insufficientTicketsBody: (price: number) =>
+          `This content costs ${price} 🎟. Top up your balance to unlock it.`,
+        buyTickets: "Buy tickets",
+        purchaseFailedTitle: "Purchase failed",
+        purchaseFailedBody: "Purchase failed. Please try again later.",
+        reportSubmittedTitle: "Submitted",
+        reportSubmittedBody: "Your report has been received and will be reviewed.",
+        reportFailedTitle: "Report failed",
+        reportFailedBody: "Failed to submit report.",
+        openFailedTitle: "Open failed",
+        openFailedBody: "Could not open this video on YouTube.",
+        openOnYoutube: "Open on YouTube",
+        editTitlePlaceholder: "Edit title",
+        edit: "Edit",
+        report: "Report",
+        save: "Save",
+        ownerPricingTitle: "Video pricing (tickets)",
+        free: "Free",
+        paid: "Paid",
+        savePrice: "Save price",
+        enterComment: "Enter a comment...",
+        purchase: (price: number) => `Purchase · 🎟${price.toLocaleString()}`,
+        views: (count: number) => `${count.toLocaleString()} views`,
+        ownedContent: "You own this content",
+        follow: "Follow",
+        saveLabel: "Save",
+        like: "Like",
+        share: "Share",
+        aiEditAssistant: "AI edit assistant",
+        reportModalTitle: "Report",
+        reportModalSub: (type: "video" | "comment" | undefined) =>
+          `Select a reason for reporting this ${type === "video" ? "post" : "comment"}.`,
+        reportFlowNote:
+          "After submission, AI moderation will review the content. Clear violations are removed immediately. Borderline cases are reviewed by an admin. Content found to be compliant remains visible.",
+        reportSubmit: "Submit",
+        nowPlaying: "Now playing",
+        leaveModalMessage: "Keep playing while you navigate?\nA mini player will appear at the bottom.",
+        stopAndGoBack: "Stop and go back",
+        keepWatching: "Keep watching",
+        spam: "Spam",
+        harassment: "Harassment",
+        inappropriate: "Inappropriate content",
+        other: "Other",
+      };
 
-  const isWorkPost = (apiVideo as any)?.postType === "work";
-  const hasWorkVideo = !!(apiVideo as any)?.videoUrl?.trim?.();
+  const REPORT_REASONS: { value: string; label: string }[] = [
+    { value: "spam", label: t.spam },
+    { value: "harassment", label: t.harassment },
+    { value: "inappropriate", label: t.inappropriate },
+    { value: "other", label: t.other },
+  ];
 
+  const isDemo = demo === "1" || demo === "true";
+
+  const { data: apiVideo } = useQuery<any>({
+    queryKey: [`/api/videos/${id}`],
+    enabled: !!id && !isDemo,
+  });
   useEffect(() => {
     if (!apiVideo) return;
     const p = (apiVideo as any).price;
@@ -92,21 +232,9 @@ export default function VideoDetailScreen() {
     } else {
       setWorkFee("free");
     }
-  }, [apiVideo, (apiVideo as any)?.price]);
-
-  const REPORT_REASONS: { value: string; label: string }[] = [
-    { value: "spam", label: "Spam" },
-    { value: "harassment", label: "Harassment" },
-    { value: "inappropriate", label: "Inappropriate content" },
-    { value: "other", label: "Other" },
-  ];
-
-  const isDemo = demo === "1" || demo === "true";
-
-  const { data: apiVideo } = useQuery<any>({
-    queryKey: [`/api/videos/${id}`],
-    enabled: !!id && !isDemo,
-  });
+  }, [apiVideo]);
+  const isWorkPost = (apiVideo as any)?.postType === "work";
+  const hasWorkVideo = !!(apiVideo as any)?.videoUrl?.trim?.();
 
   const fallbackVideo = isDemo ? VIDEOS.find((v) => v.id === String(id)) ?? VIDEOS[0] : undefined;
   const video = (apiVideo as any) ?? fallbackVideo;
@@ -160,13 +288,13 @@ export default function VideoDetailScreen() {
     const text = commentText.trim();
     if (!text) return;
     if (isDemo) return;
-    if (!requireAuth("Comment")) return;
+    if (!requireAuth(t.commentAction)) return;
     try {
       await apiRequest("POST", `/api/videos/${id}/comments`, { text });
       setCommentText("");
       await qc.invalidateQueries({ queryKey: [`/api/videos/${id}/comments`] });
     } catch {
-      Alert.alert("Error", "Failed to post comment.");
+      Alert.alert(t.commentFailedTitle, t.commentFailedBody);
     }
   }
 
@@ -179,26 +307,26 @@ export default function VideoDetailScreen() {
   async function saveEdit() {
     const newTitle = editTitle.trim();
     if (!newTitle) {
-      Alert.alert("", "Enter a title.");
+      Alert.alert("", t.titleRequired);
       return;
     }
-    if (!requireAuth("Edit")) return;
+    if (!requireAuth(t.editAction)) return;
     try {
       await apiRequest("PATCH", `/api/videos/${id}`, { title: newTitle });
       await qc.invalidateQueries({ queryKey: [`/api/videos/${id}`] });
       await qc.invalidateQueries({ queryKey: ["/api/videos/my"] });
       setEditMode(false);
     } catch {
-      Alert.alert("Error", "Failed to update post.");
+      Alert.alert(t.updateFailedTitle, t.updateFailedBody);
     }
   }
 
   function confirmDelete() {
     if (!isOwner) return;
-    Alert.alert("Delete post", "Are you sure you want to delete this post?", [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(t.deletePostTitle, t.deletePostBody, [
+      { text: t.cancel, style: "cancel" },
       {
-        text: "Delete",
+        text: t.delete,
         style: "destructive",
         onPress: deletePost,
       },
@@ -207,7 +335,7 @@ export default function VideoDetailScreen() {
 
   async function deletePost() {
     if (isDemo) return;
-    if (!requireAuth("Delete")) return;
+    if (!requireAuth(t.deleteAction)) return;
     try {
       await apiRequest("DELETE", `/api/videos/${id}`);
       await qc.invalidateQueries({ queryKey: ["/api/videos"] });
@@ -215,13 +343,13 @@ export default function VideoDetailScreen() {
       await qc.invalidateQueries({ queryKey: ["/api/videos/ranked"] });
       router.replace("/profile");
     } catch {
-      Alert.alert("Error", "Failed to delete post.");
+      Alert.alert(t.deleteFailedTitle, t.deleteFailedBody);
     }
   }
 
   async function saveWorkVideoPricing() {
     if (!apiVideo || isDemo || !isOwner) return;
-    if (!requireAuth("Edit")) return;
+    if (!requireAuth(t.editAction)) return;
     setSavingWorkPrice(true);
     try {
       const nextPrice = workFee === "paid" ? workTicketPrice : null;
@@ -231,14 +359,14 @@ export default function VideoDetailScreen() {
       await qc.invalidateQueries({ queryKey: ["/api/videos"] });
       await qc.invalidateQueries({ queryKey: ["/api/videos/ranked"] });
     } catch (e: unknown) {
-      alertError("Could not save pricing", e);
+      alertError(t.savePricingFailed, e);
     } finally {
       setSavingWorkPrice(false);
     }
   }
 
   async function handlePurchase() {
-    if (!requireAuth("Purchase")) return;
+    if (!requireAuth(t.purchaseAction)) return;
     if (isDemo) return;
     if (!video?.price) return;
     setPurchaseLoading(true);
@@ -256,13 +384,13 @@ export default function VideoDetailScreen() {
     } catch (err: any) {
       if (err?.status === 402) {
         alertConfirm(
-          "Insufficient tickets 🎟",
-          `This content costs ${video.price} 🎟. Top up your balance to unlock it.`,
+          t.insufficientTicketsTitle,
+          t.insufficientTicketsBody(video.price),
           () => router.push("/tickets"),
-          { confirmLabel: "Buy tickets" },
+          { confirmLabel: t.buyTickets },
         );
       } else {
-        alertError("Purchase failed", err, "Purchase failed. Please try again later.");
+        alertError(t.purchaseFailedTitle, err, t.purchaseFailedBody);
       }
     } finally {
       setPurchaseLoading(false);
@@ -270,7 +398,7 @@ export default function VideoDetailScreen() {
   }
 
   function openReportModal(type: "video" | "comment", contentId: number) {
-    if (!requireAuth("Report")) return;
+    if (!requireAuth(t.reportAction)) return;
     if (isDemo) return;
     setReportTarget({ type, id: contentId });
     setReportReason("");
@@ -286,12 +414,12 @@ export default function VideoDetailScreen() {
         reason: reportReason,
       });
       setReportTarget(null);
-      alertMessage("Submitted", "Your report has been received and will be reviewed.");
+      alertMessage(t.reportSubmittedTitle, t.reportSubmittedBody);
       await qc.invalidateQueries({ queryKey: [`/api/videos/${id}`] });
       await qc.invalidateQueries({ queryKey: [`/api/videos/${id}/comments`] });
       await qc.invalidateQueries({ queryKey: ["/api/videos"] });
     } catch (e: any) {
-      alertError("Report failed", e, "Failed to submit report.");
+      alertError(t.reportFailedTitle, e, t.reportFailedBody);
     } finally {
       setReportSubmitting(false);
     }
@@ -359,14 +487,14 @@ export default function VideoDetailScreen() {
                 onPress={async () => {
                   const canOpen = await Linking.canOpenURL(youtubeWatchUrl);
                   if (!canOpen) {
-                    Alert.alert("Open failed", "Could not open this video on YouTube.");
+                    Alert.alert(t.openFailedTitle, t.openFailedBody);
                     return;
                   }
                   await Linking.openURL(youtubeWatchUrl);
                 }}
               >
                 <Ionicons name="logo-youtube" size={14} color="#fff" />
-                <Text style={styles.youtubeOpenBtnText}>Open on YouTube</Text>
+                <Text style={styles.youtubeOpenBtnText}>{t.openOnYoutube}</Text>
               </Pressable>
             )}
             {/* Show lock only for paid content */}
@@ -394,7 +522,7 @@ export default function VideoDetailScreen() {
                 style={styles.editTitleInput}
                 value={editTitle}
                 onChangeText={setEditTitle}
-                placeholder="Edit title"
+                placeholder={t.editTitlePlaceholder}
                 placeholderTextColor={C.textMuted}
               />
             ) : (
@@ -404,27 +532,27 @@ export default function VideoDetailScreen() {
               <View style={styles.postActionsRow}>
                 <Pressable style={styles.postActionBtn} onPress={openEdit}>
                   <Ionicons name="pencil-outline" size={14} color={C.textSec} />
-                  <Text style={styles.postActionText}>Edit</Text>
+                  <Text style={styles.postActionText}>{t.edit}</Text>
                 </Pressable>
                 <Pressable style={styles.postActionBtn} onPress={confirmDelete}>
                   <Ionicons name="trash-outline" size={14} color={C.textSec} />
-                  <Text style={styles.postActionText}>Delete</Text>
+                  <Text style={styles.postActionText}>{t.delete}</Text>
                 </Pressable>
               </View>
             )}
             {!editMode && apiVideo && (
               <Pressable style={styles.postActionBtn} onPress={() => openReportModal("video", Number(id))}>
                 <Ionicons name="flag-outline" size={14} color={C.textSec} />
-                <Text style={styles.postActionText}>Report</Text>
+                <Text style={styles.postActionText}>{t.report}</Text>
               </Pressable>
             )}
             {editMode && (
               <View style={styles.postActionsRow}>
                 <Pressable style={styles.postActionBtn} onPress={() => setEditMode(false)}>
-                  <Text style={styles.postActionText}>Cancel</Text>
+                  <Text style={styles.postActionText}>{t.cancel}</Text>
                 </Pressable>
                 <Pressable style={styles.postActionBtn} onPress={saveEdit}>
-                  <Text style={[styles.postActionText, { color: C.accent }]}>Save</Text>
+                  <Text style={[styles.postActionText, { color: C.accent }]}>{t.save}</Text>
                 </Pressable>
               </View>
             )}
@@ -435,14 +563,14 @@ export default function VideoDetailScreen() {
 
           {isOwner && isWorkPost && hasWorkVideo && !isDemo ? (
             <View style={styles.ownerPricingBox}>
-              <Text style={styles.ownerPricingTitle}>Video pricing (tickets)</Text>
+              <Text style={styles.ownerPricingTitle}>{t.ownerPricingTitle}</Text>
               <View style={styles.ownerPricingRow}>
                 <Pressable
                   style={[styles.ownerPricingChip, workFee === "free" && styles.ownerPricingChipOn]}
                   onPress={() => setWorkFee("free")}
                 >
                   <Text style={[styles.ownerPricingChipText, workFee === "free" && styles.ownerPricingChipTextOn]}>
-                    Free
+                    {t.free}
                   </Text>
                 </Pressable>
                 <Pressable
@@ -450,7 +578,7 @@ export default function VideoDetailScreen() {
                   onPress={() => setWorkFee("paid")}
                 >
                   <Text style={[styles.ownerPricingChipText, workFee === "paid" && styles.ownerPricingChipTextOn]}>
-                    Paid
+                    {t.paid}
                   </Text>
                 </Pressable>
               </View>
@@ -477,7 +605,7 @@ export default function VideoDetailScreen() {
                 {savingWorkPrice ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <Text style={styles.ownerPricingSaveText}>Save price</Text>
+                  <Text style={styles.ownerPricingSaveText}>{t.savePrice}</Text>
                 )}
               </Pressable>
             </View>
@@ -498,7 +626,7 @@ export default function VideoDetailScreen() {
                   />
                 </Pressable>
                 <View style={styles.commentContent}>
-                  <Text style={styles.commentName}>{c.displayName ?? "User"}</Text>
+                  <Text style={styles.commentName}>{c.displayName ?? t.userFallback}</Text>
                   <Text style={styles.commentText} numberOfLines={1}>
                     {c.text}
                   </Text>
@@ -514,7 +642,7 @@ export default function VideoDetailScreen() {
             <View style={styles.commentInputRow}>
               <TextInput
                 style={styles.commentInput}
-                placeholder="Enter a comment..."
+                placeholder={t.enterComment}
                 placeholderTextColor={C.textMuted}
                 value={commentText}
                 onChangeText={setCommentText}
@@ -545,18 +673,18 @@ export default function VideoDetailScreen() {
                       : <>
                           <Ionicons name="cart" size={16} color="#fff" />
                           <Text style={styles.purchaseBtnText}>
-                            Purchase · 🎟{video.price.toLocaleString()}
+                            {t.purchase(video.price)}
                           </Text>
                         </>
                     }
                   </Pressable>
                   <Text style={styles.viewCount}>
-                    {video.views.toLocaleString()} views
+                    {t.views(video.views)}
                   </Text>
                 </>
               ) : (
                 <Text style={styles.viewCount}>
-                  You own this content
+                  {t.ownedContent}
                 </Text>
               )}
             </View>
@@ -575,7 +703,7 @@ export default function VideoDetailScreen() {
               <Text style={styles.creatorCommunity}>{video.community}</Text>
             </View>
             <Pressable style={styles.followBtn} onPress={(e) => e.stopPropagation()}>
-              <Text style={styles.followBtnText}>Follow</Text>
+              <Text style={styles.followBtnText}>{t.follow}</Text>
             </Pressable>
           </Pressable>
         </View>
@@ -584,12 +712,15 @@ export default function VideoDetailScreen() {
         <View style={styles.metaRow}>
           <View style={styles.metaItem}>
             <Ionicons name="eye-outline" size={16} color={C.textSec} />
-            <Text style={styles.metaText}>{video.views.toLocaleString()} views</Text>
+            <Text style={styles.metaText}>{t.views(video.views)}</Text>
           </View>
           <View style={styles.metaItem}>
             <Ionicons name="time-outline" size={16} color={C.textSec} />
             <Text style={styles.metaText}>
-              {(video as any).timeAgo ?? (video as any).time_ago ?? formatRelativeTime((video as any).createdAt ?? (video as any).created_at) ?? "Just now"}
+              {(video as any).timeAgo ??
+                (video as any).time_ago ??
+                formatRelativeTime((video as any).createdAt ?? (video as any).created_at, isJaUi) ??
+                (isJaUi ? "たった今" : "Just now")}
             </Text>
           </View>
           {user && !isDemo && (
@@ -607,17 +738,17 @@ export default function VideoDetailScreen() {
                 color={isSaved ? C.accent : C.textSec}
               />
               <Text style={[styles.metaText, isSaved && { color: C.accent }]}>
-                Save
+                {t.saveLabel}
               </Text>
             </Pressable>
           )}
           <View style={styles.metaItem}>
             <Ionicons name="heart-outline" size={16} color={C.textSec} />
-            <Text style={styles.metaText}>Like</Text>
+            <Text style={styles.metaText}>{t.like}</Text>
           </View>
           <View style={styles.metaItem}>
             <Ionicons name="share-outline" size={16} color={C.textSec} />
-            <Text style={styles.metaText}>Share</Text>
+            <Text style={styles.metaText}>{t.share}</Text>
           </View>
         </View>
 
@@ -635,7 +766,7 @@ export default function VideoDetailScreen() {
             }}
           >
             <Ionicons name="sparkles" size={15} color="#000" />
-            <Text style={styles.aiEditBtnText}>AI edit assistant</Text>
+            <Text style={styles.aiEditBtnText}>{t.aiEditAssistant}</Text>
             <Ionicons name="chevron-forward" size={13} color="#000" style={{ marginLeft: "auto" }} />
           </Pressable>
         )}
@@ -647,12 +778,12 @@ export default function VideoDetailScreen() {
       <Modal visible={!!reportTarget} transparent animationType="fade">
         <Pressable style={styles.reportModalOverlay} onPress={() => !reportSubmitting && setReportTarget(null)}>
           <Pressable style={styles.reportModalBox} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.reportModalTitle}>Report</Text>
+            <Text style={styles.reportModalTitle}>{t.reportModalTitle}</Text>
             <Text style={styles.reportModalSub}>
-              Select a reason for reporting this {reportTarget?.type === "video" ? "post" : "comment"}.
+              {t.reportModalSub(reportTarget?.type)}
             </Text>
             <Text style={styles.reportFlowNote}>
-              After submission, AI moderation will review the content. Clear violations are removed immediately. Borderline cases are reviewed by an admin. Content found to be compliant remains visible.
+              {t.reportFlowNote}
             </Text>
             {REPORT_REASONS.map((r) => (
               <Pressable
@@ -665,14 +796,14 @@ export default function VideoDetailScreen() {
             ))}
             <View style={styles.reportModalActions}>
               <Pressable style={styles.reportCancelBtn} onPress={() => setReportTarget(null)} disabled={reportSubmitting}>
-                <Text style={styles.reportCancelText}>Cancel</Text>
+                <Text style={styles.reportCancelText}>{t.cancel}</Text>
               </Pressable>
               <Pressable
                 style={[styles.reportSubmitBtn, (!reportReason || reportSubmitting) && styles.reportSubmitBtnDisabled]}
                 disabled={!reportReason || reportSubmitting}
                 onPress={submitReport}
               >
-                {reportSubmitting ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.reportSubmitText}>Submit</Text>}
+                {reportSubmitting ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.reportSubmitText}>{t.reportSubmit}</Text>}
               </Pressable>
             </View>
           </Pressable>
@@ -686,11 +817,8 @@ export default function VideoDetailScreen() {
             <View style={styles.leaveModalIconRow}>
               <Ionicons name="play-circle" size={28} color={C.accent} />
             </View>
-            <Text style={styles.leaveModalTitle}>Now playing</Text>
-            <Text style={styles.leaveModalMsg}>
-              Keep playing while you navigate?{"\n"}
-              A mini player will appear at the bottom.
-            </Text>
+            <Text style={styles.leaveModalTitle}>{t.nowPlaying}</Text>
+            <Text style={styles.leaveModalMsg}>{t.leaveModalMessage}</Text>
             <View style={styles.leaveModalBtns}>
               <Pressable
                 style={[styles.leaveModalBtn, styles.leaveModalBtnSecondary]}
@@ -700,7 +828,7 @@ export default function VideoDetailScreen() {
                   router.back();
                 }}
               >
-                <Text style={styles.leaveModalBtnSecondaryText}>Stop and go back</Text>
+                <Text style={styles.leaveModalBtnSecondaryText}>{t.stopAndGoBack}</Text>
               </Pressable>
               <Pressable
                 style={[styles.leaveModalBtn, styles.leaveModalBtnPrimary]}
@@ -710,7 +838,7 @@ export default function VideoDetailScreen() {
                 }}
               >
                 <Ionicons name="play" size={14} color={C.bg} />
-                <Text style={styles.leaveModalBtnPrimaryText}>Keep watching</Text>
+                <Text style={styles.leaveModalBtnPrimaryText}>{t.keepWatching}</Text>
               </Pressable>
             </View>
           </View>

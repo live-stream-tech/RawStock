@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { View, Text, ActivityIndicator, Platform } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useAuth } from "@/lib/auth";
+import { fontBodyForUi } from "@/constants/fonts";
 import { consumeLoginRedirectPath } from "@/lib/login-return";
 import { C } from "@/constants/colors";
 
@@ -15,6 +16,10 @@ import { C } from "@/constants/colors";
 export default function PopupFallbackScreen() {
   const { token } = useLocalSearchParams<{ token?: string }>();
   const { loginWithToken } = useAuth();
+  const isJaUi =
+    Platform.OS === "web" &&
+    typeof navigator !== "undefined" &&
+    (navigator.language ?? "en").toLowerCase().startsWith("ja");
 
   useEffect(() => {
     if (Platform.OS !== "web" || !token) {
@@ -59,7 +64,7 @@ export default function PopupFallbackScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: C.bg, justifyContent: "center", alignItems: "center", gap: 16 }}>
       <ActivityIndicator color={C.accent} size="large" />
-      <Text style={{ color: C.textMuted, fontSize: 13, fontFamily: "Courier Prime" }}>Signing in...</Text>
+      <Text style={{ color: C.textMuted, fontSize: 13, fontFamily: fontBodyForUi(isJaUi) }}>Signing in...</Text>
     </View>
   );
 }

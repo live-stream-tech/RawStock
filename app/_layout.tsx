@@ -66,6 +66,29 @@ function TokenHandler({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function normalizeWebUiLanguage(raw: string | null | undefined): "ja" | "en" {
+  return (raw ?? "").toLowerCase().startsWith("ja") ? "ja" : "en";
+}
+
+function WebUiLanguageBridge() {
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+    const browserLang =
+      typeof navigator !== "undefined" ? normalizeWebUiLanguage(navigator.language) : "en";
+    const nextLang = user?.preferredLanguage ? normalizeWebUiLanguage(user.preferredLanguage) : browserLang;
+    const root = document.documentElement;
+    root.lang = nextLang;
+    root.dataset.uiLang = nextLang;
+    if (document.body) {
+      document.body.dataset.uiLang = nextLang;
+    }
+  }, [user?.preferredLanguage]);
+
+  return null;
+}
+
 /** Normalize Expo Router pathnames for matching (web + native). */
 function normalizePathname(raw: string): string {
   if (!raw) return "/";
@@ -287,6 +310,7 @@ export default function RootLayout() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
+          <WebUiLanguageBridge />
           <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#050505" }}>
             <WebRootWidth>
             <KeyboardProvider>

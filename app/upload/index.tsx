@@ -36,14 +36,17 @@ const UPLOAD_LOG = "[upload]";
 const IMAGE_COMPRESS_MAX_WIDTH = 1920;
 const IMAGE_COMPRESS_QUALITY = 0.75;
 
-function toUploadErrorMessage(err: unknown, maxMb: number): string {
+function toUploadErrorMessage(err: unknown, maxMb: number, isJaUi: boolean): string {
   if (err instanceof ApiError && err.status === 413) {
-    return `File is too large. Please use a file under ${maxMb}MB.`;
+    return isJaUi
+      ? `ファイルサイズが大きすぎます。${maxMb}MB未満のファイルを選択してください。`
+      : `File is too large. Please use a file under ${maxMb}MB.`;
   }
   if (err instanceof Error && /under\s+\d+mb/i.test(err.message)) {
-    return err.message;
+    return isJaUi ? `ファイルは${maxMb}MB未満にしてください。` : err.message;
   }
-  return err instanceof Error ? err.message : "Upload failed. Try a smaller file and retry.";
+  if (err instanceof Error) return err.message;
+  return isJaUi ? "アップロードに失敗しました。より小さいファイルで再試行してください。" : "Upload failed. Try a smaller file and retry.";
 }
 
 async function compressImageForUpload(uri: string): Promise<string> {
@@ -62,6 +65,90 @@ export default function DailyUploadScreen() {
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
   const queryClient = useQueryClient();
   const { user, requireAuth } = useAuth();
+  const isJaUi = (user?.preferredLanguage ?? "").toLowerCase().startsWith("ja");
+  const t = isJaUi
+    ? {
+        publishAction: "公開",
+        postAction: "投稿",
+        missingTextTitle: "本文が未入力です",
+        missingTextBody: "テキストを入力してください。",
+        selectCommunityTitle: "コミュニティを選択",
+        selectCommunityBody: "コミュニティを選択してください。",
+        confirmationTitle: "確認が必要です",
+        confirmationBody: "投稿前にガイドラインと権利確認に同意してください。",
+        uploadFailedTitle: "アップロードに失敗しました",
+        uploadImageFailedBody: "画像をアップロードできませんでした。通信状況を確認して、もう一度お試しください。",
+        uploadVideoFailedBody: "動画をアップロードできませんでした。通信状況を確認して、もう一度お試しください。",
+        signInRequiredTitle: "サインインが必要です",
+        signInRequiredBody: "投稿するにはサインインが必要です。",
+        postFailedTitle: "投稿に失敗しました",
+        errorTitle: "エラー",
+        permissionRequired: "権限が必要です",
+        allowPhotos: "写真を選択するにはメディアライブラリへのアクセスを許可してください。",
+        allowVideos: "動画を選択するにはメディアライブラリへのアクセスを許可してください。",
+        maxItems: `1回の投稿に追加できるのは最大${DAILY_POST_LIMITS.maxMediaCount}件までです。`,
+        maxOneVideo: "1回の投稿に追加できる動画は1本までです。",
+        fileLimit: `ファイルは${DAILY_POST_LIMITS.maxFileSizeMB}MB未満にしてください。`,
+        videoDurationLimit: `動画は${DAILY_POST_LIMITS.maxVideoDurationSec}秒以内にしてください。`,
+        headerTitle: "日常投稿",
+        switchToWork: "作品投稿",
+        limitHint: `最大${DAILY_POST_LIMITS.maxMediaCount}件、動画は1本まで（最長${DAILY_POST_LIMITS.maxVideoDurationSec}秒 / 最大${DAILY_POST_LIMITS.maxFileSizeMB}MB）。`,
+        placeholder: "いま何をシェアしますか？",
+        postTo: "投稿先",
+        myPageOnly: "マイページのみ",
+        community: "コミュニティ",
+        publishFromMyPosts: "マイ投稿から公開",
+        linkedConcert: (concertId: number) => `連携コンサート: ${concertId}`,
+        guidelinesPrefix: "コミュニティガイドラインを読み、遵守することに同意します。",
+        guidelinesLink: "コミュニティガイドライン",
+        rightsConfirm: "このコンテンツを投稿する権利を有しており、他者の知的財産権やプライバシーを侵害しないことを確認します。",
+        postButton: "投稿する",
+        publishModalTitle: "公開する投稿を選択",
+        cancel: "キャンセル",
+        addPhoto: "写真を追加",
+        addVideo: "動画を追加",
+      }
+    : {
+        publishAction: "publish",
+        postAction: "post",
+        missingTextTitle: "Missing text",
+        missingTextBody: "Enter text.",
+        selectCommunityTitle: "Select community",
+        selectCommunityBody: "Select a community.",
+        confirmationTitle: "Confirmation required",
+        confirmationBody: "Review and accept Guidelines and rights before posting.",
+        uploadFailedTitle: "Upload failed",
+        uploadImageFailedBody: "Could not upload the image. Check your connection and try again.",
+        uploadVideoFailedBody: "Could not upload the video. Check your connection and try again.",
+        signInRequiredTitle: "Sign in required",
+        signInRequiredBody: "Sign in is required to post.",
+        postFailedTitle: "Post failed",
+        errorTitle: "Error",
+        permissionRequired: "Permission required",
+        allowPhotos: "Allow media library access to select photos.",
+        allowVideos: "Allow media library access to select videos.",
+        maxItems: `You can add up to ${DAILY_POST_LIMITS.maxMediaCount} items per post.`,
+        maxOneVideo: "Only one video can be added per post.",
+        fileLimit: `File must be under ${DAILY_POST_LIMITS.maxFileSizeMB}MB`,
+        videoDurationLimit: `Video must be under ${DAILY_POST_LIMITS.maxVideoDurationSec} seconds`,
+        headerTitle: "Daily Post",
+        switchToWork: "Post Work",
+        limitHint: `Up to ${DAILY_POST_LIMITS.maxMediaCount} items, with at most 1 video (${DAILY_POST_LIMITS.maxVideoDurationSec}s max / ${DAILY_POST_LIMITS.maxFileSizeMB}MB max).`,
+        placeholder: "What do you want to share now?",
+        postTo: "Post To",
+        myPageOnly: "My Page Only",
+        community: "Community",
+        publishFromMyPosts: "Publish from My posts",
+        linkedConcert: (concertId: number) => `Linked Concert: ${concertId}`,
+        guidelinesPrefix: "I have read and agree to follow the",
+        guidelinesLink: "Community Guidelines",
+        rightsConfirm: "I confirm I have the rights to post this content and it does not infringe others' intellectual property or privacy.",
+        postButton: "Post",
+        publishModalTitle: "Select a post to publish",
+        cancel: "Cancel",
+        addPhoto: "Add Photo",
+        addVideo: "Add Video",
+      };
 
   const { data: communities = [] } = useQuery<Community[]>({ queryKey: ["/api/communities"] });
   const { concertId: rawConcertId } = useLocalSearchParams<{ concertId?: string }>();
@@ -94,11 +181,11 @@ export default function DailyUploadScreen() {
 
   function addMedia(id: string, uri: string, type: "image" | "video", size?: number, durationSec?: number) {
     if (mediaItems.length >= DAILY_POST_LIMITS.maxMediaCount) {
-      Alert.alert("", `You can add up to ${DAILY_POST_LIMITS.maxMediaCount} items per post.`);
+      Alert.alert("", t.maxItems);
       return;
     }
     if (type === "video" && videoCount >= DAILY_POST_LIMITS.maxVideoCount) {
-      Alert.alert("", "Only one video can be added per post.");
+      Alert.alert("", t.maxOneVideo);
       return;
     }
     setMediaItems((prev) => [...prev, { id, uri, type, size, durationSec }]);
@@ -137,7 +224,7 @@ export default function DailyUploadScreen() {
         const file = e.target.files?.[0] as File | undefined;
         if (!file) return;
         if (file.size > DAILY_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
-          Alert.alert("", `File must be under ${DAILY_POST_LIMITS.maxFileSizeMB}MB`);
+          Alert.alert("", t.fileLimit);
           return;
         }
         addMedia(`img-${Date.now()}`, URL.createObjectURL(file), "image", file.size);
@@ -149,7 +236,7 @@ export default function DailyUploadScreen() {
     }
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permission required", "Allow media library access to select photos.");
+      Alert.alert(t.permissionRequired, t.allowPhotos);
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -167,7 +254,7 @@ export default function DailyUploadScreen() {
         const url = await uploadFileToR2Native(compressedUri, name, mime);
         addMedia(`img-${Date.now()}`, url, "image");
       } catch (err: unknown) {
-        Alert.alert("Error", toUploadErrorMessage(err, DAILY_POST_LIMITS.maxFileSizeMB));
+        Alert.alert(t.errorTitle, toUploadErrorMessage(err, DAILY_POST_LIMITS.maxFileSizeMB, isJaUi));
       } finally {
         setUploading(false);
       }
@@ -185,7 +272,7 @@ export default function DailyUploadScreen() {
         const file = e.target.files?.[0] as File | undefined;
         if (!file) return;
         if (file.size > DAILY_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
-          Alert.alert("", `File must be under ${DAILY_POST_LIMITS.maxFileSizeMB}MB`);
+          Alert.alert("", t.fileLimit);
           return;
         }
         addMedia(`vid-${Date.now()}`, URL.createObjectURL(file), "video", file.size);
@@ -197,7 +284,7 @@ export default function DailyUploadScreen() {
     }
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permission required", "Allow media library access to select videos.");
+      Alert.alert(t.permissionRequired, t.allowVideos);
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -209,12 +296,12 @@ export default function DailyUploadScreen() {
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
       if ((asset.fileSize ?? 0) > DAILY_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
-        Alert.alert("", `File must be under ${DAILY_POST_LIMITS.maxFileSizeMB}MB`);
+        Alert.alert("", t.fileLimit);
         return;
       }
       const durationSec = asset.duration ? Math.ceil(asset.duration / 1000) : undefined;
       if (durationSec && durationSec > DAILY_POST_LIMITS.maxVideoDurationSec) {
-        Alert.alert("", `Video must be under ${DAILY_POST_LIMITS.maxVideoDurationSec} seconds`);
+        Alert.alert("", t.videoDurationLimit);
         return;
       }
       try {
@@ -224,7 +311,7 @@ export default function DailyUploadScreen() {
         const url = await uploadFileToR2Native(asset.uri, name, mime);
         addMedia(`vid-${Date.now()}`, url, "video", undefined, durationSec);
       } catch (err: unknown) {
-        Alert.alert("Error", toUploadErrorMessage(err, DAILY_POST_LIMITS.maxFileSizeMB));
+        Alert.alert(t.errorTitle, toUploadErrorMessage(err, DAILY_POST_LIMITS.maxFileSizeMB, isJaUi));
       } finally {
         setUploading(false);
       }
@@ -235,7 +322,7 @@ export default function DailyUploadScreen() {
     if (Platform.OS === "ios") {
       ActionSheetIOS.showActionSheetWithOptions(
         {
-          options: ["Cancel", "Add Photo", canAddVideo ? "Add Video" : "Add Video (1 max)"],
+          options: [t.cancel, t.addPhoto, t.addVideo],
           cancelButtonIndex: 0,
         },
         (i) => {
@@ -277,7 +364,7 @@ export default function DailyUploadScreen() {
   }
 
   async function handlePublishFromExisting(videoId: number) {
-    if (!requireAuth("publish") || !selectedCommunity) return;
+    if (!requireAuth(t.publishAction) || !selectedCommunity) return;
     setUploading(true);
     try {
       await apiRequest("PATCH", `/api/videos/${videoId}`, {
@@ -290,7 +377,7 @@ export default function DailyUploadScreen() {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       queryClient.invalidateQueries({ queryKey: ["/api/videos/my"] });
     } catch (err: any) {
-      alertError("Publish failed", err);
+      alertError(t.postFailedTitle, err);
     } finally {
       setUploading(false);
     }
@@ -299,16 +386,16 @@ export default function DailyUploadScreen() {
   async function handleSubmit() {
     const title = text.trim().slice(0, DAILY_POST_LIMITS.maxTextLength);
     if (!title.length) {
-      alertMessage("Missing text", "Enter text.");
+      alertMessage(t.missingTextTitle, t.missingTextBody);
       return;
     }
     if (postTarget === "community" && !selectedCommunity) {
-      alertMessage("Select community", "Select a community.");
+      alertMessage(t.selectCommunityTitle, t.selectCommunityBody);
       return;
     }
-    if (!requireAuth("post")) return;
+    if (!requireAuth(t.postAction)) return;
     if (!agreeGuidelines || !agreeRights) {
-      alertMessage("Confirmation required", "Review and accept Guidelines and rights before posting.");
+      alertMessage(t.confirmationTitle, t.confirmationBody);
       return;
     }
     const action = beginActionTelemetry({
@@ -340,7 +427,7 @@ export default function DailyUploadScreen() {
         } catch (e: any) {
           action.fail(e, { stage: "thumbnail_upload" });
           console.error(`${UPLOAD_LOG} step:daily_submit_thumbnail_upload_failed`, e);
-          alertError("Upload failed", e, "Could not upload the image. Check your connection and try again.");
+          alertError(t.uploadFailedTitle, e, t.uploadImageFailedBody);
           return;
         }
       }
@@ -355,7 +442,7 @@ export default function DailyUploadScreen() {
         } catch (e: any) {
           action.fail(e, { stage: "video_upload" });
           console.error(`${UPLOAD_LOG} step:daily_submit_video_failed`, e);
-          alertError("Upload failed", e, "Could not upload the video. Check your connection and try again.");
+          alertError(t.uploadFailedTitle, e, t.uploadVideoFailedBody);
           return;
         }
       }
@@ -392,10 +479,10 @@ export default function DailyUploadScreen() {
     } catch (err: any) {
       action.fail(err, { stage: "create_post" });
       if (err instanceof ApiError && err.status === 401) {
-        alertMessage("Sign in required", "Sign in is required to post.");
+        alertMessage(t.signInRequiredTitle, t.signInRequiredBody);
         return;
       }
-      alertError("Post failed", err);
+      alertError(t.postFailedTitle, err);
     } finally {
       setUploading(false);
     }
@@ -409,16 +496,14 @@ export default function DailyUploadScreen() {
         <Pressable style={styles.backBtn} onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={24} color={C.text} />
         </Pressable>
-        <Text style={styles.headerTitle}>Daily Post</Text>
+        <Text style={styles.headerTitle}>{t.headerTitle}</Text>
         <Pressable style={styles.workLink} onPress={() => router.push("/upload/work")}>
-          <Text style={styles.workLinkText}>Post Work</Text>
+          <Text style={styles.workLinkText}>{t.switchToWork}</Text>
         </Pressable>
       </View>
 
       <View style={styles.limitHint}>
-        <Text style={styles.limitHintText}>
-          Up to {DAILY_POST_LIMITS.maxMediaCount} items, with at most 1 video ({DAILY_POST_LIMITS.maxVideoDurationSec}s max / {DAILY_POST_LIMITS.maxFileSizeMB}MB max).
-        </Text>
+        <Text style={styles.limitHintText}>{t.limitHint}</Text>
       </View>
 
       <ScrollView
@@ -451,7 +536,7 @@ export default function DailyUploadScreen() {
         <View style={styles.inputWrap}>
           <TextInput
             style={styles.mainInput}
-            placeholder="What do you want to share now?"
+            placeholder={t.placeholder}
             placeholderTextColor={C.textMuted}
             value={text}
             onChangeText={setText}
@@ -462,25 +547,25 @@ export default function DailyUploadScreen() {
         </View>
 
         <View style={styles.optionsSection}>
-          <Text style={styles.optionsLabel}>Post To</Text>
+          <Text style={styles.optionsLabel}>{t.postTo}</Text>
           <View style={styles.postTargetRow}>
             <Pressable
               style={[styles.postTargetBtn, postTarget === "my_page_only" && styles.postTargetBtnActive]}
               onPress={() => setPostTarget("my_page_only")}
             >
-              <Text style={[styles.postTargetText, postTarget === "my_page_only" && styles.postTargetTextActive]}>My Page Only</Text>
+              <Text style={[styles.postTargetText, postTarget === "my_page_only" && styles.postTargetTextActive]}>{t.myPageOnly}</Text>
             </Pressable>
             <Pressable
               style={[styles.postTargetBtn, postTarget === "community" && styles.postTargetBtnActive]}
               onPress={() => setPostTarget("community")}
             >
-              <Text style={[styles.postTargetText, postTarget === "community" && styles.postTargetTextActive]}>Community</Text>
+              <Text style={[styles.postTargetText, postTarget === "community" && styles.postTargetTextActive]}>{t.community}</Text>
             </Pressable>
           </View>
 
           {postTarget === "community" && (
             <>
-              <Text style={styles.optionsLabel}>Community</Text>
+              <Text style={styles.optionsLabel}>{t.community}</Text>
               <HorizontalScroll contentContainerStyle={styles.communityRow} showArrows={false}>
                 {communities.map((c) => (
                   <Pressable
@@ -497,7 +582,7 @@ export default function DailyUploadScreen() {
               {myPageOnlyVideos.length > 0 && (
                 <Pressable style={styles.publishFromBtn} onPress={() => setShowPublishFromModal(true)}>
                   <Ionicons name="document-outline" size={16} color={C.accent} />
-                  <Text style={styles.publishFromText}>Publish from My posts</Text>
+                  <Text style={styles.publishFromText}>{t.publishFromMyPosts}</Text>
                 </Pressable>
               )}
             </>
@@ -506,7 +591,7 @@ export default function DailyUploadScreen() {
           {concertId && (
             <View style={[styles.communityChip, { marginTop: 8 }]}>
               <Ionicons name="musical-notes-outline" size={14} color={C.textMuted} />
-              <Text style={styles.communityChipText}>Linked Concert: {concertId}</Text>
+              <Text style={styles.communityChipText}>{t.linkedConcert(concertId)}</Text>
             </View>
           )}
 
@@ -516,21 +601,17 @@ export default function DailyUploadScreen() {
                 {agreeGuidelines ? <Ionicons name="checkmark" size={14} color="#050505" /> : null}
               </View>
               <Text style={styles.complianceText}>
-                I have read and agree to follow the{" "}
+                {t.guidelinesPrefix}{" "}
                 <Text style={styles.complianceLink} onPress={() => router.push("/community-guidelines")}>
-                  Community Guidelines
+                  {t.guidelinesLink}
                 </Text>
-                .
               </Text>
             </Pressable>
             <Pressable style={styles.complianceRow} onPress={() => setAgreeRights((v) => !v)}>
               <View style={[styles.complianceCheckOuter, agreeRights && styles.complianceCheckOuterOn]}>
                 {agreeRights ? <Ionicons name="checkmark" size={14} color="#050505" /> : null}
               </View>
-              <Text style={styles.complianceText}>
-                I confirm I have the rights to post this content and it does not infringe others&apos; intellectual
-                property or privacy.
-              </Text>
+              <Text style={styles.complianceText}>{t.rightsConfirm}</Text>
             </Pressable>
           </View>
         </View>
@@ -548,7 +629,7 @@ export default function DailyUploadScreen() {
           {uploading ? (
             <ActivityIndicator size="small" color="#fff" />
           ) : (
-            <Text style={styles.submitBtnText}>Post</Text>
+            <Text style={styles.submitBtnText}>{t.postButton}</Text>
           )}
         </Pressable>
       </View>
@@ -556,7 +637,7 @@ export default function DailyUploadScreen() {
       <Modal visible={showPublishFromModal} transparent animationType="slide">
         <Pressable style={styles.menuOverlay} onPress={() => !uploading && setShowPublishFromModal(false)}>
           <Pressable style={styles.publishFromModal} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.publishFromModalTitle}>Select a post to publish</Text>
+            <Text style={styles.publishFromModalTitle}>{t.publishModalTitle}</Text>
             <ScrollView style={webScrollStyle(styles.publishFromList)} showsVerticalScrollIndicator={scrollShowsVertical}>
               {myPageOnlyVideos.map((v) => (
                 <Pressable
@@ -572,7 +653,7 @@ export default function DailyUploadScreen() {
               ))}
             </ScrollView>
             <Pressable style={styles.publishFromCancel} onPress={() => setShowPublishFromModal(false)} disabled={uploading}>
-              <Text style={styles.publishFromCancelText}>Cancel</Text>
+              <Text style={styles.publishFromCancelText}>{t.cancel}</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -583,14 +664,14 @@ export default function DailyUploadScreen() {
           <View style={styles.menuCard}>
             <Pressable style={styles.menuItem} onPress={pickPhoto} disabled={!canAddMore}>
               <Ionicons name="image-outline" size={22} color={C.text} />
-              <Text style={styles.menuItemText}>Add Photo</Text>
+              <Text style={styles.menuItemText}>{t.addPhoto}</Text>
             </Pressable>
             <Pressable style={styles.menuItem} onPress={pickVideo} disabled={!canAddMore || !canAddVideo}>
               <Ionicons name="videocam-outline" size={22} color={C.text} />
-              <Text style={styles.menuItemText}>Add Video (1 max)</Text>
+              <Text style={styles.menuItemText}>{t.addVideo}</Text>
             </Pressable>
             <Pressable style={[styles.menuItem, styles.menuItemCancel]} onPress={() => setAddMenuVisible(false)}>
-              <Text style={styles.menuItemCancelText}>Cancel</Text>
+              <Text style={styles.menuItemCancelText}>{t.cancel}</Text>
             </Pressable>
           </View>
         </Pressable>

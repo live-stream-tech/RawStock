@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { View, Text, ActivityIndicator, Platform } from "react-native";
 import { router } from "expo-router";
 import { useAuth } from "@/lib/auth";
+import { fontBodyForUi } from "@/constants/fonts";
 import { consumeLoginRedirectPath } from "@/lib/login-return";
 import { C } from "@/constants/colors";
 
@@ -15,6 +16,10 @@ import { C } from "@/constants/colors";
 export default function AuthCallbackScreen() {
   const { loginWithToken } = useAuth();
   const [status, setStatus] = useState<"loading" | "error">("loading");
+  const isJaUi =
+    Platform.OS === "web" &&
+    typeof navigator !== "undefined" &&
+    (navigator.language ?? "en").toLowerCase().startsWith("ja");
 
   useEffect(() => {
     if (Platform.OS !== "web" || typeof window === "undefined") {
@@ -89,7 +94,7 @@ export default function AuthCallbackScreen() {
         style={{
           color: status === "error" ? "#ef4444" : C.textMuted,
           fontSize: 13,
-          fontFamily: "Courier Prime",
+          fontFamily: fontBodyForUi(isJaUi),
         }}
       >
         {status === "error" ? "Login failed. Please try again..." : "Signing in..."}

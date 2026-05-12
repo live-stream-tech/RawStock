@@ -31,7 +31,75 @@ export default function TicketsScreen() {
 
   const [ticketInput, setTicketInput] = useState(String(MIN_PURCHASE_TICKETS));
   const [loadingCheckout, setLoadingCheckout] = useState(false);
-  const { requireAuth } = useAuth();
+  const { user, requireAuth } = useAuth();
+  const isJaUi = (user?.preferredLanguage ?? "").toLowerCase().startsWith("ja");
+  const t = isJaUi
+    ? {
+        headerTitle: "チケットショップ",
+        ticketShopAction: "チケットショップ",
+        purchaseAddedTitle: "チケットを追加しました",
+        purchaseAddedBody: (granted: number) =>
+          granted > 0
+            ? `${granted.toLocaleString()}枚のチケットが残高に追加されました。`
+            : "チケット残高が更新されました。",
+        verifyFailedTitle: "チケット確認に失敗しました",
+        verifyFailedBody: "チケット購入をまだ確認できませんでした。",
+        minimumPurchaseTitle: "最低購入数",
+        minimumPurchaseBody: `最低でも${MIN_PURCHASE_TICKETS.toLocaleString()}枚のチケットを購入してください。`,
+        checkoutFailedTitle: "決済の開始に失敗しました",
+        checkoutFailedBody: "決済を開始できませんでした。もう一度お試しください。",
+        balanceLabel: "現在のチケット残高",
+        balanceValue: (balance: number) => `${balance.toLocaleString()} 枚`,
+        balanceNote: "1チケット = $0.01 USD ・ セッションやギフトなどに使えます",
+        howToUse: "チケットの使い方",
+        jukeboxRequest: "Jukeboxリクエスト",
+        sendGift: "ギフトを送る",
+        varies: "内容により変動",
+        buyTickets: "チケットを購入",
+        inputLabel: "購入するチケット数",
+        inputPlaceholder: "チケット数を入力",
+        purchaseHint: `1チケット = $${PRICE_PER_TICKET_USD.toFixed(2)} USD`,
+        totalPrice: (price: number) => `合計: $${price.toFixed(2)} USD`,
+        minPurchaseError: `最低購入数は${MIN_PURCHASE_TICKETS.toLocaleString()}枚です（$${(
+          MIN_PURCHASE_TICKETS * PRICE_PER_TICKET_USD
+        ).toFixed(2)}）。`,
+        checkoutButton: "Stripe Checkoutへ進む",
+        secureNote: "決済はStripeにより安全に処理されます。カード情報はRawStockに保存されません。",
+        creatorNote: "セッションで使われたチケット売上の90%をクリエイターが受け取ります。",
+      }
+    : {
+        headerTitle: "Ticket Shop",
+        ticketShopAction: "Ticket Shop",
+        purchaseAddedTitle: "Tickets Added! 🎟",
+        purchaseAddedBody: (granted: number) =>
+          granted > 0
+            ? `${granted.toLocaleString()} tickets have been added to your balance.`
+            : "Your ticket balance has been updated.",
+        verifyFailedTitle: "Ticket verification failed",
+        verifyFailedBody: "We could not confirm your ticket purchase yet.",
+        minimumPurchaseTitle: "Minimum purchase",
+        minimumPurchaseBody: `Please purchase at least ${MIN_PURCHASE_TICKETS.toLocaleString()} tickets.`,
+        checkoutFailedTitle: "Checkout failed",
+        checkoutFailedBody: "Failed to start checkout. Please try again.",
+        balanceLabel: "Your Ticket Balance",
+        balanceValue: (balance: number) => `${balance.toLocaleString()} Tickets`,
+        balanceNote: "1 Ticket = $0.01 USD · Spend on sessions, gifts & more",
+        howToUse: "How to use tickets",
+        jukeboxRequest: "Jukebox Request",
+        sendGift: "Send a Gift",
+        varies: "Varies",
+        buyTickets: "Buy tickets",
+        inputLabel: "Number of tickets to buy",
+        inputPlaceholder: "Enter tickets",
+        purchaseHint: `1 Ticket = $${PRICE_PER_TICKET_USD.toFixed(2)} USD`,
+        totalPrice: (price: number) => `Total: $${price.toFixed(2)} USD`,
+        minPurchaseError: `Minimum purchase is ${MIN_PURCHASE_TICKETS.toLocaleString()} tickets ($${(
+          MIN_PURCHASE_TICKETS * PRICE_PER_TICKET_USD
+        ).toFixed(2)}).`,
+        checkoutButton: "Continue to Stripe Checkout",
+        secureNote: "Payments are securely processed by Stripe. Card data is never stored on RawStock.",
+        creatorNote: "Creators receive 90% of ticket revenue spent in sessions.",
+      };
 
   const { data: balanceData, refetch: refetchBalance } = useQuery<{ balance: number }>({
     queryKey: ["/api/tickets/balance"],
@@ -48,18 +116,16 @@ export default function TicketsScreen() {
           await refetchBalance();
           const granted = parseInt(ticketsParam ?? "0") || 0;
           alertMessage(
-            "Tickets Added! 🎟",
-            granted > 0
-              ? `${granted.toLocaleString()} tickets have been added to your balance.`
-              : "Your ticket balance has been updated.",
+            t.purchaseAddedTitle,
+            t.purchaseAddedBody(granted),
           );
         }
       } catch (err) {
         console.error("[Tickets] verify purchase error:", err);
-        alertError("Ticket verification failed", err, "We could not confirm your ticket purchase yet.");
+        alertError(t.verifyFailedTitle, err, t.verifyFailedBody);
       }
     },
-    [refetchBalance, ticketsParam],
+    [refetchBalance, t, ticketsParam],
   );
 
   useEffect(() => {
@@ -73,12 +139,9 @@ export default function TicketsScreen() {
   const totalPriceUSD = parsedTickets * PRICE_PER_TICKET_USD;
 
   async function handleBuyTickets() {
-    if (!requireAuth("Ticket Shop")) return;
+    if (!requireAuth(t.ticketShopAction)) return;
     if (!isValidPurchase) {
-      alertMessage(
-        "Minimum purchase",
-        `Please purchase at least ${MIN_PURCHASE_TICKETS.toLocaleString()} tickets.`,
-      );
+      alertMessage(t.minimumPurchaseTitle, t.minimumPurchaseBody);
       return;
     }
     setLoadingCheckout(true);
@@ -97,7 +160,7 @@ export default function TicketsScreen() {
       }
     } catch (err) {
       console.error("[Tickets] checkout error:", err);
-      alertError("Checkout failed", err, "Failed to start checkout. Please try again.");
+      alertError(t.checkoutFailedTitle, err, t.checkoutFailedBody);
     } finally {
       setLoadingCheckout(false);
     }
@@ -110,7 +173,7 @@ export default function TicketsScreen() {
         <Pressable style={styles.backBtn} onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={22} color={C.text} />
         </Pressable>
-        <Text style={styles.headerTitle}>Ticket Shop</Text>
+        <Text style={styles.headerTitle}>{t.headerTitle}</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -120,23 +183,23 @@ export default function TicketsScreen() {
           <View style={styles.balanceTop}>
             <Text style={styles.balanceEmoji}>🎟</Text>
             <View style={{ flex: 1 }}>
-              <Text style={styles.balanceLabel}>Your Ticket Balance</Text>
-              <Text style={styles.balanceValue}>{ticketBalance.toLocaleString()} Tickets</Text>
+              <Text style={styles.balanceLabel}>{t.balanceLabel}</Text>
+              <Text style={styles.balanceValue}>{t.balanceValue(ticketBalance)}</Text>
             </View>
           </View>
           <View style={styles.balanceFooter}>
             <Ionicons name="information-circle-outline" size={13} color={C.textMuted} />
-            <Text style={styles.balanceNote}>1 Ticket = $0.01 USD · Spend on sessions, gifts & more</Text>
+            <Text style={styles.balanceNote}>{t.balanceNote}</Text>
           </View>
         </View>
 
         {/* What are tickets */}
         <View style={styles.infoSection}>
-          <Text style={styles.sectionTitle}>How to use tickets</Text>
+          <Text style={styles.sectionTitle}>{t.howToUse}</Text>
           <View style={styles.infoGrid}>
             {[
-              { icon: "musical-notes-outline" as const, label: "Jukebox Request", value: "10 🎟" },
-              { icon: "gift-outline" as const, label: "Send a Gift", value: "Varies" },
+              { icon: "musical-notes-outline" as const, label: t.jukeboxRequest, value: "10 🎟" },
+              { icon: "gift-outline" as const, label: t.sendGift, value: t.varies },
             ].map((item) => (
               <View key={item.label} style={styles.infoCard}>
                 <Ionicons name={item.icon} size={22} color={C.accent} />
@@ -148,25 +211,21 @@ export default function TicketsScreen() {
         </View>
 
         {/* Ticket amount input */}
-        <Text style={[styles.sectionTitle, { marginHorizontal: 16, marginTop: 8 }]}>Buy tickets</Text>
+        <Text style={[styles.sectionTitle, { marginHorizontal: 16, marginTop: 8 }]}>{t.buyTickets}</Text>
         <View style={styles.purchaseCard}>
-          <Text style={styles.inputLabel}>Number of tickets to buy</Text>
+          <Text style={styles.inputLabel}>{t.inputLabel}</Text>
           <TextInput
             style={styles.ticketInput}
             value={ticketInput}
             onChangeText={(text) => setTicketInput(text.replace(/[^0-9]/g, ""))}
             keyboardType="number-pad"
-            placeholder="Enter tickets"
+            placeholder={t.inputPlaceholder}
             placeholderTextColor={C.textMuted}
           />
-          <Text style={styles.purchaseHint}>
-            1 Ticket = ${PRICE_PER_TICKET_USD.toFixed(2)} USD
-          </Text>
-          <Text style={styles.totalPrice}>Total: ${totalPriceUSD.toFixed(2)} USD</Text>
+          <Text style={styles.purchaseHint}>{t.purchaseHint}</Text>
+          <Text style={styles.totalPrice}>{t.totalPrice(totalPriceUSD)}</Text>
           {!isValidPurchase && (
-            <Text style={styles.minPurchaseError}>
-              Minimum purchase is {MIN_PURCHASE_TICKETS.toLocaleString()} tickets (${(MIN_PURCHASE_TICKETS * PRICE_PER_TICKET_USD).toFixed(2)}).
-            </Text>
+            <Text style={styles.minPurchaseError}>{t.minPurchaseError}</Text>
           )}
           <Pressable
             style={[styles.checkoutBtn, (!isValidPurchase || loadingCheckout) && styles.checkoutBtnDisabled]}
@@ -176,7 +235,7 @@ export default function TicketsScreen() {
             {loadingCheckout ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : (
-              <Text style={styles.checkoutBtnText}>Continue to Stripe Checkout</Text>
+              <Text style={styles.checkoutBtnText}>{t.checkoutButton}</Text>
             )}
           </Pressable>
         </View>
@@ -184,13 +243,13 @@ export default function TicketsScreen() {
         {/* Secure note */}
         <View style={styles.secureNote}>
           <Ionicons name="lock-closed-outline" size={14} color={C.textMuted} />
-          <Text style={styles.secureText}>Payments are securely processed by Stripe. Card data is never stored on RawStock.</Text>
+          <Text style={styles.secureText}>{t.secureNote}</Text>
         </View>
 
         {/* Creator note */}
         <View style={styles.creatorNote}>
           <Ionicons name="heart-outline" size={14} color={C.accent} />
-          <Text style={styles.creatorText}>Creators receive 90% of ticket revenue spent in sessions.</Text>
+          <Text style={styles.creatorText}>{t.creatorNote}</Text>
         </View>
       </ScrollView>
     </View>

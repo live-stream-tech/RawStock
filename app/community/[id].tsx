@@ -207,16 +207,16 @@ function fmtSecs(s: number): string {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
-function formatThreadDate(dateStr: string): string {
+function formatThreadDate(dateStr: string, isJaUi = false): string {
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return "";
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
   const diffDay = Math.floor(diffMs / 86400000);
-  if (diffDay === 0) return "Today";
-  if (diffDay === 1) return "Yesterday";
-  if (diffDay < 7) return `${diffDay}d ago`;
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  if (diffDay === 0) return isJaUi ? "今日" : "Today";
+  if (diffDay === 1) return isJaUi ? "昨日" : "Yesterday";
+  if (diffDay < 7) return isJaUi ? `${diffDay}日前` : `${diffDay}d ago`;
+  return d.toLocaleDateString(isJaUi ? "ja-JP" : "en-US", { month: "short", day: "numeric" });
 }
 
 function EmbeddedJukebox({ communityId }: { communityId: number }) {
@@ -425,6 +425,53 @@ function PollsTab({
   const [newOptions, setNewOptions] = useState(["", ""]);
   const [creating, setCreating] = useState(false);
   const [votingPollId, setVotingPollId] = useState<number | null>(null);
+  const { user } = useAuth();
+  const isJaUi = (user?.preferredLanguage ?? "").toLowerCase().startsWith("ja");
+  const ui = isJaUi
+    ? {
+        missingQuestionTitle: "質問が未入力です",
+        missingQuestionBody: "質問を入力してください",
+        missingOptionsTitle: "選択肢が不足しています",
+        missingOptionsBody: "少なくとも2つの選択肢を入力してください",
+        createPollAction: "アンケート作成",
+        voteAction: "投票",
+        createPollFailedTitle: "アンケートを作成できませんでした",
+        createPollFailedBody: "アンケートの作成に失敗しました",
+        voteFailedTitle: "投票できませんでした",
+        voteFailedBody: "投票に失敗しました",
+        pollsTitle: "アンケート",
+        newPollTitle: "新しいアンケート",
+        noPollsYet: "まだアンケートはありません",
+        questionLabel: "質問",
+        questionPlaceholder: "アンケートの質問",
+        optionsLabel: "選択肢",
+        optionPlaceholder: (index: number) => `選択肢 ${index + 1}`,
+        addOption: "選択肢を追加",
+        create: "作成",
+        newPollA11y: "新しいアンケート",
+      }
+    : {
+        missingQuestionTitle: "Missing question",
+        missingQuestionBody: "Please enter a question",
+        missingOptionsTitle: "Missing options",
+        missingOptionsBody: "Please enter at least 2 options",
+        createPollAction: "Create Poll",
+        voteAction: "Vote",
+        createPollFailedTitle: "Could not create poll",
+        createPollFailedBody: "Failed to create poll",
+        voteFailedTitle: "Could not vote",
+        voteFailedBody: "Failed to vote",
+        pollsTitle: "Polls",
+        newPollTitle: "New Poll",
+        noPollsYet: "No polls yet",
+        questionLabel: "Question",
+        questionPlaceholder: "Poll question",
+        optionsLabel: "Options",
+        optionPlaceholder: (index: number) => `Option ${index + 1}`,
+        addOption: "Add option",
+        create: "Create",
+        newPollA11y: "New poll",
+      };
 
   const { data: polls = [], refetch } = useQuery<PollItem[]>({
     queryKey: [`/api/communities/${communityId}/polls`],
@@ -435,14 +482,14 @@ function PollsTab({
     const q = newQuestion.trim();
     const opts = newOptions.map((o) => o.trim()).filter(Boolean);
     if (!q) {
-      alertMessage("Missing question", "Please enter a question");
+      alertMessage(ui.missingQuestionTitle, ui.missingQuestionBody);
       return;
     }
     if (opts.length < 2) {
-      alertMessage("Missing options", "Please enter at least 2 options");
+      alertMessage(ui.missingOptionsTitle, ui.missingOptionsBody);
       return;
     }
-    if (!requireAuth("Create Poll")) return;
+    if (!requireAuth(ui.createPollAction)) return;
     setCreating(true);
     try {
       await apiRequest("POST", `/api/communities/${communityId}/polls`, { question: q, options: opts });
@@ -451,20 +498,20 @@ function PollsTab({
       setNewOptions(["", ""]);
       refetch();
     } catch (e: any) {
-      alertError("Could not create poll", e, "Failed to create poll");
+      alertError(ui.createPollFailedTitle, e, ui.createPollFailedBody);
     } finally {
       setCreating(false);
     }
   }
 
   async function handleVote(pollId: number, optionId: number) {
-    if (!requireAuth("Vote")) return;
+    if (!requireAuth(ui.voteAction)) return;
     setVotingPollId(pollId);
     try {
       await apiRequest("POST", `/api/communities/${communityId}/polls/${pollId}/vote`, { optionId });
       refetch();
     } catch (e: any) {
-      alertError("Could not vote", e, "Failed to vote");
+      alertError(ui.voteFailedTitle, e, ui.voteFailedBody);
     } finally {
       setVotingPollId(null);
     }
@@ -475,22 +522,22 @@ function PollsTab({
   return (
     <View style={styles.boardList}>
       <View style={styles.boardHeader}>
-        <Text style={styles.boardSectionTitle}>Polls</Text>
+        <Text style={styles.boardSectionTitle}>{ui.pollsTitle}</Text>
         {following && (
           <Pressable
             style={styles.createThreadBtn}
             onPress={() => {
-              if (!requireAuth("Create Poll")) return;
+              if (!requireAuth(ui.createPollAction)) return;
               setShowCreate(true);
             }}
-            accessibilityLabel="New poll"
+            accessibilityLabel={ui.newPollA11y}
           >
             <Ionicons name="add" size={22} color="#000" />
           </Pressable>
         )}
       </View>
       {polls.length === 0 ? (
-        <Text style={styles.boardEmpty}>No polls yet</Text>
+        <Text style={styles.boardEmpty}>{ui.noPollsYet}</Text>
       ) : (
         polls.map((poll) => {
           const total = totalVotes(poll);
@@ -524,25 +571,25 @@ function PollsTab({
           <View style={styles.requestModalSheet}>
             <View style={styles.requestModalHandle} />
             <View style={styles.requestModalHeader}>
-              <Text style={styles.requestModalTitle}>New Poll</Text>
+              <Text style={styles.requestModalTitle}>{ui.newPollTitle}</Text>
               <Pressable onPress={() => setShowCreate(false)} hitSlop={8}>
                 <Ionicons name="close" size={24} color={C.textMuted} />
               </Pressable>
             </View>
-            <Text style={styles.requestLabel}>Question</Text>
+            <Text style={styles.requestLabel}>{ui.questionLabel}</Text>
             <TextInput
               style={styles.requestInput}
-              placeholder="Poll question"
+              placeholder={ui.questionPlaceholder}
               placeholderTextColor={C.textMuted}
               value={newQuestion}
               onChangeText={setNewQuestion}
             />
-            <Text style={styles.requestLabel}>Options</Text>
+            <Text style={styles.requestLabel}>{ui.optionsLabel}</Text>
             {newOptions.map((o, i) => (
               <TextInput
                 key={i}
                 style={[styles.requestInput, { marginBottom: 8 }]}
-                placeholder={`Option ${i + 1}`}
+                placeholder={ui.optionPlaceholder(i)}
                 placeholderTextColor={C.textMuted}
                 value={o}
                 onChangeText={(t) => {
@@ -558,7 +605,7 @@ function PollsTab({
                 onPress={() => setNewOptions([...newOptions, ""])}
               >
                 <Ionicons name="add" size={16} color={C.accent} />
-                <Text style={styles.pollAddOptionText}>Add option</Text>
+                <Text style={styles.pollAddOptionText}>{ui.addOption}</Text>
               </Pressable>
             )}
             <Pressable
@@ -566,7 +613,7 @@ function PollsTab({
               onPress={handleCreate}
               disabled={creating}
             >
-              {creating ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.requestSubmitBtnText}>Create</Text>}
+              {creating ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.requestSubmitBtnText}>{ui.create}</Text>}
             </Pressable>
           </View>
         </View>
@@ -600,6 +647,35 @@ function ThreadDetailContent({
   const [replyText, setReplyText] = useState("");
   const [posting, setPosting] = useState(false);
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const isJaUi = (user?.preferredLanguage ?? "").toLowerCase().startsWith("ja");
+  const ui = isJaUi
+    ? {
+        replyAction: "返信",
+        replyFailedTitle: "返信できませんでした",
+        replyFailedBody: "返信の投稿に失敗しました",
+        deleteThreadTitle: "スレッドを削除",
+        deleteThreadBody: "このスレッドを削除しますか？",
+        deleteReplyTitle: "返信を削除",
+        deleteReplyBody: "この返信を削除しますか？",
+        cancel: "キャンセル",
+        delete: "削除",
+        watchShortClip: "ショート動画を見る",
+        writeReplyPlaceholder: "返信を書く...",
+      }
+    : {
+        replyAction: "Reply",
+        replyFailedTitle: "Could not post reply",
+        replyFailedBody: "Failed to post reply",
+        deleteThreadTitle: "Delete Thread",
+        deleteThreadBody: "Delete this thread?",
+        deleteReplyTitle: "Delete",
+        deleteReplyBody: "Delete this reply?",
+        cancel: "Cancel",
+        delete: "Delete",
+        watchShortClip: "Watch short clip",
+        writeReplyPlaceholder: "Write a reply...",
+      };
   const parsedThreadBody = parseThreadBody(thread.body);
   const shortVideoThumb =
     parsedThreadBody.shortVideoUrl != null
@@ -609,7 +685,7 @@ function ThreadDetailContent({
   async function handlePostReply() {
     const text = replyText.trim();
     if (!text) return;
-    if (!requireAuth("Reply")) return;
+    if (!requireAuth(ui.replyAction)) return;
     setPosting(true);
     try {
       await apiRequest("POST", `/api/communities/${communityId}/threads/${thread.id}/posts`, { body: text });
@@ -618,7 +694,7 @@ function ThreadDetailContent({
       qc.invalidateQueries({ queryKey: [`/api/communities/${communityId}/threads/${thread.id}`] });
       onReply();
     } catch (e: any) {
-      alertError("Could not post reply", e, "Failed to post reply");
+      alertError(ui.replyFailedTitle, e, ui.replyFailedBody);
     } finally {
       setPosting(false);
     }
@@ -638,9 +714,9 @@ function ThreadDetailContent({
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
               {canModerate && (
                 <Pressable
-                  onPress={() => Alert.alert("Delete Thread", "Delete this thread?", [
-                    { text: "Cancel", style: "cancel" },
-                    { text: "Delete", style: "destructive", onPress: onDeleteThread },
+                  onPress={() => Alert.alert(ui.deleteThreadTitle, ui.deleteThreadBody, [
+                    { text: ui.cancel, style: "cancel" },
+                    { text: ui.delete, style: "destructive", onPress: onDeleteThread },
                   ])}
                 >
                   <Ionicons name="trash-outline" size={20} color={C.textMuted} />
@@ -655,7 +731,7 @@ function ThreadDetailContent({
             <Pressable onPress={() => navigateToUserOrLiverProfile({ userId: thread.authorUserId })} hitSlop={4}>
               <Text style={styles.threadDetailAuthor}>{thread.author.displayName}</Text>
             </Pressable>
-            <Text style={styles.threadDetailDate}> · {formatThreadDate(thread.createdAt)}</Text>
+            <Text style={styles.threadDetailDate}> · {formatThreadDate(thread.createdAt, isJaUi)}</Text>
           </View>
           {parsedThreadBody.flyerImageUrl ? (
             <EventFlyerImage
@@ -678,7 +754,7 @@ function ThreadDetailContent({
               )}
               <View style={styles.threadDetailShortOverlay} pointerEvents="none">
                 <Ionicons name="play-circle" size={48} color="#ffffffee" />
-                <Text style={styles.threadDetailShortLabel}>Watch short clip</Text>
+                <Text style={styles.threadDetailShortLabel}>{ui.watchShortClip}</Text>
               </View>
             </Pressable>
           ) : null}
@@ -704,16 +780,16 @@ function ThreadDetailContent({
             </Pressable>
             <View style={styles.threadPostBody}>
               <Text style={styles.threadPostAuthor}>{p.author.displayName}</Text>
-              <Text style={styles.threadPostDate}>{formatThreadDate(p.createdAt)}</Text>
+              <Text style={styles.threadPostDate}>{formatThreadDate(p.createdAt, isJaUi)}</Text>
               <Text style={styles.threadPostText}>{p.body}</Text>
               {p.body ? <TranslateButton text={p.body} compact /> : null}
             </View>
             {canModerate && (
               <Pressable
                 style={styles.threadPostDelete}
-                onPress={() => Alert.alert("Delete", "Delete this reply?", [
-                  { text: "Cancel", style: "cancel" },
-                  { text: "Delete", style: "destructive", onPress: () => onDeletePost(p.id) },
+                onPress={() => Alert.alert(ui.deleteReplyTitle, ui.deleteReplyBody, [
+                  { text: ui.cancel, style: "cancel" },
+                  { text: ui.delete, style: "destructive", onPress: () => onDeletePost(p.id) },
                 ])}
               >
                 <Ionicons name="trash-outline" size={16} color={C.textMuted} />
@@ -725,7 +801,7 @@ function ThreadDetailContent({
       <View style={styles.threadReplyRow}>
         <TextInput
           style={styles.threadReplyInput}
-          placeholder="Write a reply..."
+          placeholder={ui.writeReplyPlaceholder}
           placeholderTextColor={C.textMuted}
           value={replyText}
           onChangeText={setReplyText}
@@ -762,6 +838,220 @@ export default function CommunityDetailScreen() {
   const [activeTab, setActiveTab] = useState<Tab>("Board");
   const [following, setFollowing] = useState(false);
   const { user, requireAuth } = useAuth();
+  const isJaUi = (user?.preferredLanguage ?? "").toLowerCase().startsWith("ja");
+  const ui = isJaUi
+    ? {
+        invalidCommunity: "無効なコミュニティです",
+        communityNotFound: "コミュニティが見つかりません",
+        goBack: "戻る",
+        viewAllMembers: "メンバー一覧を見る",
+        rankingHint: "コミュニティ一覧はランキングタブで見られます。",
+        eventBoard: "イベント掲示板",
+        videoRanking: "動画ランキング",
+        boardTabLabel: "コミュニティチャット",
+        latestTab: "最新",
+        creatorsTab: "クリエイター",
+        rankingTab: "ランキング",
+        request: "依頼",
+        pinned: "固定",
+        shortClip: "ショート動画",
+        replies: (count: number) => (count === 1 ? "1件の返信" : `${count}件の返信`),
+        officialUpdatesTitle: "公式のお知らせとフィードバック",
+        officialUpdatesSub:
+          "新しいお知らせにはイベント画像のスクリーンショットを使い、要望はフィードバックボックスから送ってください。",
+        createFeedback: "フィードバック作成",
+        openFeedbackBox: "フィードバック入力を開く",
+        sendFeedback: "フィードバックを送る",
+        announcementsFeedback: "お知らせとフィードバック",
+        threadsTitle: "スレッド",
+        boardStaffHint: "運営は ＋ から投稿できます（参加不要）。",
+        noThreadsYet: "まだスレッドがありません。最初の投稿をしてみましょう。",
+        staffTitle: "管理者とモデレーター",
+        edit: "編集",
+        adReview: "広告レビュー",
+        adminPanel: "管理パネル",
+        admin: "管理者",
+        moderator: "モデレーター",
+        deleteFailedTitle: "エラー",
+        deleteFailedBody: "削除に失敗しました",
+        feedbackBox: "フィードバックボックス",
+        newAnnouncement: "新しいお知らせ",
+        newThread: "新しいスレッド",
+        feedbackTitlePlaceholder: "タイトル（任意）",
+        announcementTitlePlaceholder: "タイトル 例: 4/20 live @ venue",
+        threadTitlePlaceholder: "スレッドタイトル",
+        feedbackBodyPlaceholder: "要望、アイデア、問題点を共有してください。",
+        announcementBodyPlaceholder: "任意: 日付: …、会場: …、チケット: https://…",
+        threadBodyPlaceholder: "本文（任意）",
+        flyerQualityHint:
+          "イベント画像のスクリーンショットだけを添付してください。本文には Date:, City:, Venue:, Lineup:, Tickets: などを明記し、チケットや地図のリンクを貼ってください。",
+        remove: "削除",
+        submitFeedback: "フィードバックを送信",
+        postAnnouncement: "お知らせを投稿",
+        createThread: "スレッドを作成",
+        missingTitleTitle: "タイトルが未入力です",
+        missingTitleBody: "タイトルを入力してください",
+        missingFeedbackTitle: "フィードバックが未入力です",
+        missingFeedbackBody: "フィードバック内容を入力してください",
+        screenshotRequiredTitle: "スクリーンショットが必要です",
+        screenshotRequiredBody:
+          "お知らせにはイベントのスクリーンショットが必要です。チケットアプリ、カレンダー、ポスターなどを追加してください。",
+        createThreadFailedTitle: "スレッドを作成できませんでした",
+        createThreadFailedBody: "スレッドの作成に失敗しました",
+        manageStaff: "スタッフ管理",
+        saveStaffFailedTitle: "スタッフを保存できませんでした",
+        saveStaffFailedBody: "保存に失敗しました",
+        screenshotLabel: "スクリーンショット",
+        screenshotUnderLimit: "スクリーンショットは15MB未満にしてください",
+        imageVerifyFailed: "画像を確認できませんでした。",
+        uploadFailedTitle: "アップロードに失敗しました",
+        permissionRequiredTitle: "権限が必要です",
+        photosPermissionBody: "スクリーンショットをアップロードするには写真へのアクセスを許可してください。",
+        cameraPermissionBody:
+          "印刷物を撮影する場合はカメラへのアクセスを許可してください。スクリーンショットを使う場合は写真から追加してください。",
+        comingSoonTitle: "近日対応",
+        comingSoonBody: "no-confidence motion 機能は近日公開予定です。",
+        submit: "送信",
+        requestSentTitle: "送信しました",
+        requestSentBody: "依頼を送信しました！",
+        requestFailedTitle: "依頼に失敗しました",
+        requestFailedBody: "依頼の送信に失敗しました。時間をおいて再度お試しください。",
+        requestEditorTitle: (name: string) => `${name} に依頼`,
+        requestTitleLabel: "依頼タイトル",
+        requestTitlePlaceholder: "例: 毎週の配信ハイライト編集",
+        descriptionLabel: "説明",
+        requestDescriptionPlaceholder: "スタイル、長さ、トーン、参考リンクなどを書いてください。",
+        pricingModel: "料金モデル",
+        perMinute: "分単価",
+        revenueShare: "レベニューシェア",
+        targetBudget: "目標予算 (🎟 / 分)",
+        targetRevShare: "希望レベニューシェア (%)",
+        ticketHint: `1 Ticket = $${PRICE_PER_TICKET_USD.toFixed(2)} USD（Ticket Shop と同じ）`,
+        budgetPlaceholderPerMinute: "例: 150",
+        budgetPlaceholderRevenueShare: "例: 40",
+        deadline: "締切",
+        deadlinePlaceholder: "例: 3月末までに初稿",
+        sending: "送信中...",
+        sendRequest: "依頼を送る",
+        adminModeratorsTitle: "管理者とモデレーター",
+        staffModalHint: "メンバーから選択してください。コミュニティをフォローしているユーザーが表示されます。",
+        noMembersYet: "まだメンバーがいません",
+        noMembersYetSub: "コミュニティをフォローしたメンバーがここに表示されます",
+        adminSingle: "管理者（1名）",
+        moderatorsMultiple: "モデレーター（複数可）",
+        uploadScreenshotFile: "スクリーンショットをアップロード",
+        uploading: "アップロード中...",
+        fromPhotos: "写真から選ぶ",
+        takePhoto: "写真を撮る",
+        deliveryDays: (days: number) => `納期: ${days}日`,
+        tbd: "要相談",
+      }
+    : {
+        invalidCommunity: "Invalid community",
+        communityNotFound: "Community not found",
+        goBack: "Go back",
+        viewAllMembers: "View all members",
+        rankingHint: "Community list is available in the Ranking tab.",
+        eventBoard: "Event board",
+        videoRanking: "Video Ranking",
+        boardTabLabel: "Community Chat",
+        latestTab: "Latest",
+        creatorsTab: "Creators",
+        rankingTab: "Ranking",
+        request: "Request",
+        pinned: "Pinned",
+        shortClip: "Short clip",
+        replies: (count: number) => (count === 1 ? "1 reply" : `${count} replies`),
+        officialUpdatesTitle: "Official updates and feedback",
+        officialUpdatesSub:
+          "New announcements use an event screenshot, and requests should be sent through the feedback box.",
+        createFeedback: "Create feedback",
+        openFeedbackBox: "Open feedback box",
+        sendFeedback: "Send feedback",
+        announcementsFeedback: "Announcements & Feedback",
+        threadsTitle: "Threads",
+        boardStaffHint: "Staff: tap ＋ to compose (join not required).",
+        noThreadsYet: "No threads yet. Start the conversation.",
+        staffTitle: "Admin & moderators",
+        edit: "Edit",
+        adReview: "Ad Review",
+        adminPanel: "Admin Panel",
+        admin: "Admin",
+        moderator: "Moderator",
+        deleteFailedTitle: "Error",
+        deleteFailedBody: "Failed to delete",
+        feedbackBox: "Feedback Box",
+        newAnnouncement: "New announcement",
+        newThread: "New thread",
+        feedbackTitlePlaceholder: "Title (optional)",
+        announcementTitlePlaceholder: "Title — e.g. Apr 20 live @ venue",
+        threadTitlePlaceholder: "Thread title",
+        feedbackBodyPlaceholder: "Share your request, idea, or issue.",
+        announcementBodyPlaceholder: "Optional: Date: …, Venue: …, Tickets: https://…",
+        threadBodyPlaceholder: "Body (optional)",
+        flyerQualityHint:
+          "Use the image buttons for an event screenshot only. In the text box, add lines like Date:, City:, Venue:, Lineup:, Tickets: and paste ticket or map links.",
+        remove: "Remove",
+        submitFeedback: "Submit feedback",
+        postAnnouncement: "Post announcement",
+        createThread: "Create thread",
+        missingTitleTitle: "Missing title",
+        missingTitleBody: "Please enter a title",
+        missingFeedbackTitle: "Missing feedback",
+        missingFeedbackBody: "Please enter your feedback",
+        screenshotRequiredTitle: "Screenshot required",
+        screenshotRequiredBody:
+          "Announcements require an event screenshot. Capture the ticket app, calendar, or poster, then add it from Photos.",
+        createThreadFailedTitle: "Could not create thread",
+        createThreadFailedBody: "Failed to create thread",
+        manageStaff: "Manage Staff",
+        saveStaffFailedTitle: "Could not save staff",
+        saveStaffFailedBody: "Failed to save",
+        screenshotLabel: "Screenshot",
+        screenshotUnderLimit: "Screenshot must be under 15MB",
+        imageVerifyFailed: "Could not verify the image.",
+        uploadFailedTitle: "Upload failed",
+        permissionRequiredTitle: "Permission required",
+        photosPermissionBody: "Allow Photos access to upload your screenshot.",
+        cameraPermissionBody:
+          "Allow camera access if you are photographing a printed poster instead of uploading a screen capture.",
+        comingSoonTitle: "Coming Soon",
+        comingSoonBody: "The no-confidence motion feature will be available soon.",
+        submit: "Submit",
+        requestSentTitle: "Sent",
+        requestSentBody: "Your request has been sent!",
+        requestFailedTitle: "Request failed",
+        requestFailedBody: "Failed to send request. Please try again later.",
+        requestEditorTitle: (name: string) => `Request ${name}`,
+        requestTitleLabel: "Request Title",
+        requestTitlePlaceholder: "e.g. Weekly gaming stream highlight edit",
+        descriptionLabel: "Description",
+        requestDescriptionPlaceholder: "Describe the style, length, tone, and any reference links.",
+        pricingModel: "Pricing Model",
+        perMinute: "Per minute",
+        revenueShare: "Revenue share",
+        targetBudget: "Target budget (🎟 / min)",
+        targetRevShare: "Target rev share (%)",
+        ticketHint: `1 Ticket = $${PRICE_PER_TICKET_USD.toFixed(2)} USD (same as Ticket Shop)`,
+        budgetPlaceholderPerMinute: "e.g. 150",
+        budgetPlaceholderRevenueShare: "e.g. 40",
+        deadline: "Deadline",
+        deadlinePlaceholder: "e.g. First delivery by end of March",
+        sending: "Sending...",
+        sendRequest: "Send Request",
+        adminModeratorsTitle: "Admin & Moderators",
+        staffModalHint: "Select from members. Users who follow the community appear here.",
+        noMembersYet: "No members yet",
+        noMembersYetSub: "Members who follow the community will appear here",
+        adminSingle: "Admin (1 person)",
+        moderatorsMultiple: "Moderators (multiple allowed)",
+        uploadScreenshotFile: "Upload screenshot file",
+        uploading: "Uploading...",
+        fromPhotos: "From Photos",
+        takePhoto: "Take photo",
+        deliveryDays: (days: number) => `Delivery: ${days}d`,
+        tbd: "TBD",
+      };
   const { isDemoMode } = useDemoMode();
   const numericId = Number(id);
 
@@ -1007,7 +1297,7 @@ export default function CommunityDetailScreen() {
   }
 
   async function pickAnnouncementScreenshotWeb() {
-    if (!requireAuth("Create Thread")) return;
+    if (!requireAuth(ui.createThread)) return;
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/jpeg,image/png,image/webp,image/gif";
@@ -1015,7 +1305,7 @@ export default function CommunityDetailScreen() {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
       if (file.size > MAX_ANNOUNCEMENT_SCREENSHOT_BYTES) {
-        Alert.alert("", "Screenshot must be under 15MB");
+        Alert.alert("", ui.screenshotUnderLimit);
         return;
       }
       try {
@@ -1023,8 +1313,8 @@ export default function CommunityDetailScreen() {
         assertAnnouncementScreenshotResolutionOk(width, height);
       } catch (err: unknown) {
         Alert.alert(
-          "Screenshot",
-          err instanceof Error ? err.message : "Could not verify the image.",
+          ui.screenshotLabel,
+          err instanceof Error ? err.message : ui.imageVerifyFailed,
         );
         return;
       }
@@ -1036,7 +1326,7 @@ export default function CommunityDetailScreen() {
         const url = await uploadImageBlobToR2(file, name, mime);
         setAnnouncementScreenshotUrl(url);
       } catch (err: unknown) {
-        Alert.alert("Upload failed", formatUserFacingApiError(err));
+        Alert.alert(ui.uploadFailedTitle, formatUserFacingApiError(err));
       } finally {
         setUploadingAnnouncementScreenshot(false);
       }
@@ -1058,8 +1348,8 @@ export default function CommunityDetailScreen() {
       assertAnnouncementScreenshotResolutionOk(w, h);
     } catch (err: unknown) {
       Alert.alert(
-        "Screenshot",
-        err instanceof Error ? err.message : "Could not verify the image.",
+        ui.screenshotLabel,
+        err instanceof Error ? err.message : ui.imageVerifyFailed,
       );
       return;
     }
@@ -1069,23 +1359,23 @@ export default function CommunityDetailScreen() {
       const name = asset.fileName ?? "event-screenshot.jpg";
       const blob = await (await fetch(asset.uri)).blob();
       if (blob.size > MAX_ANNOUNCEMENT_SCREENSHOT_BYTES) {
-        Alert.alert("", "Screenshot must be under 15MB");
+        Alert.alert("", ui.screenshotUnderLimit);
         return;
       }
       const url = await uploadImageBlobToR2(blob, name.replace(/[^\w.-]/g, "_"), mime);
       setAnnouncementScreenshotUrl(url);
     } catch (err: unknown) {
-      Alert.alert("Upload failed", formatUserFacingApiError(err));
+      Alert.alert(ui.uploadFailedTitle, formatUserFacingApiError(err));
     } finally {
       setUploadingAnnouncementScreenshot(false);
     }
   }
 
   async function pickAnnouncementScreenshotFromLibrary() {
-    if (!requireAuth("Create Thread")) return;
+    if (!requireAuth(ui.createThread)) return;
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permission required", "Allow Photos access to upload your screenshot.");
+      Alert.alert(ui.permissionRequiredTitle, ui.photosPermissionBody);
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -1098,13 +1388,10 @@ export default function CommunityDetailScreen() {
   }
 
   async function pickAnnouncementScreenshotFromCamera() {
-    if (!requireAuth("Create Thread")) return;
+    if (!requireAuth(ui.createThread)) return;
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert(
-        "Permission required",
-        "Allow camera access if you are photographing a printed poster instead of uploading a screen capture.",
-      );
+      Alert.alert(ui.permissionRequiredTitle, ui.cameraPermissionBody);
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
@@ -1118,26 +1405,23 @@ export default function CommunityDetailScreen() {
 
   async function handleCreateThread() {
     if (!newThreadTitle.trim() && threadComposerMode !== "feedback") {
-      alertMessage("Missing title", "Please enter a title");
+      alertMessage(ui.missingTitleTitle, ui.missingTitleBody);
       return;
     }
     if (threadComposerMode === "feedback" && !newThreadBody.trim()) {
-      alertMessage("Missing feedback", "Please enter your feedback");
+      alertMessage(ui.missingFeedbackTitle, ui.missingFeedbackBody);
       return;
     }
     if (threadComposerMode === "announcement" && !announcementScreenshotUrl?.trim()) {
-      alertMessage(
-        "Screenshot required",
-        "Announcements require an event screenshot. Capture the ticket app, calendar, or poster, then add it from Photos (or use Take photo for a printout).",
-      );
+      alertMessage(ui.screenshotRequiredTitle, ui.screenshotRequiredBody);
       return;
     }
-    if (!requireAuth("Create thread")) return;
+    if (!requireAuth(ui.createThread)) return;
     setCreatingThread(true);
     try {
       await createThreadMutation.mutateAsync();
     } catch (e: any) {
-      alertError("Could not create thread", e, "Failed to create thread");
+      alertError(ui.createThreadFailedTitle, e, ui.createThreadFailedBody);
     } finally {
       setCreatingThread(false);
     }
@@ -1158,7 +1442,7 @@ export default function CommunityDetailScreen() {
   };
 
   const saveStaff = async () => {
-    if (!requireAuth("Manage Staff") || !isCommunityAdmin) return;
+    if (!requireAuth(ui.manageStaff) || !isCommunityAdmin) return;
     setSavingStaff(true);
     try {
       await apiRequest("PATCH", `/api/communities/${communityId}/staff`, {
@@ -1168,7 +1452,7 @@ export default function CommunityDetailScreen() {
       qc.invalidateQueries({ queryKey: [`/api/communities/${communityId}/staff`] });
       setStaffModalVisible(false);
     } catch (e: any) {
-      alertError("Could not save staff", e, "Failed to save");
+      alertError(ui.saveStaffFailedTitle, e, ui.saveStaffFailedBody);
     } finally {
       setSavingStaff(false);
     }
@@ -1201,11 +1485,11 @@ export default function CommunityDetailScreen() {
         budget: budgetNumber,
         deadline: requestDeadline.trim() || undefined,
       });
-      alertMessage("Sent", "Your request has been sent!");
+      alertMessage(ui.requestSentTitle, ui.requestSentBody);
       setRequestEditor(null);
     } catch (e: any) {
       console.error(e);
-      alertError("Request failed", e, "Failed to send request. Please try again later.");
+      alertError(ui.requestFailedTitle, e, ui.requestFailedBody);
     } finally {
       setSendingRequest(false);
     }
@@ -1215,9 +1499,9 @@ export default function CommunityDetailScreen() {
   if (idInvalid) {
     return (
       <View style={[styles.container, { paddingTop: (Platform.OS === "web" ? 67 : insets.top) + 24, paddingHorizontal: 20 }]}>
-        <Text style={{ color: C.text, fontSize: 16, fontWeight: "700" }}>Invalid community</Text>
+        <Text style={{ color: C.text, fontSize: 16, fontWeight: "700" }}>{ui.invalidCommunity}</Text>
         <Pressable style={{ marginTop: 16 }} onPress={() => router.back()}>
-          <Text style={{ color: C.accent, fontWeight: "600" }}>Go back</Text>
+          <Text style={{ color: C.accent, fontWeight: "600" }}>{ui.goBack}</Text>
         </Pressable>
       </View>
     );
@@ -1232,9 +1516,9 @@ export default function CommunityDetailScreen() {
   if (!apiCommunity) {
     return (
       <View style={[styles.container, { paddingTop: (Platform.OS === "web" ? 67 : insets.top) + 24, paddingHorizontal: 20 }]}>
-        <Text style={{ color: C.text, fontSize: 16, fontWeight: "700" }}>Community not found</Text>
+        <Text style={{ color: C.text, fontSize: 16, fontWeight: "700" }}>{ui.communityNotFound}</Text>
         <Pressable style={{ marginTop: 16 }} onPress={() => router.back()}>
-          <Text style={{ color: C.accent, fontWeight: "600" }}>Go back</Text>
+          <Text style={{ color: C.accent, fontWeight: "600" }}>{ui.goBack}</Text>
         </Pressable>
       </View>
     );
@@ -1387,13 +1671,13 @@ export default function CommunityDetailScreen() {
               hitSlop={6}
             >
               <Ionicons name="people-outline" size={13} color={C.accent} />
-              <Text style={styles.membersLinkText}>View all members</Text>
+              <Text style={styles.membersLinkText}>{ui.viewAllMembers}</Text>
               <Ionicons name="chevron-forward" size={13} color={C.textMuted} />
             </Pressable>
           ) : (
             <View style={styles.stationBoardHintRow}>
               <Ionicons name="layers-outline" size={12} color={C.textMuted} />
-              <Text style={styles.stationBoardHintText}>Community list is available in the Ranking tab.</Text>
+              <Text style={styles.stationBoardHintText}>{ui.rankingHint}</Text>
             </View>
           )}
 
@@ -1412,7 +1696,13 @@ export default function CommunityDetailScreen() {
               onPress={() => setActiveTab(tab)}
             >
               <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-                {tab === "Board" ? (isOfficialCommunity ? "Event board" : BOARD_TAB_LABEL) : tab === "Ranking" ? "Video Ranking" : tab}
+                {tab === "Board"
+                  ? (isOfficialCommunity ? ui.eventBoard : ui.boardTabLabel)
+                  : tab === "Ranking"
+                    ? ui.videoRanking
+                    : tab === "Latest"
+                      ? ui.latestTab
+                      : ui.creatorsTab}
               </Text>
             </Pressable>
           ))}
@@ -1540,7 +1830,7 @@ export default function CommunityDetailScreen() {
                                 </View>
                               )}
                               <View style={styles.editorMetaRow}>
-                                <Text style={styles.editorMetaText}>Delivery: {editor.deliveryDays}d</Text>
+                                <Text style={styles.editorMetaText}>{ui.deliveryDays(editor.deliveryDays)}</Text>
                                 <Text style={styles.editorMetaText}>
                                   {editor.priceType === "both" &&
                                   editor.pricePerMinute != null &&
@@ -1550,12 +1840,12 @@ export default function CommunityDetailScreen() {
                                       ? formatEditorTicketsPerMinute(editor.pricePerMinute)
                                       : editor.priceType === "revenue_share" && editor.revenueSharePercent
                                         ? formatEditorRevenueShareLabel(editor.revenueSharePercent)
-                                        : "TBD"}
+                                        : ui.tbd}
                                 </Text>
                               </View>
                             </View>
                             <Pressable style={styles.editorRequestBtn} onPress={() => openRequestModal(editor)}>
-                              <Text style={styles.editorRequestBtnText}>Request</Text>
+                              <Text style={styles.editorRequestBtnText}>{ui.request}</Text>
                             </Pressable>
                           </View>
                         );
@@ -1572,26 +1862,26 @@ export default function CommunityDetailScreen() {
           <View style={styles.boardList}>
             <View style={styles.boardHeader}>
               <Text style={styles.boardSectionTitle}>
-                {isOfficialCommunity ? "Announcements & Feedback" : "Threads"}
+                {isOfficialCommunity ? ui.announcementsFeedback : ui.threadsTitle}
               </Text>
               {canPostToBoard && (
                 <Pressable
                   style={styles.createThreadBtn}
                   onPress={() => {
-                    if (!requireAuth("Create Thread")) return;
+                    if (!requireAuth(ui.createThread)) return;
                     openDefaultThreadComposer();
                   }}
-                  accessibilityLabel="New thread"
+                  accessibilityLabel={ui.newThread}
                 >
                   <Ionicons name="add" size={22} color="#000" />
                 </Pressable>
               )}
             </View>
             {canPostToBoard && !following && !isOfficialCommunity ? (
-              <Text style={styles.boardStaffHint}>Staff: tap ＋ to compose (join not required).</Text>
+              <Text style={styles.boardStaffHint}>{ui.boardStaffHint}</Text>
             ) : null}
             {displayThreads.length === 0 ? (
-              <Text style={styles.boardEmpty}>No threads yet. Start the conversation.</Text>
+              <Text style={styles.boardEmpty}>{ui.noThreadsYet}</Text>
             ) : announceBoard ? (
               displayThreads.map((t) => {
                 const parsed = parseThreadBody(t.body);
@@ -1617,7 +1907,7 @@ export default function CommunityDetailScreen() {
                           {t.pinned ? (
                             <View style={styles.boardFlyerPinnedBadge}>
                               <Ionicons name="pin" size={11} color={C.orange} />
-                              <Text style={styles.boardAnnouncePinnedText}>Pinned</Text>
+                              <Text style={styles.boardAnnouncePinnedText}>{ui.pinned}</Text>
                             </View>
                           ) : null}
                         </View>
@@ -1627,17 +1917,17 @@ export default function CommunityDetailScreen() {
                             {t.pinned ? (
                               <View style={styles.boardAnnouncePinnedPill}>
                                 <Ionicons name="pin" size={11} color={C.orange} />
-                                <Text style={styles.boardAnnouncePinnedText}>Pinned</Text>
+                                <Text style={styles.boardAnnouncePinnedText}>{ui.pinned}</Text>
                               </View>
                             ) : null}
                           </View>
-                          <Text style={styles.boardAnnounceDateStrong}>{formatThreadDate(t.createdAt)}</Text>
+                          <Text style={styles.boardAnnounceDateStrong}>{formatThreadDate(t.createdAt, isJaUi)}</Text>
                         </View>
                       )}
                       <View style={hasFlyer ? styles.boardAnnouncePeatixBody : styles.boardAnnouncePressBlock}>
                         {hasFlyer ? (
                           <View style={styles.boardAnnouncePeatixMetaRow}>
-                            <Text style={styles.boardAnnounceDateStrong}>{formatThreadDate(t.createdAt)}</Text>
+                            <Text style={styles.boardAnnounceDateStrong}>{formatThreadDate(t.createdAt, isJaUi)}</Text>
                           </View>
                         ) : null}
                         {parsed.shortVideoUrl ? (
@@ -1650,7 +1940,7 @@ export default function CommunityDetailScreen() {
                           >
                             <Ionicons name="logo-youtube" size={18} color="#ff4d4d" />
                             <Text style={styles.boardShortClipText} numberOfLines={1}>
-                              Short clip
+                              {ui.shortClip}
                             </Text>
                             <Ionicons name="open-outline" size={16} color={C.textMuted} />
                           </Pressable>
@@ -1683,7 +1973,7 @@ export default function CommunityDetailScreen() {
                         </Text>
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                           <Text style={styles.boardAnnounceReplyCount}>
-                            {t.postCount === 1 ? "1 reply" : `${t.postCount} replies`}
+                            {ui.replies(t.postCount)}
                           </Text>
                           <Ionicons name="chevron-forward" size={14} color={C.textMuted} />
                         </View>
@@ -1719,15 +2009,15 @@ export default function CommunityDetailScreen() {
                           <View style={styles.boardTagRow}>
                             {t.pinned && (
                               <View style={[styles.boardTag, { backgroundColor: C.orange + "33" }]}>
-                                <Text style={[styles.boardTagText, { color: C.orange }]}>Pinned</Text>
+                                <Text style={[styles.boardTagText, { color: C.orange }]}>{ui.pinned}</Text>
                               </View>
                             )}
                             <Text style={styles.boardDate}>
-                              {t.author.displayName} · {formatThreadDate(t.createdAt)}
+                              {t.author.displayName} · {formatThreadDate(t.createdAt, isJaUi)}
                             </Text>
                           </View>
                           <Text style={[styles.boardTitle, hasFlyer && styles.boardTitleUnderFlyer]}>{t.title}</Text>
-                          <Text style={styles.boardPostCount}>{t.postCount} replies</Text>
+                          <Text style={styles.boardPostCount}>{ui.replies(t.postCount)}</Text>
                         </Pressable>
                         {parsed.text ? (
                           <View style={{ marginTop: 6 }}>
@@ -1791,10 +2081,10 @@ export default function CommunityDetailScreen() {
                         onPress={() => {
                           setShowNoConfidenceForm(false);
                           setNoConfidenceReason("");
-                          Alert.alert("Coming Soon", "The no-confidence motion feature will be available soon.");
+                          Alert.alert(ui.comingSoonTitle, ui.comingSoonBody);
                         }}
                       >
-                        <Text style={{ color: "#fff", fontSize: 13, fontWeight: "800" }}>Submit</Text>
+                        <Text style={{ color: "#fff", fontSize: 13, fontWeight: "800" }}>{ui.submit}</Text>
                       </Pressable>
                     </View>
                   </View>
@@ -1808,23 +2098,22 @@ export default function CommunityDetailScreen() {
                     <Ionicons name="chatbubbles-outline" size={22} color={C.accent} />
                   </View>
                   <View style={{ flex: 1, gap: 4 }}>
-                    <Text style={styles.boardAnnounceIntroTitle}>Official updates and feedback</Text>
+                    <Text style={styles.boardAnnounceIntroTitle}>{ui.officialUpdatesTitle}</Text>
                     <Text style={styles.boardAnnounceIntroSub}>
-                      New announcements use a screenshot of the event (ticket app, poster, or calendar). Send requests
-                      through the feedback box.
+                      {ui.officialUpdatesSub}
                     </Text>
                   </View>
                 </View>
                 <Pressable
                   style={styles.feedbackBottomLink}
                   onPress={() => {
-                    if (!requireAuth("Create feedback")) return;
+                    if (!requireAuth(ui.createFeedback)) return;
                     openFeedbackComposer();
                   }}
-                  accessibilityLabel="Open feedback box"
+                  accessibilityLabel={ui.openFeedbackBox}
                 >
                   <Ionicons name="chatbox-ellipses-outline" size={13} color={C.textMuted} />
-                  <Text style={styles.feedbackBottomLinkText}>Send feedback</Text>
+                  <Text style={styles.feedbackBottomLinkText}>{ui.sendFeedback}</Text>
                 </Pressable>
               </View>
             ) : null}
@@ -1834,7 +2123,7 @@ export default function CommunityDetailScreen() {
         {!isOfficialCommunity && (staffData?.admin || (staffData?.moderators && staffData.moderators.length > 0)) && (
           <View style={styles.staffSection}>
             <View style={styles.staffSectionHeader}>
-              <Text style={styles.staffSectionTitle}>Admin & moderators</Text>
+              <Text style={styles.staffSectionTitle}>{ui.staffTitle}</Text>
               {(isCommunityAdmin || isModerator) && (
                 <View style={styles.staffAdminLinks}>
                   {isCommunityAdmin && (
@@ -1846,15 +2135,15 @@ export default function CommunityDetailScreen() {
                           setStaffModalVisible(true);
                         }}
                       >
-                        <Text style={styles.staffEditLink}>Edit</Text>
+                        <Text style={styles.staffEditLink}>{ui.edit}</Text>
                       </Pressable>
                       <Pressable onPress={() => router.push("/community/ad-review")}>
-                        <Text style={styles.staffEditLink}>Ad Review</Text>
+                        <Text style={styles.staffEditLink}>{ui.adReview}</Text>
                       </Pressable>
                     </>
                   )}
                   <Pressable onPress={() => router.push(`/community/${communityId}/admin`)}>
-                    <Text style={styles.staffEditLink}>Admin Panel</Text>
+                    <Text style={styles.staffEditLink}>{ui.adminPanel}</Text>
                   </Pressable>
                 </View>
               )}
@@ -1865,7 +2154,7 @@ export default function CommunityDetailScreen() {
                 onPress={() => router.push(`/user/${staffData.admin!.id}`)}
               >
                 <Image source={{ uri: staffData.admin.profileImageUrl ?? undefined }} style={styles.staffAvatar} contentFit="cover" />
-                <Text style={styles.staffLabel}>Admin</Text>
+                <Text style={styles.staffLabel}>{ui.admin}</Text>
                 <Text style={styles.staffName}>{staffData.admin.displayName}</Text>
                 <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
               </Pressable>
@@ -1878,7 +2167,7 @@ export default function CommunityDetailScreen() {
                   onPress={() => router.push(`/user/${m.id}`)}
                 >
                   <Image source={{ uri: m.profileImageUrl ?? undefined }} style={styles.staffAvatar} contentFit="cover" />
-                  <Text style={styles.staffLabel}>Moderator</Text>
+                  <Text style={styles.staffLabel}>{ui.moderator}</Text>
                   <Text style={styles.staffName}>{m.displayName}</Text>
                   <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
                 </Pressable>
@@ -1916,7 +2205,7 @@ export default function CommunityDetailScreen() {
                     setSelectedThreadId(null);
                     refetchThreads();
                   } catch (e: any) {
-                    Alert.alert("Error", e?.message ?? "Failed to delete");
+                    Alert.alert(ui.deleteFailedTitle, e?.message ?? ui.deleteFailedBody);
                   }
                 }}
                 onDeletePost={async (postId) => {
@@ -1925,7 +2214,7 @@ export default function CommunityDetailScreen() {
                     refetchThreadDetail();
                     refetchThreads();
                   } catch (e: any) {
-                    Alert.alert("Error", e?.message ?? "Failed to delete");
+                    Alert.alert(ui.deleteFailedTitle, e?.message ?? ui.deleteFailedBody);
                   }
                 }}
               />
@@ -1952,10 +2241,10 @@ export default function CommunityDetailScreen() {
             <View style={styles.requestModalHeader}>
               <Text style={styles.requestModalTitle}>
                 {threadComposerMode === "feedback"
-                  ? "Feedback Box"
+                  ? ui.feedbackBox
                   : announceBoard
-                    ? "New announcement"
-                    : "New thread"}
+                    ? ui.newAnnouncement
+                    : ui.newThread}
               </Text>
               <Pressable onPress={closeCreateThreadModal} hitSlop={8}>
                 <Ionicons name="close" size={24} color={C.textMuted} />
@@ -1965,10 +2254,10 @@ export default function CommunityDetailScreen() {
               style={[styles.requestInput, { marginBottom: 8 }]}
               placeholder={
                 threadComposerMode === "feedback"
-                  ? "Title (optional)"
+                  ? ui.feedbackTitlePlaceholder
                   : announceBoard
-                    ? "Title — e.g. Apr 20 live @ venue"
-                    : "Thread title"
+                    ? ui.announcementTitlePlaceholder
+                    : ui.threadTitlePlaceholder
               }
               placeholderTextColor={C.textMuted}
               value={newThreadTitle}
@@ -1978,10 +2267,10 @@ export default function CommunityDetailScreen() {
               style={[styles.requestInput, styles.requestInputMultiline]}
               placeholder={
                 threadComposerMode === "feedback"
-                  ? "Share your request, idea, or issue."
+                  ? ui.feedbackBodyPlaceholder
                   : announceBoard
-                  ? "Optional: Date: …, Venue: …, Tickets: https://…"
-                  : "Body (optional)"
+                  ? ui.announcementBodyPlaceholder
+                  : ui.threadBodyPlaceholder
               }
               placeholderTextColor={C.textMuted}
               value={newThreadBody}
@@ -1992,9 +2281,7 @@ export default function CommunityDetailScreen() {
             {threadComposerMode === "announcement" ? (
               <View style={styles.flyerAttachBlock}>
                 <Text style={styles.flyerQualityHint}>
-                  Use the image buttons for the event screenshot only (not profile or avatar images). In the text box,
-                  use clear lines such as Date:, City:, Venue:, Lineup:, Tickets:, and paste ticket or map links — they
-                  stay tappable after posting. Full-screen captures work best (short edge at least 320px).
+                  {ui.flyerQualityHint}
                 </Text>
                 {Platform.OS === "web" ? (
                   <Pressable
@@ -2010,14 +2297,14 @@ export default function CommunityDetailScreen() {
                     ) : (
                       <>
                         <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
-                        <Text style={styles.flyerAttachBtnText}>Upload screenshot file</Text>
+                        <Text style={styles.flyerAttachBtnText}>{ui.uploadScreenshotFile}</Text>
                       </>
                     )}
                   </Pressable>
                 ) : uploadingAnnouncementScreenshot ? (
                   <View style={[styles.flyerAttachBtn, styles.flyerAttachBtnUploading]}>
                     <ActivityIndicator color="#fff" size="small" />
-                    <Text style={styles.flyerAttachBtnText}>Uploading…</Text>
+                    <Text style={styles.flyerAttachBtnText}>{ui.uploading}</Text>
                   </View>
                 ) : (
                   <View style={styles.screenshotPickRow}>
@@ -2031,7 +2318,7 @@ export default function CommunityDetailScreen() {
                       disabled={creatingThread}
                     >
                       <Ionicons name="images-outline" size={18} color="#fff" />
-                      <Text style={styles.flyerAttachBtnText}>From Photos</Text>
+                      <Text style={styles.flyerAttachBtnText}>{ui.fromPhotos}</Text>
                     </Pressable>
                     <Pressable
                       style={[
@@ -2043,7 +2330,7 @@ export default function CommunityDetailScreen() {
                       disabled={creatingThread}
                     >
                       <Ionicons name="camera-outline" size={18} color="#fff" />
-                      <Text style={styles.flyerAttachBtnText}>Take photo</Text>
+                      <Text style={styles.flyerAttachBtnText}>{ui.takePhoto}</Text>
                     </Pressable>
                   </View>
                 )}
@@ -2060,7 +2347,7 @@ export default function CommunityDetailScreen() {
                       hitSlop={8}
                     >
                       <Ionicons name="trash-outline" size={18} color="#ff6b6b" />
-                      <Text style={styles.flyerRemoveText}>Remove</Text>
+                      <Text style={styles.flyerRemoveText}>{ui.remove}</Text>
                     </Pressable>
                   </View>
                 ) : null}
@@ -2090,10 +2377,10 @@ export default function CommunityDetailScreen() {
               ) : (
                 <Text style={styles.requestSubmitBtnText}>
                   {threadComposerMode === "feedback"
-                    ? "Submit feedback"
+                    ? ui.submitFeedback
                     : announceBoard
-                      ? "Post announcement"
-                      : "Create thread"}
+                      ? ui.postAnnouncement
+                      : ui.createThread}
                 </Text>
               )}
             </Pressable>
@@ -2130,7 +2417,7 @@ export default function CommunityDetailScreen() {
                       <Image source={{ uri: requestEditor.avatar }} style={styles.requestModalAvatar} contentFit="cover" />
                     </Pressable>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.requestModalTitle}>Request {requestEditor.name}</Text>
+                      <Text style={styles.requestModalTitle}>{ui.requestEditorTitle(requestEditor.name)}</Text>
                       <View style={styles.editorRatingRow}>
                         <Ionicons name="star" size={12} color={C.orange} />
                         <Text style={styles.editorRatingText}>{requestEditor.rating.toFixed(1)}</Text>
@@ -2144,19 +2431,19 @@ export default function CommunityDetailScreen() {
                   style={webScrollStyle(styles.requestModalScroll)}
                   showsVerticalScrollIndicator={scrollShowsVertical}
                 >
-                  <Text style={styles.requestLabel}>Request Title</Text>
+                  <Text style={styles.requestLabel}>{ui.requestTitleLabel}</Text>
                   <TextInput
                     style={styles.requestInput}
-                    placeholder="e.g. Weekly gaming stream highlight edit"
+                    placeholder={ui.requestTitlePlaceholder}
                     placeholderTextColor={C.textMuted}
                     value={requestTitle}
                     onChangeText={setRequestTitle}
                   />
 
-                  <Text style={styles.requestLabel}>Description</Text>
+                  <Text style={styles.requestLabel}>{ui.descriptionLabel}</Text>
                   <TextInput
                     style={[styles.requestInput, styles.requestInputMultiline]}
-                    placeholder="Describe the style, length, tone, and any reference links."
+                    placeholder={ui.requestDescriptionPlaceholder}
                     placeholderTextColor={C.textMuted}
                     value={requestDescription}
                     onChangeText={setRequestDescription}
@@ -2164,7 +2451,7 @@ export default function CommunityDetailScreen() {
                     textAlignVertical="top"
                   />
 
-                  <Text style={styles.requestLabel}>Pricing Model</Text>
+                  <Text style={styles.requestLabel}>{ui.pricingModel}</Text>
                   <View style={styles.requestPriceTypeRow}>
                     <Pressable
                       style={[
@@ -2179,7 +2466,7 @@ export default function CommunityDetailScreen() {
                           requestPriceType === "per_minute" && styles.requestPriceTypeTextActive,
                         ]}
                       >
-                        Per minute
+                        {ui.perMinute}
                       </Text>
                     </Pressable>
                     <Pressable
@@ -2195,32 +2482,32 @@ export default function CommunityDetailScreen() {
                           requestPriceType === "revenue_share" && styles.requestPriceTypeTextActive,
                         ]}
                       >
-                        Revenue share
+                        {ui.revenueShare}
                       </Text>
                     </Pressable>
                   </View>
 
                   <Text style={styles.requestLabel}>
-                    {requestPriceType === "per_minute" ? "Target budget (🎟 / min)" : "Target rev share (%)"}
+                    {requestPriceType === "per_minute" ? ui.targetBudget : ui.targetRevShare}
                   </Text>
                   {requestPriceType === "per_minute" ? (
                     <Text style={styles.requestTicketHint}>
-                      1 Ticket = ${PRICE_PER_TICKET_USD.toFixed(2)} USD (same as Ticket Shop)
+                      {ui.ticketHint}
                     </Text>
                   ) : null}
                   <TextInput
                     style={styles.requestInput}
-                    placeholder={requestPriceType === "per_minute" ? "e.g. 150" : "e.g. 40"}
+                    placeholder={requestPriceType === "per_minute" ? ui.budgetPlaceholderPerMinute : ui.budgetPlaceholderRevenueShare}
                     placeholderTextColor={C.textMuted}
                     value={requestBudget}
                     onChangeText={setRequestBudget}
                     keyboardType="numeric"
                   />
 
-                  <Text style={styles.requestLabel}>Deadline</Text>
+                  <Text style={styles.requestLabel}>{ui.deadline}</Text>
                   <TextInput
                     style={styles.requestInput}
-                    placeholder="e.g. First delivery by end of March"
+                    placeholder={ui.deadlinePlaceholder}
                     placeholderTextColor={C.textMuted}
                     value={requestDeadline}
                     onChangeText={setRequestDeadline}
@@ -2232,7 +2519,7 @@ export default function CommunityDetailScreen() {
                     disabled={sendingRequest}
                   >
                     <Text style={styles.requestSubmitBtnText}>
-                      {sendingRequest ? "Sending..." : "Send Request"}
+                      {sendingRequest ? ui.sending : ui.sendRequest}
                     </Text>
                   </Pressable>
                 </ScrollView>
@@ -2247,20 +2534,20 @@ export default function CommunityDetailScreen() {
         <Pressable style={styles.requestModalOverlay} onPress={() => !savingStaff && setStaffModalVisible(false)}>
           <Pressable style={[styles.requestModalSheet, styles.staffModalSheet]} onPress={() => {}}>
             <View style={styles.requestModalHandle} />
-            <Text style={styles.requestModalTitle}>Admin & Moderators</Text>
-            <Text style={styles.staffModalHint}>Select from members. Users who follow the community appear here.</Text>
+            <Text style={styles.requestModalTitle}>{ui.adminModeratorsTitle}</Text>
+            <Text style={styles.staffModalHint}>{ui.staffModalHint}</Text>
 
             {membersLoading ? (
               <ActivityIndicator size="small" color={C.accent} style={{ marginVertical: 24 }} />
             ) : members.length === 0 ? (
               <View style={styles.staffEmptyWrap}>
                 <Ionicons name="people-outline" size={32} color={C.textMuted} />
-                <Text style={styles.staffEmptyText}>No members yet</Text>
-                <Text style={styles.staffEmptySub}>Members who follow the community will appear here</Text>
+                  <Text style={styles.staffEmptyText}>{ui.noMembersYet}</Text>
+                  <Text style={styles.staffEmptySub}>{ui.noMembersYetSub}</Text>
               </View>
             ) : (
               <ScrollView style={webScrollStyle(styles.staffPickerScroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
-                <Text style={styles.staffPickerSectionTitle}>Admin (1 person)</Text>
+                <Text style={styles.staffPickerSectionTitle}>{ui.adminSingle}</Text>
                 {members.map((m) => (
                   <View
                     key={m.id}
@@ -2280,7 +2567,7 @@ export default function CommunityDetailScreen() {
                     </Pressable>
                   </View>
                 ))}
-                <Text style={[styles.staffPickerSectionTitle, { marginTop: 16 }]}>Moderators (multiple allowed)</Text>
+                <Text style={[styles.staffPickerSectionTitle, { marginTop: 16 }]}>{ui.moderatorsMultiple}</Text>
                 {members.map((m) => (
                   <View
                     key={`mod-${m.id}`}

@@ -34,15 +34,27 @@ function webOrNativeAlert(title: string, message?: string) {
   }
 }
 
-function insufficientTicketsPrompt(message: string) {
+function insufficientTicketsPrompt({
+  title,
+  message,
+  webConfirmLabel,
+  cancelLabel,
+  actionLabel,
+}: {
+  title: string;
+  message: string;
+  webConfirmLabel: string;
+  cancelLabel: string;
+  actionLabel: string;
+}) {
   if (Platform.OS === "web" && typeof window !== "undefined") {
-    if (window.confirm(`${message}\n\nOpen Tickets page?`)) {
+    if (window.confirm(`${message}\n\n${webConfirmLabel}`)) {
       router.push("/tickets");
     }
   } else {
-    Alert.alert("Insufficient tickets", message, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Get Tickets", onPress: () => router.push("/tickets") },
+    Alert.alert(title, message, [
+      { text: cancelLabel, style: "cancel" },
+      { text: actionLabel, onPress: () => router.push("/tickets") },
     ]);
   }
 }
@@ -208,9 +220,101 @@ export default function LiveStreamScreen() {
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
   const { user, requireAuth } = useAuth();
+  const isJaUi = (user?.preferredLanguage ?? "").toLowerCase().startsWith("ja");
+  const t = isJaUi
+    ? {
+        guestName: "ゲスト",
+        selfName: "あなた",
+        followTitle: "フォロー",
+        paidStreamTitle: "有料配信",
+        tipsTitle: "ギフト",
+        commentTitle: "コメント",
+        loading: "読み込み中...",
+        failedToLoad: "配信の読み込みに失敗しました",
+        signInRequired: "サインインが必要です",
+        noAccess: "この配信を視聴する権限がありません。",
+        signInToWatch: "視聴するにはRawStockアカウントでサインインしてください。",
+        followToWatch: "この配信を視聴するには、このクリエイターをフォローしてください。",
+        joinCommunityToWatch: "この配信を視聴するには、必要なコミュニティに参加してください。",
+        unlockPaidToWatch: "この配信は有料です。チケットで解除して続けてください。",
+        satisfyRequirements: "必要条件を満たしてから、もう一度お試しください。",
+        signIn: "サインイン",
+        unlocking: "解除中...",
+        unlockFor: (price: number) => `🎟${price.toLocaleString()}で解除`,
+        tapToUnmute: "タップで音声をオン",
+        liveBadge: "配信中",
+        follow: "フォロー",
+        following: "フォロー中",
+        sessionBooked: (position: number) => `セッション予約済み #${position}`,
+        mentorSession: "メンターセッション",
+        mentorTurnTitle: "あなたの順番です",
+        mentorTurnBody: "メンターセッションを開始してください",
+        liveChat: "ライブチャット",
+        liveStatus: "配信中",
+        tipsUnavailable: "この配信ではまだギフトを利用できません。",
+        tipsLoading: "配信情報を読み込み中です。少し待ってからもう一度お試しください。",
+        addComment: "コメントを追加...",
+        sendGift: "ギフトを送る",
+        supportCreator: "クリエイターを直接応援できます",
+        insufficientTicketsTitle: "チケット不足",
+        insufficientTicketsWatch: (required: number) =>
+          `この配信を視聴するには🎟${required.toLocaleString()}が必要です。`,
+        insufficientTicketsGift: (amount: number) =>
+          `このギフトを送るには🎟${amount.toLocaleString()}が必要です。チケットを追加してください。`,
+        openTicketsPage: "チケットページを開きますか？",
+        cancel: "キャンセル",
+        getTickets: "チケットを購入",
+        giftSentMessage: (emoji: string, amount: number) =>
+          `${emoji} 🎟${amount.toLocaleString()}のギフトを送りました！`,
+      }
+    : {
+        guestName: "Guest",
+        selfName: "You",
+        followTitle: "Follow",
+        paidStreamTitle: "Paid Stream",
+        tipsTitle: "Tips",
+        commentTitle: "Comment",
+        loading: "Loading...",
+        failedToLoad: "Failed to load stream",
+        signInRequired: "Sign-in required",
+        noAccess: "You do not have access to this stream.",
+        signInToWatch: "Sign in with your RawStock account to watch.",
+        followToWatch: "Follow this creator to watch this stream.",
+        joinCommunityToWatch: "Join the required community to watch this stream.",
+        unlockPaidToWatch: "This is a paid stream. Unlock it with tickets to continue.",
+        satisfyRequirements: "Please satisfy the requirements and try again.",
+        signIn: "Sign in",
+        unlocking: "Unlocking...",
+        unlockFor: (price: number) => `Unlock for 🎟${price.toLocaleString()}`,
+        tapToUnmute: "Tap to unmute",
+        liveBadge: "LIVE",
+        follow: "Follow",
+        following: "Following",
+        sessionBooked: (position: number) => `Session booked #${position}`,
+        mentorSession: "Mentor Session",
+        mentorTurnTitle: "It’s your turn!",
+        mentorTurnBody: "Please start your mentor session",
+        liveChat: "Live Chat",
+        liveStatus: "Live",
+        tipsUnavailable: "Tips are not available for this stream yet.",
+        tipsLoading: "Loading stream details… Try again in a moment.",
+        addComment: "Add a comment...",
+        sendGift: "Send a Gift",
+        supportCreator: "Support the creator directly",
+        insufficientTicketsTitle: "Insufficient tickets",
+        insufficientTicketsWatch: (required: number) =>
+          `You need 🎟${required.toLocaleString()} to watch this stream.`,
+        insufficientTicketsGift: (amount: number) =>
+          `You need 🎟${amount.toLocaleString()} to send this gift. Please top up your tickets.`,
+        openTicketsPage: "Open Tickets page?",
+        cancel: "Cancel",
+        getTickets: "Get Tickets",
+        giftSentMessage: (emoji: string, amount: number) =>
+          `${emoji} Sent a 🎟${amount.toLocaleString()} gift!`,
+      };
 
   const myUserId = user ? `user-${user.id}` : "guest";
-  const myUsername = user?.name ?? "Guest";
+  const myUsername = user?.name ?? t.guestName;
 
   const { data: apiStream, isFetched: streamMetaFetched } = useQuery<LiveStream | null>({
     queryKey: ["stream-viewer", streamId],
@@ -243,17 +347,21 @@ export default function LiveStreamScreen() {
 
   const followHostMutation = useMutation({
     mutationFn: async () => {
-      if (hostUserId == null) throw new Error("Host information is missing");
+      if (hostUserId == null) {
+        throw new Error(isJaUi ? "配信者情報が見つかりません。" : "Host information is missing");
+      }
       const r = await viewerApiFetch(`/api/users/${hostUserId}/follow`, { method: "POST" });
       const body = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error((body as { error?: string }).error ?? "Failed to follow host");
+      if (!r.ok) {
+        throw new Error((body as { error?: string }).error ?? (isJaUi ? "フォローに失敗しました。" : "Failed to follow host"));
+      }
       return body;
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["stream-viewer", streamId] });
     },
     onError: (e: Error) => {
-      webOrNativeAlert("Follow", e.message);
+      webOrNativeAlert(t.followTitle, e.message);
     },
   });
 
@@ -269,12 +377,12 @@ export default function LiveStreamScreen() {
 
   const unlockPaidStreamMutation = useMutation({
     mutationFn: async () => {
-      if (!requireAuth("watch paid stream")) throw new Error("AUTH_REQUIRED");
+      if (!requireAuth(isJaUi ? "有料配信を視聴" : "watch paid stream")) throw new Error("AUTH_REQUIRED");
       const res = await viewerApiFetch(`/api/stream/${streamId}/join-paid`, { method: "POST" });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         const err: Error & { status?: number; required?: number; balance?: number } = new Error(
-          (body as { error?: string }).error ?? "Failed to unlock paid stream",
+          (body as { error?: string }).error ?? (isJaUi ? "有料配信の解除に失敗しました。" : "Failed to unlock paid stream"),
         );
         err.status = res.status;
         err.required = (body as { required?: number }).required;
@@ -290,12 +398,16 @@ export default function LiveStreamScreen() {
     onError: (e: Error & { status?: number; required?: number; balance?: number }) => {
       if (e.message === "AUTH_REQUIRED") return;
       if (e.status === 402) {
-        insufficientTicketsPrompt(
-          `You need 🎟${(e.required ?? 0).toLocaleString()} to watch this stream.`,
-        );
+        insufficientTicketsPrompt({
+          title: t.insufficientTicketsTitle,
+          message: t.insufficientTicketsWatch(e.required ?? 0),
+          webConfirmLabel: t.openTicketsPage,
+          cancelLabel: t.cancel,
+          actionLabel: t.getTickets,
+        });
         return;
       }
-      webOrNativeAlert("Paid Stream", e.message);
+      webOrNativeAlert(t.paidStreamTitle, e.message);
     },
   });
 
@@ -442,42 +554,44 @@ export default function LiveStreamScreen() {
       }
       if (vars?.isGift && err instanceof ApiError && err.status === 402) {
         const amount = vars.giftAmount ?? 0;
-        insufficientTicketsPrompt(
-          `You need 🎟${amount.toLocaleString()} to send this gift. Please top up your tickets.`,
-        );
+        insufficientTicketsPrompt({
+          title: t.insufficientTicketsTitle,
+          message: t.insufficientTicketsGift(amount),
+          webConfirmLabel: t.openTicketsPage,
+          cancelLabel: t.cancel,
+          actionLabel: t.getTickets,
+        });
         return;
       }
-      webOrNativeAlert(vars?.isGift ? "Gift" : "Comment", formatUserFacingApiError(err));
+      webOrNativeAlert(vars?.isGift ? t.tipsTitle : t.commentTitle, formatUserFacingApiError(err));
     },
   });
 
   const sendChat = useCallback(() => {
     const msg = chatInput.trim();
     if (!msg) return;
-    if (!requireAuth("comment")) return;
+    if (!requireAuth(isJaUi ? "コメント" : "comment")) return;
     chatMutation.mutate({ message: msg });
-  }, [chatInput, requireAuth, chatMutation]);
+  }, [chatInput, isJaUi, requireAuth, chatMutation]);
 
   const sendGift = useCallback(
     (amount: number, _emoji: string) => {
-      if (!requireAuth("send gifts")) return;
+      if (!requireAuth(isJaUi ? "ギフトを送信" : "send gifts")) return;
       if (!canSendTips || tipRecipientUserId == null) {
         webOrNativeAlert(
-          "Tips",
-          streamMetaFetched && tipRecipientUserId == null
-            ? "Tips are not available for this stream yet."
-            : "Stream details are still loading. Try again in a moment.",
+          t.tipsTitle,
+          streamMetaFetched && tipRecipientUserId == null ? t.tipsUnavailable : t.tipsLoading,
         );
         return;
       }
       setShowGiftModal(false);
       chatMutation.mutate({
-        message: `${_emoji} Sent a 🎟${amount.toLocaleString()} gift!`,
+        message: t.giftSentMessage(_emoji, amount),
         isGift: true,
         giftAmount: amount,
       });
     },
-    [canSendTips, tipRecipientUserId, chatMutation, requireAuth, streamMetaFetched],
+    [canSendTips, isJaUi, tipRecipientUserId, chatMutation, requireAuth, streamMetaFetched, t],
   );
 
   useEffect(() => {
@@ -493,7 +607,7 @@ export default function LiveStreamScreen() {
           <Ionicons name="chevron-back" size={22} color="#fff" />
         </Pressable>
         <View style={styles.loading}>
-          <Text style={styles.loadingText}>Loading...</Text>
+          <Text style={styles.loadingText}>{t.loading}</Text>
         </View>
       </View>
     );
@@ -515,7 +629,7 @@ export default function LiveStreamScreen() {
           {whepError && (
             <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.6)" }}>
               <Ionicons name="wifi-outline" size={40} color="#ffffff88" />
-              <Text style={{ color: "#fff", marginTop: 8, fontSize: 13 }}>Failed to load stream</Text>
+              <Text style={{ color: "#fff", marginTop: 8, fontSize: 13 }}>{t.failedToLoad}</Text>
             </View>
           )}
           {streamAccessDenied && (
@@ -534,18 +648,18 @@ export default function LiveStreamScreen() {
             >
               <Ionicons name="lock-closed-outline" size={40} color="#ffffffaa" />
               <Text style={{ color: "#fff", marginTop: 12, fontSize: 15, fontWeight: "700", textAlign: "center" }}>
-                {authRequiredForStream ? "Sign-in required" : "You do not have access to this stream."}
+                {authRequiredForStream ? t.signInRequired : t.noAccess}
               </Text>
               <Text style={{ color: "#ffffffb3", marginTop: 8, fontSize: 13, textAlign: "center" }}>
                 {authRequiredForStream
-                  ? "Sign in with your RawStock account to watch."
+                  ? t.signInToWatch
                   : apiStream?.visibility === "followers"
-                    ? "Follow this creator to watch this stream."
+                    ? t.followToWatch
                     : apiStream?.visibility === "community"
-                      ? "Join the required community to watch this stream."
+                      ? t.joinCommunityToWatch
                       : apiStream?.visibility === "paid"
-                        ? "This is a paid stream. Unlock it with tickets to continue."
-                        : "Please satisfy the requirements and try again."}
+                        ? t.unlockPaidToWatch
+                        : t.satisfyRequirements}
               </Text>
               {authRequiredForStream ? (
                 <Pressable
@@ -557,7 +671,7 @@ export default function LiveStreamScreen() {
                     router.push("/auth/login");
                   }}
                 >
-                  <Text style={{ color: "#000", fontSize: 13, fontWeight: "800" }}>Sign in</Text>
+                  <Text style={{ color: "#000", fontSize: 13, fontWeight: "800" }}>{t.signIn}</Text>
                 </Pressable>
               ) : null}
               {paidTicketRequired ? (
@@ -568,8 +682,8 @@ export default function LiveStreamScreen() {
                 >
                   <Text style={{ color: "#000", fontSize: 13, fontWeight: "800" }}>
                     {unlockPaidStreamMutation.isPending
-                      ? "Unlocking..."
-                      : `Unlock for 🎟${(apiStream?.price ?? 0).toLocaleString()}`}
+                      ? t.unlocking
+                      : t.unlockFor(apiStream?.price ?? 0)}
                   </Text>
                 </Pressable>
               ) : null}
@@ -587,10 +701,10 @@ export default function LiveStreamScreen() {
                 style={styles.unmutePill}
                 onPress={() => setIsMuted(false)}
                 accessibilityRole="button"
-                accessibilityLabel="Tap to unmute"
+                accessibilityLabel={t.tapToUnmute}
               >
                 <Ionicons name="volume-mute" size={16} color="#000" />
-                <Text style={styles.unmutePillText}>Tap to unmute</Text>
+                <Text style={styles.unmutePillText}>{t.tapToUnmute}</Text>
               </Pressable>
             )}
 
@@ -601,7 +715,7 @@ export default function LiveStreamScreen() {
             </Pressable>
             <View style={styles.liveBadge}>
               <PulseDot />
-              <Text style={styles.liveBadgeText}>LIVE</Text>
+              <Text style={styles.liveBadgeText}>{t.liveBadge}</Text>
             </View>
             <View style={styles.viewersBadge}>
               <Ionicons name="people" size={13} color="#fff" />
@@ -632,7 +746,7 @@ export default function LiveStreamScreen() {
                   style={[styles.followBtn, apiStream?.isFollowingHost && styles.followBtnFollowing]}
                   disabled={followHostMutation.isPending || apiStream?.isFollowingHost}
                   onPress={() => {
-                    if (!requireAuth("follow")) return;
+                    if (!requireAuth(isJaUi ? "フォロー" : "follow")) return;
                     followHostMutation.mutate();
                   }}
                 >
@@ -640,7 +754,7 @@ export default function LiveStreamScreen() {
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
                     <Text style={styles.followBtnText}>
-                      {apiStream?.isFollowingHost ? "Following" : "Follow"}
+                      {apiStream?.isFollowingHost ? t.following : t.follow}
                     </Text>
                   )}
                 </Pressable>
@@ -656,7 +770,9 @@ export default function LiveStreamScreen() {
             {myBooking ? (
               <View style={styles.mentorBooked}>
                 <Ionicons name="people" size={12} color={C.accent} />
-                <Text style={styles.mentorBookedText}>Session booked #{(myBooking as unknown as MentorBooking).queuePosition}</Text>
+                <Text style={styles.mentorBookedText}>
+                  {t.sessionBooked((myBooking as unknown as MentorBooking).queuePosition)}
+                </Text>
               </View>
             ) : (
               <Pressable
@@ -664,7 +780,7 @@ export default function LiveStreamScreen() {
                 onPress={() => router.push(`/mentor-booking/${streamId}`)}
               >
                 <Ionicons name="people-outline" size={13} color="#fff" />
-                <Text style={styles.mentorBtnText}>Mentor Session</Text>
+                <Text style={styles.mentorBtnText}>{t.mentorSession}</Text>
               </Pressable>
             )}
           </View>
@@ -686,8 +802,8 @@ export default function LiveStreamScreen() {
                 <Ionicons name="camera" size={20} color="#fff" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.mentorNotifTitle}>It’s your turn!</Text>
-                <Text style={styles.mentorNotifBody}>Please start your mentor session</Text>
+                <Text style={styles.mentorNotifTitle}>{t.mentorTurnTitle}</Text>
+                <Text style={styles.mentorNotifBody}>{t.mentorTurnBody}</Text>
               </View>
               <Pressable onPress={() => setShowMentorNotif(false)}>
                 <Ionicons name="close" size={18} color="rgba(255,255,255,0.6)" />
@@ -721,10 +837,10 @@ export default function LiveStreamScreen() {
         <View style={styles.chatSection}>
           <View style={styles.chatHeader}>
             <Ionicons name="chatbubbles-outline" size={13} color={C.accent} />
-            <Text style={styles.chatHeaderText}>Live Chat</Text>
+            <Text style={styles.chatHeaderText}>{t.liveChat}</Text>
             <View style={styles.joinedBadge}>
               <Ionicons name="checkmark-circle" size={11} color={C.green} />
-              <Text style={styles.joinedText}>Live</Text>
+              <Text style={styles.joinedText}>{t.liveStatus}</Text>
             </View>
           </View>
 
@@ -758,8 +874,8 @@ export default function LiveStreamScreen() {
                   </View>
                 </View>
               ) : (
-                <View style={[styles.chatMsg, item.username === "You" && styles.chatMsgMine]}>
-                  {item.username !== "You" && (
+                <View style={[styles.chatMsg, item.username === t.selfName && styles.chatMsgMine]}>
+                  {item.username !== t.selfName && (
                     item.avatar ? (
                       <Pressable onPress={() => navigateToUserOrLiverProfile({ displayName: item.username })} hitSlop={4}>
                         <Image source={{ uri: item.avatar }} style={styles.chatAvatar} contentFit="cover" />
@@ -770,11 +886,11 @@ export default function LiveStreamScreen() {
                       </Pressable>
                     )
                   )}
-                  <View style={[styles.chatBubble, item.username === "You" && styles.chatBubbleMine]}>
-                    {item.username !== "You" && (
+                  <View style={[styles.chatBubble, item.username === t.selfName && styles.chatBubbleMine]}>
+                    {item.username !== t.selfName && (
                       <Text style={styles.chatUsername}>{item.username}</Text>
                     )}
-                    <Text style={[styles.chatText, item.username === "You" && styles.chatTextMine]}>
+                    <Text style={[styles.chatText, item.username === t.selfName && styles.chatTextMine]}>
                       {item.message}
                     </Text>
                   </View>
@@ -791,10 +907,8 @@ export default function LiveStreamScreen() {
             onPress={() => {
               if (!canSendTips) {
                 webOrNativeAlert(
-                  "Tips",
-                  streamMetaFetched && tipRecipientUserId == null
-                    ? "Tips are not available for this stream yet."
-                    : "Loading stream details… Try again in a moment.",
+                  t.tipsTitle,
+                  streamMetaFetched && tipRecipientUserId == null ? t.tipsUnavailable : t.tipsLoading,
                 );
                 return;
               }
@@ -805,7 +919,7 @@ export default function LiveStreamScreen() {
           </Pressable>
           <TextInput
             style={styles.input}
-            placeholder="Add a comment..."
+            placeholder={t.addComment}
             placeholderTextColor={C.textMuted}
             value={chatInput}
             onChangeText={setChatInput}
@@ -830,8 +944,8 @@ export default function LiveStreamScreen() {
           <Pressable style={styles.giftModalBg} onPress={() => setShowGiftModal(false)}>
             <Pressable style={[styles.giftModalSheet, { paddingBottom: bottomInset + 16 }]} onPress={() => {}}>
               <View style={styles.giftModalHandle} />
-              <Text style={styles.giftModalTitle}>Send a Gift</Text>
-              <Text style={styles.giftModalSub}>Support the creator directly</Text>
+              <Text style={styles.giftModalTitle}>{t.sendGift}</Text>
+              <Text style={styles.giftModalSub}>{t.supportCreator}</Text>
               <View style={styles.giftGrid}>
                 {GIFT_OPTIONS.map((g) => (
                   <Pressable key={g.amount} style={styles.giftOption} onPress={() => sendGift(g.amount, g.emoji)}>

@@ -27,6 +27,14 @@ export default function Root({ children }: PropsWithChildren) {
         />
         <ScrollViewStyleReset />
         <style>{`
+          :root {
+            --rs-font-body: 'Courier Prime', 'Courier New', monospace;
+            --rs-font-display: 'Barlow Condensed', sans-serif;
+          }
+          html[data-ui-lang="ja"] {
+            --rs-font-body: 'Noto Sans JP', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Yu Gothic', sans-serif;
+            --rs-font-display: 'Noto Sans JP', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Yu Gothic', sans-serif;
+          }
           html {
             height: 100%;
           }
@@ -39,6 +47,7 @@ export default function Root({ children }: PropsWithChildren) {
             min-height: 100%;
             overflow-x: hidden;
             background-color: #070F18;
+            font-family: var(--rs-font-body);
             margin: 0;
             box-sizing: border-box;
           }
@@ -93,8 +102,23 @@ export default function Root({ children }: PropsWithChildren) {
           #root *::-webkit-scrollbar-thumb:hover {
             background: rgba(0, 255, 204, 0.9) !important;
           }
-          * { font-family: 'Courier Prime', monospace; }
-          h1, h2, h3, h4, h5, h6, .display { font-family: 'Barlow Condensed', sans-serif !important; }
+          * { font-family: var(--rs-font-body); }
+          h1, h2, h3, h4, h5, h6, .display { font-family: var(--rs-font-display) !important; }
+          html[data-ui-lang="ja"] body {
+            letter-spacing: 0.01em;
+          }
+          html[data-ui-lang="ja"] h1,
+          html[data-ui-lang="ja"] h2,
+          html[data-ui-lang="ja"] h3,
+          html[data-ui-lang="ja"] h4,
+          html[data-ui-lang="ja"] h5,
+          html[data-ui-lang="ja"] h6,
+          html[data-ui-lang="ja"] .display,
+          html[data-ui-lang="ja"] button,
+          html[data-ui-lang="ja"] [role="button"] {
+            letter-spacing: 0 !important;
+            text-transform: none !important;
+          }
           /* Scanline overlay effect */
           body::after {
             content: '';
