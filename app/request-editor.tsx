@@ -7,7 +7,6 @@ import {
   Pressable,
   TextInput,
   Platform,
-  Alert,
   ActivityIndicator,
 } from "react-native";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
@@ -25,6 +24,7 @@ import {
   PRICE_PER_TICKET_USD,
 } from "@/constants/tickets";
 import { webScrollStyle } from "@/constants/layout";
+import { alertError, alertMessage, alertMessageThen } from "@/lib/alertCompat";
 
 type VideoEditor = {
   id: number;
@@ -85,7 +85,7 @@ export default function RequestEditorScreen() {
     const t = title.trim();
     const d = description.trim();
     if (!t || !d) {
-      Alert.alert("Required", "Please enter a title and description.");
+      alertMessage("Required", "Please enter a title and description.");
       return;
     }
 
@@ -101,10 +101,10 @@ export default function RequestEditorScreen() {
         budget: budgetNumber,
         deadline: deadline.trim() || undefined,
       });
-      Alert.alert("Sent", "Your request has been sent!", [{ text: "OK", onPress: () => router.back() }]);
+      alertMessageThen("Sent", "Your request has been sent!", () => router.back());
     } catch (e: any) {
       console.error(e);
-      Alert.alert("Error", "Failed to send request. Please try again later.");
+      alertError("Request failed", e, "Failed to send request. Please try again later.");
     } finally {
       setSending(false);
     }

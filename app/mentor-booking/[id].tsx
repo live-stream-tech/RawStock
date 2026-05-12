@@ -6,7 +6,6 @@ import {
   StyleSheet,
   Pressable,
   Platform,
-  Alert,
   ActivityIndicator,
 } from "react-native";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
@@ -21,6 +20,7 @@ import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
 import { PRICE_PER_TICKET_USD } from "@/constants/tickets";
 import { webScrollStyle } from "@/constants/layout";
+import { alertConfirm, alertError, alertMessageThen } from "@/lib/alertCompat";
 
 type LiveStream = {
   id: number;
@@ -94,13 +94,11 @@ export default function MentorBookingScreen() {
   async function handleSpendTickets() {
     if (!requireAuth("Mentor Session")) return;
     if (!canAfford) {
-      Alert.alert(
+      alertConfirm(
         "Not Enough Tickets",
         `You need ${MENTOR_TICKET_PRICE} 🎟 to book this session.\nYou currently have ${ticketBalance} 🎟.\n\nHead to the Ticket Shop to top up.`,
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Get Tickets", onPress: () => router.push("/tickets") },
-        ]
+        () => router.push("/tickets"),
+        { confirmLabel: "Get Tickets" },
       );
       return;
     }
@@ -114,17 +112,19 @@ export default function MentorBookingScreen() {
         description: `Mentor session with ${stream?.creator ?? "creator"} (stream #${streamId})`,
       });
       await refetchTickets();
-      Alert.alert(
+      alertMessageThen(
         "Booking Confirmed! 🎉",
         `You are #${queuePos} in the queue.\nYour session will begin when it's your turn during the live stream.\n\n${MENTOR_TICKET_PRICE} 🎟 have been deducted.`,
-        [{ text: "OK", onPress: () => router.back() }]
+        () => router.back(),
       );
     } catch (e: any) {
-      const errBody = e?.body ?? e ?? {};
-      if (errBody?.error === "Insufficient tickets") {
-        Alert.alert("Not Enough Tickets", `You need ${MENTOR_TICKET_PRICE} 🎟 but only have ${errBody.balance ?? ticketBalance} 🎟.`);
+      if (e?.status === 402) {
+        alertMessage(
+          "Not Enough Tickets",
+          `You need ${MENTOR_TICKET_PRICE} 🎟 but only have ${ticketBalance} 🎟.`,
+        );
       } else {
-        Alert.alert("Error", "Something went wrong. Please try again.");
+        alertError("Booking failed", e, "Something went wrong. Please try again.");
       }
     } finally {
       setLoading(false);

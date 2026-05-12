@@ -6,7 +6,6 @@ import {
   StyleSheet,
   Pressable,
   Platform,
-  Alert,
   ActivityIndicator,
   Linking,
   TextInput,
@@ -22,6 +21,7 @@ import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
 import { MIN_PURCHASE_TICKETS, PRICE_PER_TICKET_USD } from "@/constants/tickets";
 import { webScrollStyle } from "@/constants/layout";
+import { alertError, alertMessage } from "@/lib/alertCompat";
 
 export default function TicketsScreen() {
   const insets = useSafeAreaInsets();
@@ -47,16 +47,16 @@ export default function TicketsScreen() {
         if (data.success) {
           await refetchBalance();
           const granted = parseInt(ticketsParam ?? "0") || 0;
-          Alert.alert(
+          alertMessage(
             "Tickets Added! 🎟",
             granted > 0
               ? `${granted.toLocaleString()} tickets have been added to your balance.`
               : "Your ticket balance has been updated.",
-            [{ text: "Great!" }]
           );
         }
-      } catch {
-        /* ignore */
+      } catch (err) {
+        console.error("[Tickets] verify purchase error:", err);
+        alertError("Ticket verification failed", err, "We could not confirm your ticket purchase yet.");
       }
     },
     [refetchBalance, ticketsParam],
@@ -75,9 +75,9 @@ export default function TicketsScreen() {
   async function handleBuyTickets() {
     if (!requireAuth("Ticket Shop")) return;
     if (!isValidPurchase) {
-      Alert.alert(
+      alertMessage(
         "Minimum purchase",
-        `Please purchase at least ${MIN_PURCHASE_TICKETS.toLocaleString()} tickets.`
+        `Please purchase at least ${MIN_PURCHASE_TICKETS.toLocaleString()} tickets.`,
       );
       return;
     }
@@ -97,7 +97,7 @@ export default function TicketsScreen() {
       }
     } catch (err) {
       console.error("[Tickets] checkout error:", err);
-      Alert.alert("Error", "Failed to start checkout. Please try again.");
+      alertError("Checkout failed", err, "Failed to start checkout. Please try again.");
     } finally {
       setLoadingCheckout(false);
     }

@@ -216,6 +216,13 @@ export default function SettingsScreen() {
           />
           <View style={styles.rowDivider} />
           <SettingRow
+            icon="bug-outline"
+            label="Report a Bug"
+            sublabel="Tell us what broke and attach app context automatically"
+            onPress={() => router.push({ pathname: "/bug-report", params: { source: "/settings" } } as any)}
+          />
+          <View style={styles.rowDivider} />
+          <SettingRow
             icon="library-outline"
             label={isJaUi ? "利用規約・ポリシー" : "Legal & Policies"}
             sublabel={isJaUi ? "利用規約・プライバシー・DMCA・ガイドライン" : "Terms, Privacy, DMCA, Guidelines, notices"}
@@ -228,6 +235,12 @@ export default function SettingsScreen() {
                 icon="warning-outline"
                 label={isJaUi ? "通報管理" : "Report Management"}
                 onPress={() => router.push("/admin/reports")}
+              />
+              <View style={styles.rowDivider} />
+              <SettingRow
+                icon="bug-outline"
+                label="Bug Reports"
+                onPress={() => router.push("/admin/bug-reports" as any)}
               />
             </>
           )}

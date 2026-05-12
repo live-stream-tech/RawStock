@@ -37,6 +37,8 @@ __export(schema_exports, {
   announcements: () => announcements,
   bannerAds: () => bannerAds,
   bookingSessions: () => bookingSessions,
+  bugReports: () => bugReports,
+  clientErrorEvents: () => clientErrorEvents,
   coinBalances: () => coinBalances,
   coinTransactions: () => coinTransactions,
   communities: () => communities,
@@ -335,6 +337,24 @@ var reports = pgTable("reports", {
   aiReason: text("ai_reason"),
   status: text("status").notNull().default("pending"),
   // 'pending' | 'hidden' | 'reviewed'
+  createdAt: timestamp("created_at").defaultNow()
+});
+var bugReports = pgTable("bug_reports", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id"),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  expectedBehavior: text("expected_behavior"),
+  actualBehavior: text("actual_behavior"),
+  route: text("route"),
+  sessionId: text("session_id"),
+  platform: text("platform"),
+  userAgent: text("user_agent"),
+  payloadJson: text("payload_json"),
+  status: text("status").notNull().default("open"),
+  // open | reviewing | resolved
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: integer("resolved_by"),
   createdAt: timestamp("created_at").defaultNow()
 });
 var liveStreams = pgTable("live_streams", {
@@ -913,6 +933,29 @@ var dailyLogins = pgTable("daily_logins", {
   date: text("date").notNull(),
   // YYYY-MM-DD (UTC)
   createdAt: timestamp("created_at").defaultNow()
+});
+var clientErrorEvents = pgTable("client_error_events", {
+  id: serial("id").primaryKey(),
+  kind: text("kind").notNull(),
+  severity: text("severity").notNull().default("error"),
+  title: text("title"),
+  message: text("message").notNull(),
+  status: integer("status"),
+  code: text("code"),
+  route: text("route"),
+  method: text("method"),
+  requestUrl: text("request_url"),
+  userId: integer("user_id"),
+  sessionId: text("session_id"),
+  platform: text("platform"),
+  userAgent: text("user_agent"),
+  fingerprint: text("fingerprint"),
+  payloadJson: text("payload_json"),
+  stack: text("stack"),
+  componentStack: text("component_stack"),
+  createdAt: timestamp("created_at").defaultNow(),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: integer("resolved_by")
 });
 var aiEditJobs = pgTable("ai_edit_jobs", {
   id: serial("id").primaryKey(),
@@ -3179,6 +3222,8 @@ import { sql as sql4 } from "drizzle-orm";
 var jukeboxQueueUserColumnReady = false;
 var userFollowsSchemaReady = false;
 var jukeboxRequestCountsReady = false;
+var clientErrorEventsReady = false;
+var bugReportsReady = false;
 async function ensureJukeboxQueueSchema() {
   if (jukeboxQueueUserColumnReady) return;
   try {
@@ -3255,6 +3300,91 @@ async function ensureJukeboxRequestCountsSchema() {
     jukeboxRequestCountsReady = true;
   } catch (e) {
     console.error("[runtimeSchemaGuards] jukebox_request_counts:", e);
+  }
+}
+async function ensureClientErrorEventsSchema() {
+  if (clientErrorEventsReady) return;
+  try {
+    await db.execute(
+      sql4.raw(`
+        CREATE TABLE IF NOT EXISTS "client_error_events" (
+          "id" serial PRIMARY KEY NOT NULL,
+          "kind" text NOT NULL,
+          "severity" text NOT NULL DEFAULT 'error',
+          "title" text,
+          "message" text NOT NULL,
+          "status" integer,
+          "code" text,
+          "route" text,
+          "method" text,
+          "request_url" text,
+          "user_id" integer,
+          "session_id" text,
+          "platform" text,
+          "user_agent" text,
+          "fingerprint" text,
+          "payload_json" text,
+          "stack" text,
+          "component_stack" text,
+          "created_at" timestamp DEFAULT now()
+        )
+      `)
+    );
+    await db.execute(
+      sql4.raw(`CREATE INDEX IF NOT EXISTS "client_error_events_created_at_idx" ON "client_error_events" ("created_at" DESC)`)
+    );
+    await db.execute(
+      sql4.raw(`CREATE INDEX IF NOT EXISTS "client_error_events_fingerprint_idx" ON "client_error_events" ("fingerprint")`)
+    );
+    await db.execute(
+      sql4.raw(`ALTER TABLE "client_error_events" ADD COLUMN IF NOT EXISTS "resolved_at" timestamp`)
+    );
+    await db.execute(
+      sql4.raw(`ALTER TABLE "client_error_events" ADD COLUMN IF NOT EXISTS "resolved_by" integer`)
+    );
+    await db.execute(
+      sql4.raw(
+        `CREATE INDEX IF NOT EXISTS "client_error_events_resolved_at_idx" ON "client_error_events" ("resolved_at")`
+      )
+    );
+    clientErrorEventsReady = true;
+  } catch (e) {
+    console.error("[runtimeSchemaGuards] client_error_events:", e);
+  }
+}
+async function ensureBugReportsSchema() {
+  if (bugReportsReady) return;
+  try {
+    await db.execute(
+      sql4.raw(`
+        CREATE TABLE IF NOT EXISTS "bug_reports" (
+          "id" serial PRIMARY KEY NOT NULL,
+          "user_id" integer,
+          "title" text NOT NULL,
+          "description" text NOT NULL,
+          "expected_behavior" text,
+          "actual_behavior" text,
+          "route" text,
+          "session_id" text,
+          "platform" text,
+          "user_agent" text,
+          "payload_json" text,
+          "status" text NOT NULL DEFAULT 'open',
+          "resolved_at" timestamp,
+          "resolved_by" integer,
+          "created_at" timestamp DEFAULT now()
+        )
+      `)
+    );
+    await db.execute(
+      sql4.raw(`CREATE INDEX IF NOT EXISTS "bug_reports_created_at_idx" ON "bug_reports" ("created_at" DESC)`)
+    );
+    await db.execute(
+      sql4.raw(`CREATE INDEX IF NOT EXISTS "bug_reports_status_idx" ON "bug_reports" ("status")`)
+    );
+    bugReportsReady = true;
+  } catch (e) {
+    console.error("[runtimeSchemaGuards] bug_reports:", e);
   }
 }
 
@@ -3511,6 +3641,42 @@ async function getAdminUserOrReject(req, res) {
     return null;
   }
   return user;
+}
+function truncateClientErrorText(value, max2 = 4e3) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.length > max2 ? `${trimmed.slice(0, max2)}\u2026` : trimmed;
+}
+function sanitizeClientErrorPayload(value, depth = 0) {
+  if (value == null) return value;
+  if (typeof value === "string") return truncateClientErrorText(value, 300);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (typeof value === "bigint") return value.toString();
+  if (Array.isArray(value)) {
+    if (depth >= 2) return { type: "array", length: value.length };
+    return value.slice(0, 10).map((item) => sanitizeClientErrorPayload(item, depth + 1));
+  }
+  if (typeof value === "object") {
+    const obj = value;
+    const out = {};
+    for (const [key, nested] of Object.entries(obj).slice(0, 25)) {
+      if (/authorization|cookie|token|password|secret/i.test(key)) {
+        out[key] = "[redacted]";
+        continue;
+      }
+      out[key] = depth >= 2 ? "[truncated]" : sanitizeClientErrorPayload(nested, depth + 1);
+    }
+    return out;
+  }
+  return String(value);
+}
+function stringifyClientErrorPayload(value) {
+  try {
+    return JSON.stringify(sanitizeClientErrorPayload(value));
+  } catch {
+    return JSON.stringify({ note: "payload_unserializable" });
+  }
 }
 async function promoteAdminByEmail(target) {
   if (!ADMIN_EMAIL) return;
@@ -6728,6 +6894,142 @@ async function registerRoutes(app2) {
     }
     res.json({ ok: true, updated: ranked.length, yearMonth });
   });
+  app2.post("/api/client-errors", async (req, res) => {
+    await ensureClientErrorEventsSchema();
+    const authHeader = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
+    const authUser = authHeader.startsWith("Bearer ") ? await getAuthUser(req) : null;
+    const body = req.body ?? {};
+    const kind = truncateClientErrorText(body.kind, 40);
+    const severity = truncateClientErrorText(body.severity, 20) ?? "error";
+    const title = truncateClientErrorText(body.title, 200);
+    const message = truncateClientErrorText(body.message, 4e3);
+    if (!kind || !message) {
+      return res.status(400).json({ error: "kind and message are required" });
+    }
+    const status = typeof body.status === "number" && Number.isFinite(body.status) ? Math.trunc(body.status) : null;
+    const code = truncateClientErrorText(body.code, 120);
+    const route = truncateClientErrorText(body.route, 300);
+    const method = truncateClientErrorText(body.method, 16)?.toUpperCase() ?? null;
+    const requestUrl = truncateClientErrorText(body.requestUrl, 500);
+    const sessionId = truncateClientErrorText(body.sessionId, 120);
+    const platform = truncateClientErrorText(body.platform, 40);
+    const userAgent = truncateClientErrorText(body.userAgent, 512);
+    const stack = truncateClientErrorText(body.stack, 4e3);
+    const componentStack = truncateClientErrorText(body.componentStack, 4e3);
+    const fingerprint = truncateClientErrorText(body.fingerprint, 500);
+    const payloadJson = stringifyClientErrorPayload(body.extra ?? null);
+    const eventLog = {
+      kind,
+      severity,
+      title,
+      message,
+      status,
+      code,
+      route,
+      method,
+      requestUrl,
+      sessionId,
+      userId: authUser?.id ?? null,
+      platform,
+      fingerprint,
+      payloadJson,
+      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    console.error("[client-error-event]", JSON.stringify(eventLog));
+    try {
+      const [created] = await db.insert(clientErrorEvents).values({
+        kind,
+        severity,
+        title,
+        message,
+        status,
+        code,
+        route,
+        method,
+        requestUrl,
+        userId: authUser?.id ?? null,
+        sessionId,
+        platform,
+        userAgent,
+        fingerprint,
+        payloadJson,
+        stack,
+        componentStack
+      }).returning({ id: clientErrorEvents.id });
+      return res.json({ ok: true, id: created?.id ?? null });
+    } catch (e) {
+      console.error("[client-error-event] insert failed:", e);
+      return res.status(500).json({ error: "Failed to record client error" });
+    }
+  });
+  app2.post("/api/bug-reports", async (req, res) => {
+    await ensureBugReportsSchema();
+    const authHeader = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
+    const authUser = authHeader.startsWith("Bearer ") ? await getAuthUser(req) : await getAuthUser(req);
+    const body = req.body ?? {};
+    const title = truncateClientErrorText(body.title, 200);
+    const description = truncateClientErrorText(body.description, 4e3);
+    const expectedBehavior = truncateClientErrorText(body.expectedBehavior, 2e3);
+    const actualBehavior = truncateClientErrorText(body.actualBehavior, 2e3);
+    const route = truncateClientErrorText(body.route, 300);
+    const sessionId = truncateClientErrorText(body.sessionId, 120);
+    const platform = truncateClientErrorText(body.platform, 40);
+    const userAgent = truncateClientErrorText(body.userAgent, 512);
+    const payloadJson = stringifyClientErrorPayload(body.extra ?? null);
+    if (!title || !description) {
+      return res.status(400).json({ error: "title and description are required" });
+    }
+    try {
+      const [created] = await db.insert(bugReports).values({
+        userId: authUser?.id ?? null,
+        title,
+        description,
+        expectedBehavior,
+        actualBehavior,
+        route,
+        sessionId,
+        platform,
+        userAgent,
+        payloadJson,
+        status: "open"
+      }).returning({ id: bugReports.id });
+      return res.status(201).json({ ok: true, id: created?.id ?? null });
+    } catch (e) {
+      console.error("[bug-reports] insert failed:", e);
+      return res.status(500).json({ error: "Failed to submit bug report" });
+    }
+  });
+  app2.get("/api/admin/bug-reports", async (req, res) => {
+    await ensureBugReportsSchema();
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+    const rawLimit = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : 100;
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 100;
+    const status = typeof req.query.status === "string" ? req.query.status.trim().toLowerCase() : "";
+    const query = db.select().from(bugReports);
+    const filtered = status === "open" || status === "reviewing" || status === "resolved" ? query.where(eq6(bugReports.status, status)) : query;
+    const rows = await filtered.orderBy(desc2(bugReports.createdAt)).limit(limit);
+    return res.json(rows);
+  });
+  app2.patch("/api/admin/bug-reports/:id", async (req, res) => {
+    await ensureBugReportsSchema();
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+    const id = paramNum(req, "id");
+    const status = typeof req.body?.status === "string" ? req.body.status.trim().toLowerCase() : "";
+    if (status !== "open" && status !== "reviewing" && status !== "resolved") {
+      return res.status(400).json({ error: "Invalid status" });
+    }
+    const [updated] = await db.update(bugReports).set({
+      status,
+      resolvedAt: status === "resolved" ? /* @__PURE__ */ new Date() : null,
+      resolvedBy: status === "resolved" ? admin.id : null
+    }).where(eq6(bugReports.id, id)).returning();
+    if (!updated) {
+      return res.status(404).json({ error: "Bug report not found" });
+    }
+    return res.json(updated);
+  });
   app2.post("/api/admin/announcements/run", async (req, res) => {
     const admin = await getAdminUserOrReject(req, res);
     if (!admin) return;
@@ -6811,6 +7113,45 @@ async function registerRoutes(app2) {
       videoCount: Number(videoCount ?? 0),
       salesLast30Days: Number(salesLast30Days ?? 0)
     });
+  });
+  app2.get("/api/admin/client-errors", async (req, res) => {
+    await ensureClientErrorEventsSchema();
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+    const rawLimit = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : 100;
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 100;
+    const includeResolved = req.query.includeResolved === "1" || req.query.includeResolved === "true";
+    const baseQuery = db.select().from(clientErrorEvents);
+    const filtered = includeResolved ? baseQuery : baseQuery.where(isNull(clientErrorEvents.resolvedAt));
+    const rows = await filtered.orderBy(desc2(clientErrorEvents.createdAt)).limit(limit);
+    res.json(rows);
+  });
+  app2.post("/api/admin/client-errors/resolve", async (req, res) => {
+    await ensureClientErrorEventsSchema();
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+    const body = req.body ?? {};
+    const fingerprint = typeof body.fingerprint === "string" ? body.fingerprint.trim() : "";
+    if (!fingerprint) {
+      return res.status(400).json({ error: "fingerprint is required" });
+    }
+    const now = /* @__PURE__ */ new Date();
+    const updated = await db.update(clientErrorEvents).set({ resolvedAt: now, resolvedBy: admin.id }).where(
+      and5(eq6(clientErrorEvents.fingerprint, fingerprint), isNull(clientErrorEvents.resolvedAt))
+    ).returning({ id: clientErrorEvents.id });
+    return res.json({ ok: true, resolved: updated.length });
+  });
+  app2.post("/api/admin/client-errors/unresolve", async (req, res) => {
+    await ensureClientErrorEventsSchema();
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+    const body = req.body ?? {};
+    const fingerprint = typeof body.fingerprint === "string" ? body.fingerprint.trim() : "";
+    if (!fingerprint) {
+      return res.status(400).json({ error: "fingerprint is required" });
+    }
+    const updated = await db.update(clientErrorEvents).set({ resolvedAt: null, resolvedBy: null }).where(eq6(clientErrorEvents.fingerprint, fingerprint)).returning({ id: clientErrorEvents.id });
+    return res.json({ ok: true, unresolved: updated.length });
   });
   app2.get("/api/admin/users", async (req, res) => {
     const admin = await getAdminUserOrReject(req, res);

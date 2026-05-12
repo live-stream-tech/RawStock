@@ -136,6 +136,18 @@ export default function AdminDashboardScreen() {
               <Text style={styles.menuLabel}>Report Queue</Text>
               <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
             </Pressable>
+            <View style={styles.divider} />
+            <Pressable style={styles.menuRow} onPress={() => router.push("/admin/client-errors" as any)}>
+              <Ionicons name="bug-outline" size={18} color={C.accent} />
+              <Text style={styles.menuLabel}>Client Errors</Text>
+              <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+            </Pressable>
+            <View style={styles.divider} />
+            <Pressable style={styles.menuRow} onPress={() => router.push("/admin/bug-reports" as any)}>
+              <Ionicons name="document-text-outline" size={18} color={C.accent} />
+              <Text style={styles.menuLabel}>Bug Reports</Text>
+              <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+            </Pressable>
           </View>
         </ScrollView>
       </View>

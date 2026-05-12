@@ -40,6 +40,7 @@ import * as ImagePicker from "expo-image-picker";
 import type { ImagePickerAsset } from "expo-image-picker";
 import { useDemoMode } from "@/lib/demo-mode";
 import { TEMP_BANNER_IMAGE_PATH, TEMP_BANNER_TARGET_URL } from "@/constants/bannerLinks";
+import { alertError, alertMessage } from "@/lib/alertCompat";
 
 const MAX_ANNOUNCEMENT_SCREENSHOT_BYTES = 15 * 1024 * 1024;
 
@@ -434,11 +435,11 @@ function PollsTab({
     const q = newQuestion.trim();
     const opts = newOptions.map((o) => o.trim()).filter(Boolean);
     if (!q) {
-      Alert.alert("", "Please enter a question");
+      alertMessage("Missing question", "Please enter a question");
       return;
     }
     if (opts.length < 2) {
-      Alert.alert("", "Please enter at least 2 options");
+      alertMessage("Missing options", "Please enter at least 2 options");
       return;
     }
     if (!requireAuth("Create Poll")) return;
@@ -450,7 +451,7 @@ function PollsTab({
       setNewOptions(["", ""]);
       refetch();
     } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "Failed to create poll");
+      alertError("Could not create poll", e, "Failed to create poll");
     } finally {
       setCreating(false);
     }
@@ -463,7 +464,7 @@ function PollsTab({
       await apiRequest("POST", `/api/communities/${communityId}/polls/${pollId}/vote`, { optionId });
       refetch();
     } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "Failed to vote");
+      alertError("Could not vote", e, "Failed to vote");
     } finally {
       setVotingPollId(null);
     }
@@ -617,7 +618,7 @@ function ThreadDetailContent({
       qc.invalidateQueries({ queryKey: [`/api/communities/${communityId}/threads/${thread.id}`] });
       onReply();
     } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "Failed to post reply");
+      alertError("Could not post reply", e, "Failed to post reply");
     } finally {
       setPosting(false);
     }
@@ -1117,16 +1118,16 @@ export default function CommunityDetailScreen() {
 
   async function handleCreateThread() {
     if (!newThreadTitle.trim() && threadComposerMode !== "feedback") {
-      Alert.alert("", "Please enter a title");
+      alertMessage("Missing title", "Please enter a title");
       return;
     }
     if (threadComposerMode === "feedback" && !newThreadBody.trim()) {
-      Alert.alert("", "Please enter your feedback");
+      alertMessage("Missing feedback", "Please enter your feedback");
       return;
     }
     if (threadComposerMode === "announcement" && !announcementScreenshotUrl?.trim()) {
-      Alert.alert(
-        "",
+      alertMessage(
+        "Screenshot required",
         "Announcements require an event screenshot. Capture the ticket app, calendar, or poster, then add it from Photos (or use Take photo for a printout).",
       );
       return;
@@ -1136,7 +1137,7 @@ export default function CommunityDetailScreen() {
     try {
       await createThreadMutation.mutateAsync();
     } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "Failed to create thread");
+      alertError("Could not create thread", e, "Failed to create thread");
     } finally {
       setCreatingThread(false);
     }
@@ -1167,7 +1168,7 @@ export default function CommunityDetailScreen() {
       qc.invalidateQueries({ queryKey: [`/api/communities/${communityId}/staff`] });
       setStaffModalVisible(false);
     } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "Failed to save");
+      alertError("Could not save staff", e, "Failed to save");
     } finally {
       setSavingStaff(false);
     }
@@ -1184,7 +1185,7 @@ export default function CommunityDetailScreen() {
     const title = requestTitle.trim();
     const description = requestDescription.trim();
     if (!title || !description) {
-      Alert.alert("Error", "Please enter a title and description.");
+      alertMessage("Missing fields", "Please enter a title and description.");
       return;
     }
 
@@ -1200,11 +1201,11 @@ export default function CommunityDetailScreen() {
         budget: budgetNumber,
         deadline: requestDeadline.trim() || undefined,
       });
-      Alert.alert("Sent", "Your request has been sent!");
+      alertMessage("Sent", "Your request has been sent!");
       setRequestEditor(null);
     } catch (e: any) {
       console.error(e);
-      Alert.alert("Error", "Failed to send request. Please try again later.");
+      alertError("Request failed", e, "Failed to send request. Please try again later.");
     } finally {
       setSendingRequest(false);
     }

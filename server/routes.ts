@@ -40,6 +40,7 @@ import {
   communityPollOptions,
   communityPollVotes,
   reports,
+  bugReports,
   savedVideos,
   genreAds,
   genreOwners,
@@ -55,6 +56,7 @@ import {
   TICKET_PACKS,
   bannerAds,
   dailyLogins,
+  clientErrorEvents,
   aiEditJobs,
   editingRequests,
   userFollows,
@@ -136,7 +138,13 @@ import {
   jukeboxPollTouch,
   isValidJukeboxPollViewerId,
 } from "./jukeboxWatchers";
-import { ensureJukeboxQueueSchema, ensureUserFollowsSchema, ensureJukeboxRequestCountsSchema } from "./runtimeSchemaGuards";
+import {
+  ensureClientErrorEventsSchema,
+  ensureBugReportsSchema,
+  ensureJukeboxQueueSchema,
+  ensureUserFollowsSchema,
+  ensureJukeboxRequestCountsSchema,
+} from "./runtimeSchemaGuards";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import type Stripe from "stripe";
@@ -454,6 +462,45 @@ async function getAdminUserOrReject(req: Request, res: Response) {
     return null;
   }
   return user;
+}
+
+function truncateClientErrorText(value: unknown, max = 4000): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.length > max ? `${trimmed.slice(0, max)}…` : trimmed;
+}
+
+function sanitizeClientErrorPayload(value: unknown, depth = 0): unknown {
+  if (value == null) return value;
+  if (typeof value === "string") return truncateClientErrorText(value, 300);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (typeof value === "bigint") return value.toString();
+  if (Array.isArray(value)) {
+    if (depth >= 2) return { type: "array", length: value.length };
+    return value.slice(0, 10).map((item) => sanitizeClientErrorPayload(item, depth + 1));
+  }
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const [key, nested] of Object.entries(obj).slice(0, 25)) {
+      if (/authorization|cookie|token|password|secret/i.test(key)) {
+        out[key] = "[redacted]";
+        continue;
+      }
+      out[key] = depth >= 2 ? "[truncated]" : sanitizeClientErrorPayload(nested, depth + 1);
+    }
+    return out;
+  }
+  return String(value);
+}
+
+function stringifyClientErrorPayload(value: unknown): string | null {
+  try {
+    return JSON.stringify(sanitizeClientErrorPayload(value));
+  } catch {
+    return JSON.stringify({ note: "payload_unserializable" });
+  }
 }
 
 async function promoteAdminByEmail(target?: { id: number; email: string | null | undefined }) {
@@ -4755,6 +4802,176 @@ export async function registerRoutes(app: Express): Promise<void> {
     res.json({ ok: true, updated: ranked.length, yearMonth });
   });
 
+  /** Client error ingest for production debugging. Accepts anonymous events too. */
+  app.post("/api/client-errors", async (req: Request, res: Response) => {
+    await ensureClientErrorEventsSchema();
+    const authHeader = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
+    const authUser = authHeader.startsWith("Bearer ") ? await getAuthUser(req) : null;
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const kind = truncateClientErrorText(body.kind, 40);
+    const severity = truncateClientErrorText(body.severity, 20) ?? "error";
+    const title = truncateClientErrorText(body.title, 200);
+    const message = truncateClientErrorText(body.message, 4000);
+    if (!kind || !message) {
+      return res.status(400).json({ error: "kind and message are required" });
+    }
+
+    const status =
+      typeof body.status === "number" && Number.isFinite(body.status)
+        ? Math.trunc(body.status)
+        : null;
+    const code = truncateClientErrorText(body.code, 120);
+    const route = truncateClientErrorText(body.route, 300);
+    const method = truncateClientErrorText(body.method, 16)?.toUpperCase() ?? null;
+    const requestUrl = truncateClientErrorText(body.requestUrl, 500);
+    const sessionId = truncateClientErrorText(body.sessionId, 120);
+    const platform = truncateClientErrorText(body.platform, 40);
+    const userAgent = truncateClientErrorText(body.userAgent, 512);
+    const stack = truncateClientErrorText(body.stack, 4000);
+    const componentStack = truncateClientErrorText(body.componentStack, 4000);
+    const fingerprint = truncateClientErrorText(body.fingerprint, 500);
+    const payloadJson = stringifyClientErrorPayload(body.extra ?? null);
+
+    const eventLog = {
+      kind,
+      severity,
+      title,
+      message,
+      status,
+      code,
+      route,
+      method,
+      requestUrl,
+      sessionId,
+      userId: authUser?.id ?? null,
+      platform,
+      fingerprint,
+      payloadJson,
+      createdAt: new Date().toISOString(),
+    };
+    console.error("[client-error-event]", JSON.stringify(eventLog));
+
+    try {
+      const [created] = await db
+        .insert(clientErrorEvents)
+        .values({
+          kind,
+          severity,
+          title,
+          message,
+          status,
+          code,
+          route,
+          method,
+          requestUrl,
+          userId: authUser?.id ?? null,
+          sessionId,
+          platform,
+          userAgent,
+          fingerprint,
+          payloadJson,
+          stack,
+          componentStack,
+        } as typeof clientErrorEvents.$inferInsert)
+        .returning({ id: clientErrorEvents.id });
+      return res.json({ ok: true, id: created?.id ?? null });
+    } catch (e) {
+      console.error("[client-error-event] insert failed:", e);
+      return res.status(500).json({ error: "Failed to record client error" });
+    }
+  });
+
+  /** User-facing bug report intake. Accepts optional auth and stores sanitized context. */
+  app.post("/api/bug-reports", async (req: Request, res: Response) => {
+    await ensureBugReportsSchema();
+    const authHeader = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
+    const authUser = authHeader.startsWith("Bearer ") ? await getAuthUser(req) : await getAuthUser(req);
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const title = truncateClientErrorText(body.title, 200);
+    const description = truncateClientErrorText(body.description, 4000);
+    const expectedBehavior = truncateClientErrorText(body.expectedBehavior, 2000);
+    const actualBehavior = truncateClientErrorText(body.actualBehavior, 2000);
+    const route = truncateClientErrorText(body.route, 300);
+    const sessionId = truncateClientErrorText(body.sessionId, 120);
+    const platform = truncateClientErrorText(body.platform, 40);
+    const userAgent = truncateClientErrorText(body.userAgent, 512);
+    const payloadJson = stringifyClientErrorPayload(body.extra ?? null);
+
+    if (!title || !description) {
+      return res.status(400).json({ error: "title and description are required" });
+    }
+
+    try {
+      const [created] = await db
+        .insert(bugReports)
+        .values({
+          userId: authUser?.id ?? null,
+          title,
+          description,
+          expectedBehavior,
+          actualBehavior,
+          route,
+          sessionId,
+          platform,
+          userAgent,
+          payloadJson,
+          status: "open",
+        } as typeof bugReports.$inferInsert)
+        .returning({ id: bugReports.id });
+      return res.status(201).json({ ok: true, id: created?.id ?? null });
+    } catch (e) {
+      console.error("[bug-reports] insert failed:", e);
+      return res.status(500).json({ error: "Failed to submit bug report" });
+    }
+  });
+
+  app.get("/api/admin/bug-reports", async (req: Request, res: Response) => {
+    await ensureBugReportsSchema();
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+
+    const rawLimit =
+      typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : 100;
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 100;
+    const status =
+      typeof req.query.status === "string" ? req.query.status.trim().toLowerCase() : "";
+
+    const query = db.select().from(bugReports);
+    const filtered =
+      status === "open" || status === "reviewing" || status === "resolved"
+        ? query.where(eq(bugReports.status, status))
+        : query;
+    const rows = await filtered.orderBy(desc(bugReports.createdAt)).limit(limit);
+    return res.json(rows);
+  });
+
+  app.patch("/api/admin/bug-reports/:id", async (req: Request, res: Response) => {
+    await ensureBugReportsSchema();
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+
+    const id = paramNum(req, "id");
+    const status =
+      typeof req.body?.status === "string" ? req.body.status.trim().toLowerCase() : "";
+    if (status !== "open" && status !== "reviewing" && status !== "resolved") {
+      return res.status(400).json({ error: "Invalid status" });
+    }
+
+    const [updated] = await db
+      .update(bugReports)
+      .set({
+        status,
+        resolvedAt: status === "resolved" ? new Date() : null,
+        resolvedBy: status === "resolved" ? admin.id : null,
+      } as Partial<InferSelectModel<typeof bugReports>>)
+      .where(eq(bugReports.id, id))
+      .returning();
+    if (!updated) {
+      return res.status(404).json({ error: "Bug report not found" });
+    }
+    return res.json(updated);
+  });
+
   /** Admin: run official announcement collection pipeline now (rave discovery + BBC artist discovery + V3 + Route B). */
   app.post("/api/admin/announcements/run", async (req: Request, res: Response) => {
     const admin = await getAdminUserOrReject(req, res);
@@ -4868,6 +5085,66 @@ export async function registerRoutes(app: Express): Promise<void> {
       videoCount: Number(videoCount ?? 0),
       salesLast30Days: Number(salesLast30Days ?? 0),
     });
+  });
+
+  app.get("/api/admin/client-errors", async (req: Request, res: Response) => {
+    await ensureClientErrorEventsSchema();
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+
+    const rawLimit =
+      typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : 100;
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 100;
+    const includeResolved = req.query.includeResolved === "1" || req.query.includeResolved === "true";
+
+    const baseQuery = db.select().from(clientErrorEvents);
+    const filtered = includeResolved
+      ? baseQuery
+      : baseQuery.where(isNull(clientErrorEvents.resolvedAt));
+    const rows = await filtered.orderBy(desc(clientErrorEvents.createdAt)).limit(limit);
+
+    res.json(rows);
+  });
+
+  /** Mark all events with a given fingerprint as resolved (so the admin "fix flow" can hide them). */
+  app.post("/api/admin/client-errors/resolve", async (req: Request, res: Response) => {
+    await ensureClientErrorEventsSchema();
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const fingerprint = typeof body.fingerprint === "string" ? body.fingerprint.trim() : "";
+    if (!fingerprint) {
+      return res.status(400).json({ error: "fingerprint is required" });
+    }
+    const now = new Date();
+    const updated = await db
+      .update(clientErrorEvents)
+      .set({ resolvedAt: now, resolvedBy: admin.id })
+      .where(
+        and(eq(clientErrorEvents.fingerprint, fingerprint), isNull(clientErrorEvents.resolvedAt)),
+      )
+      .returning({ id: clientErrorEvents.id });
+    return res.json({ ok: true, resolved: updated.length });
+  });
+
+  /** Clear the resolved flag for a fingerprint (in case it was marked too early). */
+  app.post("/api/admin/client-errors/unresolve", async (req: Request, res: Response) => {
+    await ensureClientErrorEventsSchema();
+    const admin = await getAdminUserOrReject(req, res);
+    if (!admin) return;
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const fingerprint = typeof body.fingerprint === "string" ? body.fingerprint.trim() : "";
+    if (!fingerprint) {
+      return res.status(400).json({ error: "fingerprint is required" });
+    }
+    const updated = await db
+      .update(clientErrorEvents)
+      .set({ resolvedAt: null, resolvedBy: null })
+      .where(eq(clientErrorEvents.fingerprint, fingerprint))
+      .returning({ id: clientErrorEvents.id });
+    return res.json({ ok: true, unresolved: updated.length });
   });
 
   app.get("/api/admin/users", async (req: Request, res: Response) => {

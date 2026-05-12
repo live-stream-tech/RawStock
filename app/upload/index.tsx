@@ -6,11 +6,11 @@ import {
   Pressable,
   TextInput,
   Platform,
-  Alert,
   ActivityIndicator,
   ScrollView,
   Modal,
   ActionSheetIOS,
+  Alert,
 } from "react-native";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
@@ -20,12 +20,14 @@ import { router, useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiRequest, ApiError, formatUserFacingApiError, uploadUserMediaBlobToR2 } from "@/lib/query-client";
+import { apiRequest, ApiError, uploadUserMediaBlobToR2 } from "@/lib/query-client";
 import { C } from "@/constants/colors";
 import { useAuth } from "@/lib/auth";
 import { DAILY_POST_LIMITS } from "@/constants/upload-limits";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { webScrollStyle } from "@/constants/layout";
+import { alertError, alertMessage } from "@/lib/alertCompat";
+import { beginActionTelemetry } from "@/lib/actionTelemetry";
 
 type MediaItem = { id: string; uri: string; type: "image" | "video"; size?: number; durationSec?: number };
 type Community = { id: number; name: string; thumbnail: string };
@@ -288,7 +290,7 @@ export default function DailyUploadScreen() {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       queryClient.invalidateQueries({ queryKey: ["/api/videos/my"] });
     } catch (err: any) {
-      Alert.alert("Error", formatUserFacingApiError(err));
+      alertError("Publish failed", err);
     } finally {
       setUploading(false);
     }
@@ -297,18 +299,30 @@ export default function DailyUploadScreen() {
   async function handleSubmit() {
     const title = text.trim().slice(0, DAILY_POST_LIMITS.maxTextLength);
     if (!title.length) {
-      Alert.alert("", "Enter text.");
+      alertMessage("Missing text", "Enter text.");
       return;
     }
     if (postTarget === "community" && !selectedCommunity) {
-      Alert.alert("", "Select a community.");
+      alertMessage("Select community", "Select a community.");
       return;
     }
     if (!requireAuth("post")) return;
     if (!agreeGuidelines || !agreeRights) {
-      Alert.alert("Confirmation required", "Review and accept Guidelines and rights before posting.");
+      alertMessage("Confirmation required", "Review and accept Guidelines and rights before posting.");
       return;
     }
+    const action = beginActionTelemetry({
+      action: "daily_post_submit",
+      title: "Daily post",
+      method: "POST",
+      requestUrl: "/api/videos",
+      timeoutMs: 30_000,
+      extra: {
+        postTarget,
+        mediaCount: mediaItems.length,
+        communityId: postTarget === "community" ? selectedCommunity?.id ?? null : null,
+      },
+    });
     setUploading(true);
     try {
       console.log(`${UPLOAD_LOG} step:daily_submit_start`, { hasMedia: mediaItems.length > 0 });
@@ -324,11 +338,9 @@ export default function DailyUploadScreen() {
         try {
           thumbUrl = await ensureHttpsUrl(firstImage.uri, "image");
         } catch (e: any) {
+          action.fail(e, { stage: "thumbnail_upload" });
           console.error(`${UPLOAD_LOG} step:daily_submit_thumbnail_upload_failed`, e);
-          Alert.alert(
-            "Upload failed",
-            e?.message ?? "Could not upload the image. Check your connection and try again.",
-          );
+          alertError("Upload failed", e, "Could not upload the image. Check your connection and try again.");
           return;
         }
       }
@@ -341,11 +353,9 @@ export default function DailyUploadScreen() {
             : firstVideo.uri;
           console.log(`${UPLOAD_LOG} step:daily_submit_video_ok`);
         } catch (e: any) {
+          action.fail(e, { stage: "video_upload" });
           console.error(`${UPLOAD_LOG} step:daily_submit_video_failed`, e);
-          Alert.alert(
-            "Upload failed",
-            e?.message ?? "Could not upload the video. Check your connection and try again.",
-          );
+          alertError("Upload failed", e, "Could not upload the video. Check your connection and try again.");
           return;
         }
       }
@@ -374,12 +384,18 @@ export default function DailyUploadScreen() {
       router.replace("/profile");
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       queryClient.invalidateQueries({ queryKey: ["/api/videos/my"] });
+      action.success({
+        stage: "posted",
+        hasVideo: Boolean(videoUrlToSend),
+        visibility: postTarget === "my_page_only" ? "my_page_only" : "community",
+      });
     } catch (err: any) {
+      action.fail(err, { stage: "create_post" });
       if (err instanceof ApiError && err.status === 401) {
-        Alert.alert("Sign in required", "Sign in is required to post.");
+        alertMessage("Sign in required", "Sign in is required to post.");
         return;
       }
-      Alert.alert("Error", formatUserFacingApiError(err));
+      alertError("Post failed", err);
     } finally {
       setUploading(false);
     }

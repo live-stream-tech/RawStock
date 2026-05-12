@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ActivityIndicator, Platform, View } from "react-native";
-import { getApiUrl, readAuthToken } from "@/lib/query-client";
+import { ApiError, getApiUrl, readAuthToken } from "@/lib/query-client";
 import { saveLoginReturn } from "@/lib/login-return";
 import { router } from "expo-router";
-import { debugIngestLocal } from "@/lib/debugIngest";
+import { captureClientError, debugIngestLocal, summarizeForErrorExtra } from "@/lib/debugIngest";
+import { recordClientDebugBreadcrumb, setCurrentClientActor } from "@/lib/clientErrorContext";
 
 export type User = {
   id: number;
@@ -79,19 +80,49 @@ function readWebTokenFromLocalStorage(): string | null {
 async function apiFetch(path: string, options?: RequestInit) {
   const base = getApiUrl();
   const url = new URL(path, base).toString();
+  const method = options?.method ?? "GET";
   debugIngestLocal({
     sessionId: "88cb7d",
     runId: "initial",
     hypothesisId: "H2",
     location: "lib/auth.tsx:apiFetch",
     message: "Auth API request start",
-    data: { path, url, method: options?.method ?? "GET" },
+    data: { path, url, method },
     timestamp: Date.now(),
   });
-  const res = await fetch(url, {
-    ...options,
-    headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
+  recordClientDebugBreadcrumb({
+    type: "auth_request_start",
+    message: `${method} ${path}`,
+    route: typeof window !== "undefined" ? `${window.location.pathname}${window.location.search}` : null,
+    method,
+    url,
+    data: { path },
   });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...options,
+      headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
+    });
+  } catch (err) {
+    recordClientDebugBreadcrumb({
+      type: "auth_request_network_error",
+      message: `${method} ${path}`,
+      route: typeof window !== "undefined" ? `${window.location.pathname}${window.location.search}` : null,
+      method,
+      url,
+      data: summarizeForErrorExtra(err) as Record<string, unknown>,
+    });
+    void captureClientError({
+      kind: "auth_error",
+      title: "Authentication request failed",
+      message: err instanceof Error ? err.message : String(err),
+      requestUrl: url,
+      method,
+      extra: { path },
+    });
+    throw err;
+  }
 
   // Some responses are not JSON; read as text first so HTML error pages do not break `res.json()`.
   const rawText = await res.text();
@@ -112,14 +143,38 @@ async function apiFetch(path: string, options?: RequestInit) {
       data: { path, status: res.status, error: data?.error ?? null, code: data?.code ?? null },
       timestamp: Date.now(),
     });
-    const err: Error & { status?: number; code?: unknown; body?: string } = new Error(
-      data?.error ?? "Something went wrong",
-    );
-    err.status = res.status;
-    err.code = data?.code;
-    err.body = rawText;
+    recordClientDebugBreadcrumb({
+      type: "auth_request_error",
+      message: `${method} ${path}`,
+      route: typeof window !== "undefined" ? `${window.location.pathname}${window.location.search}` : null,
+      status: res.status,
+      method,
+      url,
+      data: { path, code: data?.code ?? null, error: data?.error ?? null },
+    });
+    const err = new ApiError(res.status, rawText || data?.error || "Something went wrong");
+    (err as ApiError & { code?: unknown }).code = data?.code;
+    void captureClientError({
+      kind: "auth_error",
+      title: "Authentication request failed",
+      message: data?.error ?? "Something went wrong",
+      status: res.status,
+      code: typeof data?.code === "string" ? data.code : null,
+      requestUrl: url,
+      method,
+      extra: { path },
+    });
     throw err;
   }
+  recordClientDebugBreadcrumb({
+    type: "auth_request_ok",
+    message: `${method} ${path}`,
+    route: typeof window !== "undefined" ? `${window.location.pathname}${window.location.search}` : null,
+    status: res.status,
+    method,
+    url,
+    data: { path },
+  });
   return data;
 }
 
@@ -215,6 +270,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     });
   }, []);
+
+  useEffect(() => {
+    setCurrentClientActor(user?.id ?? null);
+  }, [user?.id]);
 
   const loginWithToken = useCallback(async (t: string) => {
     let me = await apiFetch("/api/auth/me", {

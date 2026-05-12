@@ -7,7 +7,6 @@ import {
   Pressable,
   TextInput,
   Platform,
-  Alert,
   ActivityIndicator,
 } from "react-native";
 import { Image } from "expo-image";
@@ -18,6 +17,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { C } from "@/constants/colors";
 import { webScrollStyle } from "@/constants/layout";
+import { alertError, alertMessageThen } from "@/lib/alertCompat";
 
 const MIN_AMOUNT = 10000;
 const DAILY_RATE_PER_MEMBER = 10;
@@ -98,11 +98,13 @@ export default function CommunityAdApplyScreen() {
         startDate: startDate.trim(),
         endDate: endDate.trim(),
       });
-      Alert.alert("Application Received", "Your ad application has been submitted. We will notify you of the review result by email.", [
-        { text: "OK", onPress: () => router.replace(`/community/${communityId}`) },
-      ]);
+      alertMessageThen(
+        "Application Received",
+        "Your ad application has been submitted. We will notify you of the review result by email.",
+        () => router.replace(`/community/${communityId}`),
+      );
     } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "Failed to submit application");
+      alertError("Application failed", e, "Failed to submit application");
     } finally {
       setSubmitting(false);
     }

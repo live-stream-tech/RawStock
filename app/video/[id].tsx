@@ -21,12 +21,13 @@ import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { C } from "@/constants/colors";
 import { VIDEOS } from "@/constants/data";
 import { useAuth } from "@/lib/auth";
-import { apiRequest, formatUserFacingApiError } from "@/lib/query-client";
+import { apiRequest } from "@/lib/query-client";
 import { navigateFromVideoCreatorRow, navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { usePlayingVideo } from "@/lib/playing-video-context";
 import { webScrollStyle } from "@/constants/layout";
 import { parseDurationLabelToSec } from "@/lib/parse-duration-label";
 import { TranslateButton } from "@/components/TranslateButton";
+import { alertConfirm, alertError, alertMessage } from "@/lib/alertCompat";
 
 const WORK_PRICE_OPTIONS = [300, 500, 1000, 2000, 3000, 5000] as const;
 
@@ -230,7 +231,7 @@ export default function VideoDetailScreen() {
       await qc.invalidateQueries({ queryKey: ["/api/videos"] });
       await qc.invalidateQueries({ queryKey: ["/api/videos/ranked"] });
     } catch (e: unknown) {
-      Alert.alert("Error", formatUserFacingApiError(e));
+      alertError("Could not save pricing", e);
     } finally {
       setSavingWorkPrice(false);
     }
@@ -254,16 +255,14 @@ export default function VideoDetailScreen() {
       qc.invalidateQueries({ queryKey: ["/api/tickets/balance"] });
     } catch (err: any) {
       if (err?.status === 402) {
-        Alert.alert(
+        alertConfirm(
           "Insufficient tickets 🎟",
           `This content costs ${video.price} 🎟. Top up your balance to unlock it.`,
-          [
-            { text: "Cancel", style: "cancel" },
-            { text: "Buy tickets", onPress: () => router.push("/tickets") },
-          ]
+          () => router.push("/tickets"),
+          { confirmLabel: "Buy tickets" },
         );
       } else {
-        Alert.alert("Error", "Purchase failed. Please try again later.");
+        alertError("Purchase failed", err, "Purchase failed. Please try again later.");
       }
     } finally {
       setPurchaseLoading(false);
@@ -287,12 +286,12 @@ export default function VideoDetailScreen() {
         reason: reportReason,
       });
       setReportTarget(null);
-      Alert.alert("Submitted", "Your report has been received and will be reviewed.");
+      alertMessage("Submitted", "Your report has been received and will be reviewed.");
       await qc.invalidateQueries({ queryKey: [`/api/videos/${id}`] });
       await qc.invalidateQueries({ queryKey: [`/api/videos/${id}/comments`] });
       await qc.invalidateQueries({ queryKey: ["/api/videos"] });
     } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "Failed to submit report.");
+      alertError("Report failed", e, "Failed to submit report.");
     } finally {
       setReportSubmitting(false);
     }

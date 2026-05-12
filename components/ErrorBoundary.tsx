@@ -40,6 +40,7 @@ export class ErrorBoundary extends Component<
       data: {
         errorMessage: error.message,
         errorName: error.name,
+        errorStack: error.stack,
         componentStack: info.componentStack,
       },
       timestamp: Date.now(),

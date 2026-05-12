@@ -260,6 +260,25 @@ export const reports = pgTable("reports", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+/** User-submitted app bug reports. */
+export const bugReports = pgTable("bug_reports", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id"),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  expectedBehavior: text("expected_behavior"),
+  actualBehavior: text("actual_behavior"),
+  route: text("route"),
+  sessionId: text("session_id"),
+  platform: text("platform"),
+  userAgent: text("user_agent"),
+  payloadJson: text("payload_json"),
+  status: text("status").notNull().default("open"), // open | reviewing | resolved
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: integer("resolved_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const liveStreams = pgTable("live_streams", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
@@ -926,6 +945,34 @@ export const dailyLogins = pgTable("daily_logins", {
   userId: integer("user_id").notNull(),
   date: text("date").notNull(), // YYYY-MM-DD (UTC)
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+/**
+ * Client-side error ingest events for production debugging.
+ * Stores sanitized UI/API/render failures emitted by the app.
+ */
+export const clientErrorEvents = pgTable("client_error_events", {
+  id: serial("id").primaryKey(),
+  kind: text("kind").notNull(),
+  severity: text("severity").notNull().default("error"),
+  title: text("title"),
+  message: text("message").notNull(),
+  status: integer("status"),
+  code: text("code"),
+  route: text("route"),
+  method: text("method"),
+  requestUrl: text("request_url"),
+  userId: integer("user_id"),
+  sessionId: text("session_id"),
+  platform: text("platform"),
+  userAgent: text("user_agent"),
+  fingerprint: text("fingerprint"),
+  payloadJson: text("payload_json"),
+  stack: text("stack"),
+  componentStack: text("component_stack"),
+  createdAt: timestamp("created_at").defaultNow(),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: integer("resolved_by"),
 });
 
 // ─── AI Edit Jobs ────────────────────────────────────────────────────────────

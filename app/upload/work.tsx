@@ -6,11 +6,11 @@ import {
   Pressable,
   TextInput,
   Platform,
-  Alert,
   ActivityIndicator,
   ScrollView,
   Modal,
   ActionSheetIOS,
+  Alert,
 } from "react-native";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";
@@ -26,6 +26,8 @@ import { useAuth } from "@/lib/auth";
 import { WORK_POST_LIMITS } from "@/constants/upload-limits";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { webScrollStyle } from "@/constants/layout";
+import { alertError, alertMessage } from "@/lib/alertCompat";
+import { beginActionTelemetry } from "@/lib/actionTelemetry";
 
 type FeeType = "free" | "paid";
 type PriceOption = 300 | 500 | 1000 | 2000 | 3000 | 5000;
@@ -286,7 +288,7 @@ export default function WorkUploadScreen() {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       queryClient.invalidateQueries({ queryKey: ["/api/videos/my"] });
     } catch (err: any) {
-      Alert.alert("Error", err?.message ?? "Failed to publish");
+      alertError("Publish failed", err, "Failed to publish");
     } finally {
       setUploading(false);
     }
@@ -295,22 +297,35 @@ export default function WorkUploadScreen() {
   async function handleSubmit() {
     const title = text.trim();
     if (!title.length) {
-      Alert.alert("", "Enter post text.");
+      alertMessage("Missing text", "Enter post text.");
       return;
     }
     if (!hasPhoto) {
-      Alert.alert("", "Add at least one photo.");
+      alertMessage("Missing photo", "Add at least one photo.");
       return;
     }
     if (postTarget === "community" && !selectedCommunity) {
-      Alert.alert("", "Select a community.");
+      alertMessage("Select community", "Select a community.");
       return;
     }
     if (!requireAuth("post")) return;
     if (!agreeGuidelines || !agreeRights) {
-      Alert.alert("Confirmation required", "Review and accept Guidelines and rights before posting.");
+      alertMessage("Confirmation required", "Review and accept Guidelines and rights before posting.");
       return;
     }
+    const action = beginActionTelemetry({
+      action: "work_post_submit",
+      title: "Work post",
+      method: "POST",
+      requestUrl: "/api/videos",
+      timeoutMs: 30_000,
+      extra: {
+        postTarget,
+        mediaCount: mediaItems.length,
+        hasVideo,
+        communityId: postTarget === "community" ? selectedCommunity?.id ?? null : null,
+      },
+    });
     setUploading(true);
     try {
       console.log(`${UPLOAD_LOG} step:work_submit_start`, { hasPhoto, hasVideo });
@@ -326,11 +341,9 @@ export default function WorkUploadScreen() {
         try {
           thumbUrl = await ensureHttpsUrl(firstImage.uri, "image");
         } catch (e: any) {
+          action.fail(e, { stage: "thumbnail_upload" });
           console.error(`${UPLOAD_LOG} step:work_submit_thumbnail_upload_failed`, e);
-          Alert.alert(
-            "Upload failed",
-            e?.message ?? "Could not upload the image. Check your connection and try again.",
-          );
+          alertError("Upload failed", e, "Could not upload the image. Check your connection and try again.");
           return;
         }
       }
@@ -343,11 +356,9 @@ export default function WorkUploadScreen() {
             : firstVideo.uri;
           console.log(`${UPLOAD_LOG} step:work_submit_video_ok`);
         } catch (e: any) {
+          action.fail(e, { stage: "video_upload" });
           console.error(`${UPLOAD_LOG} step:work_submit_video_failed`, e);
-          Alert.alert(
-            "Upload failed",
-            e?.message ?? "Could not upload the video. Check your connection and try again.",
-          );
+          alertError("Upload failed", e, "Could not upload the video. Check your connection and try again.");
           return;
         }
       }
@@ -379,13 +390,19 @@ export default function WorkUploadScreen() {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       queryClient.invalidateQueries({ queryKey: ["/api/videos/my"] });
       queryClient.invalidateQueries({ queryKey: ["/api/videos/ranked"] });
+      action.success({
+        stage: "posted",
+        hasVideo: Boolean(videoUrlToSend),
+        visibility: postTarget === "my_page_only" ? "my_page_only" : "community",
+      });
     } catch (err: any) {
+      action.fail(err, { stage: "create_post" });
       if (err instanceof ApiError) {
-        if (err.status === 401) Alert.alert("Sign in required", "Sign in is required to post.");
-        else if (err.status === 400) Alert.alert("Invalid content", err.message ?? "Please review your input.");
-        else Alert.alert("Error", "Failed to post.");
+        if (err.status === 401) alertMessage("Sign in required", "Sign in is required to post.");
+        else if (err.status === 400) alertError("Invalid content", err, "Please review your input.");
+        else alertError("Post failed", err, "Failed to post.");
       } else {
-        Alert.alert("Error", err?.message ?? "Failed to post.");
+        alertError("Post failed", err, "Failed to post.");
       }
     } finally {
       setUploading(false);

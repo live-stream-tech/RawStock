@@ -14,8 +14,11 @@ import { consumeLoginRedirectPath, saveLoginReturn } from "@/lib/login-return";
 import { GlobalMyListPlayer } from "@/components/GlobalMyListPlayer";
 import { GlobalJukeboxPlayer } from "@/components/GlobalJukeboxPlayer";
 import { PlayingVideoProvider } from "@/lib/playing-video-context";
+import { installWebAlertFallback } from "@/lib/alertCompat";
+import { setCurrentClientRoute } from "@/lib/clientErrorContext";
 
 SplashScreen.preventAutoHideAsync();
+installWebAlertFallback();
 
 if (Platform.OS === "web" && typeof window !== "undefined" && "serviceWorker" in navigator) {
   window.addEventListener("load", () => {
@@ -217,6 +220,14 @@ function WebRootWidth({ children }: { children: React.ReactNode }) {
   );
 }
 
+function ClientErrorRouteTracker() {
+  const pathname = usePathname() ?? "";
+  useEffect(() => {
+    setCurrentClientRoute(pathname || null);
+  }, [pathname]);
+  return null;
+}
+
 function RootLayoutNav() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
@@ -285,6 +296,7 @@ export default function RootLayout() {
                   <DemoModeProvider>
                     <PlayingVideoProvider>
                       <View style={{ flex: 1, ...(Platform.OS === "web" ? { minHeight: 0 } : {}) }}>
+                        <ClientErrorRouteTracker />
                         <EventPreviewBanner />
                         <PolicyReacceptanceBanner />
                         <RootLayoutNav />

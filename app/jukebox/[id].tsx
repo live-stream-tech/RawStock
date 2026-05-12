@@ -34,6 +34,7 @@ import { TranslateButton } from "@/components/TranslateButton";
 import { webScrollStyle } from "@/constants/layout";
 import { jukeboxElapsedSeconds } from "@/lib/jukeboxElapsed";
 import { fetchJukeboxJson, getOrCreateJukeboxViewerSessionId } from "@/lib/jukebox-presence";
+import { beginActionTelemetry } from "@/lib/actionTelemetry";
 
 type JukeboxState = {
   communityId: number;
@@ -1078,67 +1079,105 @@ export default function JukeboxScreen() {
   const addMutation = useMutation({
     mutationFn: async (video: Video) => {
       const currentFreeRemaining = reqCountData?.freeRemaining ?? 20;
+      const action = beginActionTelemetry({
+        action: currentFreeRemaining > 0 ? "jukebox_free_request" : "jukebox_paid_request",
+        title: "Jukebox request",
+        method: "POST",
+        requestUrl: `/api/jukebox/${communityId}/add`,
+        timeoutMs: 20_000,
+        extra: {
+          communityId,
+          videoId: video.id,
+          youtubeId: (video as { youtubeId?: string | null }).youtubeId ?? null,
+          freeRemainingBefore: currentFreeRemaining,
+          ticketsPerRequest,
+        },
+      });
 
-      if (currentFreeRemaining > 0) {
-        // Free request count is best-effort.
-        // On some mobile sessions auth can expire while jukebox add itself is still allowed.
-        // Do not block queue insertion when this tracking endpoint fails.
-        try {
-          await apiRequest("POST", "/api/tickets/record-free-request", { communityId });
-        } catch (err) {
-          if (!(err instanceof ApiError) || (err.status !== 401 && err.status !== 403)) {
-            throw err;
-          }
-        }
-      } else {
-        // Paid request — spend tickets first, then add; refund spend if add fails
-        const currentBalance = ticketData?.balance ?? 0;
-        if (currentBalance < ticketsPerRequest) {
-          throw { code: "insufficient_tickets", balance: currentBalance, required: ticketsPerRequest };
-        }
-        const spendRes = await apiRequest("POST", "/api/tickets/spend-jukebox", { communityId });
-        const spendJson = (await spendRes.json()) as { transactionId?: number };
-        const spendTxId = spendJson.transactionId;
-        if (spendTxId == null || !Number.isFinite(spendTxId)) {
-          throw new Error("Ticket spend did not return a transaction id. Please try again.");
-        }
-        try {
-          const addRes = await apiRequest("POST", `/api/jukebox/${communityId}/add`, {
-            videoId: video.id,
-            videoTitle: video.title,
-            videoThumbnail: video.thumbnail,
-            videoDurationSecs: (video as any).durationSecs ?? 0,
-            youtubeId: (video as any).youtubeId ?? null,
-            addedBy: user?.name ?? "Guest",
-            addedByAvatar: user?.avatar ?? "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=80&h=80&fit=crop",
-          });
-          await refetchTickets();
-          await refetchReqCount();
-          return addRes;
-        } catch (addErr) {
+      try {
+        if (currentFreeRemaining > 0) {
+          // Free request count is best-effort.
+          // On some mobile sessions auth can expire while jukebox add itself is still allowed.
+          // Do not block queue insertion when this tracking endpoint fails.
           try {
-            await apiRequest("POST", "/api/tickets/refund-jukebox-spend", {
-              communityId,
+            await apiRequest("POST", "/api/tickets/record-free-request", { communityId });
+          } catch (err) {
+            if (!(err instanceof ApiError) || (err.status !== 401 && err.status !== 403)) {
+              throw err;
+            }
+          }
+        } else {
+          // Paid request — spend tickets first, then add; refund spend if add fails
+          const currentBalance = ticketData?.balance ?? 0;
+          if (currentBalance < ticketsPerRequest) {
+            action.cancel({
+              reason: "insufficient_tickets",
+              balance: currentBalance,
+              required: ticketsPerRequest,
+            });
+            throw { code: "insufficient_tickets", balance: currentBalance, required: ticketsPerRequest };
+          }
+          const spendRes = await apiRequest("POST", "/api/tickets/spend-jukebox", { communityId });
+          const spendJson = (await spendRes.json()) as { transactionId?: number };
+          const spendTxId = spendJson.transactionId;
+          if (spendTxId == null || !Number.isFinite(spendTxId)) {
+            await action.unexpected("Ticket spend succeeded but did not return a transaction id.", {
+              spendResponse: spendJson,
+            });
+            throw new Error("Ticket spend did not return a transaction id. Please try again.");
+          }
+          try {
+            const addRes = await apiRequest("POST", `/api/jukebox/${communityId}/add`, {
+              videoId: video.id,
+              videoTitle: video.title,
+              videoThumbnail: video.thumbnail,
+              videoDurationSecs: (video as any).durationSecs ?? 0,
+              youtubeId: (video as any).youtubeId ?? null,
+              addedBy: user?.name ?? "Guest",
+              addedByAvatar: user?.avatar ?? "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=80&h=80&fit=crop",
+            });
+            await refetchTickets();
+            await refetchReqCount();
+            action.success({
+              mode: "paid",
               spendTransactionId: spendTxId,
             });
-          } catch (refundErr) {
-            console.error("[jukebox] refund after failed add failed:", refundErr);
+            return addRes;
+          } catch (addErr) {
+            try {
+              await apiRequest("POST", "/api/tickets/refund-jukebox-spend", {
+                communityId,
+                spendTransactionId: spendTxId,
+              });
+            } catch (refundErr) {
+              console.error("[jukebox] refund after failed add failed:", refundErr);
+              await action.unexpected("Jukebox refund failed after queue add failure.", {
+                spendTransactionId: spendTxId,
+                refundError: refundErr instanceof Error ? refundErr.message : String(refundErr),
+              });
+            }
+            throw addErr;
           }
-          throw addErr;
         }
-      }
 
-      const result = await apiRequest("POST", `/api/jukebox/${communityId}/add`, {
-        videoId: video.id,
-        videoTitle: video.title,
-        videoThumbnail: video.thumbnail,
-        videoDurationSecs: (video as any).durationSecs ?? 0,
-        youtubeId: (video as any).youtubeId ?? null,
-        addedBy: user?.name ?? "Guest",
-        addedByAvatar: user?.avatar ?? "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=80&h=80&fit=crop",
-      });
-      await refetchReqCount();
-      return result;
+        const result = await apiRequest("POST", `/api/jukebox/${communityId}/add`, {
+          videoId: video.id,
+          videoTitle: video.title,
+          videoThumbnail: video.thumbnail,
+          videoDurationSecs: (video as any).durationSecs ?? 0,
+          youtubeId: (video as any).youtubeId ?? null,
+          addedBy: user?.name ?? "Guest",
+          addedByAvatar: user?.avatar ?? "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=80&h=80&fit=crop",
+        });
+        await refetchReqCount();
+        action.success({ mode: "free" });
+        return result;
+      } catch (err) {
+        if (!action.isSettled()) {
+          action.fail(err, { freeRemainingBefore: currentFreeRemaining });
+        }
+        throw err;
+      }
     },
     onSuccess: () => {
       if (Platform.OS !== "web") {

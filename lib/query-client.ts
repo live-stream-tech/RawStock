@@ -1,6 +1,9 @@
 import { fetch } from "expo/fetch";
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { captureClientError, summarizeForErrorExtra } from "./debugIngest";
+import { beginActionTelemetry } from "./actionTelemetry";
+import { recordClientDebugBreadcrumb } from "./clientErrorContext";
 
 const DEFAULT_DEV_API_PORT = "5001";
 const DEV_API_FALLBACK = `http://127.0.0.1:${DEFAULT_DEV_API_PORT}/`;
@@ -179,6 +182,54 @@ export function formatUserFacingApiError(err: unknown): string {
   return "Something went wrong. Please try again.";
 }
 
+type ErrorCaptureContext = {
+  route?: string;
+  method?: string;
+  requestUrl?: string;
+  requestData?: unknown;
+  kind?: "api_error" | "auth_error";
+  title?: string;
+};
+
+function describeCurrentRoute(): string | null {
+  if (typeof window === "undefined") return null;
+  return `${window.location.pathname}${window.location.search}`;
+}
+
+function extractApiErrorCode(body: string): string | null {
+  const trimmed = body.trim();
+  if (!trimmed.startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as { code?: unknown };
+    return typeof parsed.code === "string" ? parsed.code : null;
+  } catch {
+    return null;
+  }
+}
+
+async function captureNetworkFailure(err: unknown, context: ErrorCaptureContext): Promise<void> {
+  const message = err instanceof Error ? err.message : String(err);
+  recordClientDebugBreadcrumb({
+    type: "api_request_network_error",
+    message: `${context.method ?? "GET"} ${context.route ?? context.requestUrl ?? ""}`.trim(),
+    route: describeCurrentRoute(),
+    method: context.method ?? null,
+    url: context.requestUrl ?? null,
+    data: summarizeForErrorExtra(err) as Record<string, unknown>,
+  });
+  await captureClientError({
+    kind: context.kind ?? "api_error",
+    title: context.title ?? "Network request failed",
+    message,
+    method: context.method ?? null,
+    requestUrl: context.requestUrl ?? null,
+    extra:
+      context.requestData === undefined
+        ? undefined
+        : { route: context.route ?? null, requestData: summarizeForErrorExtra(context.requestData) },
+  });
+}
+
 export async function readAuthToken(): Promise<string | null> {
   try {
     const token = await AsyncStorage.getItem("auth_token");
@@ -199,9 +250,36 @@ export async function readAuthToken(): Promise<string | null> {
   return null;
 }
 
-export async function throwIfResNotOk(res: Response) {
+export async function throwIfResNotOk(res: Response, context?: ErrorCaptureContext) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
+    const route = context?.route ?? null;
+    const code = extractApiErrorCode(text);
+    recordClientDebugBreadcrumb({
+      type: "api_request_error",
+      message: `${context?.method ?? "GET"} ${route ?? context?.requestUrl ?? ""}`.trim(),
+      route: describeCurrentRoute(),
+      status: res.status,
+      method: context?.method ?? null,
+      url: context?.requestUrl ?? null,
+      data: {
+        route,
+        code,
+      },
+    });
+    await captureClientError({
+      kind: context?.kind ?? "api_error",
+      title: context?.title ?? "API request failed",
+      message: parseJsonApiMessage(text) ?? (text.replace(/\s+/g, " ").trim() || `Request failed (HTTP ${res.status})`),
+      status: res.status,
+      code,
+      method: context?.method ?? null,
+      requestUrl: context?.requestUrl ?? null,
+      extra:
+        context?.requestData === undefined
+          ? { route }
+          : { route, requestData: summarizeForErrorExtra(context.requestData) },
+    });
     throw new ApiError(res.status, text);
   }
 }
@@ -336,13 +414,39 @@ async function uploadBlobViaR2SameOriginProxy(
     "X-Upload-Content-Type": contentType.split(";")[0].trim(),
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
-  const res = await fetch(url.toString(), {
+  let res: Response;
+  try {
+    res = await fetch(url.toString(), {
+      method: "POST",
+      headers,
+      body: blob,
+      credentials: "include",
+    });
+  } catch (err) {
+    await captureNetworkFailure(err, {
+      route: "/api/upload-file",
+      method: "POST",
+      requestUrl: url.toString(),
+      requestData: {
+        fileName,
+        contentType,
+        size: blob.size,
+      },
+      title: "Upload failed",
+    });
+    throw err;
+  }
+  await throwIfResNotOk(res, {
+    route: "/api/upload-file",
     method: "POST",
-    headers,
-    body: blob,
-    credentials: "include",
+    requestUrl: url.toString(),
+    requestData: {
+      fileName,
+      contentType,
+      size: blob.size,
+    },
+    title: "Upload failed",
   });
-  await throwIfResNotOk(res);
   const data = (await res.json()) as { url?: string; fileUrl?: string };
   const publicUrl = data.url ?? data.fileUrl;
   if (!publicUrl) throw new Error("Upload response did not include a public URL");
@@ -360,57 +464,142 @@ export async function uploadUserMediaBlobToR2(
 ): Promise<string> {
   const ct = contentType.split(";")[0].trim();
   const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
-  let uploadBlob = blob;
-  const isImage = isImageContentType(ct);
-
-  if (blob.size > R2_SAME_ORIGIN_UPLOAD_MAX_BYTES && isImage) {
-    uploadBlob = await compressImageBlobForUpload(blob, ct);
-  }
-
-  if (uploadBlob.size <= R2_SAME_ORIGIN_UPLOAD_MAX_BYTES) {
-    return uploadBlobViaR2SameOriginProxy(uploadBlob, safeName, ct);
-  }
-
-  if (isImage) {
-    throw new Error(
-      "Image is still too large after compression. Please choose a smaller image or crop tighter and try again.",
-    );
-  }
-
-  const resp = await apiRequest("POST", "/api/upload-url", {
-    fileName: safeName,
-    contentType: ct,
+  const action = beginActionTelemetry({
+    action: "upload_user_media",
+    title: "Media upload",
+    method: "POST",
+    requestUrl: "/api/upload-url",
+    timeoutMs: 45_000,
+    extra: {
+      fileName: safeName,
+      contentType: ct,
+      originalSize: blob.size,
+    },
   });
-  const data = (await resp.json()) as { uploadUrl: string; url?: string; fileUrl?: string };
-  if (!data.uploadUrl) throw new Error("Could not start upload (invalid response from server).");
-  assertR2PresignBrowserCompatible(data.uploadUrl);
-
-  let putRes: Response;
   try {
-    putRes = await fetch(data.uploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": ct },
-      body: uploadBlob,
+    let uploadBlob = blob;
+    const isImage = isImageContentType(ct);
+
+    if (blob.size > R2_SAME_ORIGIN_UPLOAD_MAX_BYTES && isImage) {
+      uploadBlob = await compressImageBlobForUpload(blob, ct);
+    }
+
+    if (uploadBlob.size <= R2_SAME_ORIGIN_UPLOAD_MAX_BYTES) {
+      const publicUrl = await uploadBlobViaR2SameOriginProxy(uploadBlob, safeName, ct);
+      action.success({
+        uploadMode: "same_origin_proxy",
+        finalSize: uploadBlob.size,
+      });
+      return publicUrl;
+    }
+
+    if (isImage) {
+      action.cancel({
+        reason: "image_still_too_large_after_compression",
+        finalSize: uploadBlob.size,
+      });
+      throw new Error(
+        "Image is still too large after compression. Please choose a smaller image or crop tighter and try again.",
+      );
+    }
+
+    const resp = await apiRequest("POST", "/api/upload-url", {
+      fileName: safeName,
+      contentType: ct,
     });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    throw new Error(
-      `Could not upload to storage: ${msg}. On the web, configure R2 CORS for your app origin or use a file under ${Math.floor(R2_SAME_ORIGIN_UPLOAD_MAX_BYTES / 1024 / 1024)}MB.`,
-    );
-  }
+    const data = (await resp.json()) as { uploadUrl: string; url?: string; fileUrl?: string };
+    if (!data.uploadUrl) {
+      await action.unexpected("Upload start response did not include an upload URL.", {
+        fileName: safeName,
+        contentType: ct,
+      });
+      throw new Error("Could not start upload (invalid response from server).");
+    }
+    assertR2PresignBrowserCompatible(data.uploadUrl);
 
-  if (!putRes.ok) {
-    const hint = (await putRes.text().catch(() => "")).trim().replace(/\s+/g, " ");
-    throw new Error(
-      hint
-        ? `Storage upload failed (HTTP ${putRes.status}): ${hint.slice(0, 220)}${hint.length > 220 ? "…" : ""}`
-        : `Storage upload failed (HTTP ${putRes.status}). On the web, configure R2 CORS for your domain.`,
-    );
-  }
+    let putRes: Response;
+    try {
+      putRes = await fetch(data.uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": ct },
+        body: uploadBlob,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await captureClientError({
+        kind: "api_error",
+        title: "Storage upload failed",
+        message: msg,
+        method: "PUT",
+        requestUrl: data.uploadUrl,
+        extra: {
+          route: "/api/upload-url",
+          fileName: safeName,
+          contentType: ct,
+          size: uploadBlob.size,
+        },
+      });
+      action.fail(err, {
+        stage: "storage_put_request",
+        uploadMode: "presigned_put",
+        finalSize: uploadBlob.size,
+      });
+      throw new Error(
+        `Could not upload to storage: ${msg}. On the web, configure R2 CORS for your app origin or use a file under ${Math.floor(R2_SAME_ORIGIN_UPLOAD_MAX_BYTES / 1024 / 1024)}MB.`,
+      );
+    }
 
-  const publicUrl = data.url ?? data.fileUrl;
-  if (!publicUrl) throw new Error("Upload URL response did not include a public URL");
-  return publicUrl;
+    if (!putRes.ok) {
+      const hint = (await putRes.text().catch(() => "")).trim().replace(/\s+/g, " ");
+      await captureClientError({
+        kind: "api_error",
+        title: "Storage upload failed",
+        message: hint || `Storage upload failed (HTTP ${putRes.status})`,
+        status: putRes.status,
+        method: "PUT",
+        requestUrl: data.uploadUrl,
+        extra: {
+          route: "/api/upload-url",
+          fileName: safeName,
+          contentType: ct,
+          size: uploadBlob.size,
+        },
+      });
+      action.fail(new Error(hint || `HTTP ${putRes.status}`), {
+        stage: "storage_put_response",
+        status: putRes.status,
+        uploadMode: "presigned_put",
+        finalSize: uploadBlob.size,
+      });
+      throw new Error(
+        hint
+          ? `Storage upload failed (HTTP ${putRes.status}): ${hint.slice(0, 220)}${hint.length > 220 ? "…" : ""}`
+          : `Storage upload failed (HTTP ${putRes.status}). On the web, configure R2 CORS for your domain.`,
+      );
+    }
+
+    const publicUrl = data.url ?? data.fileUrl;
+    if (!publicUrl) {
+      await action.unexpected("Upload URL response did not include a public URL.", {
+        fileName: safeName,
+        contentType: ct,
+      });
+      throw new Error("Upload URL response did not include a public URL");
+    }
+    action.success({
+      uploadMode: "presigned_put",
+      finalSize: uploadBlob.size,
+    });
+    return publicUrl;
+  } catch (err) {
+    if (!action.isSettled()) {
+      action.fail(err, {
+        fileName: safeName,
+        contentType: ct,
+      });
+    }
+    throw err;
+  }
 }
 
 export async function apiRequest(
@@ -420,6 +609,14 @@ export async function apiRequest(
 ): Promise<Response> {
   const baseUrl = getApiUrl();
   const url = new URL(route, baseUrl);
+  recordClientDebugBreadcrumb({
+    type: "api_request_start",
+    message: `${method.toUpperCase()} ${route}`,
+    route: describeCurrentRoute(),
+    method: method.toUpperCase(),
+    url: url.toString(),
+    data: data === undefined ? undefined : (summarizeForErrorExtra(data) as Record<string, unknown>),
+  });
 
   const headers: Record<string, string> = {};
   if (data) headers["Content-Type"] = "application/json";
@@ -428,14 +625,38 @@ export async function apiRequest(
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(url.toString(), {
-    method,
-    headers,
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
+  let res: Response;
+  try {
+    res = await fetch(url.toString(), {
+      method,
+      headers,
+      body: data ? JSON.stringify(data) : undefined,
+      credentials: "include",
+    });
+  } catch (err) {
+    await captureNetworkFailure(err, {
+      route,
+      method,
+      requestUrl: url.toString(),
+      requestData: data,
+    });
+    throw err;
+  }
 
-  await throwIfResNotOk(res);
+  await throwIfResNotOk(res, {
+    route,
+    method,
+    requestUrl: url.toString(),
+    requestData: data,
+  });
+  recordClientDebugBreadcrumb({
+    type: "api_request_ok",
+    message: `${method.toUpperCase()} ${route}`,
+    route: describeCurrentRoute(),
+    status: res.status,
+    method: method.toUpperCase(),
+    url: url.toString(),
+  });
   return res;
 }
 
@@ -446,7 +667,15 @@ export const getQueryFn: <T>(options: {
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
     const baseUrl = getApiUrl();
-    const url = new URL(queryKey.join("/") as string, baseUrl);
+    const route = queryKey.join("/") as string;
+    const url = new URL(route, baseUrl);
+    recordClientDebugBreadcrumb({
+      type: "query_request_start",
+      message: `GET ${route}`,
+      route: describeCurrentRoute(),
+      method: "GET",
+      url: url.toString(),
+    });
 
     const headers: Record<string, string> = {};
     const token = await readAuthToken();
@@ -454,16 +683,38 @@ export const getQueryFn: <T>(options: {
       headers["Authorization"] = `Bearer ${token}`;
     }
 
-    const res = await fetch(url.toString(), {
-      credentials: "include",
-      headers,
-    });
+    let res: Response;
+    try {
+      res = await fetch(url.toString(), {
+        credentials: "include",
+        headers,
+      });
+    } catch (err) {
+      await captureNetworkFailure(err, {
+        route,
+        method: "GET",
+        requestUrl: url.toString(),
+      });
+      throw err;
+    }
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;
     }
 
-    await throwIfResNotOk(res);
+    await throwIfResNotOk(res, {
+      route,
+      method: "GET",
+      requestUrl: url.toString(),
+    });
+    recordClientDebugBreadcrumb({
+      type: "query_request_ok",
+      message: `GET ${route}`,
+      route: describeCurrentRoute(),
+      status: res.status,
+      method: "GET",
+      url: url.toString(),
+    });
     return await res.json();
   };
 
