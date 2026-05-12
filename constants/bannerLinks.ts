@@ -1,8 +1,8 @@
-/** Served from Expo web `public/` (1024×435). */
-export const TEMP_BANNER_IMAGE_PATH = "/promo-audio-gear-banner.jpg";
+/** Served from Expo web `public/` (source ratio 1240×216). */
+export const TEMP_BANNER_IMAGE_PATH = "/promo-audio-gear-banner.png";
 
 /** Width / height of `TEMP_BANNER_IMAGE_PATH` for layout boxes. */
-export const TEMP_BANNER_ASPECT = 1024 / 435;
+export const TEMP_BANNER_ASPECT = 1240 / 216;
 
 export const DEFAULT_BANNER_COMMUNITY_ID = 1;
 

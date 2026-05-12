@@ -21,9 +21,9 @@ import { getTabTopInset, getTabBottomInset, webScrollStyle } from "@/constants/l
 import { AppLogo } from "@/components/AppLogo";
 import { MetallicLine } from "@/components/MetallicLine";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
+import { ResponsivePromoBanner } from "@/components/ResponsivePromoBanner";
 import { STATIONS, STATION_CATEGORY_LABEL } from "@/constants/stations";
 import { STATION_JUKEBOX_IDS } from "@/constants/stationJukebox";
-import { TEMP_BANNER_ASPECT, TEMP_BANNER_IMAGE_PATH, getBannerTargetRoute } from "@/constants/bannerLinks";
 import { resolvePublicMediaUri } from "@/lib/resolve-public-media-uri";
 
 const CATEGORY_TERMS: Record<string, string[]> = {
@@ -254,19 +254,7 @@ export default function StationScreen() {
       <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
 
         {/* Banner */}
-        <Pressable
-          style={styles.banner}
-          accessibilityRole="link"
-          accessibilityLabel="Sponsored banner"
-          onPress={() => router.push(getBannerTargetRoute() as any)}
-        >
-          <Image
-            source={{ uri: TEMP_BANNER_IMAGE_PATH }}
-            style={styles.bannerImage}
-            contentFit="contain"
-            contentPosition="center"
-          />
-        </Pressable>
+        <ResponsivePromoBanner accessibilityLabel="Sponsored banner" style={styles.banner} />
 
         {/* Search + Create */}
         <View style={styles.searchRow}>
@@ -395,15 +383,10 @@ const styles = StyleSheet.create({
 
   // Banner
   banner: {
-    alignSelf: "stretch",
     marginHorizontal: 16,
     marginTop: 12,
     marginBottom: 4,
-    aspectRatio: TEMP_BANNER_ASPECT,
-    backgroundColor: "#0a0a0a",
-    overflow: "hidden",
   },
-  bannerImage: { width: "100%", height: "100%", backgroundColor: "#0a0a0a" },
 
   // Search row
   searchRow: {

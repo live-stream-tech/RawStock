@@ -8,8 +8,8 @@ import { webScrollStyle, getTabTopInset, getTabBottomInset } from "@/constants/l
 import { C } from "@/constants/colors";
 import { AppLogo } from "@/components/AppLogo";
 import { MetallicLine } from "@/components/MetallicLine";
+import { ResponsivePromoBanner } from "@/components/ResponsivePromoBanner";
 import { STATIONS } from "@/constants/stations";
-import { TEMP_BANNER_ASPECT, TEMP_BANNER_IMAGE_PATH, getBannerTargetRoute } from "@/constants/bannerLinks";
 
 const STATION_SHORT_DESC: Record<string, string> = {
   music: "Bands, DJs, clubs, and live music creators.",
@@ -31,14 +31,7 @@ export default function StationsScreen() {
       <MetallicLine thickness={1} style={{ marginHorizontal: 16 }} />
 
       <ScrollView style={webScrollStyle(styles.scroll)} showsVerticalScrollIndicator={scrollShowsVertical}>
-        <Pressable
-          style={styles.banner}
-          accessibilityRole="link"
-          accessibilityLabel="Sponsored banner"
-          onPress={() => router.push(getBannerTargetRoute() as any)}
-        >
-          <Image source={{ uri: TEMP_BANNER_IMAGE_PATH }} style={styles.bannerImage} contentFit="contain" contentPosition="center" />
-        </Pressable>
+        <ResponsivePromoBanner accessibilityLabel="Sponsored banner" style={styles.banner} />
 
         <View style={styles.sectionHeader}>
           <View style={styles.sectionAccent} />
@@ -83,20 +76,9 @@ const styles = StyleSheet.create({
   },
   scroll: { flex: 1 },
   banner: {
-    alignSelf: "stretch",
     marginHorizontal: 16,
     marginTop: 12,
     marginBottom: 14,
-    aspectRatio: TEMP_BANNER_ASPECT,
-    backgroundColor: "#0a0a0a",
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  bannerImage: {
-    width: "100%",
-    height: "100%",
-    backgroundColor: "#0a0a0a",
   },
   sectionHeader: {
     flexDirection: "row",
