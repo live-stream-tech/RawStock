@@ -1566,8 +1566,7 @@ export default function CommunityDetailScreen() {
           <Pressable
             style={styles.placeAdSideBtn}
             onPress={() => {
-              if (!requireAuth("Ad Placement")) return;
-              router.push(`/community/ad-apply?communityId=${communityId}`);
+              router.push(getBannerTargetRoute(communityId) as any);
             }}
           >
             <Ionicons name="megaphone-outline" size={20} color="#fff" />

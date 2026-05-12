@@ -11,5 +11,5 @@ export function getBannerTargetRoute(communityId?: number | null): string {
     typeof communityId === "number" && Number.isFinite(communityId) && communityId > 0
       ? communityId
       : DEFAULT_BANNER_COMMUNITY_ID;
-  return `/community/ad-apply?communityId=${id}`;
+  return `/advertise?communityId=${id}`;
 }

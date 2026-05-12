@@ -113,6 +113,7 @@ function isPublicPath(rawPathname: string): boolean {
   const exact = new Set([
     "/community",
     "/stations",
+    "/advertise",
     "/auth/login",
     "/auth/register",
     "/auth/callback",
@@ -172,7 +173,7 @@ function ProfileSetupGuard({ children }: { children: React.ReactNode }) {
       pathname === "/auth/register" ||
       pathname === "/auth/callback" ||
       pathname === "/auth/popup-fallback";
-    if (pathname === "/account" || authPath) return;
+    if (pathname === "/account" || authPath || pathname === "/advertise") return;
     if (needsProfileSetup(user.displayName ?? user.name)) {
       router.replace("/account");
     }
@@ -226,14 +227,15 @@ function GlobalAuthGate({ children }: { children: React.ReactNode }) {
 /** Web: jukebox uses full width (up to cap); other routes stay phone-width column. */
 function WebRootWidth({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "";
-  const isJukeboxRoute = Platform.OS === "web" && pathname.startsWith("/jukebox");
+  const isWideWebRoute =
+    Platform.OS === "web" && (pathname.startsWith("/jukebox") || pathname === "/advertise");
   if (Platform.OS !== "web") {
     return <View style={{ flex: 1 }}>{children}</View>;
   }
   return (
     <View
       style={
-        isJukeboxRoute
+        isWideWebRoute
           ? { flex: 1, width: "100%", maxWidth: 1400, alignSelf: "center", minHeight: 0 }
           : { flex: 1, maxWidth: 500, alignSelf: "center", width: "100%", minHeight: 0 }
       }
@@ -255,6 +257,7 @@ function RootLayoutNav() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="advertise" options={{ headerShown: false }} />
       <Stack.Screen name="community/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="community/members/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="livers/index" options={{ headerShown: false }} />
