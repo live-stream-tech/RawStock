@@ -7,6 +7,7 @@ import {
   Pressable,
   ActivityIndicator,
   Modal,
+  Linking,
 } from "react-native";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
 import { Image } from "expo-image";

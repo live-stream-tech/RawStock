@@ -21,6 +21,8 @@
   "exclude": [
     "node_modules",
     "vite-app/**",
+    "vendor/rawstock-lp/**",
+    "scripts/rawstock-lp-override/**",
     "supabase/**",
     "vite.config.ts"
   ]

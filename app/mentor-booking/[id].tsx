@@ -20,7 +20,7 @@ import { useAuth } from "@/lib/auth";
 import { C } from "@/constants/colors";
 import { PRICE_PER_TICKET_USD } from "@/constants/tickets";
 import { webScrollStyle } from "@/constants/layout";
-import { alertConfirm, alertError, alertMessageThen } from "@/lib/alertCompat";
+import { alertConfirm, alertError, alertMessage, alertMessageThen } from "@/lib/alertCompat";
 
 type LiveStream = {
   id: number;
