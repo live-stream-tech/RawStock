@@ -5559,6 +5559,82 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   // ── Videos ───────────────────────────────────────────────────────
+  app.get("/api/videos/priority-feed", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+
+    const [followingRows, communityRows] = await Promise.all([
+      db
+        .select({ followingId: userFollows.followingId })
+        .from(userFollows)
+        .where(eq(userFollows.followerId, user.id)),
+      db
+        .select({ communityId: communityMembers.communityId })
+        .from(communityMembers)
+        .where(eq(communityMembers.userId, user.id)),
+    ]);
+
+    const followingIds = followingRows.map((row) => row.followingId);
+    const communityIds = communityRows.map((row) => row.communityId);
+    const clauses: SQL<unknown>[] = [];
+    if (followingIds.length > 0) clauses.push(inArray(videos.userId, followingIds));
+    if (communityIds.length > 0) clauses.push(inArray(videos.communityId, communityIds));
+
+    if (clauses.length === 0) {
+      return res.json([]);
+    }
+
+    const rows = await db
+      .select()
+      .from(videos)
+      .where(
+        and(
+          eq(videos.hidden, false),
+          eq(videos.isRanked, false),
+          or(...clauses),
+        ),
+      )
+      .orderBy(desc(videos.createdAt))
+      .limit(24);
+
+    const filtered = rows.filter((row) => {
+      const visibility = (row as { visibility?: string | null }).visibility ?? "community";
+      if (visibility === "draft" || visibility === "my_page_only") return false;
+      const isOwn = row.userId === user.id || row.creator === user.displayName;
+      return !isOwn;
+    });
+
+    const names = Array.from(new Set(filtered.map((r) => r.creator)));
+    const userMap = new Map<string, number>();
+    const creatorMap = new Map<string, number>();
+    if (names.length > 0) {
+      const userRows = await db
+        .select({ id: users.id, displayName: users.displayName })
+        .from(users)
+        .where(inArray(users.displayName, names));
+      userRows.forEach((u) => userMap.set(u.displayName, u.id));
+      const notFoundUsers = names.filter((n) => !userMap.has(n));
+      if (notFoundUsers.length > 0) {
+        const creatorRows = await db
+          .select({ id: creators.id, name: creators.name })
+          .from(creators)
+          .where(inArray(creators.name, notFoundUsers));
+        creatorRows.forEach((c) => creatorMap.set(c.name, c.id));
+      }
+    }
+
+    res.json(
+      filtered.map((row) => ({
+        ...row,
+        timeAgo: row.createdAt ? formatTimeAgo(row.createdAt) : row.timeAgo,
+        creatorType: userMap.has(row.creator) ? "user" : creatorMap.has(row.creator) ? "liver" : null,
+        creatorId: userMap.get(row.creator) ?? creatorMap.get(row.creator) ?? null,
+        fromFollowing: row.userId != null && followingIds.includes(row.userId),
+        fromCommunity: row.communityId != null && communityIds.includes(row.communityId),
+      })),
+    );
+  });
+
   app.get("/api/videos", async (req: Request, res: Response) => {
     res.setHeader("Cache-Control", "private, no-store");
     const genreId = (req as any).query?.genre;

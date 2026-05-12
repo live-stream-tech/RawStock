@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -60,6 +60,14 @@ type MyVideo = {
   creator: string;
   community: string;
   timeAgo?: string | null;
+  createdAt?: string | null;
+  userId?: number | null;
+  communityId?: number | null;
+  postType?: string | null;
+  creatorId?: number | null;
+  creatorType?: "user" | "liver" | null;
+  fromFollowing?: boolean;
+  fromCommunity?: boolean;
 };
 
 type MyCommunity = {
@@ -263,6 +271,9 @@ export default function ProfileScreen() {
   const [preferredLanguage, setPreferredLanguage] = useState("en");
   /** Main header avatar: pick image and save without opening the edit modal */
   const [headerAvatarUploading, setHeaderAvatarUploading] = useState(false);
+  const [showCreatorTools, setShowCreatorTools] = useState(false);
+  const [showWatchlist, setShowWatchlist] = useState(false);
+  const [showMyPosts, setShowMyPosts] = useState(false);
 
   useEffect(() => {
     setPreferredLanguage((user?.preferredLanguage ?? "en").toLowerCase());
@@ -301,12 +312,12 @@ export default function ProfileScreen() {
   });
   const { data: levelProgress } = useQuery<LevelProgress>({
     queryKey: ["/api/livers/me/level-progress"],
-    enabled: !!user && !!token,
+    enabled: !!user && !!token && showCreatorTools,
   });
 
   const { data: myVideos = [] } = useQuery<MyVideo[]>({
     queryKey: ["/api/videos/my"],
-    enabled: !!user && !!token,
+    enabled: !!user && !!token && showMyPosts,
     queryFn: async () => {
       const baseUrl = getApiUrl();
       const res = await fetch(new URL("/api/videos/my", baseUrl).toString(), {
@@ -328,9 +339,21 @@ export default function ProfileScreen() {
     () => myCommunities.filter((c) => !Boolean(c.isOfficial)),
     [myCommunities],
   );
+  const { data: priorityFeedVideos = [] } = useQuery<MyVideo[]>({
+    queryKey: ["/api/videos/priority-feed"],
+    enabled: !!user && !!token,
+    queryFn: async () => {
+      const baseUrl = getApiUrl();
+      const res = await fetch(new URL("/api/videos/priority-feed", baseUrl).toString(), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
   const { data: savedVideos = [] } = useQuery<MyVideo[]>({
     queryKey: ["/api/videos/saved"],
-    enabled: !!user && !!token,
+    enabled: !!user && !!token && showWatchlist,
     queryFn: async () => {
       const baseUrl = getApiUrl();
       const res = await fetch(new URL("/api/videos/saved", baseUrl).toString(), {
@@ -344,7 +367,7 @@ export default function ProfileScreen() {
 
   const { data: ticketData } = useQuery<{ balance: number }>({
     queryKey: ["/api/tickets/balance"],
-    enabled: !!user,
+    enabled: !!user && showCreatorTools,
   });
   const ticketBalance = ticketData?.balance ?? 0;
 
@@ -715,7 +738,9 @@ export default function ProfileScreen() {
           <View style={styles.guestLogoWrap}>
             <AppLogo height={36} />
           </View>
-          <Text style={styles.guestSub}>{ui.signInToProfile}</Text>
+          <Text style={styles.guestSub}>
+            {preferredLanguage === "ja" ? "サインインしてマイページを表示" : "Sign in to view your profile"}
+          </Text>
           <Pressable style={styles.googleLoginBtn} onPress={handleGoogleLogin}>
             <Image source={{ uri: "https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" }} style={styles.googleIcon} contentFit="contain" />
             <Text style={styles.googleLoginText}>Sign in with Google</Text>
@@ -776,6 +801,19 @@ export default function ProfileScreen() {
         editRequestsInboxSub: "クライアントからの依頼一覧",
         enjoy: "楽しむ",
         enjoySub: "コミュニティを見つけて、お気に入りを保存し、日常をシェア",
+        latestPriority: "フォロー中・コミュニティの最新",
+        latestPrioritySub: "自分の投稿より先に、つながりの新着を表示します。",
+        openCreatorTools: "管理ツールを開く",
+        closeCreatorTools: "管理ツールを閉じる",
+        openWatchlist: "Watchlistを開く",
+        closeWatchlist: "Watchlistを閉じる",
+        openMyPosts: "自分の投稿を開く",
+        closeMyPosts: "自分の投稿を閉じる",
+        noPriorityFeed: "フォロー中や参加コミュニティの新着がまだありません。",
+        watchlistTitle: "Watchlist",
+        myPostsTitle: "自分の投稿",
+        followingTag: "フォロー中",
+        communityTag: "コミュニティ",
       }
     : {
         signInToProfile: "Sign in to view your profile",
@@ -807,7 +845,29 @@ export default function ProfileScreen() {
         editRequestsInboxSub: "Incoming jobs from clients",
         enjoy: "Enjoy",
         enjoySub: "Discover communities, save favorites, and share your daily moments",
+        latestPriority: "Latest from Following & Communities",
+        latestPrioritySub: "Show your network's newest posts before your own timeline.",
+        openCreatorTools: "Open creator tools",
+        closeCreatorTools: "Hide creator tools",
+        openWatchlist: "Open watchlist",
+        closeWatchlist: "Hide watchlist",
+        openMyPosts: "Open my posts",
+        closeMyPosts: "Hide my posts",
+        noPriorityFeed: "No fresh posts from your following list or joined communities yet.",
+        watchlistTitle: "Watchlist",
+        myPostsTitle: "My Posts",
+        followingTag: "Following",
+        communityTag: "Community",
       };
+  const priorityFeed = useMemo(() => priorityFeedVideos.slice(0, 6), [priorityFeedVideos]);
+  const dailyVideos = useMemo(
+    () => myVideos.filter((v: any) => (v as any).postType === "daily" || !(v as any).postType),
+    [myVideos],
+  );
+  const workVideos = useMemo(
+    () => myVideos.filter((v: any) => (v as any).postType === "work"),
+    [myVideos],
+  );
 
   return (
     <View style={[styles.container, { paddingBottom: bottomInset }]}>
@@ -1004,194 +1064,256 @@ export default function ProfileScreen() {
             ) : null}
           </View>
         ) : null}
+        <View style={styles.priorityFeedSection}>
+          <View style={styles.priorityFeedHeader}>
+            <View style={styles.priorityFeedTitleWrap}>
+              <Ionicons name="flash-outline" size={16} color={C.accent} />
+              <Text style={styles.priorityFeedTitle}>{ui.latestPriority}</Text>
+            </View>
+            <Text style={styles.priorityFeedCount}>{priorityFeed.length}</Text>
+          </View>
+          <Text style={styles.priorityFeedSub}>{ui.latestPrioritySub}</Text>
+          <View style={styles.myListContent}>
+            {priorityFeed.length > 0 ? (
+              priorityFeed.map((video) => (
+                <Pressable
+                  key={video.id}
+                  style={styles.myListItem}
+                  onPress={() => router.push(`/video/${video.id}`)}
+                >
+                  <Image source={{ uri: video.thumbnail }} style={styles.timelineThumb} contentFit="cover" />
+                  <View style={styles.timelineBody}>
+                    <Text style={styles.timelineTitle} numberOfLines={2}>{video.title}</Text>
+                    <Text style={styles.timelineMeta} numberOfLines={1}>
+                      {video.community} · {video.timeAgo ?? "just now"}
+                    </Text>
+                    <View style={styles.priorityTagsRow}>
+                      {video.fromFollowing ? (
+                        <View style={styles.priorityTag}>
+                          <Text style={styles.priorityTagText}>{ui.followingTag}</Text>
+                        </View>
+                      ) : null}
+                      {video.fromCommunity ? (
+                        <View style={styles.priorityTag}>
+                          <Text style={styles.priorityTagText}>{ui.communityTag}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+                </Pressable>
+              ))
+            ) : (
+              <Text style={styles.myListEmpty}>{ui.noPriorityFeed}</Text>
+            )}
+          </View>
+        </View>
         {isCreatorMode ? (
           <>
             <View style={styles.modeSectionHeader}>
-              <Text style={styles.modeSectionTitle}>{ui.creatorManage}</Text>
-              <Text style={styles.modeSectionSub}>{ui.creatorManageSub}</Text>
-            </View>
-            {/* Supporter Level */}
-            <View style={styles.supporterCard}>
-              <View style={styles.supporterHeader}>
-                <Ionicons name="trending-up" size={16} color={C.accent} />
-                <Text style={styles.supporterTitle}>
-                  {levelProgress ? `${ui.creatorLevel} ${levelProgress.currentLevel}` : ui.creatorLevel}
-                </Text>
-                <View style={styles.activeBadge}>
-                  <Text style={styles.activeText}>{`${progressPercent}%`}</Text>
+              <Pressable
+                style={styles.collapsibleHeaderCard}
+                onPress={() => setShowCreatorTools((prev) => !prev)}
+              >
+                <View>
+                  <Text style={styles.modeSectionTitle}>{ui.creatorManage}</Text>
+                  <Text style={styles.modeSectionSub}>{ui.creatorManageSub}</Text>
                 </View>
-              </View>
-              <View style={styles.progressBar}>
-                <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
-                <Ionicons name="trophy-outline" size={14} color={C.orange} style={styles.trophyIcon} />
-              </View>
-              {levelProgress ? (
-                <>
-                  <Text style={styles.supporterSub}>
-                    TIP BACK RATE: {Math.round(levelProgress.tipBackRate * 100)}% / PAID LIVE: 90%
+                <View style={styles.collapsibleHeaderRight}>
+                  <Text style={styles.collapsibleHeaderText}>
+                    {showCreatorTools ? ui.closeCreatorTools : ui.openCreatorTools}
                   </Text>
-                  <Text style={styles.supporterHint}>
-                    {levelProgress.remainingStreamCount} more streams or ¥
-                    {levelProgress.remainingTipGross.toLocaleString()} more in tips to next level
-                  </Text>
-                </>
-              ) : (
-                <Text style={styles.supporterHint}>{ui.creatorLevelHint}</Text>
-              )}
-            </View>
-
-            {/* Ticket Balance */}
-            {user && (
-              <Pressable style={styles.ticketBalanceRow} onPress={() => router.push("/tickets")}>
-                <Text style={styles.ticketEmoji}>🎟</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.ticketBalanceLabel}>{ui.ticketBalance}</Text>
-                  <Text style={styles.ticketBalanceValue}>{ticketBalance.toLocaleString()} Tickets</Text>
-                </View>
-                <View style={styles.ticketTopUpBtn}>
-                  <Text style={styles.ticketTopUpText}>{ui.topUp}</Text>
+                  <Ionicons
+                    name={showCreatorTools ? "chevron-up" : "chevron-down"}
+                    size={18}
+                    color={C.textMuted}
+                  />
                 </View>
               </Pressable>
-            )}
-
-            <Pressable style={styles.revenueBtn} onPress={() => router.push("/revenue")}>
-              <Ionicons name="wallet-outline" size={16} color="#050505" />
-              <Text style={styles.revenueBtnText}>{ui.revenueManagement}</Text>
-            </Pressable>
-
-            <Pressable style={styles.adReviewBtn} onPress={() => router.push("/community/ad-review")}>
-              <Ionicons name="megaphone-outline" size={16} color="#050505" />
-              <Text style={styles.adReviewBtnText}>Ad Review (Admins & Mods)</Text>
-            </Pressable>
-
-            {/* Creator / mentor session registration */}
-            <View style={styles.roleCard}>
-              <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.roleTitle}>{ui.creatorRegistration}</Text>
-                  <Text style={styles.roleSub}>{ui.creatorRegistrationSub}</Text>
+            </View>
+            {showCreatorTools ? (
+              <>
+                <View style={styles.supporterCard}>
+                  <View style={styles.supporterHeader}>
+                    <Ionicons name="trending-up" size={16} color={C.accent} />
+                    <Text style={styles.supporterTitle}>
+                      {levelProgress ? `${ui.creatorLevel} ${levelProgress.currentLevel}` : ui.creatorLevel}
+                    </Text>
+                    <View style={styles.activeBadge}>
+                      <Text style={styles.activeText}>{`${progressPercent}%`}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.progressBar}>
+                    <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
+                    <Ionicons name="trophy-outline" size={14} color={C.orange} style={styles.trophyIcon} />
+                  </View>
+                  {levelProgress ? (
+                    <>
+                      <Text style={styles.supporterSub}>
+                        TIP BACK RATE: {Math.round(levelProgress.tipBackRate * 100)}% / PAID LIVE: 90%
+                      </Text>
+                      <Text style={styles.supporterHint}>
+                        {levelProgress.remainingStreamCount} more streams or ¥
+                        {levelProgress.remainingTipGross.toLocaleString()} more in tips to next level
+                      </Text>
+                    </>
+                  ) : (
+                    <Text style={styles.supporterHint}>{ui.creatorLevelHint}</Text>
+                  )}
                 </View>
-              </View>
-              <View style={styles.roleButtonsRow}>
-                <Pressable
-                  style={[
-                    styles.roleButton,
-                    roleStatus?.isEditor && styles.roleButtonActive,
-                  ]}
-                  disabled={!!roleStatus?.isEditor || roleLoading === "editor"}
-                  onPress={() => registerRole("editor")}
-                >
-                  <Ionicons
-                    name="color-wand-outline"
-                    size={16}
-                    color={roleStatus?.isEditor ? "#050505" : C.textSec}
-                  />
-                  <Text
-                    style={[
-                      styles.roleButtonText,
-                      roleStatus?.isEditor && styles.roleButtonTextActive,
-                    ]}
-                  >
-                    {ui.videoEditor}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={[
-                    styles.roleButton,
-                    roleStatus?.isMentor && styles.roleButtonActive,
-                  ]}
-                  disabled={!!roleStatus?.isMentor || roleLoading === "mentor"}
-                  onPress={() => registerRole("mentor")}
-                >
-                  <Ionicons
-                    name="camera-outline"
-                    size={16}
-                    color={roleStatus?.isMentor ? "#050505" : C.textSec}
-                  />
-                  <Text
-                    style={[
-                      styles.roleButtonText,
-                      roleStatus?.isMentor && styles.roleButtonTextActive,
-                    ]}
-                  >
-                    {ui.sessionLiver}
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
 
-            <View style={styles.creatorManageCard}>
-              <Text style={styles.creatorManageTitle}>{ui.creatorDashboard}</Text>
-              <Text style={styles.creatorManageSub}>{ui.creatorDashboardSub}</Text>
-              {roleStatus?.isMentor ? (
-                <>
-                  <Pressable
-                    style={styles.creatorManageRow}
-                    onPress={() => router.push("/mentor-manage" as any)}
-                    accessibilityRole="button"
-                    accessibilityLabel="Mentor sessions and bookings"
-                  >
-                    <View style={styles.creatorManageIcon}>
-                      <Ionicons name="videocam-outline" size={18} color={C.accent} />
+                {user && (
+                  <Pressable style={styles.ticketBalanceRow} onPress={() => router.push("/tickets")}>
+                    <Text style={styles.ticketEmoji}>🎟</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.ticketBalanceLabel}>{ui.ticketBalance}</Text>
+                      <Text style={styles.ticketBalanceValue}>{ticketBalance.toLocaleString()} Tickets</Text>
                     </View>
-                    <View style={styles.creatorManageRowBody}>
-                      <Text style={styles.creatorManageRowTitle}>{ui.mentorSessionsBookings}</Text>
-                      <Text style={styles.creatorManageRowSub}>{ui.mentorSessionsBookingsSub}</Text>
+                    <View style={styles.ticketTopUpBtn}>
+                      <Text style={styles.ticketTopUpText}>{ui.topUp}</Text>
                     </View>
-                    <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
                   </Pressable>
-                  <Pressable
-                    style={styles.creatorManageRow}
-                    onPress={() => router.push("/liver-schedule" as any)}
-                    accessibilityRole="button"
-                    accessibilityLabel="Availability schedule"
-                  >
-                    <View style={styles.creatorManageIcon}>
-                      <Ionicons name="calendar-outline" size={18} color={C.accent} />
+                )}
+
+                <Pressable style={styles.revenueBtn} onPress={() => router.push("/revenue")}>
+                  <Ionicons name="wallet-outline" size={16} color="#050505" />
+                  <Text style={styles.revenueBtnText}>{ui.revenueManagement}</Text>
+                </Pressable>
+
+                <Pressable style={styles.adReviewBtn} onPress={() => router.push("/community/ad-review")}>
+                  <Ionicons name="megaphone-outline" size={16} color="#050505" />
+                  <Text style={styles.adReviewBtnText}>Ad Review (Admins & Mods)</Text>
+                </Pressable>
+
+                <View style={styles.roleCard}>
+                  <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.roleTitle}>{ui.creatorRegistration}</Text>
+                      <Text style={styles.roleSub}>{ui.creatorRegistrationSub}</Text>
                     </View>
-                    <View style={styles.creatorManageRowBody}>
-                      <Text style={styles.creatorManageRowTitle}>{ui.availabilitySchedule}</Text>
-                      <Text style={styles.creatorManageRowSub}>{ui.availabilityScheduleSub}</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
-                  </Pressable>
-                </>
-              ) : null}
-              {roleStatus?.isEditor ? (
-                <>
-                  <Pressable
-                    style={styles.creatorManageRow}
-                    onPress={() => router.push("/editor-profile" as any)}
-                    accessibilityRole="button"
-                    accessibilityLabel="Editor listing"
-                  >
-                    <View style={styles.creatorManageIcon}>
-                      <Ionicons name="color-wand-outline" size={18} color={C.accent} />
-                    </View>
-                    <View style={styles.creatorManageRowBody}>
-                      <Text style={styles.creatorManageRowTitle}>{ui.editorListing}</Text>
-                      <Text style={styles.creatorManageRowSub}>{ui.editorListingSub}</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
-                  </Pressable>
-                  <Pressable
-                    style={styles.creatorManageRow}
-                    onPress={() => router.push("/editor-inbox" as any)}
-                    accessibilityRole="button"
-                    accessibilityLabel="Edit requests inbox"
-                  >
-                    <View style={styles.creatorManageIcon}>
-                      <Ionicons name="mail-outline" size={18} color={C.accent} />
-                    </View>
-                    <View style={styles.creatorManageRowBody}>
-                      <Text style={styles.creatorManageRowTitle}>{ui.editRequestsInbox}</Text>
-                      <Text style={styles.creatorManageRowSub}>{ui.editRequestsInboxSub}</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
-                  </Pressable>
-                </>
-              ) : null}
-            </View>
+                  </View>
+                  <View style={styles.roleButtonsRow}>
+                    <Pressable
+                      style={[
+                        styles.roleButton,
+                        roleStatus?.isEditor && styles.roleButtonActive,
+                      ]}
+                      disabled={!!roleStatus?.isEditor || roleLoading === "editor"}
+                      onPress={() => registerRole("editor")}
+                    >
+                      <Ionicons
+                        name="color-wand-outline"
+                        size={16}
+                        color={roleStatus?.isEditor ? "#050505" : C.textSec}
+                      />
+                      <Text
+                        style={[
+                          styles.roleButtonText,
+                          roleStatus?.isEditor && styles.roleButtonTextActive,
+                        ]}
+                      >
+                        {ui.videoEditor}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={[
+                        styles.roleButton,
+                        roleStatus?.isMentor && styles.roleButtonActive,
+                      ]}
+                      disabled={!!roleStatus?.isMentor || roleLoading === "mentor"}
+                      onPress={() => registerRole("mentor")}
+                    >
+                      <Ionicons
+                        name="camera-outline"
+                        size={16}
+                        color={roleStatus?.isMentor ? "#050505" : C.textSec}
+                      />
+                      <Text
+                        style={[
+                          styles.roleButtonText,
+                          roleStatus?.isMentor && styles.roleButtonTextActive,
+                        ]}
+                      >
+                        {ui.sessionLiver}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+
+                <View style={styles.creatorManageCard}>
+                  <Text style={styles.creatorManageTitle}>{ui.creatorDashboard}</Text>
+                  <Text style={styles.creatorManageSub}>{ui.creatorDashboardSub}</Text>
+                  {roleStatus?.isMentor ? (
+                    <>
+                      <Pressable
+                        style={styles.creatorManageRow}
+                        onPress={() => router.push("/mentor-manage" as any)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Mentor sessions and bookings"
+                      >
+                        <View style={styles.creatorManageIcon}>
+                          <Ionicons name="videocam-outline" size={18} color={C.accent} />
+                        </View>
+                        <View style={styles.creatorManageRowBody}>
+                          <Text style={styles.creatorManageRowTitle}>{ui.mentorSessionsBookings}</Text>
+                          <Text style={styles.creatorManageRowSub}>{ui.mentorSessionsBookingsSub}</Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
+                      </Pressable>
+                      <Pressable
+                        style={styles.creatorManageRow}
+                        onPress={() => router.push("/liver-schedule" as any)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Availability schedule"
+                      >
+                        <View style={styles.creatorManageIcon}>
+                          <Ionicons name="calendar-outline" size={18} color={C.accent} />
+                        </View>
+                        <View style={styles.creatorManageRowBody}>
+                          <Text style={styles.creatorManageRowTitle}>{ui.availabilitySchedule}</Text>
+                          <Text style={styles.creatorManageRowSub}>{ui.availabilityScheduleSub}</Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
+                      </Pressable>
+                    </>
+                  ) : null}
+                  {roleStatus?.isEditor ? (
+                    <>
+                      <Pressable
+                        style={styles.creatorManageRow}
+                        onPress={() => router.push("/editor-profile" as any)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Editor listing"
+                      >
+                        <View style={styles.creatorManageIcon}>
+                          <Ionicons name="color-wand-outline" size={18} color={C.accent} />
+                        </View>
+                        <View style={styles.creatorManageRowBody}>
+                          <Text style={styles.creatorManageRowTitle}>{ui.editorListing}</Text>
+                          <Text style={styles.creatorManageRowSub}>{ui.editorListingSub}</Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
+                      </Pressable>
+                      <Pressable
+                        style={styles.creatorManageRow}
+                        onPress={() => router.push("/editor-inbox" as any)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Edit requests inbox"
+                      >
+                        <View style={styles.creatorManageIcon}>
+                          <Ionicons name="mail-outline" size={18} color={C.accent} />
+                        </View>
+                        <View style={styles.creatorManageRowBody}>
+                          <Text style={styles.creatorManageRowTitle}>{ui.editRequestsInbox}</Text>
+                          <Text style={styles.creatorManageRowSub}>{ui.editRequestsInboxSub}</Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={18} color={C.textMuted} />
+                      </Pressable>
+                    </>
+                  ) : null}
+                </View>
+              </>
+            ) : null}
           </>
         ) : (
           <View style={styles.modeSectionHeader}>
@@ -1231,34 +1353,47 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        {/* My List */}
         <View style={styles.myListSection}>
-          <View style={styles.myListHeader}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <Pressable
+            style={styles.collapsibleHeaderCard}
+            onPress={() => setShowWatchlist((prev) => !prev)}
+          >
+            <View style={styles.priorityFeedTitleWrap}>
               <Ionicons name="bookmark" size={16} color={C.accent} />
-              <Text style={styles.myListTitle}>Watchlist</Text>
+              <Text style={styles.myListTitle}>{ui.watchlistTitle}</Text>
             </View>
-            <Text style={styles.myListCount}>{savedVideos.length}</Text>
-          </View>
-          <View style={styles.myListContent}>
-            {savedVideos.slice(0, 8).map((v) => (
-              <Pressable
-                key={v.id}
-                style={styles.myListItem}
-                onPress={() => router.push(`/video/${v.id}`)}
-              >
-                <Image source={{ uri: v.thumbnail }} style={styles.timelineThumb} contentFit="cover" />
-                <View style={styles.timelineBody}>
-                  <Text style={styles.timelineTitle} numberOfLines={2}>{v.title}</Text>
-                  <Text style={styles.timelineMeta} numberOfLines={1}>{v.community} · {v.timeAgo ?? ""}</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
-              </Pressable>
-            ))}
-            {savedVideos.length === 0 && (
-              <Text style={styles.myListEmpty}>Add videos you like to your Watchlist</Text>
-            )}
-          </View>
+            <View style={styles.collapsibleHeaderRight}>
+              <Text style={styles.collapsibleHeaderText}>
+                {showWatchlist ? ui.closeWatchlist : ui.openWatchlist}
+              </Text>
+              <Ionicons
+                name={showWatchlist ? "chevron-up" : "chevron-down"}
+                size={18}
+                color={C.textMuted}
+              />
+            </View>
+          </Pressable>
+          {showWatchlist ? (
+            <View style={styles.myListContent}>
+              {savedVideos.slice(0, 8).map((v) => (
+                <Pressable
+                  key={v.id}
+                  style={styles.myListItem}
+                  onPress={() => router.push(`/video/${v.id}`)}
+                >
+                  <Image source={{ uri: v.thumbnail }} style={styles.timelineThumb} contentFit="cover" />
+                  <View style={styles.timelineBody}>
+                    <Text style={styles.timelineTitle} numberOfLines={2}>{v.title}</Text>
+                    <Text style={styles.timelineMeta} numberOfLines={1}>{v.community} · {v.timeAgo ?? ""}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+                </Pressable>
+              ))}
+              {savedVideos.length === 0 && (
+                <Text style={styles.myListEmpty}>Add videos you like to your Watchlist</Text>
+              )}
+            </View>
+          ) : null}
         </View>
 
         {/* Official hubs joined */}
@@ -1350,126 +1485,141 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        <View style={styles.postsHeader}>
-          <View style={styles.postsLeft}>
-            <Text style={styles.postsTitle}>Daily</Text>
-            <Text style={styles.postsCount}>
-              {myVideos.filter((v: any) => (v as any).postType === "daily" || !(v as any).postType).length}
-            </Text>
-          </View>
-          <Pressable style={styles.uploadBtn} onPress={() => router.push("/upload")}>
-            <Ionicons name="add" size={16} color="#050505" />
-            <Text style={styles.uploadBtnText}>Post</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.timelineList}>
-          {myVideos
-            .filter((v: any) => (v as any).postType === "daily" || !(v as any).postType)
-            .slice(0, 4)
-            .map((video) => (
-            <View key={video.id} style={styles.timelineItem}>
-              <Pressable
-                style={styles.timelineDeleteBtn}
-                onPress={() => deleteVideo(video.id)}
-                hitSlop={8}
-              >
-                <Ionicons name="trash-outline" size={16} color={C.textMuted} />
-              </Pressable>
-              <Pressable
-                style={styles.timelineMain}
-                onPress={() => router.push(`/video/${video.id}`)}
-              >
-                <Image source={{ uri: video.thumbnail }} style={styles.timelineThumb} contentFit="cover" />
-                <View style={styles.timelineBody}>
-                  <Text style={styles.timelineTitle} numberOfLines={2}>
-                    {video.title}
-                  </Text>
-                  <Text style={styles.timelineMeta} numberOfLines={1}>
-                    {video.community} · {video.timeAgo ?? "just now"}
-                  </Text>
-                </View>
-              </Pressable>
+        <View style={styles.myListSection}>
+          <Pressable
+            style={styles.collapsibleHeaderCard}
+            onPress={() => setShowMyPosts((prev) => !prev)}
+          >
+            <View style={styles.priorityFeedTitleWrap}>
+              <Ionicons name="albums-outline" size={16} color={C.accent} />
+              <Text style={styles.myListTitle}>{ui.myPostsTitle}</Text>
             </View>
-          ))}
-          {myVideos.filter((v: any) => (v as any).postType === "daily" || !(v as any).postType).length === 0 && (
-            <View style={styles.timelineEmpty}>
-              <Text style={styles.timelineEmptyText}>No daily posts yet</Text>
-              <Text style={styles.timelineEmptySub}>{`Tap "Post" to share something quick`}</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Works timeline */}
-        <View style={styles.postsHeader}>
-          <View style={styles.postsLeft}>
-            <Text style={styles.postsTitle}>Works</Text>
-            <Text style={styles.postsCount}>
-              {myVideos.filter((v: any) => (v as any).postType === "work").length}
-            </Text>
-          </View>
-          <Pressable style={styles.uploadBtn} onPress={() => router.push("/upload/work")}>
-            <Ionicons name="add" size={16} color="#050505" />
-            <Text style={styles.uploadBtnText}>Post Work</Text>
-          </Pressable>
-        </View>
-
-        {myVideos.filter((v: any) => (v as any).postType === "work").length > 0 ? (
-          <Pressable style={styles.deleteAllWorksLink} onPress={deleteAllWorks}>
-            <Text style={styles.deleteAllWorksText}>Delete all Works</Text>
-          </Pressable>
-        ) : null}
-
-        <View style={styles.timelineList}>
-          {myVideos
-            .filter((v: any) => (v as any).postType === "work")
-            .slice(0, 4)
-            .map((video) => (
-            <View key={video.id} style={styles.timelineItem}>
-              <Pressable
-                style={styles.timelineDeleteBtn}
-                onPress={() => deleteVideo(video.id)}
-                hitSlop={8}
-              >
-                <Ionicons name="trash-outline" size={16} color={C.textMuted} />
-              </Pressable>
-              <Pressable
-                style={styles.timelineMain}
-                onPress={() => router.push(`/video/${video.id}`)}
-              >
-                <Image source={{ uri: video.thumbnail }} style={styles.timelineThumb} contentFit="cover" />
-                <View style={styles.timelineBody}>
-                  <Text style={styles.timelineTitle} numberOfLines={2}>
-                    {video.title}
-                  </Text>
-                  <Text style={styles.timelineMeta} numberOfLines={1}>
-                    {video.community} · {video.timeAgo ?? "just now"}
-                  </Text>
-                </View>
-              </Pressable>
-            </View>
-          ))}
-          {myVideos.filter((v: any) => (v as any).postType === "work").length === 0 && (
-            <View style={styles.timelineEmpty}>
-              <Text style={styles.timelineEmptyText}>No works posted yet</Text>
-              <Text style={styles.timelineEmptySub}>
-                {`Tap "Post Work" to share articles, photos & videos`}
+            <View style={styles.collapsibleHeaderRight}>
+              <Text style={styles.collapsibleHeaderText}>
+                {showMyPosts ? ui.closeMyPosts : ui.openMyPosts}
               </Text>
+              <Ionicons
+                name={showMyPosts ? "chevron-up" : "chevron-down"}
+                size={18}
+                color={C.textMuted}
+              />
             </View>
-          )}
+          </Pressable>
         </View>
 
-        {myVideos.length > 0 ? (
-          <View style={styles.dangerZone}>
-            <Text style={styles.dangerZoneLabel}>Data</Text>
-            <Pressable style={styles.deleteAllPostsBtn} onPress={deleteAllMyPosts}>
-              <Ionicons name="warning-outline" size={16} color={C.live} />
-              <Text style={styles.deleteAllPostsText}>Delete all my posts (Daily + Works)</Text>
-            </Pressable>
-            <Text style={styles.dangerZoneHint}>
-              Removes every post you own. Use the row above to delete only Works.
-            </Text>
-          </View>
+        {showMyPosts ? (
+          <>
+            <View style={styles.postsHeader}>
+              <View style={styles.postsLeft}>
+                <Text style={styles.postsTitle}>Daily</Text>
+                <Text style={styles.postsCount}>{dailyVideos.length}</Text>
+              </View>
+              <Pressable style={styles.uploadBtn} onPress={() => router.push("/upload")}>
+                <Ionicons name="add" size={16} color="#050505" />
+                <Text style={styles.uploadBtnText}>Post</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.timelineList}>
+              {dailyVideos.slice(0, 4).map((video) => (
+                <View key={video.id} style={styles.timelineItem}>
+                  <Pressable
+                    style={styles.timelineDeleteBtn}
+                    onPress={() => deleteVideo(video.id)}
+                    hitSlop={8}
+                  >
+                    <Ionicons name="trash-outline" size={16} color={C.textMuted} />
+                  </Pressable>
+                  <Pressable
+                    style={styles.timelineMain}
+                    onPress={() => router.push(`/video/${video.id}`)}
+                  >
+                    <Image source={{ uri: video.thumbnail }} style={styles.timelineThumb} contentFit="cover" />
+                    <View style={styles.timelineBody}>
+                      <Text style={styles.timelineTitle} numberOfLines={2}>
+                        {video.title}
+                      </Text>
+                      <Text style={styles.timelineMeta} numberOfLines={1}>
+                        {video.community} · {video.timeAgo ?? "just now"}
+                      </Text>
+                    </View>
+                  </Pressable>
+                </View>
+              ))}
+              {dailyVideos.length === 0 && (
+                <View style={styles.timelineEmpty}>
+                  <Text style={styles.timelineEmptyText}>No daily posts yet</Text>
+                  <Text style={styles.timelineEmptySub}>{`Tap "Post" to share something quick`}</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.postsHeader}>
+              <View style={styles.postsLeft}>
+                <Text style={styles.postsTitle}>Works</Text>
+                <Text style={styles.postsCount}>{workVideos.length}</Text>
+              </View>
+              <Pressable style={styles.uploadBtn} onPress={() => router.push("/upload/work")}>
+                <Ionicons name="add" size={16} color="#050505" />
+                <Text style={styles.uploadBtnText}>Post Work</Text>
+              </Pressable>
+            </View>
+
+            {workVideos.length > 0 ? (
+              <Pressable style={styles.deleteAllWorksLink} onPress={deleteAllWorks}>
+                <Text style={styles.deleteAllWorksText}>Delete all Works</Text>
+              </Pressable>
+            ) : null}
+
+            <View style={styles.timelineList}>
+              {workVideos.slice(0, 4).map((video) => (
+                <View key={video.id} style={styles.timelineItem}>
+                  <Pressable
+                    style={styles.timelineDeleteBtn}
+                    onPress={() => deleteVideo(video.id)}
+                    hitSlop={8}
+                  >
+                    <Ionicons name="trash-outline" size={16} color={C.textMuted} />
+                  </Pressable>
+                  <Pressable
+                    style={styles.timelineMain}
+                    onPress={() => router.push(`/video/${video.id}`)}
+                  >
+                    <Image source={{ uri: video.thumbnail }} style={styles.timelineThumb} contentFit="cover" />
+                    <View style={styles.timelineBody}>
+                      <Text style={styles.timelineTitle} numberOfLines={2}>
+                        {video.title}
+                      </Text>
+                      <Text style={styles.timelineMeta} numberOfLines={1}>
+                        {video.community} · {video.timeAgo ?? "just now"}
+                      </Text>
+                    </View>
+                  </Pressable>
+                </View>
+              ))}
+              {workVideos.length === 0 && (
+                <View style={styles.timelineEmpty}>
+                  <Text style={styles.timelineEmptyText}>No works posted yet</Text>
+                  <Text style={styles.timelineEmptySub}>
+                    {`Tap "Post Work" to share articles, photos & videos`}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {myVideos.length > 0 ? (
+              <View style={styles.dangerZone}>
+                <Text style={styles.dangerZoneLabel}>Data</Text>
+                <Pressable style={styles.deleteAllPostsBtn} onPress={deleteAllMyPosts}>
+                  <Ionicons name="warning-outline" size={16} color={C.live} />
+                  <Text style={styles.deleteAllPostsText}>Delete all my posts (Daily + Works)</Text>
+                </Pressable>
+                <Text style={styles.dangerZoneHint}>
+                  Removes every post you own. Use the row above to delete only Works.
+                </Text>
+              </View>
+            ) : null}
+          </>
         ) : null}
 
         <View style={{ height: 120 }} />
@@ -1911,6 +2061,80 @@ const styles = StyleSheet.create({
   },
   modeSectionTitle: { color: C.text, fontSize: 14, fontWeight: "800" },
   modeSectionSub: { color: C.textMuted, fontSize: 11, marginTop: 3, lineHeight: 16 },
+  collapsibleHeaderCard: {
+    backgroundColor: C.surface,
+    borderRadius: 3,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  collapsibleHeaderRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  collapsibleHeaderText: {
+    color: C.textMuted,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  priorityFeedSection: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+  },
+  priorityFeedHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  priorityFeedTitleWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  priorityFeedTitle: {
+    color: C.text,
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+  },
+  priorityFeedCount: {
+    color: C.textMuted,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  priorityFeedSub: {
+    color: C.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    marginBottom: 8,
+  },
+  priorityTagsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 6,
+  },
+  priorityTag: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: C.accent + "66",
+    backgroundColor: "rgba(0,255,204,0.08)",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  priorityTagText: {
+    color: C.accent,
+    fontSize: 10,
+    fontWeight: "700",
+  },
   roleCard: {
     marginHorizontal: 16,
     backgroundColor: C.surface,
