@@ -23,7 +23,7 @@ import { MetallicLine } from "@/components/MetallicLine";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { STATIONS, STATION_CATEGORY_LABEL } from "@/constants/stations";
 import { STATION_JUKEBOX_IDS } from "@/constants/stationJukebox";
-import { TEMP_BANNER_IMAGE_PATH, getBannerTargetRoute } from "@/constants/bannerLinks";
+import { TEMP_BANNER_ASPECT, TEMP_BANNER_IMAGE_PATH, getBannerTargetRoute } from "@/constants/bannerLinks";
 import { resolvePublicMediaUri } from "@/lib/resolve-public-media-uri";
 
 const CATEGORY_TERMS: Record<string, string[]> = {
@@ -263,7 +263,7 @@ export default function StationScreen() {
           <Image
             source={{ uri: TEMP_BANNER_IMAGE_PATH }}
             style={styles.bannerImage}
-            contentFit="cover"
+            contentFit="contain"
             contentPosition="center"
           />
         </Pressable>
@@ -395,10 +395,11 @@ const styles = StyleSheet.create({
 
   // Banner
   banner: {
+    alignSelf: "stretch",
     marginHorizontal: 16,
     marginTop: 12,
     marginBottom: 4,
-    height: 72,
+    aspectRatio: TEMP_BANNER_ASPECT,
     backgroundColor: "#0a0a0a",
     overflow: "hidden",
   },

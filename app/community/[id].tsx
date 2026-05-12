@@ -39,7 +39,7 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import type { ImagePickerAsset } from "expo-image-picker";
 import { useDemoMode } from "@/lib/demo-mode";
-import { TEMP_BANNER_IMAGE_PATH, getBannerTargetRoute } from "@/constants/bannerLinks";
+import { TEMP_BANNER_ASPECT, TEMP_BANNER_IMAGE_PATH, getBannerTargetRoute } from "@/constants/bannerLinks";
 import { alertError, alertMessage } from "@/lib/alertCompat";
 
 const MAX_ANNOUNCEMENT_SCREENSHOT_BYTES = 15 * 1024 * 1024;
@@ -1554,7 +1554,7 @@ export default function CommunityDetailScreen() {
             <View style={styles.adPrBadge}>
               <Text style={styles.adPrText}>PR</Text>
             </View>
-            <Image source={{ uri: TEMP_BANNER_IMAGE_PATH }} style={styles.adThumb} contentFit="cover" />
+            <Image source={{ uri: TEMP_BANNER_IMAGE_PATH }} style={styles.adThumb} contentFit="contain" />
             <View style={styles.adBody}>
               <Text style={styles.adTitle} numberOfLines={1}>{isJaUi ? "広告掲載のご案内" : "Advertising options"}</Text>
               <Text style={styles.adSub} numberOfLines={1}>{isJaUi ? "クリックで広告料金の詳細" : "Tap for ad pricing details"}</Text>
@@ -2903,7 +2903,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.5,
   },
-  adThumb: { width: 80, height: 54, borderRadius: 6 },
+  adThumb: { width: 120, aspectRatio: TEMP_BANNER_ASPECT, borderRadius: 6, backgroundColor: "#0a0a0a" },
   adBody: { flex: 1, gap: 4 },
   adTitle: { color: "#fff", fontSize: 13, fontWeight: "700" },
   adSub: { color: "rgba(255,255,255,0.55)", fontSize: 11 },

@@ -8,7 +8,7 @@ import {
 import { Image } from "expo-image";
 import { router } from "expo-router";
 import { C } from "@/constants/colors";
-import { TEMP_BANNER_IMAGE_PATH, getBannerTargetRoute } from "@/constants/bannerLinks";
+import { TEMP_BANNER_ASPECT, TEMP_BANNER_IMAGE_PATH, getBannerTargetRoute } from "@/constants/bannerLinks";
 
 type Props = {
   /** Optional outer spacing (profile vs home use different margins) */
@@ -26,7 +26,7 @@ export function CreatorPromoBanner({ style }: Props) {
       <Image
         source={{ uri: TEMP_BANNER_IMAGE_PATH }}
         style={styles.bannerImage}
-        contentFit="cover"
+        contentFit="contain"
         contentPosition="center"
       />
     </Pressable>
@@ -35,6 +35,7 @@ export function CreatorPromoBanner({ style }: Props) {
 
 const styles = StyleSheet.create({
   creatorBanner: {
+    alignSelf: "stretch",
     marginHorizontal: 16,
     marginTop: 14,
     marginBottom: 0,
@@ -43,7 +44,7 @@ const styles = StyleSheet.create({
     borderColor: C.border,
     overflow: "hidden",
     backgroundColor: "#0a0a0a",
-    height: 72,
+    aspectRatio: TEMP_BANNER_ASPECT,
   },
   bannerImage: {
     width: "100%",

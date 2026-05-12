@@ -19,7 +19,7 @@ import { MetallicLine } from "@/components/MetallicLine";
 import { AppLogo } from "@/components/AppLogo";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { useQuery } from "@tanstack/react-query";
-import { TEMP_BANNER_IMAGE_PATH, getBannerTargetRoute } from "@/constants/bannerLinks";
+import { TEMP_BANNER_ASPECT, TEMP_BANNER_IMAGE_PATH, getBannerTargetRoute } from "@/constants/bannerLinks";
 import { STATION_CATEGORY_LABEL } from "@/constants/stations";
 
 const COMMUNITY_X_LINK = "https://x.com/ndjtpamwu";
@@ -106,7 +106,7 @@ export default function CommunityScreen() {
             <Image
               source={{ uri: TEMP_BANNER_IMAGE_PATH }}
               style={styles.adBannerImage}
-              contentFit="cover"
+              contentFit="contain"
               contentPosition="center"
             />
           </Pressable>
@@ -222,7 +222,7 @@ const styles = StyleSheet.create({
   },
   adBannerFrame: {
     width: "100%",
-    height: 48,
+    aspectRatio: TEMP_BANNER_ASPECT,
     backgroundColor: "#0a0a0a",
     overflow: "hidden",
     alignItems: "center",

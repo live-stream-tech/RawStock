@@ -9,7 +9,7 @@ import { C } from "@/constants/colors";
 import { AppLogo } from "@/components/AppLogo";
 import { MetallicLine } from "@/components/MetallicLine";
 import { STATIONS } from "@/constants/stations";
-import { TEMP_BANNER_IMAGE_PATH, getBannerTargetRoute } from "@/constants/bannerLinks";
+import { TEMP_BANNER_ASPECT, TEMP_BANNER_IMAGE_PATH, getBannerTargetRoute } from "@/constants/bannerLinks";
 
 const STATION_SHORT_DESC: Record<string, string> = {
   music: "Bands, DJs, clubs, and live music creators.",
@@ -37,7 +37,7 @@ export default function StationsScreen() {
           accessibilityLabel="Sponsored banner"
           onPress={() => router.push(getBannerTargetRoute() as any)}
         >
-          <Image source={{ uri: TEMP_BANNER_IMAGE_PATH }} style={styles.bannerImage} contentFit="cover" contentPosition="center" />
+          <Image source={{ uri: TEMP_BANNER_IMAGE_PATH }} style={styles.bannerImage} contentFit="contain" contentPosition="center" />
         </Pressable>
 
         <View style={styles.sectionHeader}>
@@ -83,10 +83,11 @@ const styles = StyleSheet.create({
   },
   scroll: { flex: 1 },
   banner: {
+    alignSelf: "stretch",
     marginHorizontal: 16,
     marginTop: 12,
     marginBottom: 14,
-    height: 72,
+    aspectRatio: TEMP_BANNER_ASPECT,
     backgroundColor: "#0a0a0a",
     alignItems: "center",
     justifyContent: "center",
