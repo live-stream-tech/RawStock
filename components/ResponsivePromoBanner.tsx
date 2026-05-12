@@ -8,8 +8,12 @@ import {
 } from "react-native";
 import { Image } from "expo-image";
 import { router } from "expo-router";
-import { C } from "@/constants/colors";
-import { TEMP_BANNER_ASPECT, TEMP_BANNER_IMAGE_PATH, getBannerTargetRoute } from "@/constants/bannerLinks";
+import {
+  PROMO_BANNER_BORDER_COLOR,
+  TEMP_BANNER_ASPECT,
+  TEMP_BANNER_IMAGE_PATH,
+  getBannerTargetRoute,
+} from "@/constants/bannerLinks";
 
 type Props = {
   style?: StyleProp<ViewStyle>;
@@ -57,7 +61,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: "#0a0a0a",
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: PROMO_BANNER_BORDER_COLOR,
   },
   bannerImage: {
     width: "100%",

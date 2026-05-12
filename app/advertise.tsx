@@ -21,6 +21,7 @@ import { C } from "@/constants/colors";
 import { F } from "@/constants/fonts";
 import {
   DEFAULT_BANNER_COMMUNITY_ID,
+  PROMO_BANNER_BORDER_COLOR,
   TEMP_BANNER_ASPECT,
   TEMP_BANNER_IMAGE_PATH,
 } from "@/constants/bannerLinks";
@@ -872,7 +873,7 @@ const styles = StyleSheet.create({
     aspectRatio: TEMP_BANNER_ASPECT,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: PROMO_BANNER_BORDER_COLOR,
     backgroundColor: "#0a0a0a",
     padding: 12,
     justifyContent: "center",
@@ -1145,7 +1146,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: C.borderDim,
+    borderColor: PROMO_BANNER_BORDER_COLOR,
     backgroundColor: "#0a0a0a",
   },
   bannerPreview: {

@@ -1,3 +1,6 @@
+/** Border color for promo / community ad banner slots (not brand accent). */
+export const PROMO_BANNER_BORDER_COLOR = "#000000";
+
 /** Served from Expo web `public/` (source ratio 1240×216). */
 export const TEMP_BANNER_IMAGE_PATH = "/promo-audio-gear-banner.png";
 
