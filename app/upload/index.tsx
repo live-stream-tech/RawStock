@@ -28,6 +28,8 @@ import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { webScrollStyle } from "@/constants/layout";
 import { alertError, alertMessage } from "@/lib/alertCompat";
 import { beginActionTelemetry } from "@/lib/actionTelemetry";
+import { reportUploadFailure } from "@/lib/reportUploadFailure";
+import { VideoUploadPrepModal } from "@/components/VideoUploadPrepModal";
 
 type MediaItem = { id: string; uri: string; type: "image" | "video"; size?: number; durationSec?: number };
 type Community = { id: number; name: string; thumbnail: string };
@@ -163,6 +165,8 @@ export default function DailyUploadScreen() {
   const [uploading, setUploading] = useState(false);
   const [agreeGuidelines, setAgreeGuidelines] = useState(false);
   const [agreeRights, setAgreeRights] = useState(false);
+  const [videoPrepFile, setVideoPrepFile] = useState<File | null>(null);
+  const [videoPrepOpen, setVideoPrepOpen] = useState(false);
 
   const { data: myVideos = [] } = useQuery<any[]>({
     queryKey: ["/api/videos/my"],
@@ -224,7 +228,15 @@ export default function DailyUploadScreen() {
         const file = e.target.files?.[0] as File | undefined;
         if (!file) return;
         if (file.size > DAILY_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
-          Alert.alert("", t.fileLimit);
+          reportUploadFailure({
+            title: t.errorTitle,
+            message: t.fileLimit,
+            stage: "pick_photo_file_size",
+            flow: "daily",
+            mediaType: "image",
+            fileSizeBytes: file.size,
+          });
+          alertMessage(t.errorTitle, t.fileLimit);
           return;
         }
         addMedia(`img-${Date.now()}`, URL.createObjectURL(file), "image", file.size);
@@ -254,7 +266,16 @@ export default function DailyUploadScreen() {
         const url = await uploadFileToR2Native(compressedUri, name, mime);
         addMedia(`img-${Date.now()}`, url, "image");
       } catch (err: unknown) {
-        Alert.alert(t.errorTitle, toUploadErrorMessage(err, DAILY_POST_LIMITS.maxFileSizeMB, isJaUi));
+        reportUploadFailure({
+          title: t.errorTitle,
+          err,
+          stage: "pick_photo_native",
+          flow: "daily",
+          mediaType: "image",
+        });
+        alertError(t.errorTitle, err, toUploadErrorMessage(err, DAILY_POST_LIMITS.maxFileSizeMB, isJaUi), {
+          skipIngest: true,
+        });
       } finally {
         setUploading(false);
       }
@@ -272,10 +293,19 @@ export default function DailyUploadScreen() {
         const file = e.target.files?.[0] as File | undefined;
         if (!file) return;
         if (file.size > DAILY_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
-          Alert.alert("", t.fileLimit);
+          reportUploadFailure({
+            title: t.errorTitle,
+            message: t.fileLimit,
+            stage: "pick_video_file_size",
+            flow: "daily",
+            mediaType: "video",
+            fileSizeBytes: file.size,
+          });
+          alertMessage(t.errorTitle, t.fileLimit);
           return;
         }
-        addMedia(`vid-${Date.now()}`, URL.createObjectURL(file), "video", file.size);
+        setVideoPrepFile(file);
+        setVideoPrepOpen(true);
       };
       document.body.appendChild(input);
       input.click();
@@ -292,16 +322,34 @@ export default function DailyUploadScreen() {
       allowsEditing: false,
       videoMaxDuration: DAILY_POST_LIMITS.maxVideoDurationSec,
       videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
+      ...(Platform.OS === "ios"
+        ? { videoExportPreset: ImagePicker.VideoExportPreset.H264_1280x720 }
+        : {}),
     });
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
       if ((asset.fileSize ?? 0) > DAILY_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
-        Alert.alert("", t.fileLimit);
+        reportUploadFailure({
+          title: t.errorTitle,
+          message: t.fileLimit,
+          stage: "pick_video_asset_size",
+          flow: "daily",
+          mediaType: "video",
+          fileSizeBytes: asset.fileSize ?? undefined,
+        });
+        alertMessage(t.errorTitle, t.fileLimit);
         return;
       }
       const durationSec = asset.duration ? Math.ceil(asset.duration / 1000) : undefined;
       if (durationSec && durationSec > DAILY_POST_LIMITS.maxVideoDurationSec) {
-        Alert.alert("", t.videoDurationLimit);
+        reportUploadFailure({
+          title: t.errorTitle,
+          message: t.videoDurationLimit,
+          stage: "pick_video_duration",
+          flow: "daily",
+          mediaType: "video",
+        });
+        alertMessage(t.errorTitle, t.videoDurationLimit);
         return;
       }
       try {
@@ -311,7 +359,16 @@ export default function DailyUploadScreen() {
         const url = await uploadFileToR2Native(asset.uri, name, mime);
         addMedia(`vid-${Date.now()}`, url, "video", undefined, durationSec);
       } catch (err: unknown) {
-        Alert.alert(t.errorTitle, toUploadErrorMessage(err, DAILY_POST_LIMITS.maxFileSizeMB, isJaUi));
+        reportUploadFailure({
+          title: t.errorTitle,
+          err,
+          stage: "pick_video_native",
+          flow: "daily",
+          mediaType: "video",
+        });
+        alertError(t.errorTitle, err, toUploadErrorMessage(err, DAILY_POST_LIMITS.maxFileSizeMB, isJaUi), {
+          skipIngest: true,
+        });
       } finally {
         setUploading(false);
       }
@@ -427,7 +484,7 @@ export default function DailyUploadScreen() {
         } catch (e: any) {
           action.fail(e, { stage: "thumbnail_upload" });
           console.error(`${UPLOAD_LOG} step:daily_submit_thumbnail_upload_failed`, e);
-          alertError(t.uploadFailedTitle, e, t.uploadImageFailedBody);
+          alertError(t.uploadFailedTitle, e, t.uploadImageFailedBody, { skipIngest: true });
           return;
         }
       }
@@ -442,7 +499,7 @@ export default function DailyUploadScreen() {
         } catch (e: any) {
           action.fail(e, { stage: "video_upload" });
           console.error(`${UPLOAD_LOG} step:daily_submit_video_failed`, e);
-          alertError(t.uploadFailedTitle, e, t.uploadVideoFailedBody);
+          alertError(t.uploadFailedTitle, e, t.uploadVideoFailedBody, { skipIngest: true });
           return;
         }
       }
@@ -482,7 +539,7 @@ export default function DailyUploadScreen() {
         alertMessage(t.signInRequiredTitle, t.signInRequiredBody);
         return;
       }
-      alertError(t.postFailedTitle, err);
+      alertError(t.postFailedTitle, err, undefined, { skipIngest: true });
     } finally {
       setUploading(false);
     }
@@ -658,6 +715,21 @@ export default function DailyUploadScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      <VideoUploadPrepModal
+        visible={videoPrepOpen}
+        file={videoPrepFile}
+        maxClipSec={DAILY_POST_LIMITS.maxVideoDurationSec}
+        onClose={() => {
+          setVideoPrepOpen(false);
+          setVideoPrepFile(null);
+        }}
+        onPrepared={({ previewUrl, blob, durationSec }) => {
+          addMedia(`vid-${Date.now()}`, previewUrl, "video", blob.size, durationSec);
+          setVideoPrepOpen(false);
+          setVideoPrepFile(null);
+        }}
+      />
 
       <Modal visible={addMenuVisible} transparent animationType="fade">
         <Pressable style={styles.menuOverlay} onPress={() => setAddMenuVisible(false)}>

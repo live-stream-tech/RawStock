@@ -28,6 +28,10 @@ import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { webScrollStyle } from "@/constants/layout";
 import { alertError, alertMessage } from "@/lib/alertCompat";
 import { beginActionTelemetry } from "@/lib/actionTelemetry";
+import { reportUploadFailure } from "@/lib/reportUploadFailure";
+import { VideoUploadPrepModal } from "@/components/VideoUploadPrepModal";
+
+const WORK_VIDEO_MAX_SEC = 120;
 
 type FeeType = "free" | "paid";
 type PriceOption = 300 | 500 | 1000 | 2000 | 3000 | 5000;
@@ -183,6 +187,8 @@ export default function WorkUploadScreen() {
   const [uploading, setUploading] = useState(false);
   const [agreeGuidelines, setAgreeGuidelines] = useState(false);
   const [agreeRights, setAgreeRights] = useState(false);
+  const [videoPrepFile, setVideoPrepFile] = useState<File | null>(null);
+  const [videoPrepOpen, setVideoPrepOpen] = useState(false);
 
   const { data: myVideos = [] } = useQuery<any[]>({
     queryKey: ["/api/videos/my"],
@@ -234,7 +240,15 @@ export default function WorkUploadScreen() {
         const file = e.target.files?.[0] as File | undefined;
         if (!file) return;
         if (file.size > WORK_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
-          Alert.alert("", t.fileLimit);
+          reportUploadFailure({
+            title: t.errorTitle,
+            message: t.fileLimit,
+            stage: "pick_photo_file_size",
+            flow: "work",
+            mediaType: "image",
+            fileSizeBytes: file.size,
+          });
+          alertMessage(t.errorTitle, t.fileLimit);
           return;
         }
         addMedia(`img-${Date.now()}`, URL.createObjectURL(file), "image");
@@ -264,7 +278,16 @@ export default function WorkUploadScreen() {
         const url = await uploadFileToR2Native(compressedUri, name, mime);
         addMedia(`img-${Date.now()}`, url, "image");
       } catch (err: unknown) {
-        Alert.alert(t.errorTitle, toUploadErrorMessage(err, WORK_POST_LIMITS.maxFileSizeMB, isJaUi));
+        reportUploadFailure({
+          title: t.errorTitle,
+          err,
+          stage: "pick_photo_native",
+          flow: "work",
+          mediaType: "image",
+        });
+        alertError(t.errorTitle, err, toUploadErrorMessage(err, WORK_POST_LIMITS.maxFileSizeMB, isJaUi), {
+          skipIngest: true,
+        });
       } finally {
         setUploading(false);
       }
@@ -281,19 +304,19 @@ export default function WorkUploadScreen() {
         const file = e.target.files?.[0] as File | undefined;
         if (!file) return;
         if (file.size > WORK_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
-          Alert.alert("", t.fileLimit);
+          reportUploadFailure({
+            title: t.errorTitle,
+            message: t.fileLimit,
+            stage: "pick_video_file_size",
+            flow: "work",
+            mediaType: "video",
+            fileSizeBytes: file.size,
+          });
+          alertMessage(t.errorTitle, t.fileLimit);
           return;
         }
-        try {
-          setUploading(true);
-          const ct = file.type || "video/mp4";
-          const url = await uploadUserMediaBlobToR2(file, file.name || "upload.mp4", ct);
-          addMedia(`vid-${Date.now()}`, url, "video");
-        } catch (err: unknown) {
-          Alert.alert(t.errorTitle, toUploadErrorMessage(err, WORK_POST_LIMITS.maxFileSizeMB, isJaUi));
-        } finally {
-          setUploading(false);
-        }
+        setVideoPrepFile(file);
+        setVideoPrepOpen(true);
       };
       document.body.appendChild(input);
       input.click();
@@ -309,11 +332,22 @@ export default function WorkUploadScreen() {
       mediaTypes: ["videos"],
       allowsEditing: false,
       videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
+      ...(Platform.OS === "ios"
+        ? { videoExportPreset: ImagePicker.VideoExportPreset.H264_1280x720 }
+        : {}),
     });
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
       if ((asset.fileSize ?? 0) > WORK_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
-        Alert.alert("", t.fileLimit);
+        reportUploadFailure({
+          title: t.errorTitle,
+          message: t.fileLimit,
+          stage: "pick_video_asset_size",
+          flow: "work",
+          mediaType: "video",
+          fileSizeBytes: asset.fileSize ?? undefined,
+        });
+        alertMessage(t.errorTitle, t.fileLimit);
         return;
       }
       try {
@@ -323,7 +357,16 @@ export default function WorkUploadScreen() {
         const url = await uploadFileToR2Native(asset.uri, name, mime);
         addMedia(`vid-${Date.now()}`, url, "video");
       } catch (err: unknown) {
-        Alert.alert(t.errorTitle, toUploadErrorMessage(err, WORK_POST_LIMITS.maxFileSizeMB, isJaUi));
+        reportUploadFailure({
+          title: t.errorTitle,
+          err,
+          stage: "pick_video_native",
+          flow: "work",
+          mediaType: "video",
+        });
+        alertError(t.errorTitle, err, toUploadErrorMessage(err, WORK_POST_LIMITS.maxFileSizeMB, isJaUi), {
+          skipIngest: true,
+        });
       } finally {
         setUploading(false);
       }
@@ -444,7 +487,7 @@ export default function WorkUploadScreen() {
         } catch (e: any) {
           action.fail(e, { stage: "thumbnail_upload" });
           console.error(`${UPLOAD_LOG} step:work_submit_thumbnail_upload_failed`, e);
-          alertError(t.uploadFailedTitle, e, t.uploadImageFailedBody);
+          alertError(t.uploadFailedTitle, e, t.uploadImageFailedBody, { skipIngest: true });
           return;
         }
       }
@@ -459,7 +502,7 @@ export default function WorkUploadScreen() {
         } catch (e: any) {
           action.fail(e, { stage: "video_upload" });
           console.error(`${UPLOAD_LOG} step:work_submit_video_failed`, e);
-          alertError(t.uploadFailedTitle, e, t.uploadVideoFailedBody);
+          alertError(t.uploadFailedTitle, e, t.uploadVideoFailedBody, { skipIngest: true });
           return;
         }
       }
@@ -500,10 +543,10 @@ export default function WorkUploadScreen() {
       action.fail(err, { stage: "create_post" });
       if (err instanceof ApiError) {
         if (err.status === 401) alertMessage(t.signInRequiredTitle, t.signInRequiredBody);
-        else if (err.status === 400) alertError(t.invalidContentTitle, err, t.invalidContentBody);
-        else alertError(t.postFailedTitle, err, t.postFailedBody);
+        else if (err.status === 400) alertError(t.invalidContentTitle, err, t.invalidContentBody, { skipIngest: true });
+        else alertError(t.postFailedTitle, err, t.postFailedBody, { skipIngest: true });
       } else {
-        alertError(t.postFailedTitle, err, t.postFailedBody);
+        alertError(t.postFailedTitle, err, t.postFailedBody, { skipIngest: true });
       }
     } finally {
       setUploading(false);
@@ -716,6 +759,40 @@ export default function WorkUploadScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      <VideoUploadPrepModal
+        visible={videoPrepOpen}
+        file={videoPrepFile}
+        maxClipSec={WORK_VIDEO_MAX_SEC}
+        onClose={() => {
+          setVideoPrepOpen(false);
+          setVideoPrepFile(null);
+        }}
+        onPrepared={async ({ previewUrl, blob, durationSec, fileName }) => {
+          setVideoPrepOpen(false);
+          setVideoPrepFile(null);
+          setUploading(true);
+          try {
+            const url = await uploadUserMediaBlobToR2(blob, fileName, blob.type || "video/mp4");
+            addMedia(`vid-${Date.now()}`, url, "video", blob.size, durationSec);
+          } catch (err: unknown) {
+            reportUploadFailure({
+              title: t.errorTitle,
+              err,
+              stage: "pick_video_web_prep",
+              flow: "work",
+              mediaType: "video",
+              fileSizeBytes: blob.size,
+            });
+            alertError(t.errorTitle, err, toUploadErrorMessage(err, WORK_POST_LIMITS.maxFileSizeMB, isJaUi), {
+              skipIngest: true,
+            });
+            if (previewUrl.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
+          } finally {
+            setUploading(false);
+          }
+        }}
+      />
 
       <Modal visible={addMenuVisible} transparent animationType="fade">
         <Pressable style={styles.menuOverlay} onPress={() => setAddMenuVisible(false)}>

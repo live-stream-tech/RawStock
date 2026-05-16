@@ -1067,8 +1067,14 @@ export default function JukeboxScreen() {
   });
 
   const nextMutation = useMutation({
-    mutationFn: ({ source }: { source: "manual" | "ended" }) =>
-      apiRequest("POST", `/api/jukebox/${communityId}/next`, { source }),
+    mutationFn: async ({ source }: { source: "manual" | "ended" }) => {
+      try {
+        return await apiRequest("POST", `/api/jukebox/${communityId}/next`, { source });
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 403) return;
+        throw err;
+      }
+    },
     onSuccess: () => {
       // Refetch on web too — POST and SSE may hit different instances on Vercel, so EventEmitter misses updates
       qc.invalidateQueries({ queryKey: jukeboxKey });

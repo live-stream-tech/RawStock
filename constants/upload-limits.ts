@@ -4,8 +4,8 @@ export const DAILY_POST_LIMITS = {
   maxMediaCount: 3,
   /** At most one video. */
   maxVideoCount: 1,
-  /** Max size per file (MB). */
-  maxFileSizeMB: 50,
+  /** Max size per file (MB). Large originals are compressed on upload where supported. */
+  maxFileSizeMB: 500,
   /** Max video length (seconds). */
   maxVideoDurationSec: 60,
   /** Max text length (characters). */
@@ -14,6 +14,6 @@ export const DAILY_POST_LIMITS = {
 
 /** Per-post limits for work posts. */
 export const WORK_POST_LIMITS = {
-  /** Max size per file (MB). */
-  maxFileSizeMB: 50,
+  /** Max size per file (MB). Large originals are compressed on upload where supported. */
+  maxFileSizeMB: 800,
 } as const;

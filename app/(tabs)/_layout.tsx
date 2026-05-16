@@ -3,22 +3,25 @@ import { Platform, StyleSheet, View } from "react-native";
 import React from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { WEB_TAB_BAR_CONTENT_HEIGHT } from "@/constants/layout";
+import { WEB_TAB_BAR_CONTENT_HEIGHT, getWebTabBarBottomPad } from "@/constants/layout";
 import { C } from "@/constants/colors";
 import { MetallicLine } from "@/components/MetallicLine";
-import { isPwaStandalone } from "@/lib/pwa-standalone";
 import { useAuth } from "@/lib/auth";
+import { useRequireAuth } from "@/lib/useRequireAuth";
 
 type TabBarIconProps = { color: string; size: number; focused: boolean };
 
 export default function TabLayout() {
   const isWeb = Platform.OS === "web";
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { user, loading: authLoading, isLoggedIn } = useRequireAuth();
   const isJaUi = (user?.preferredLanguage ?? "").toLowerCase().startsWith("ja");
-  /** PWA: rely on safe-area inset only (avoids a thick empty band under the tab bar). Safari tab: small minimum when inset is 0. */
-  const standalone = isWeb && isPwaStandalone();
-  const bottomPad = standalone ? Math.max(insets.bottom, 0) : Math.max(insets.bottom, isWeb ? 8 : 0);
+  /** Web: match getWebTabBarBottomPad so the bar fills the home-indicator band on iOS Safari. */
+  const bottomPad = isWeb ? getWebTabBarBottomPad(insets.bottom) : Math.max(insets.bottom, 0);
+
+  if (!authLoading && !isLoggedIn) {
+    return null;
+  }
 
   return (
     <Tabs

@@ -95,7 +95,7 @@ export default function LiverScheduleScreen() {
   const { data: liverMe, isLoading: meLoading, error: meError } = useQuery<LiverMe>({
     queryKey: ["/api/livers/me"],
     enabled: !!user,
-    queryFn: getQueryFn({ on401: "throw" }),
+    queryFn: getQueryFn({ on401: "throw", on404: "returnNull" }),
   });
 
   const liverId = liverMe?.id;

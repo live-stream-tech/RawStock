@@ -14,7 +14,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth, AuthGuard } from "@/lib/auth";
-import { apiRequest } from "@/lib/query-client";
+import { apiRequest, getQueryFn } from "@/lib/query-client";
+import { useQuery } from "@tanstack/react-query";
 import { C } from "@/constants/colors";
 import { webScrollStyle } from "@/constants/layout";
 
@@ -58,6 +59,11 @@ export default function SettingsScreen() {
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const { user, logout } = useAuth();
   const isJaUi = (user?.preferredLanguage ?? "").toLowerCase().startsWith("ja");
+  const { data: roleStatus } = useQuery<{ isEditor: boolean; isMentor: boolean }>({
+    queryKey: ["/api/profile/roles"],
+    enabled: !!user,
+    queryFn: getQueryFn({ on401: "returnNull" }),
+  });
 
   async function handleDeleteAccount() {
     const msg = isJaUi
@@ -175,22 +181,26 @@ export default function SettingsScreen() {
           />
         </View>
 
-        <SectionHeader title={isJaUi ? "クリエイターツール" : "Artist Tools"} />
-        <View style={styles.section}>
-          <SettingRow
-            icon="calendar-outline"
-            label={isJaUi ? "セッション予定" : "Session Schedule"}
-            sublabel={isJaUi ? "予約枠の管理" : "Manage your bookable slots"}
-            onPress={() => router.push("/liver-schedule")}
-          />
-          <View style={styles.rowDivider} />
-          <SettingRow
-            icon="analytics-outline"
-            label={isJaUi ? "マイスコア" : "My Score"}
-            sublabel={isJaUi ? "満足度・実施回数・出席率" : "Satisfaction, sessions & attendance"}
-            onPress={() => Alert.alert(isJaUi ? "準備中" : "Coming Soon", isJaUi ? "この機能は近日公開予定です" : "This feature will be available soon")}
-          />
-        </View>
+        {roleStatus?.isMentor ? (
+          <>
+            <SectionHeader title={isJaUi ? "クリエイターツール" : "Artist Tools"} />
+            <View style={styles.section}>
+              <SettingRow
+                icon="calendar-outline"
+                label={isJaUi ? "セッション予定" : "Session Schedule"}
+                sublabel={isJaUi ? "予約枠の管理" : "Manage your bookable slots"}
+                onPress={() => router.push("/liver-schedule")}
+              />
+              <View style={styles.rowDivider} />
+              <SettingRow
+                icon="analytics-outline"
+                label={isJaUi ? "マイスコア" : "My Score"}
+                sublabel={isJaUi ? "満足度・実施回数・出席率" : "Satisfaction, sessions & attendance"}
+                onPress={() => Alert.alert(isJaUi ? "準備中" : "Coming Soon", isJaUi ? "この機能は近日公開予定です" : "This feature will be available soon")}
+              />
+            </View>
+          </>
+        ) : null}
 
         <SectionHeader title={isJaUi ? "通知" : "Notifications"} />
         <View style={styles.section}>

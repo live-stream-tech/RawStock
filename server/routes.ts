@@ -144,6 +144,8 @@ import {
   ensureJukeboxQueueSchema,
   ensureUserFollowsSchema,
   ensureJukeboxRequestCountsSchema,
+  ensureMentorBookingsSchema,
+  ensureNotificationsSchema,
 } from "./runtimeSchemaGuards";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
@@ -2183,6 +2185,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   /** Public: active mentor session products for user (mentor_sessions). */
   app.get("/api/users/:id/mentor-sessions", async (req: Request, res: Response) => {
+    await ensureMentorBookingsSchema();
     const uid = paramNum(req, "id");
     if (!uid) return res.status(400).json({ error: "Invalid id" });
     const rows = await db
@@ -6223,6 +6226,11 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   // ── Notifications ─────────────────────────────────────────────────
+  app.use("/api/notifications", async (_req, _res, next) => {
+    await ensureNotificationsSchema();
+    next();
+  });
+
   app.get("/api/notifications/unread-count", async (req: Request, res: Response) => {
     const me = await getAuthUser(req);
     if (!me) return res.json({ count: 0 });
@@ -7792,6 +7800,11 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   // ── Mentor session bookings ───────────────────────────────────────────────────
+
+  app.use("/api/mentor", async (_req, _res, next) => {
+    await ensureMentorBookingsSchema();
+    next();
+  });
 
   /** Legacy: mentor-book/[id].tsx session fetch */
   app.get("/api/mentor/session/:id", async (req: Request, res: Response) => {

@@ -27,6 +27,7 @@ import {
 } from "@/constants/bannerLinks";
 import { webScrollStyle } from "@/constants/layout";
 import { apiRequest, formatUserFacingApiError, getApiUrl } from "@/lib/query-client";
+import { useRequireAuth } from "@/lib/useRequireAuth";
 
 type CommunityOption = {
   id: number;
@@ -102,6 +103,7 @@ function formatRangeLabel(startDate: string, endDate: string): string {
 }
 
 export default function AdvertiseScreen() {
+  const { loading: authLoading, isLoggedIn } = useRequireAuth();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const scrollRef = useRef<ScrollView | null>(null);
@@ -340,6 +342,10 @@ export default function AdvertiseScreen() {
   };
 
   const cardWidth = isDesktop ? (contentMaxWidth - 32) / 3 : contentMaxWidth;
+
+  if (!authLoading && !isLoggedIn) {
+    return null;
+  }
 
   return (
     <View style={[styles.screen, { paddingTop: topInset }]}>

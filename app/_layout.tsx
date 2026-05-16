@@ -11,11 +11,13 @@ import { queryClient } from "@/lib/query-client";
 import { DemoModeProvider } from "@/lib/demo-mode";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { consumeLoginRedirectPath, saveLoginReturn } from "@/lib/login-return";
+import { registerUnauthenticatedRedirect } from "@/lib/session-redirect";
 import { GlobalMyListPlayer } from "@/components/GlobalMyListPlayer";
 import { GlobalJukeboxPlayer } from "@/components/GlobalJukeboxPlayer";
 import { PlayingVideoProvider } from "@/lib/playing-video-context";
 import { installWebAlertFallback } from "@/lib/alertCompat";
 import { setCurrentClientRoute } from "@/lib/clientErrorContext";
+import { WebVercelAnalytics } from "@/components/WebVercelAnalytics";
 
 SplashScreen.preventAutoHideAsync();
 installWebAlertFallback();
@@ -108,12 +110,9 @@ function isPublicPath(rawPathname: string): boolean {
   const pathname = normalizePathname(rawPathname);
   /** DM is never guest-readable — force sign-in even if pathname normalization changes. */
   if (pathname === "/dm" || pathname.startsWith("/dm/")) return false;
-  if (pathname === "/" || pathname === "") return true;
 
   const exact = new Set([
     "/community",
-    "/stations",
-    "/advertise",
     "/auth/login",
     "/auth/register",
     "/auth/callback",
@@ -201,6 +200,16 @@ function GlobalAuthGate({ children }: { children: React.ReactNode }) {
   const hasTokenInUrl = useHasTokenInUrl();
   // Treat as signed in if user exists or token was restored.
   const isLoggedIn = !!user || !!token;
+
+  useEffect(() => {
+    registerUnauthenticatedRedirect(() => {
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        const full = window.location.pathname + window.location.search;
+        saveLoginReturn(full);
+      }
+      router.replace("/auth/login");
+    });
+  }, []);
 
   useEffect(() => {
     if (loading) return;
@@ -329,6 +338,7 @@ export default function RootLayout() {
                         <RootLayoutNav />
                         <GlobalMyListPlayer />
                         <GlobalJukeboxPlayer />
+                        <WebVercelAnalytics />
                       </View>
                     </PlayingVideoProvider>
                   </DemoModeProvider>

@@ -1,5 +1,6 @@
 import { recordClientDebugBreadcrumb, getCurrentClientRoute } from "./clientErrorContext";
 import { captureClientError, summarizeForErrorExtra } from "./debugIngest";
+import { ApiError } from "./query-client";
 
 type ActionTelemetryInput = {
   action: string;
@@ -144,9 +145,10 @@ export function beginActionTelemetry(input: ActionTelemetryInput): ActionTelemet
       if (settled) return;
       settled = true;
       clearTimer();
+      const msg = errorMessage(err);
       recordClientDebugBreadcrumb({
         type: timedOut ? "action_fail_after_timeout" : "action_fail",
-        message: errorMessage(err),
+        message: msg,
         route,
         method: input.method ?? null,
         url: input.requestUrl ?? null,
@@ -156,6 +158,27 @@ export function beginActionTelemetry(input: ActionTelemetryInput): ActionTelemet
           afterTimeout: timedOut,
           ...summarizeMeta(meta),
           error: summarizeForErrorExtra(err) as Record<string, unknown>,
+        },
+      });
+      const isUploadRelated =
+        /upload|post_submit|media_upload|pick_(photo|video)/i.test(input.action) ||
+        input.requestUrl?.includes("upload") ||
+        /upload|r2|storage|video|image/i.test(msg);
+      void captureClientError({
+        kind: "action_error",
+        title: input.title,
+        message: msg,
+        status: err instanceof ApiError ? err.status : null,
+        route,
+        requestUrl: input.requestUrl ?? null,
+        method: input.method ?? null,
+        dedupeMs: isUploadRelated ? 0 : undefined,
+        extra: {
+          action: input.action,
+          elapsedMs: Date.now() - startedAt,
+          afterTimeout: timedOut,
+          ...summarizeMeta(input.extra),
+          ...summarizeMeta(meta),
         },
       });
     },

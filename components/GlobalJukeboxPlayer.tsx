@@ -11,7 +11,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { C } from "@/constants/colors";
-import { apiRequest, getApiUrl } from "@/lib/query-client";
+import { ApiError, apiRequest, getApiUrl } from "@/lib/query-client";
 import { fetchJukeboxJson, getOrCreateJukeboxViewerSessionId } from "@/lib/jukebox-presence";
 import { navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { JUKEBOX_ACTIVE_SESSIONS_QUERY_KEY } from "@/lib/useJukeboxPulse";
@@ -169,7 +169,12 @@ export function GlobalJukeboxPlayer() {
   const nextMutation = useMutation({
     mutationFn: async () => {
       if (!communityId) return;
-      await apiRequest("POST", `/api/jukebox/${communityId}/next`);
+      try {
+        await apiRequest("POST", `/api/jukebox/${communityId}/next`);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 403) return;
+        throw err;
+      }
     },
     onSuccess: () => {
       if (!communityId) return;

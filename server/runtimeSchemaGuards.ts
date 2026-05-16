@@ -6,6 +6,8 @@ let userFollowsSchemaReady = false;
 let jukeboxRequestCountsReady = false;
 let clientErrorEventsReady = false;
 let bugReportsReady = false;
+let mentorBookingsSchemaReady = false;
+let notificationsSchemaReady = false;
 
 /**
  * Production DBs may not have run every SQL migration from the repo.
@@ -143,6 +145,131 @@ export async function ensureClientErrorEventsSchema(): Promise<void> {
     clientErrorEventsReady = true;
   } catch (e) {
     console.error("[runtimeSchemaGuards] client_error_events:", e);
+  }
+}
+
+/**
+ * Production DBs may still have `twoshot_bookings` (migration 0005 not applied).
+ * Ensures `mentor_bookings` + `mentor_sessions` exist with columns the API expects.
+ */
+export async function ensureMentorBookingsSchema(): Promise<void> {
+  if (mentorBookingsSchemaReady) return;
+  try {
+    await db.execute(
+      sql.raw(`
+        DO $$
+        BEGIN
+          IF EXISTS (
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = 'twoshot_bookings'
+          ) AND NOT EXISTS (
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = 'mentor_bookings'
+          ) THEN
+            ALTER TABLE "twoshot_bookings" RENAME TO "mentor_bookings";
+          END IF;
+        END $$;
+      `),
+    );
+
+    await db.execute(
+      sql.raw(`
+        CREATE TABLE IF NOT EXISTS "mentor_bookings" (
+          "id" serial PRIMARY KEY NOT NULL,
+          "stream_id" integer,
+          "session_id" integer,
+          "user_id" text DEFAULT 'guest' NOT NULL,
+          "user_name" text NOT NULL,
+          "user_avatar" text,
+          "scheduled_at" timestamp,
+          "stripe_session_id" text,
+          "stripe_payment_intent_id" text,
+          "price" integer NOT NULL,
+          "status" text DEFAULT 'pending' NOT NULL,
+          "queue_position" integer DEFAULT 0 NOT NULL,
+          "whip_url" text,
+          "whep_url" text,
+          "cf_stream_uid" text,
+          "agreed_to_terms" boolean DEFAULT false NOT NULL,
+          "agreed_at" timestamp,
+          "notified_at" timestamp,
+          "completed_at" timestamp,
+          "cancelled_at" timestamp,
+          "cancel_reason" text,
+          "refundable" boolean DEFAULT false NOT NULL,
+          "evaluation_score" integer,
+          "created_at" timestamp DEFAULT now()
+        )
+      `),
+    );
+
+    await db.execute(
+      sql.raw(`
+        CREATE TABLE IF NOT EXISTS "mentor_sessions" (
+          "id" serial PRIMARY KEY NOT NULL,
+          "creator_id" integer NOT NULL,
+          "title" text NOT NULL,
+          "category" text NOT NULL DEFAULT 'other',
+          "description" text NOT NULL DEFAULT '',
+          "price" integer NOT NULL,
+          "duration" integer NOT NULL DEFAULT 30,
+          "max_participants" integer NOT NULL DEFAULT 1,
+          "is_active" boolean NOT NULL DEFAULT true,
+          "created_at" timestamp DEFAULT now(),
+          "updated_at" timestamp DEFAULT now()
+        )
+      `),
+    );
+
+    await db.execute(
+      sql.raw(`
+        ALTER TABLE "mentor_bookings"
+          ADD COLUMN IF NOT EXISTS "session_id" integer,
+          ADD COLUMN IF NOT EXISTS "scheduled_at" timestamp,
+          ADD COLUMN IF NOT EXISTS "whip_url" text,
+          ADD COLUMN IF NOT EXISTS "whep_url" text,
+          ADD COLUMN IF NOT EXISTS "cf_stream_uid" text
+      `),
+    );
+
+    await db.execute(
+      sql.raw(`ALTER TABLE "mentor_bookings" ALTER COLUMN "stream_id" DROP NOT NULL`),
+    ).catch(() => {});
+
+    await db.execute(
+      sql.raw(`UPDATE "transactions" SET "source" = 'mentor' WHERE "source" = 'twoshot'`),
+    ).catch(() => {});
+    await db.execute(
+      sql.raw(`UPDATE "earnings" SET "type" = 'mentor' WHERE "type" = 'twoshot'`),
+    ).catch(() => {});
+    await db.execute(
+      sql.raw(`UPDATE "creators" SET "category" = 'mentor' WHERE "category" = 'twoshot'`),
+    ).catch(() => {});
+
+    mentorBookingsSchemaReady = true;
+  } catch (e) {
+    console.error("[runtimeSchemaGuards] mentor_bookings:", e);
+  }
+}
+
+/** Matches `migrations/0032_notifications_user_id.sql` (idempotent). */
+export async function ensureNotificationsSchema(): Promise<void> {
+  if (notificationsSchemaReady) return;
+  try {
+    await db.execute(
+      sql.raw(`ALTER TABLE "notifications" ADD COLUMN IF NOT EXISTS "user_id" integer`),
+    );
+    await db.execute(
+      sql.raw(`ALTER TABLE "notifications" ADD COLUMN IF NOT EXISTS "target_path" text`),
+    );
+    await db.execute(
+      sql.raw(
+        `CREATE INDEX IF NOT EXISTS "notifications_user_id_created_at_idx" ON "notifications" ("user_id", "created_at" DESC)`,
+      ),
+    );
+    notificationsSchemaReady = true;
+  } catch (e) {
+    console.error("[runtimeSchemaGuards] notifications:", e);
   }
 }
 

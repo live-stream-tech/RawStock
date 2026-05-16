@@ -38,16 +38,20 @@ import { MetallicLine } from "@/components/MetallicLine";
 import { saveLoginReturn } from "@/lib/login-return";
 
 function useUnreadCount() {
+  const { user } = useAuth();
   const { data } = useQuery<{ count: number }>({
     queryKey: ["/api/notifications/unread-count"],
+    enabled: !!user,
     refetchInterval: 30_000,
   });
   return data?.count ?? 0;
 }
 
 function useDmUnreadCount() {
+  const { user } = useAuth();
   const { data } = useQuery<{ count: number }>({
     queryKey: ["/api/dm-messages/unread-count"],
+    enabled: !!user,
     refetchInterval: 30_000,
   });
   return data?.count ?? 0;
@@ -719,41 +723,7 @@ export default function ProfileScreen() {
   );
 
   if (!authLoading && !user) {
-    function handleGoogleLogin() {
-      if (Platform.OS === "web" && typeof window !== "undefined") {
-        const returnTo = window.location.pathname + window.location.search;
-        saveLoginReturn(returnTo);
-        const apiBase = getApiUrl();
-        const url = new URL("/api/auth/google", apiBase).toString();
-        window.location.href = url;
-      } else {
-        router.replace("/");
-      }
-    }
-
-    return (
-      <View style={{ flex: 1 }}>
-        <View style={[styles.container, styles.guestContainer, { paddingTop: topInset + 40 }]}>
-          <Ionicons name="person-circle-outline" size={80} color={C.textMuted} />
-          <View style={styles.guestLogoWrap}>
-            <AppLogo height={36} />
-          </View>
-          <Text style={styles.guestSub}>
-            {preferredLanguage === "ja" ? "サインインしてマイページを表示" : "Sign in to view your profile"}
-          </Text>
-          <Pressable style={styles.googleLoginBtn} onPress={handleGoogleLogin}>
-            <Image source={{ uri: "https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" }} style={styles.googleIcon} contentFit="contain" />
-            <Text style={styles.googleLoginText}>Sign in with Google</Text>
-          </Pressable>
-          <View style={styles.guestLegalLinks}>
-            <Pressable onPress={() => router.push("/legal")}>
-              <Text style={styles.guestLegalLinkText}>Legal & Policies</Text>
-            </Pressable>
-          </View>
-        </View>
-        {profileFloatingActions}
-      </View>
-    );
+    return null;
   }
 
   const tipProgressRatio = levelProgress

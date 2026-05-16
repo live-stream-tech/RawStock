@@ -4,6 +4,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { captureClientError, summarizeForErrorExtra } from "./debugIngest";
 import { beginActionTelemetry } from "./actionTelemetry";
 import { recordClientDebugBreadcrumb } from "./clientErrorContext";
+import { compressVideoBlobForWebSameOrigin } from "./compressVideoBlobWeb";
+import { notifyUnauthenticated } from "./session-redirect";
 
 const DEFAULT_DEV_API_PORT = "5001";
 const DEV_API_FALLBACK = `http://127.0.0.1:${DEFAULT_DEV_API_PORT}/`;
@@ -250,11 +252,26 @@ export async function readAuthToken(): Promise<string | null> {
   return null;
 }
 
+/** Expected API outcomes — do not ingest as production errors. */
+function isBenignApiError(status: number, message: string, route?: string | null): boolean {
+  const m = message.toLowerCase();
+  if (status === 403 && m.includes("track has not finished")) return true;
+  if (status === 404 && m.includes("creator profile not found")) return true;
+  if (status === 404 && route?.includes("/api/livers/me")) return true;
+  return false;
+}
+
 export async function throwIfResNotOk(res: Response, context?: ErrorCaptureContext) {
   if (!res.ok) {
+    if (res.status === 401) {
+      notifyUnauthenticated();
+    }
     const text = (await res.text()) || res.statusText;
     const route = context?.route ?? null;
     const code = extractApiErrorCode(text);
+    const userMessage =
+      parseJsonApiMessage(text) ?? (text.replace(/\s+/g, " ").trim() || `Request failed (HTTP ${res.status})`);
+    const benign = isBenignApiError(res.status, userMessage, route);
     recordClientDebugBreadcrumb({
       type: "api_request_error",
       message: `${context?.method ?? "GET"} ${route ?? context?.requestUrl ?? ""}`.trim(),
@@ -267,19 +284,21 @@ export async function throwIfResNotOk(res: Response, context?: ErrorCaptureConte
         code,
       },
     });
-    await captureClientError({
-      kind: context?.kind ?? "api_error",
-      title: context?.title ?? "API request failed",
-      message: parseJsonApiMessage(text) ?? (text.replace(/\s+/g, " ").trim() || `Request failed (HTTP ${res.status})`),
-      status: res.status,
-      code,
-      method: context?.method ?? null,
-      requestUrl: context?.requestUrl ?? null,
-      extra:
-        context?.requestData === undefined
-          ? { route }
-          : { route, requestData: summarizeForErrorExtra(context.requestData) },
-    });
+    if (!benign) {
+      await captureClientError({
+        kind: context?.kind ?? "api_error",
+        title: context?.title ?? "API request failed",
+        message: userMessage,
+        status: res.status,
+        code,
+        method: context?.method ?? null,
+        requestUrl: context?.requestUrl ?? null,
+        extra:
+          context?.requestData === undefined
+            ? { route }
+            : { route, requestData: summarizeForErrorExtra(context.requestData) },
+      });
+    }
     throw new ApiError(res.status, text);
   }
 }
@@ -462,8 +481,8 @@ export async function uploadUserMediaBlobToR2(
   fileName: string,
   contentType: string,
 ): Promise<string> {
-  const ct = contentType.split(";")[0].trim();
-  const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+  let ct = contentType.split(";")[0].trim();
+  let safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
   const action = beginActionTelemetry({
     action: "upload_user_media",
     title: "Media upload",
@@ -479,9 +498,29 @@ export async function uploadUserMediaBlobToR2(
   try {
     let uploadBlob = blob;
     const isImage = isImageContentType(ct);
+    const isVideo = /^video\//i.test(ct);
 
     if (blob.size > R2_SAME_ORIGIN_UPLOAD_MAX_BYTES && isImage) {
       uploadBlob = await compressImageBlobForUpload(blob, ct);
+    }
+
+    if (blob.size > R2_SAME_ORIGIN_UPLOAD_MAX_BYTES && isVideo && typeof document !== "undefined") {
+      uploadBlob = await compressVideoBlobForWebSameOrigin(blob, ct, R2_SAME_ORIGIN_UPLOAD_MAX_BYTES);
+      const t = uploadBlob.type.split(";")[0].trim();
+      if (t && /^video\//i.test(t)) {
+        ct = t;
+        const ext = t.includes("webm")
+          ? "webm"
+          : t.includes("mp4")
+            ? "mp4"
+            : t.includes("quicktime")
+              ? "mov"
+              : "";
+        if (ext) {
+          const base = safeName.includes(".") ? safeName.slice(0, safeName.lastIndexOf(".")) : safeName;
+          safeName = `${base}.${ext}`;
+        }
+      }
     }
 
     if (uploadBlob.size <= R2_SAME_ORIGIN_UPLOAD_MAX_BYTES) {
@@ -501,6 +540,18 @@ export async function uploadUserMediaBlobToR2(
       throw new Error(
         "Image is still too large after compression. Please choose a smaller image or crop tighter and try again.",
       );
+    }
+
+    if (isVideo && typeof document !== "undefined") {
+      const tooLargeErr = new Error(
+        "Video is still too large after compression. Try a shorter clip, lower resolution, or upload from the mobile app.",
+      );
+      action.fail(tooLargeErr, {
+        stage: "video_still_too_large_after_compression",
+        finalSize: uploadBlob.size,
+        contentType: ct,
+      });
+      throw tooLargeErr;
     }
 
     const resp = await apiRequest("POST", "/api/upload-url", {
@@ -661,10 +712,13 @@ export async function apiRequest(
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
+type NotFoundBehavior = "returnNull" | "throw";
+
 export const getQueryFn: <T>(options: {
   on401: UnauthorizedBehavior;
+  on404?: NotFoundBehavior;
 }) => QueryFunction<T> =
-  ({ on401: unauthorizedBehavior }) =>
+  ({ on401: unauthorizedBehavior, on404: notFoundBehavior = "throw" }) =>
   async ({ queryKey }) => {
     const baseUrl = getApiUrl();
     const route = queryKey.join("/") as string;
@@ -699,6 +753,10 @@ export const getQueryFn: <T>(options: {
     }
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
+      return null;
+    }
+
+    if (notFoundBehavior === "returnNull" && res.status === 404) {
       return null;
     }
 

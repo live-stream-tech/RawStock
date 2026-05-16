@@ -30,16 +30,20 @@ import { useAuth } from "@/lib/auth";
 const MENTOR_W = 200;
 
 function useUnreadCount() {
+  const { user } = useAuth();
   const { data } = useQuery<{ count: number }>({
     queryKey: ["/api/notifications/unread-count"],
+    enabled: !!user,
     refetchInterval: 30_000,
   });
   return data?.count ?? 0;
 }
 
 function useDmUnreadCount() {
+  const { user } = useAuth();
   const { data } = useQuery<{ count: number }>({
     queryKey: ["/api/dm-messages/unread-count"],
+    enabled: !!user,
     refetchInterval: 30_000,
   });
   return data?.count ?? 0;
@@ -384,7 +388,7 @@ export default function HomeScreen() {
   const sessions = mentorSessions;
 
   const topInset = getTabTopInset(insets);
-  const bottomInset = getTabBottomInset();
+  const bottomInset = getTabBottomInset(insets);
 
   return (
     <View style={[styles.container, { paddingBottom: bottomInset }]}>

@@ -15,7 +15,11 @@ function looksLikeErrorAlert(title?: string | null, message?: string | null): bo
     /not enough/.test(joined) ||
     /sign in required/.test(joined) ||
     /login required/.test(joined) ||
-    /permission required/.test(joined)
+    /permission required/.test(joined) ||
+    /file must be under/.test(joined) ||
+    /too large/.test(joined) ||
+    /mb\b/.test(joined) ||
+    /upload/.test(joined)
   );
 }
 
@@ -104,26 +108,29 @@ export function alertError(
   title: string,
   err: unknown,
   fallbackMessage = "Something went wrong. Please try again.",
+  options?: { skipIngest?: boolean },
 ): void {
   const detail = formatUserFacingApiError(err);
   const normalized =
     detail && detail !== "Something went wrong. Please try again."
       ? detail
       : fallbackMessage;
-  void captureClientError({
-    kind: "ui_alert",
-    title,
-    message: normalized,
-    status:
-      typeof (err as { status?: unknown })?.status === "number"
-        ? ((err as { status?: number }).status ?? null)
-        : null,
-    code:
-      typeof (err as { code?: unknown })?.code === "string"
-        ? ((err as { code?: string }).code ?? null)
-        : null,
-    extra: { source: "alertError" },
-  });
+  if (!options?.skipIngest) {
+    void captureClientError({
+      kind: "ui_alert",
+      title,
+      message: normalized,
+      status:
+        typeof (err as { status?: unknown })?.status === "number"
+          ? ((err as { status?: number }).status ?? null)
+          : null,
+      code:
+        typeof (err as { code?: unknown })?.code === "string"
+          ? ((err as { code?: string }).code ?? null)
+          : null,
+      extra: { source: "alertError" },
+    });
+  }
   alertMessage(title, normalized);
 }
 
