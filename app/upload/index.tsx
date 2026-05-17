@@ -177,7 +177,9 @@ export default function DailyUploadScreen() {
   const activeCommunityId = selectedCommunityId ?? communities[0]?.id ?? null;
   const selectedCommunity = communities.find((c) => c.id === activeCommunityId);
 
-  const thumbnailItem = mediaItems.find((m) => m.type === "image") ?? null;
+  const imageItems = mediaItems.filter((m) => m.type === "image");
+  const thumbnailItem = imageItems[0] ?? null;
+  const bodyImages = imageItems.slice(1);
   const videoItem = mediaItems.find((m) => m.type === "video") ?? null;
   const videoCount = mediaItems.filter((m) => m.type === "video").length;
   const canAddMore = mediaItems.length < DAILY_POST_LIMITS.maxMediaCount;
@@ -542,53 +544,7 @@ export default function DailyUploadScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={scrollShowsVertical}
       >
-        {/* Thumbnail photo — large tap area */}
-        <Pressable
-          style={[styles.thumbnailArea, thumbnailItem && styles.thumbnailAreaFilled]}
-          onPress={canAddMore ? pickPhoto : undefined}
-          disabled={uploading}
-        >
-          {thumbnailItem ? (
-            <>
-              <Image source={{ uri: thumbnailItem.uri }} style={styles.thumbnailImage} contentFit="cover" />
-              <Pressable style={styles.thumbnailRemove} onPress={() => removeMedia(thumbnailItem.id)} hitSlop={8}>
-                <Ionicons name="close" size={14} color="#fff" />
-              </Pressable>
-              <View style={styles.thumbnailBadge}>
-                <Ionicons name="image" size={12} color="#fff" />
-                <Text style={styles.thumbnailBadgeText}>Thumbnail</Text>
-              </View>
-            </>
-          ) : (
-            <View style={styles.thumbnailPlaceholder}>
-              <Ionicons name="image-outline" size={36} color={C.textMuted} />
-              <Text style={styles.thumbnailPlaceholderTitle}>Add Thumbnail Photo</Text>
-              <Text style={styles.thumbnailPlaceholderSub}>Optional — shown as post cover</Text>
-            </View>
-          )}
-        </Pressable>
-
-        {/* Video row */}
-        <View style={styles.videoRow}>
-          {videoItem ? (
-            <View style={styles.videoAdded}>
-              <Ionicons name="videocam" size={20} color={C.accent} />
-              <Text style={styles.videoAddedText} numberOfLines={1}>Video added</Text>
-              <Pressable onPress={() => removeMedia(videoItem.id)} hitSlop={8} style={styles.videoRemove}>
-                <Ionicons name="close-circle" size={20} color={C.textMuted} />
-              </Pressable>
-            </View>
-          ) : (
-            <Pressable
-              style={[styles.addVideoBtn, (!canAddMore || !canAddVideo || uploading) && styles.addVideoBtnDisabled]}
-              onPress={(!canAddMore || !canAddVideo || uploading) ? undefined : pickVideo}
-            >
-              <Ionicons name="add-circle-outline" size={20} color={C.accent} />
-              <Text style={styles.addVideoText}>Add Video (optional)</Text>
-            </Pressable>
-          )}
-        </View>
-
+        {/* Text input — main body */}
         <View style={styles.inputWrap}>
           <TextInput
             style={styles.mainInput}
@@ -600,6 +556,75 @@ export default function DailyUploadScreen() {
             maxLength={DAILY_POST_LIMITS.maxTextLength}
           />
           <Text style={styles.charCount}>{text.length}/{DAILY_POST_LIMITS.maxTextLength}</Text>
+        </View>
+
+        {/* Thumbnail cover — compact row */}
+        <View style={styles.coverRow}>
+          <Pressable
+            style={styles.coverThumb}
+            onPress={canAddMore && !uploading ? pickPhoto : undefined}
+          >
+            {thumbnailItem ? (
+              <Image source={{ uri: thumbnailItem.uri }} style={styles.coverThumbImg} contentFit="cover" />
+            ) : (
+              <Ionicons name="image-outline" size={22} color={C.textMuted} />
+            )}
+          </Pressable>
+          <View style={styles.coverMeta}>
+            <Text style={styles.coverLabel}>Cover photo</Text>
+            <Text style={styles.coverSub}>{thumbnailItem ? "Tap to change" : "Optional — post thumbnail"}</Text>
+          </View>
+          {thumbnailItem && (
+            <Pressable onPress={() => removeMedia(thumbnailItem.id)} hitSlop={10}>
+              <Ionicons name="close-circle" size={20} color={C.textMuted} />
+            </Pressable>
+          )}
+        </View>
+
+        {/* Body images — horizontal strip */}
+        <View style={styles.bodyImagesSection}>
+          <Text style={styles.sectionLabel}>Images</Text>
+          <View style={styles.bodyImagesRow}>
+            {bodyImages.map((img) => (
+              <View key={img.id} style={styles.bodyImgWrap}>
+                <Image source={{ uri: img.uri }} style={styles.bodyImg} contentFit="cover" />
+                <Pressable style={styles.bodyImgRemove} onPress={() => removeMedia(img.id)} hitSlop={6}>
+                  <Ionicons name="close" size={12} color="#fff" />
+                </Pressable>
+              </View>
+            ))}
+            {canAddMore && !uploading && (
+              <Pressable style={styles.bodyImgAdd} onPress={pickPhoto}>
+                <Ionicons name="add" size={22} color={C.textMuted} />
+              </Pressable>
+            )}
+            {!canAddMore && bodyImages.length === 0 && (
+              <Text style={styles.bodyImagesEmpty}>Optional</Text>
+            )}
+          </View>
+        </View>
+
+        {/* Video section */}
+        <View style={styles.videoSection}>
+          <Text style={styles.sectionLabel}>Video</Text>
+          {videoItem ? (
+            <View style={styles.videoAdded}>
+              <Ionicons name="videocam" size={22} color={C.accent} />
+              <Text style={styles.videoAddedText}>Video ready</Text>
+              <Pressable onPress={() => removeMedia(videoItem.id)} hitSlop={8}>
+                <Ionicons name="close-circle" size={22} color={C.textMuted} />
+              </Pressable>
+            </View>
+          ) : (
+            <Pressable
+              style={[styles.videoAddArea, (!canAddVideo || uploading) && styles.videoAddAreaDisabled]}
+              onPress={canAddVideo && !uploading ? pickVideo : undefined}
+            >
+              <Ionicons name="videocam-outline" size={28} color={canAddVideo ? C.accent : C.textMuted} />
+              <Text style={[styles.videoAddLabel, !canAddVideo && { color: C.textMuted }]}>Add Video</Text>
+              <Text style={styles.videoAddSub}>Optional · trim & compress in browser</Text>
+            </Pressable>
+          )}
         </View>
 
         <View style={styles.optionsSection}>
@@ -749,73 +774,7 @@ const styles = StyleSheet.create({
   limitHint: { paddingHorizontal: 16, paddingVertical: 8, backgroundColor: C.surface2 },
   limitHintText: { color: C.textMuted, fontSize: 11 },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 24, gap: 12 },
-  thumbnailArea: {
-    width: "100%",
-    aspectRatio: 16 / 9,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: C.border,
-    borderStyle: "dashed",
-    backgroundColor: C.surface,
-    overflow: "hidden",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  thumbnailAreaFilled: { borderStyle: "solid", borderColor: "transparent" },
-  thumbnailImage: { width: "100%", height: "100%" },
-  thumbnailPlaceholder: { alignItems: "center", gap: 6 },
-  thumbnailPlaceholderTitle: { color: C.text, fontSize: 15, fontWeight: "600" },
-  thumbnailPlaceholderSub: { color: C.textMuted, fontSize: 12 },
-  thumbnailRemove: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  thumbnailBadge: {
-    position: "absolute",
-    bottom: 8,
-    left: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-  thumbnailBadgeText: { color: "#fff", fontSize: 11, fontWeight: "600" },
-  videoRow: { marginBottom: 4 },
-  videoAdded: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    padding: 12,
-    borderRadius: 6,
-    backgroundColor: "rgba(41,182,207,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(41,182,207,0.3)",
-  },
-  videoAddedText: { flex: 1, color: C.text, fontSize: 14, fontWeight: "600" },
-  videoRemove: { padding: 2 },
-  addVideoBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    padding: 12,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderStyle: "dashed",
-  },
-  addVideoBtnDisabled: { opacity: 0.4 },
-  addVideoText: { color: C.accent, fontSize: 14, fontWeight: "600" },
+  scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 24, gap: 16 },
   inputWrap: {
     minHeight: 120,
     backgroundColor: C.surface,
@@ -833,7 +792,75 @@ const styles = StyleSheet.create({
     padding: 0,
   },
   charCount: { color: C.textMuted, fontSize: 11, marginTop: 4, textAlign: "right" },
-  optionsSection: { marginTop: 20, gap: 10 },
+  sectionLabel: { color: C.textMuted, fontSize: 11, fontWeight: "700", textTransform: "uppercase", marginBottom: 8 },
+  coverRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  coverThumb: {
+    width: 56,
+    height: 56,
+    borderRadius: 6,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  coverThumbImg: { width: 56, height: 56 },
+  coverMeta: { flex: 1, gap: 2 },
+  coverLabel: { color: C.text, fontSize: 14, fontWeight: "600" },
+  coverSub: { color: C.textMuted, fontSize: 12 },
+  bodyImagesSection: {},
+  bodyImagesRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  bodyImgWrap: { position: "relative" },
+  bodyImg: { width: 72, height: 72, borderRadius: 4 },
+  bodyImgRemove: {
+    position: "absolute",
+    top: 3,
+    right: 3,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bodyImgAdd: {
+    width: 72,
+    height: 72,
+    borderRadius: 4,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bodyImagesEmpty: { color: C.textMuted, fontSize: 12 },
+  videoSection: {},
+  videoAdded: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 14,
+    borderRadius: 6,
+    backgroundColor: "rgba(41,182,207,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(41,182,207,0.3)",
+  },
+  videoAddedText: { flex: 1, color: C.text, fontSize: 14, fontWeight: "600" },
+  videoAddArea: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 24,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderStyle: "dashed",
+  },
+  videoAddAreaDisabled: { opacity: 0.4 },
+  videoAddLabel: { color: C.accent, fontSize: 15, fontWeight: "700" },
+  videoAddSub: { color: C.textMuted, fontSize: 11 },
+  optionsSection: { gap: 10 },
   optionsLabel: { color: C.textMuted, fontSize: 12, fontWeight: "600" },
   communityRow: { flexDirection: "row", gap: 8, marginBottom: 4 },
   communityChip: {
