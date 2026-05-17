@@ -292,16 +292,11 @@ export default function DailyUploadScreen() {
       input.onchange = (e: any) => {
         const file = e.target.files?.[0] as File | undefined;
         if (!file) return;
-        if (file.size > DAILY_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
-          reportUploadFailure({
-            title: t.errorTitle,
-            message: t.fileLimit,
-            stage: "pick_video_file_size",
-            flow: "daily",
-            mediaType: "video",
-            fileSizeBytes: file.size,
-          });
-          alertMessage(t.errorTitle, t.fileLimit);
+        // No raw size pre-check — VideoUploadPrepModal trims and compresses to fit R2 limit.
+        // Reject only absurdly large files that would crash the browser tab.
+        const BROWSER_SAFETY_BYTES = 4 * 1024 * 1024 * 1024; // 4 GB
+        if (file.size > BROWSER_SAFETY_BYTES) {
+          alertMessage(t.errorTitle, "File is too large to process in the browser (limit: 4 GB).");
           return;
         }
         setVideoPrepFile(file);
@@ -404,9 +399,6 @@ export default function DailyUploadScreen() {
       throw new Error("Failed to load file");
     }
     const blob = await res.blob();
-    if (blob.size > DAILY_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
-      throw new Error(`File must be under ${DAILY_POST_LIMITS.maxFileSizeMB}MB`);
-    }
     const contentType = res.headers.get("content-type") || (type === "image" ? "image/jpeg" : "video/mp4");
     const ext = type === "image" ? "jpg" : "mp4";
     console.log(`${UPLOAD_LOG} step:daily_submit_r2_upload_start`, { type });

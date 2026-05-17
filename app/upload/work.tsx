@@ -303,16 +303,10 @@ export default function WorkUploadScreen() {
       input.onchange = async (e: any) => {
         const file = e.target.files?.[0] as File | undefined;
         if (!file) return;
-        if (file.size > WORK_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
-          reportUploadFailure({
-            title: t.errorTitle,
-            message: t.fileLimit,
-            stage: "pick_video_file_size",
-            flow: "work",
-            mediaType: "video",
-            fileSizeBytes: file.size,
-          });
-          alertMessage(t.errorTitle, t.fileLimit);
+        // No raw size pre-check — VideoUploadPrepModal trims and compresses to fit R2 limit.
+        const BROWSER_SAFETY_BYTES = 4 * 1024 * 1024 * 1024; // 4 GB
+        if (file.size > BROWSER_SAFETY_BYTES) {
+          alertMessage(t.errorTitle, "File is too large to process in the browser (limit: 4 GB).");
           return;
         }
         setVideoPrepFile(file);
