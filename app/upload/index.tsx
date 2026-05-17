@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   ScrollView,
   Modal,
-  ActionSheetIOS,
   Alert,
 } from "react-native";
 import { scrollShowsVertical } from "@/lib/web-scroll-indicators";
@@ -161,7 +160,6 @@ export default function DailyUploadScreen() {
   const [selectedCommunityId, setSelectedCommunityId] = useState<number | null>(null);
   const [postTarget, setPostTarget] = useState<"my_page_only" | "community">("my_page_only");
   const [showPublishFromModal, setShowPublishFromModal] = useState(false);
-  const [addMenuVisible, setAddMenuVisible] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [agreeGuidelines, setAgreeGuidelines] = useState(false);
   const [agreeRights, setAgreeRights] = useState(false);
@@ -179,6 +177,8 @@ export default function DailyUploadScreen() {
   const activeCommunityId = selectedCommunityId ?? communities[0]?.id ?? null;
   const selectedCommunity = communities.find((c) => c.id === activeCommunityId);
 
+  const thumbnailItem = mediaItems.find((m) => m.type === "image") ?? null;
+  const videoItem = mediaItems.find((m) => m.type === "video") ?? null;
   const videoCount = mediaItems.filter((m) => m.type === "video").length;
   const canAddMore = mediaItems.length < DAILY_POST_LIMITS.maxMediaCount;
   const canAddVideo = videoCount < DAILY_POST_LIMITS.maxVideoCount;
@@ -218,7 +218,6 @@ export default function DailyUploadScreen() {
   }
 
   async function pickPhoto() {
-    setAddMenuVisible(false);
     if (!canAddMore) return;
     if (Platform.OS === "web") {
       const input = document.createElement("input");
@@ -283,7 +282,6 @@ export default function DailyUploadScreen() {
   }
 
   async function pickVideo() {
-    setAddMenuVisible(false);
     if (!canAddMore || !canAddVideo) return;
     if (Platform.OS === "web") {
       const input = document.createElement("input");
@@ -367,23 +365,6 @@ export default function DailyUploadScreen() {
       } finally {
         setUploading(false);
       }
-    }
-  }
-
-  function openAddMenu() {
-    if (Platform.OS === "ios") {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options: [t.cancel, t.addPhoto, t.addVideo],
-          cancelButtonIndex: 0,
-        },
-        (i) => {
-          if (i === 1) pickPhoto();
-          if (i === 2 && canAddVideo) pickVideo();
-        }
-      );
-    } else {
-      setAddMenuVisible(true);
     }
   }
 
@@ -561,26 +542,52 @@ export default function DailyUploadScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={scrollShowsVertical}
       >
-        {mediaItems.length > 0 && (
-          <View style={styles.previewRow}>
-            <HorizontalScroll contentContainerStyle={styles.previewScroll} showArrows={false}>
-              {mediaItems.map((item) => (
-                <View key={item.id} style={styles.previewItem}>
-                  {item.type === "image" ? (
-                    <Image source={{ uri: item.uri }} style={styles.previewThumb} contentFit="cover" />
-                  ) : (
-                    <View style={[styles.previewThumb, styles.previewVideo]}>
-                      <Ionicons name="videocam" size={28} color={C.textMuted} />
-                    </View>
-                  )}
-                  <Pressable style={styles.removeBtn} onPress={() => removeMedia(item.id)} hitSlop={8}>
-                    <Ionicons name="close" size={16} color="#fff" />
-                  </Pressable>
-                </View>
-              ))}
-            </HorizontalScroll>
-          </View>
-        )}
+        {/* Thumbnail photo — large tap area */}
+        <Pressable
+          style={[styles.thumbnailArea, thumbnailItem && styles.thumbnailAreaFilled]}
+          onPress={canAddMore ? pickPhoto : undefined}
+          disabled={uploading}
+        >
+          {thumbnailItem ? (
+            <>
+              <Image source={{ uri: thumbnailItem.uri }} style={styles.thumbnailImage} contentFit="cover" />
+              <Pressable style={styles.thumbnailRemove} onPress={() => removeMedia(thumbnailItem.id)} hitSlop={8}>
+                <Ionicons name="close" size={14} color="#fff" />
+              </Pressable>
+              <View style={styles.thumbnailBadge}>
+                <Ionicons name="image" size={12} color="#fff" />
+                <Text style={styles.thumbnailBadgeText}>Thumbnail</Text>
+              </View>
+            </>
+          ) : (
+            <View style={styles.thumbnailPlaceholder}>
+              <Ionicons name="image-outline" size={36} color={C.textMuted} />
+              <Text style={styles.thumbnailPlaceholderTitle}>Add Thumbnail Photo</Text>
+              <Text style={styles.thumbnailPlaceholderSub}>Optional — shown as post cover</Text>
+            </View>
+          )}
+        </Pressable>
+
+        {/* Video row */}
+        <View style={styles.videoRow}>
+          {videoItem ? (
+            <View style={styles.videoAdded}>
+              <Ionicons name="videocam" size={20} color={C.accent} />
+              <Text style={styles.videoAddedText} numberOfLines={1}>Video added</Text>
+              <Pressable onPress={() => removeMedia(videoItem.id)} hitSlop={8} style={styles.videoRemove}>
+                <Ionicons name="close-circle" size={20} color={C.textMuted} />
+              </Pressable>
+            </View>
+          ) : (
+            <Pressable
+              style={[styles.addVideoBtn, (!canAddMore || !canAddVideo || uploading) && styles.addVideoBtnDisabled]}
+              onPress={(!canAddMore || !canAddVideo || uploading) ? undefined : pickVideo}
+            >
+              <Ionicons name="add-circle-outline" size={20} color={C.accent} />
+              <Text style={styles.addVideoText}>Add Video (optional)</Text>
+            </Pressable>
+          )}
+        </View>
 
         <View style={styles.inputWrap}>
           <TextInput
@@ -667,9 +674,6 @@ export default function DailyUploadScreen() {
       </ScrollView>
 
       <View style={[styles.bottomBar, { paddingBottom: bottomInset + 12 }]}>
-        <Pressable style={styles.addBtn} onPress={openAddMenu} disabled={!canAddMore}>
-          <Ionicons name="add" size={26} color={C.accent} />
-        </Pressable>
         <Pressable
           style={[styles.submitBtn, !canSubmit && styles.submitBtnDisabled]}
           onPress={handleSubmit}
@@ -723,23 +727,6 @@ export default function DailyUploadScreen() {
         }}
       />
 
-      <Modal visible={addMenuVisible} transparent animationType="fade">
-        <Pressable style={styles.menuOverlay} onPress={() => setAddMenuVisible(false)}>
-          <View style={styles.menuCard}>
-            <Pressable style={styles.menuItem} onPress={pickPhoto} disabled={!canAddMore}>
-              <Ionicons name="image-outline" size={22} color={C.text} />
-              <Text style={styles.menuItemText}>{t.addPhoto}</Text>
-            </Pressable>
-            <Pressable style={styles.menuItem} onPress={pickVideo} disabled={!canAddMore || !canAddVideo}>
-              <Ionicons name="videocam-outline" size={22} color={C.text} />
-              <Text style={styles.menuItemText}>{t.addVideo}</Text>
-            </Pressable>
-            <Pressable style={[styles.menuItem, styles.menuItemCancel]} onPress={() => setAddMenuVisible(false)}>
-              <Text style={styles.menuItemCancelText}>{t.cancel}</Text>
-            </Pressable>
-          </View>
-        </Pressable>
-      </Modal>
     </View>
   );
 }
@@ -762,23 +749,73 @@ const styles = StyleSheet.create({
   limitHint: { paddingHorizontal: 16, paddingVertical: 8, backgroundColor: C.surface2 },
   limitHintText: { color: C.textMuted, fontSize: 11 },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 24 },
-  previewRow: { marginBottom: 12 },
-  previewScroll: { flexDirection: "row", gap: 10 },
-  previewItem: { position: "relative" },
-  previewThumb: { width: 80, aspectRatio: 16 / 9, borderRadius: 3, backgroundColor: C.surface },
-  previewVideo: { alignItems: "center", justifyContent: "center" },
-  removeBtn: {
+  scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 24, gap: 12 },
+  thumbnailArea: {
+    width: "100%",
+    aspectRatio: 16 / 9,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: C.border,
+    borderStyle: "dashed",
+    backgroundColor: C.surface,
+    overflow: "hidden",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  thumbnailAreaFilled: { borderStyle: "solid", borderColor: "transparent" },
+  thumbnailImage: { width: "100%", height: "100%" },
+  thumbnailPlaceholder: { alignItems: "center", gap: 6 },
+  thumbnailPlaceholderTitle: { color: C.text, fontSize: 15, fontWeight: "600" },
+  thumbnailPlaceholderSub: { color: C.textMuted, fontSize: 12 },
+  thumbnailRemove: {
     position: "absolute",
-    top: 4,
-    right: 4,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    top: 8,
+    right: 8,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: "rgba(0,0,0,0.6)",
     alignItems: "center",
     justifyContent: "center",
   },
+  thumbnailBadge: {
+    position: "absolute",
+    bottom: 8,
+    left: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  thumbnailBadgeText: { color: "#fff", fontSize: 11, fontWeight: "600" },
+  videoRow: { marginBottom: 4 },
+  videoAdded: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 12,
+    borderRadius: 6,
+    backgroundColor: "rgba(41,182,207,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(41,182,207,0.3)",
+  },
+  videoAddedText: { flex: 1, color: C.text, fontSize: 14, fontWeight: "600" },
+  videoRemove: { padding: 2 },
+  addVideoBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 12,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderStyle: "dashed",
+  },
+  addVideoBtnDisabled: { opacity: 0.4 },
+  addVideoText: { color: C.accent, fontSize: 14, fontWeight: "600" },
   inputWrap: {
     minHeight: 120,
     backgroundColor: C.surface,
@@ -871,28 +908,17 @@ const styles = StyleSheet.create({
   publishFromCancel: { marginTop: 16, paddingVertical: 12, alignItems: "center" },
   publishFromCancelText: { color: C.textMuted, fontSize: 14 },
   bottomBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: C.border,
     backgroundColor: C.bg,
   },
-  addBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 3,
-    backgroundColor: "rgba(41,182,207,0.15)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
   submitBtn: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 3,
+    paddingVertical: 14,
+    borderRadius: 6,
     backgroundColor: C.accent,
+    alignItems: "center",
   },
   submitBtnDisabled: { backgroundColor: C.surface3, opacity: 0.8 },
   submitBtnText: { color: "#fff", fontSize: 15, fontWeight: "800" },
