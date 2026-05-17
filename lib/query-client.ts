@@ -258,6 +258,10 @@ function isBenignApiError(status: number, message: string, route?: string | null
   if (status === 403 && m.includes("track has not finished")) return true;
   if (status === 404 && m.includes("creator profile not found")) return true;
   if (status === 404 && route?.includes("/api/livers/me")) return true;
+  // YouTube playlist proxy occasionally returns 502; not actionable
+  if (status === 502 && m.includes("playlist")) return true;
+  // Unauthenticated API calls from the home page before auth resolves
+  if (status === 403 && route?.startsWith("/api/jukebox")) return true;
   return false;
 }
 

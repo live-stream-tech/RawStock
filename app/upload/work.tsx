@@ -37,7 +37,7 @@ type FeeType = "free" | "paid";
 type PriceOption = 300 | 500 | 1000 | 2000 | 3000 | 5000;
 const PRICE_OPTIONS: PriceOption[] = [300, 500, 1000, 2000, 3000, 5000];
 
-type MediaItem = { id: string; uri: string; type: "image" | "video" };
+type MediaItem = { id: string; uri: string; type: "image" | "video"; size?: number; durationSec?: number };
 type Community = { id: number; name: string; thumbnail: string };
 
 const UPLOAD_LOG = "[upload]";
@@ -204,8 +204,8 @@ export default function WorkUploadScreen() {
   const hasPhoto = mediaItems.some((m) => m.type === "image");
   const hasVideo = mediaItems.some((m) => m.type === "video");
 
-  function addMedia(id: string, uri: string, type: "image" | "video") {
-    setMediaItems((prev) => [...prev, { id, uri, type }]);
+  function addMedia(id: string, uri: string, type: "image" | "video", size?: number, durationSec?: number) {
+    setMediaItems((prev) => [...prev, { id, uri, type, size, durationSec }]);
   }
 
   function removeMedia(id: string) {
