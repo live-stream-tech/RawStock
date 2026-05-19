@@ -183,7 +183,6 @@ export default function WorkUploadScreen() {
   const [showPublishFromModal, setShowPublishFromModal] = useState(false);
   const [fee, setFee] = useState<FeeType>("free");
   const [price, setPrice] = useState<PriceOption>(500);
-  const [addMenuVisible, setAddMenuVisible] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [agreeGuidelines, setAgreeGuidelines] = useState(false);
   const [agreeRights, setAgreeRights] = useState(false);
@@ -201,6 +200,9 @@ export default function WorkUploadScreen() {
   const activeCommunityId = selectedCommunityId ?? communities[0]?.id ?? null;
   const selectedCommunity = communities.find((c) => c.id === activeCommunityId);
 
+  const imageItems = mediaItems.filter((m) => m.type === "image");
+  const thumbnailItem = imageItems[0] ?? null;
+  const bodyImages = imageItems.slice(1);
   const hasPhoto = mediaItems.some((m) => m.type === "image");
   const hasVideo = mediaItems.some((m) => m.type === "video");
 
@@ -367,22 +369,6 @@ export default function WorkUploadScreen() {
     }
   }
 
-  function openAddMenu() {
-    if (Platform.OS === "ios") {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options: [t.cancel, t.addPhoto, t.addVideo],
-          cancelButtonIndex: 0,
-        },
-        (i) => {
-          if (i === 1) pickPhoto();
-          if (i === 2) pickVideo();
-        }
-      );
-    } else {
-      setAddMenuVisible(true);
-    }
-  }
 
   async function ensureHttpsUrl(uri: string, type: "image" | "video"): Promise<string> {
     if (!uri.startsWith("blob:")) {
@@ -436,10 +422,6 @@ export default function WorkUploadScreen() {
     const title = text.trim();
     if (!title.length) {
       alertMessage(t.missingTextTitle, t.missingTextBody);
-      return;
-    }
-    if (!hasPhoto) {
-      alertMessage(t.missingPhotoTitle, t.missingPhotoBody);
       return;
     }
     if (postTarget === "community" && !selectedCommunity) {
@@ -547,7 +529,7 @@ export default function WorkUploadScreen() {
     }
   }
 
-  const canSubmit = hasPhoto && text.trim().length > 0 && !uploading && agreeGuidelines && agreeRights;
+  const canSubmit = text.trim().length > 0 && !uploading && agreeGuidelines && agreeRights;
 
   return (
     <View style={[styles.container, { paddingTop: topInset }]}>
@@ -574,27 +556,7 @@ export default function WorkUploadScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={scrollShowsVertical}
       >
-        {mediaItems.length > 0 && (
-          <View style={styles.previewRow}>
-            <HorizontalScroll contentContainerStyle={styles.previewScroll} showArrows={false}>
-              {mediaItems.map((item) => (
-                <View key={item.id} style={styles.previewItem}>
-                  {item.type === "image" ? (
-                    <Image source={{ uri: item.uri }} style={styles.previewThumb} contentFit="cover" />
-                  ) : (
-                    <View style={[styles.previewThumb, styles.previewVideo]}>
-                      <Ionicons name="videocam" size={28} color={C.textMuted} />
-                    </View>
-                  )}
-                  <Pressable style={styles.removeBtn} onPress={() => removeMedia(item.id)} hitSlop={8}>
-                    <Ionicons name="close" size={16} color="#fff" />
-                  </Pressable>
-                </View>
-              ))}
-            </HorizontalScroll>
-          </View>
-        )}
-
+        {/* Text input */}
         <View style={styles.inputWrap}>
           <TextInput
             style={styles.mainInput}
@@ -607,12 +569,71 @@ export default function WorkUploadScreen() {
           />
         </View>
 
-        {!hasPhoto && (
-          <Pressable style={styles.addPhotoPrompt} onPress={pickPhoto}>
-            <Ionicons name="image-outline" size={32} color={C.accent} />
-            <Text style={styles.addPhotoPromptText}>{t.addPhotoRequired}</Text>
+        {/* Cover photo — compact row */}
+        <View style={styles.coverRow}>
+          <Pressable
+            style={styles.coverThumb}
+            onPress={!uploading ? pickPhoto : undefined}
+          >
+            {thumbnailItem ? (
+              <Image source={{ uri: thumbnailItem.uri }} style={styles.coverThumbImg} contentFit="cover" />
+            ) : (
+              <Ionicons name="image-outline" size={22} color={C.textMuted} />
+            )}
           </Pressable>
-        )}
+          <View style={styles.coverMeta}>
+            <Text style={styles.coverLabel}>Cover photo</Text>
+            <Text style={styles.coverSub}>{thumbnailItem ? "Tap to change" : "Optional"}</Text>
+          </View>
+          {thumbnailItem && (
+            <Pressable onPress={() => removeMedia(thumbnailItem.id)} hitSlop={10}>
+              <Ionicons name="close-circle" size={20} color={C.textMuted} />
+            </Pressable>
+          )}
+        </View>
+
+        {/* Body images */}
+        <View style={styles.bodyImagesSection}>
+          <Text style={styles.sectionLabel}>Images</Text>
+          <View style={styles.bodyImagesRow}>
+            {bodyImages.map((img) => (
+              <View key={img.id} style={styles.bodyImgWrap}>
+                <Image source={{ uri: img.uri }} style={styles.bodyImg} contentFit="cover" />
+                <Pressable style={styles.bodyImgRemove} onPress={() => removeMedia(img.id)} hitSlop={6}>
+                  <Ionicons name="close" size={12} color="#fff" />
+                </Pressable>
+              </View>
+            ))}
+            {!uploading && (
+              <Pressable style={styles.bodyImgAdd} onPress={pickPhoto}>
+                <Ionicons name="add" size={22} color={C.textMuted} />
+              </Pressable>
+            )}
+          </View>
+        </View>
+
+        {/* Video section */}
+        <View style={styles.videoSection}>
+          <Text style={styles.sectionLabel}>Video</Text>
+          {videoItem ? (
+            <View style={styles.videoAdded}>
+              <Ionicons name="videocam" size={22} color={C.accent} />
+              <Text style={styles.videoAddedText}>Video ready</Text>
+              <Pressable onPress={() => removeMedia(videoItem.id)} hitSlop={8}>
+                <Ionicons name="close-circle" size={22} color={C.textMuted} />
+              </Pressable>
+            </View>
+          ) : (
+            <Pressable
+              style={[styles.videoAddArea, uploading && styles.videoAddAreaDisabled]}
+              onPress={!uploading ? pickVideo : undefined}
+            >
+              <Ionicons name="videocam-outline" size={28} color={C.accent} />
+              <Text style={styles.videoAddLabel}>Add Video</Text>
+              <Text style={styles.videoAddSub}>Optional · trim & compress in browser</Text>
+            </Pressable>
+          )}
+        </View>
 
         <View style={styles.optionsSection}>
           <Text style={styles.optionsLabel}>{t.postTo}</Text>
@@ -713,9 +734,6 @@ export default function WorkUploadScreen() {
       </ScrollView>
 
       <View style={[styles.bottomBar, { paddingBottom: bottomInset + 12 }]}>
-        <Pressable style={styles.addBtn} onPress={openAddMenu}>
-          <Ionicons name="add" size={26} color={C.accent} />
-        </Pressable>
         <Pressable
           style={[styles.submitBtn, !canSubmit && styles.submitBtnDisabled]}
           onPress={handleSubmit}
@@ -788,23 +806,6 @@ export default function WorkUploadScreen() {
         }}
       />
 
-      <Modal visible={addMenuVisible} transparent animationType="fade">
-        <Pressable style={styles.menuOverlay} onPress={() => setAddMenuVisible(false)}>
-          <View style={styles.menuCard}>
-            <Pressable style={styles.menuItem} onPress={pickPhoto}>
-              <Ionicons name="image-outline" size={22} color={C.text} />
-              <Text style={styles.menuItemText}>{t.addPhoto}</Text>
-            </Pressable>
-            <Pressable style={styles.menuItem} onPress={pickVideo}>
-              <Ionicons name="videocam-outline" size={22} color={C.text} />
-              <Text style={styles.menuItemText}>{t.addVideo}</Text>
-            </Pressable>
-            <Pressable style={[styles.menuItem, styles.menuItemCancel]} onPress={() => setAddMenuVisible(false)}>
-              <Text style={styles.menuItemCancelText}>{t.cancel}</Text>
-            </Pressable>
-          </View>
-        </Pressable>
-      </Modal>
     </View>
   );
 }
@@ -830,22 +831,85 @@ const styles = StyleSheet.create({
   limitHintText: { color: C.textMuted, fontSize: 11 },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 24 },
-  previewRow: { marginBottom: 12 },
-  previewScroll: { flexDirection: "row", gap: 10 },
-  previewItem: { position: "relative" },
-  previewThumb: { width: 80, aspectRatio: 16 / 9, borderRadius: 3, backgroundColor: C.surface },
-  previewVideo: { alignItems: "center", justifyContent: "center" },
-  removeBtn: {
+  /* cover row */
+  coverRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 16,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+  },
+  coverThumb: {
+    width: 56,
+    height: 56,
+    borderRadius: 4,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  coverThumbImg: { width: 56, height: 56 },
+  coverMeta: { flex: 1 },
+  coverLabel: { color: C.text, fontSize: 13, fontWeight: "600" },
+  coverSub: { color: C.textMuted, fontSize: 11, marginTop: 2 },
+  /* body images */
+  bodyImagesSection: { marginBottom: 16 },
+  sectionLabel: { color: C.textMuted, fontSize: 11, fontWeight: "600", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 },
+  bodyImagesRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  bodyImgWrap: { position: "relative", width: 72, height: 72, borderRadius: 4, overflow: "hidden", backgroundColor: C.surface },
+  bodyImg: { width: 72, height: 72 },
+  bodyImgRemove: {
     position: "absolute",
-    top: 4,
-    right: 4,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    top: 3,
+    right: 3,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: "rgba(0,0,0,0.6)",
     alignItems: "center",
     justifyContent: "center",
   },
+  bodyImgAdd: {
+    width: 72,
+    height: 72,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderStyle: "dashed",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: C.surface,
+  },
+  /* video section */
+  videoSection: { marginBottom: 16 },
+  videoAddArea: {
+    padding: 20,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: C.accent,
+    borderStyle: "dashed",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: C.surface,
+  },
+  videoAddAreaDisabled: { opacity: 0.5 },
+  videoAddLabel: { color: C.accent, fontSize: 15, fontWeight: "700" },
+  videoAddSub: { color: C.textMuted, fontSize: 11 },
+  videoAdded: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 14,
+    borderRadius: 6,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  videoAddedText: { flex: 1, color: C.text, fontSize: 14, fontWeight: "600" },
   inputWrap: {
     minHeight: 120,
     backgroundColor: C.surface,
@@ -862,19 +926,6 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
     padding: 0,
   },
-  addPhotoPrompt: {
-    marginTop: 12,
-    padding: 24,
-    backgroundColor: C.surface2,
-    borderRadius: 3,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderStyle: "dashed",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  addPhotoPromptText: { color: C.accent, fontSize: 14, fontWeight: "700" },
   optionsSection: { marginTop: 20, gap: 10 },
   optionsLabel: { color: C.textMuted, fontSize: 12, fontWeight: "600" },
   communityRow: { flexDirection: "row", gap: 8, marginBottom: 4 },
@@ -976,20 +1027,12 @@ const styles = StyleSheet.create({
   bottomBar: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "flex-end",
     paddingHorizontal: 16,
     paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: C.border,
     backgroundColor: C.bg,
-  },
-  addBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 3,
-    backgroundColor: "rgba(41,182,207,0.15)",
-    alignItems: "center",
-    justifyContent: "center",
   },
   submitBtn: {
     paddingHorizontal: 24,
@@ -1006,6 +1049,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 6,
     padding: 16,
     paddingBottom: 32,
+
   },
   menuItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14, paddingHorizontal: 8 },
   menuItemText: { color: C.text, fontSize: 16, fontWeight: "600" },
