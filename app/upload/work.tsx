@@ -582,7 +582,7 @@ export default function WorkUploadScreen() {
             )}
           </Pressable>
           <View style={styles.coverMeta}>
-            <Text style={styles.coverLabel}>Cover photo</Text>
+            <Text style={styles.coverLabel}>Thumbnail</Text>
             <Text style={styles.coverSub}>{thumbnailItem ? "Tap to change" : "Optional"}</Text>
           </View>
           {thumbnailItem && (
@@ -842,8 +842,8 @@ const styles = StyleSheet.create({
     borderBottomColor: C.border,
   },
   coverThumb: {
-    width: 56,
-    height: 56,
+    width: 96,
+    height: 54,
     borderRadius: 4,
     backgroundColor: C.surface,
     borderWidth: 1,
@@ -852,7 +852,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     overflow: "hidden",
   },
-  coverThumbImg: { width: 56, height: 56 },
+  coverThumbImg: { width: 96, height: 54 },
   coverMeta: { flex: 1 },
   coverLabel: { color: C.text, fontSize: 13, fontWeight: "600" },
   coverSub: { color: C.textMuted, fontSize: 11, marginTop: 2 },
