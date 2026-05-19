@@ -7,21 +7,16 @@ import { WEB_TAB_BAR_CONTENT_HEIGHT, getWebTabBarBottomPad } from "@/constants/l
 import { C } from "@/constants/colors";
 import { MetallicLine } from "@/components/MetallicLine";
 import { useAuth } from "@/lib/auth";
-import { useRequireAuth } from "@/lib/useRequireAuth";
 
 type TabBarIconProps = { color: string; size: number; focused: boolean };
 
 export default function TabLayout() {
   const isWeb = Platform.OS === "web";
   const insets = useSafeAreaInsets();
-  const { user, loading: authLoading, isLoggedIn } = useRequireAuth();
+  const { user } = useAuth();
   const isJaUi = (user?.preferredLanguage ?? "").toLowerCase().startsWith("ja");
   /** Web: match getWebTabBarBottomPad so the bar fills the home-indicator band on iOS Safari. */
   const bottomPad = isWeb ? getWebTabBarBottomPad(insets.bottom) : Math.max(insets.bottom, 0);
-
-  if (!authLoading && !isLoggedIn) {
-    return null;
-  }
 
   return (
     <Tabs
