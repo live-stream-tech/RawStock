@@ -14,6 +14,7 @@ import { formatVideoTime } from "@/lib/formatVideoTime";
 import { prepareVideoBlobForWebUpload } from "@/lib/compressVideoBlobWeb";
 import { R2_SAME_ORIGIN_UPLOAD_MAX_BYTES } from "@/lib/query-client";
 import { VIDEO_PREP_QUALITIES, type VideoPrepQualityId } from "@/lib/videoPrepTypes";
+import { reportUploadFailure } from "@/lib/reportUploadFailure";
 
 export type VideoUploadPrepModalProps = {
   visible: boolean;
@@ -95,7 +96,16 @@ export function VideoUploadPrepModal({
       });
 
       if (!prepared) {
-        setError("Could not prepare this video in the browser. Try a shorter clip or lower quality.");
+        const errMsg = "Could not prepare this video in the browser. Try a shorter clip or lower quality.";
+        reportUploadFailure({
+          title: "Video prepare failed",
+          message: errMsg,
+          stage: "web_transcode_null",
+          flow: "daily",
+          mediaType: "video",
+          fileSizeBytes: file?.size,
+        });
+        setError(errMsg);
         return;
       }
 
@@ -110,7 +120,16 @@ export function VideoUploadPrepModal({
         fileName,
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Prepare failed");
+      const errMsg = e instanceof Error ? e.message : "Prepare failed";
+      reportUploadFailure({
+        title: "Video prepare error",
+        message: errMsg,
+        stage: "web_transcode_exception",
+        flow: "daily",
+        mediaType: "video",
+        fileSizeBytes: file?.size,
+      });
+      setError(errMsg);
     } finally {
       setPreparing(false);
     }

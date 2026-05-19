@@ -86,8 +86,8 @@ async function transcodeClip(
   const video = document.createElement("video");
   video.playsInline = true;
   video.setAttribute("playsinline", "true");
-  video.muted = false;
-  video.volume = 0.001;
+  video.muted = true;  // required for autoplay after async ops (Safari policy)
+  video.volume = 0;
   video.preload = "auto";
   video.src = url;
 
