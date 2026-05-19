@@ -204,7 +204,8 @@ export default function WorkUploadScreen() {
   const thumbnailItem = imageItems[0] ?? null;
   const bodyImages = imageItems.slice(1);
   const hasPhoto = mediaItems.some((m) => m.type === "image");
-  const hasVideo = mediaItems.some((m) => m.type === "video");
+  const videoItem = mediaItems.find((m) => m.type === "video") ?? null;
+  const hasVideo = videoItem !== null;
 
   function addMedia(id: string, uri: string, type: "image" | "video", size?: number, durationSec?: number) {
     setMediaItems((prev) => [...prev, { id, uri, type, size, durationSec }]);
