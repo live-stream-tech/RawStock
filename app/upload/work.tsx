@@ -102,9 +102,21 @@ export default function WorkUploadScreen() {
         fileLimit: `ファイルは${WORK_POST_LIMITS.maxFileSizeMB}MB未満にしてください。`,
         headerTitle: "作品投稿",
         switchToDaily: "日常投稿",
-        workHint: "テキストと写真は無料で投稿できます。写真は最低1枚必要です。動画を追加した場合は価格を設定できます。ランキング対象にもなります。",
+        workHint: "ライブの感想を文章と写真で投稿。続きは動画で見せることもできます（無料・有料）。",
         limitHint: `画像・動画は1ファイルあたり最大${WORK_POST_LIMITS.maxFileSizeMB}MBです。`,
-        placeholder: "投稿文を入力してください（必須）",
+        reviewSectionTitle: "ライブレビュー",
+        reviewSectionSub: "文章と写真（無料）",
+        reviewPlaceholder: "ライブの感想を書いてください（必須）",
+        reviewPhotosLabel: "レビュー写真",
+        thumbnailLabel: "サムネイル",
+        thumbnailChange: "タップして変更",
+        thumbnailOptional: "任意 · 一覧用",
+        videoSectionTitle: "続きを動画で",
+        videoSectionSub: "任意 · 無料または有料で公開",
+        videoReady: "動画を追加済み",
+        videoAddLabel: "続きの動画を追加",
+        videoAddSub: "ブラウザでトリミング・圧縮できます",
+        videoPricingHint: "視聴料金",
         addPhotoRequired: "写真を追加（必須）",
         postTo: "投稿先",
         myPageOnly: "マイページのみ",
@@ -150,9 +162,21 @@ export default function WorkUploadScreen() {
         fileLimit: `File must be under ${WORK_POST_LIMITS.maxFileSizeMB}MB`,
         headerTitle: "Post Work",
         switchToDaily: "Daily Post",
-        workHint: "Text and photos can be posted for free. At least one photo is required. If you add a video, you can set pricing. Posts are eligible for ranking.",
+        workHint: "Share a live review with text and photos. Optionally add a video for the rest — free or paid.",
         limitHint: `File size limit: ${WORK_POST_LIMITS.maxFileSizeMB}MB per image/video.`,
-        placeholder: "Write your post (required)",
+        reviewSectionTitle: "Live review",
+        reviewSectionSub: "Text and photos — free",
+        reviewPlaceholder: "Write your live review (required)",
+        reviewPhotosLabel: "Review photos",
+        thumbnailLabel: "Thumbnail",
+        thumbnailChange: "Tap to change",
+        thumbnailOptional: "Optional · for listings",
+        videoSectionTitle: "Continue on video",
+        videoSectionSub: "Optional · free or paid",
+        videoReady: "Video added",
+        videoAddLabel: "Add continuation video",
+        videoAddSub: "Trim and compress in your browser",
+        videoPricingHint: "Viewing price",
         addPhotoRequired: "Add photo (required)",
         postTo: "Post To",
         myPageOnly: "My Page Only",
@@ -557,45 +581,52 @@ export default function WorkUploadScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={scrollShowsVertical}
       >
-        {/* Text input */}
-        <View style={styles.inputWrap}>
-          <TextInput
-            style={styles.mainInput}
-            placeholder={t.placeholder}
-            placeholderTextColor={C.textMuted}
-            value={text}
-            onChangeText={setText}
-            multiline
-            maxLength={2000}
-          />
-        </View>
-
-        {/* Cover photo — compact row */}
-        <View style={styles.coverRow}>
-          <Pressable
-            style={styles.coverThumb}
-            onPress={!uploading ? pickPhoto : undefined}
-          >
-            {thumbnailItem ? (
-              <Image source={{ uri: thumbnailItem.uri }} style={styles.coverThumbImg} contentFit="cover" />
-            ) : (
-              <Ionicons name="image-outline" size={22} color={C.textMuted} />
-            )}
-          </Pressable>
-          <View style={styles.coverMeta}>
-            <Text style={styles.coverLabel}>Thumbnail</Text>
-            <Text style={styles.coverSub}>{thumbnailItem ? "Tap to change" : "Optional"}</Text>
+        {/* ── Live review (text + photos) ── */}
+        <View style={styles.flowSection}>
+          <View style={styles.flowSectionHeader}>
+            <View style={styles.flowSectionBadge}>
+              <Ionicons name="document-text-outline" size={16} color={C.accent} />
+            </View>
+            <View style={styles.flowSectionTitles}>
+              <Text style={styles.flowSectionTitle}>{t.reviewSectionTitle}</Text>
+              <Text style={styles.flowSectionSub}>{t.reviewSectionSub}</Text>
+            </View>
           </View>
-          {thumbnailItem && (
-            <Pressable onPress={() => removeMedia(thumbnailItem.id)} hitSlop={10}>
-              <Ionicons name="close-circle" size={20} color={C.textMuted} />
-            </Pressable>
-          )}
-        </View>
 
-        {/* Body images */}
-        <View style={styles.bodyImagesSection}>
-          <Text style={styles.sectionLabel}>Images</Text>
+          <View style={styles.inputWrap}>
+            <TextInput
+              style={styles.mainInput}
+              placeholder={t.reviewPlaceholder}
+              placeholderTextColor={C.textMuted}
+              value={text}
+              onChangeText={setText}
+              multiline
+              maxLength={2000}
+            />
+          </View>
+
+          <View style={styles.coverRow}>
+            <Pressable style={styles.coverThumb} onPress={!uploading ? pickPhoto : undefined}>
+              {thumbnailItem ? (
+                <Image source={{ uri: thumbnailItem.uri }} style={styles.coverThumbImg} contentFit="cover" />
+              ) : (
+                <Ionicons name="image-outline" size={22} color={C.textMuted} />
+              )}
+            </Pressable>
+            <View style={styles.coverMeta}>
+              <Text style={styles.coverLabel}>{t.thumbnailLabel}</Text>
+              <Text style={styles.coverSub}>
+                {thumbnailItem ? t.thumbnailChange : t.thumbnailOptional}
+              </Text>
+            </View>
+            {thumbnailItem && (
+              <Pressable onPress={() => removeMedia(thumbnailItem.id)} hitSlop={10}>
+                <Ionicons name="close-circle" size={20} color={C.textMuted} />
+              </Pressable>
+            )}
+          </View>
+
+          <Text style={styles.inlineLabel}>{t.reviewPhotosLabel}</Text>
           <View style={styles.bodyImagesRow}>
             {bodyImages.map((img) => (
               <View key={img.id} style={styles.bodyImgWrap}>
@@ -613,13 +644,22 @@ export default function WorkUploadScreen() {
           </View>
         </View>
 
-        {/* Video section */}
-        <View style={styles.videoSection}>
-          <Text style={styles.sectionLabel}>Video</Text>
+        {/* ── Continue on video (optional, free/paid) ── */}
+        <View style={[styles.flowSection, styles.flowSectionVideo]}>
+          <View style={styles.flowSectionHeader}>
+            <View style={[styles.flowSectionBadge, styles.flowSectionBadgeVideo]}>
+              <Ionicons name="play-circle-outline" size={18} color={C.accent} />
+            </View>
+            <View style={styles.flowSectionTitles}>
+              <Text style={styles.flowSectionTitle}>{t.videoSectionTitle}</Text>
+              <Text style={styles.flowSectionSub}>{t.videoSectionSub}</Text>
+            </View>
+          </View>
+
           {videoItem ? (
             <View style={styles.videoAdded}>
               <Ionicons name="videocam" size={22} color={C.accent} />
-              <Text style={styles.videoAddedText}>Video ready</Text>
+              <Text style={styles.videoAddedText}>{t.videoReady}</Text>
               <Pressable onPress={() => removeMedia(videoItem.id)} hitSlop={8}>
                 <Ionicons name="close-circle" size={22} color={C.textMuted} />
               </Pressable>
@@ -630,9 +670,36 @@ export default function WorkUploadScreen() {
               onPress={!uploading ? pickVideo : undefined}
             >
               <Ionicons name="videocam-outline" size={28} color={C.accent} />
-              <Text style={styles.videoAddLabel}>Add Video</Text>
-              <Text style={styles.videoAddSub}>Optional · trim & compress in browser</Text>
+              <Text style={styles.videoAddLabel}>{t.videoAddLabel}</Text>
+              <Text style={styles.videoAddSub}>{t.videoAddSub}</Text>
             </Pressable>
+          )}
+
+          {hasVideo && (
+            <View style={styles.videoPricingBlock}>
+              <Text style={styles.inlineLabel}>{t.videoPricingHint}</Text>
+              <View style={styles.feeRow}>
+                <Pressable style={[styles.feeBtn, fee === "free" && styles.feeBtnActive]} onPress={() => setFee("free")}>
+                  <Text style={[styles.feeBtnText, fee === "free" && styles.feeBtnTextActive]}>{t.free}</Text>
+                </Pressable>
+                <Pressable style={[styles.feeBtn, fee === "paid" && styles.feeBtnActive]} onPress={() => setFee("paid")}>
+                  <Text style={[styles.feeBtnText, fee === "paid" && styles.feeBtnTextActive]}>{t.paid}</Text>
+                </Pressable>
+              </View>
+              {fee === "paid" && (
+                <View style={styles.priceRow}>
+                  {PRICE_OPTIONS.map((p) => (
+                    <Pressable
+                      key={p}
+                      style={[styles.priceBtn, price === p && styles.priceBtnActive]}
+                      onPress={() => setPrice(p)}
+                    >
+                      <Text style={[styles.priceBtnText, price === p && styles.priceBtnTextActive]}>🎟{p}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </View>
           )}
         </View>
 
@@ -674,33 +741,6 @@ export default function WorkUploadScreen() {
                   <Ionicons name="document-outline" size={16} color={C.accent} />
                   <Text style={styles.publishFromText}>{t.publishFromMyPosts}</Text>
                 </Pressable>
-              )}
-            </>
-          )}
-
-          {hasVideo && (
-            <>
-              <Text style={styles.optionsLabel}>{t.videoPricing}</Text>
-              <View style={styles.feeRow}>
-                <Pressable style={[styles.feeBtn, fee === "free" && styles.feeBtnActive]} onPress={() => setFee("free")}>
-                  <Text style={[styles.feeBtnText, fee === "free" && styles.feeBtnTextActive]}>{t.free}</Text>
-                </Pressable>
-                <Pressable style={[styles.feeBtn, fee === "paid" && styles.feeBtnActive]} onPress={() => setFee("paid")}>
-                  <Text style={[styles.feeBtnText, fee === "paid" && styles.feeBtnTextActive]}>{t.paid}</Text>
-                </Pressable>
-              </View>
-              {fee === "paid" && (
-                <View style={styles.priceRow}>
-                  {PRICE_OPTIONS.map((p) => (
-                    <Pressable
-                      key={p}
-                      style={[styles.priceBtn, price === p && styles.priceBtnActive]}
-                      onPress={() => setPrice(p)}
-                    >
-                      <Text style={[styles.priceBtnText, price === p && styles.priceBtnTextActive]}>🎟{p}</Text>
-                    </Pressable>
-                  ))}
-                </View>
               )}
             </>
           )}
@@ -831,16 +871,40 @@ const styles = StyleSheet.create({
   limitHint: { paddingHorizontal: 16, paddingVertical: 8, backgroundColor: C.surface2, borderTopWidth: 1, borderTopColor: C.border },
   limitHintText: { color: C.textMuted, fontSize: 11 },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 24 },
+  scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 24, gap: 16 },
+  flowSection: {
+    padding: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface,
+    gap: 12,
+  },
+  flowSectionVideo: {
+    borderColor: "rgba(41,182,207,0.35)",
+    backgroundColor: "rgba(41,182,207,0.06)",
+  },
+  flowSectionHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+  flowSectionBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(41,182,207,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  flowSectionBadgeVideo: { backgroundColor: "rgba(41,182,207,0.22)" },
+  flowSectionTitles: { flex: 1 },
+  flowSectionTitle: { color: C.text, fontSize: 15, fontWeight: "800" },
+  flowSectionSub: { color: C.textMuted, fontSize: 11, marginTop: 2 },
+  inlineLabel: { color: C.textMuted, fontSize: 11, fontWeight: "600", marginBottom: 4 },
+  videoPricingBlock: { marginTop: 4, gap: 8 },
   /* cover row */
   coverRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    marginBottom: 16,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: C.border,
+    paddingVertical: 4,
   },
   coverThumb: {
     width: 96,
@@ -857,9 +921,6 @@ const styles = StyleSheet.create({
   coverMeta: { flex: 1 },
   coverLabel: { color: C.text, fontSize: 13, fontWeight: "600" },
   coverSub: { color: C.textMuted, fontSize: 11, marginTop: 2 },
-  /* body images */
-  bodyImagesSection: { marginBottom: 16 },
-  sectionLabel: { color: C.textMuted, fontSize: 11, fontWeight: "600", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 },
   bodyImagesRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   bodyImgWrap: { position: "relative", width: 72, height: 72, borderRadius: 4, overflow: "hidden", backgroundColor: C.surface },
   bodyImg: { width: 72, height: 72 },
@@ -885,8 +946,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: C.surface,
   },
-  /* video section */
-  videoSection: { marginBottom: 16 },
   videoAddArea: {
     padding: 20,
     borderRadius: 6,
@@ -913,7 +972,7 @@ const styles = StyleSheet.create({
   videoAddedText: { flex: 1, color: C.text, fontSize: 14, fontWeight: "600" },
   inputWrap: {
     minHeight: 120,
-    backgroundColor: C.surface,
+    backgroundColor: C.bg,
     borderRadius: 3,
     borderWidth: 1,
     borderColor: C.border,
@@ -927,7 +986,7 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
     padding: 0,
   },
-  optionsSection: { marginTop: 20, gap: 10 },
+  optionsSection: { gap: 10 },
   optionsLabel: { color: C.textMuted, fontSize: 12, fontWeight: "600" },
   communityRow: { flexDirection: "row", gap: 8, marginBottom: 4 },
   communityChip: {
