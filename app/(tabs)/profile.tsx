@@ -722,8 +722,36 @@ export default function ProfileScreen() {
     </>
   );
 
-  if (!authLoading && !user) {
-    return null;
+  if (!authLoading && !user && !token) {
+    const guestJa =
+      Platform.OS === "web" && typeof navigator !== "undefined"
+        ? navigator.language.toLowerCase().startsWith("ja")
+        : false;
+    return (
+      <View style={[styles.container, { paddingBottom: bottomInset }]}>
+        <View style={[styles.header, { paddingTop: topInset + 12 }]}>
+          <AppLogo height={36} />
+        </View>
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 32, gap: 16 }}>
+          <Text style={{ color: C.textMuted, fontSize: 15, textAlign: "center" }}>
+            {guestJa ? "サインインしてマイページを表示" : "Sign in to view your profile"}
+          </Text>
+          <Pressable
+            style={{ backgroundColor: C.accent, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 4 }}
+            onPress={() => {
+              if (Platform.OS === "web" && typeof window !== "undefined") {
+                saveLoginReturn(window.location.pathname + window.location.search);
+              }
+              router.push("/auth/login" as any);
+            }}
+          >
+            <Text style={{ color: "#050505", fontWeight: "700", fontSize: 15 }}>
+              {guestJa ? "サインイン" : "Sign in"}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    );
   }
 
   const tipProgressRatio = levelProgress

@@ -3,6 +3,7 @@ import { router } from "expo-router";
 import { Platform } from "react-native";
 import { useAuth } from "./auth";
 import { saveLoginReturn } from "./login-return";
+import { requestLoginRedirect } from "./session-redirect";
 
 /** Redirects to `/auth/login` when there is no session. Returns null UI while redirecting. */
 export function useRequireAuth(): {
@@ -18,7 +19,7 @@ export function useRequireAuth(): {
     if (Platform.OS === "web" && typeof window !== "undefined") {
       saveLoginReturn(window.location.pathname + window.location.search);
     }
-    router.replace("/auth/login");
+    requestLoginRedirect();
   }, [loading, isLoggedIn]);
 
   return { user, loading, isLoggedIn };

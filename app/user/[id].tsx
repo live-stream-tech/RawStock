@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { saveLoginReturn } from "@/lib/login-return";
+import { requestLoginRedirect } from "@/lib/session-redirect";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { ApiError, apiRequest, getApiUrl } from "@/lib/query-client";
@@ -133,7 +134,7 @@ export default function UserProfileScreen() {
       if (Platform.OS === "web" && typeof window !== "undefined") {
         saveLoginReturn(window.location.pathname + window.location.search);
       }
-      router.replace("/auth/login" as any);
+      requestLoginRedirect();
       return;
     }
     try {
@@ -156,7 +157,7 @@ export default function UserProfileScreen() {
       if (Platform.OS === "web" && typeof window !== "undefined") {
         saveLoginReturn(window.location.pathname + window.location.search);
       }
-      router.replace("/auth/login" as any);
+      requestLoginRedirect();
       return;
     }
     followMutation.mutate();

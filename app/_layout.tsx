@@ -11,7 +11,7 @@ import { queryClient } from "@/lib/query-client";
 import { DemoModeProvider } from "@/lib/demo-mode";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { consumeLoginRedirectPath, saveLoginReturn } from "@/lib/login-return";
-import { registerUnauthenticatedRedirect } from "@/lib/session-redirect";
+import { registerUnauthenticatedRedirect, requestLoginRedirect } from "@/lib/session-redirect";
 import { GlobalMyListPlayer } from "@/components/GlobalMyListPlayer";
 import { GlobalJukeboxPlayer } from "@/components/GlobalJukeboxPlayer";
 import { PlayingVideoProvider } from "@/lib/playing-video-context";
@@ -112,6 +112,9 @@ function isPublicPath(rawPathname: string): boolean {
   if (pathname === "/dm" || pathname.startsWith("/dm/")) return false;
 
   const exact = new Set([
+    "/",
+    "/stations",
+    "/profile",
     "/community",
     "/auth/login",
     "/auth/register",
@@ -152,33 +155,6 @@ function isPublicPath(rawPathname: string): boolean {
   if (/^\/concert\/\d+$/.test(pathname)) return true;
 
   return false;
-}
-
-/** Require profile setup on first login. */
-const PROFILE_SETUP_REQUIRED_NAMES = ["Google User", "User"];
-function needsProfileSetup(displayName: string | undefined): boolean {
-  const name = (displayName ?? "").trim();
-  return !name || PROFILE_SETUP_REQUIRED_NAMES.includes(name);
-}
-
-function ProfileSetupGuard({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
-  const pathname = usePathname();
-
-  useEffect(() => {
-    if (loading || !user) return;
-    const authPath =
-      pathname === "/auth/login" ||
-      pathname === "/auth/register" ||
-      pathname === "/auth/callback" ||
-      pathname === "/auth/popup-fallback";
-    if (pathname === "/account" || authPath || pathname === "/advertise") return;
-    if (needsProfileSetup(user.displayName ?? user.name)) {
-      router.replace("/account");
-    }
-  }, [user, loading, pathname]);
-
-  return <>{children}</>;
 }
 
 /** Root-level auth guard for non-public routes. */
@@ -222,7 +198,7 @@ function GlobalAuthGate({ children }: { children: React.ReactNode }) {
       const full = window.location.pathname + window.location.search;
       saveLoginReturn(full);
     }
-    router.replace("/auth/login");
+    requestLoginRedirect();
   }, [user, token, loading, pathname, hasTokenInUrl, isLoggedIn]);
 
   // Render nothing while waiting for redirect on protected routes.
@@ -328,7 +304,6 @@ export default function RootLayout() {
             <KeyboardProvider>
               <TokenHandler>
                 <GlobalAuthGate>
-                  <ProfileSetupGuard>
                   <DemoModeProvider>
                     <PlayingVideoProvider>
                       <View style={{ flex: 1, ...(Platform.OS === "web" ? { minHeight: 0 } : {}) }}>
@@ -342,7 +317,6 @@ export default function RootLayout() {
                       </View>
                     </PlayingVideoProvider>
                   </DemoModeProvider>
-                  </ProfileSetupGuard>
                 </GlobalAuthGate>
               </TokenHandler>
             </KeyboardProvider>

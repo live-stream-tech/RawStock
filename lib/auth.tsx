@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ActivityIndicator, Platform, View } from "react-native";
 import { ApiError, getApiUrl, readAuthToken } from "@/lib/query-client";
 import { saveLoginReturn } from "@/lib/login-return";
+import { requestLoginRedirect, setLoginRedirectAuthState } from "@/lib/session-redirect";
 import { router } from "expo-router";
 import { captureClientError, debugIngestLocal, summarizeForErrorExtra } from "@/lib/debugIngest";
 import { recordClientDebugBreadcrumb, setCurrentClientActor } from "@/lib/clientErrorContext";
@@ -275,6 +276,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setCurrentClientActor(user?.id ?? null);
   }, [user?.id]);
 
+  useEffect(() => {
+    setLoginRedirectAuthState(loading, Boolean(user || token));
+  }, [loading, user, token]);
+
   const loginWithToken = useCallback(async (t: string) => {
     let me = await apiFetch("/api/auth/me", {
       headers: { Authorization: `Bearer ${t}` },
@@ -352,7 +357,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (Platform.OS === "web" && typeof window !== "undefined") {
           saveLoginReturn(window.location.pathname + window.location.search);
         }
-        router.replace("/auth/login" as any);
+        requestLoginRedirect();
         return false;
       }
       return true;
@@ -387,27 +392,9 @@ export function useAuth() {
   return useContext(AuthContext);
 }
 
-/** Whether the URL carries a token (skip login redirect during OAuth callback handling) */
-function hasTokenInUrl(): boolean {
-  if (typeof window === "undefined") return false;
-  return !!new URLSearchParams(window.location.search).get("token");
-}
-
-/** Guard: redirect anonymous users on protected routes to Google sign-in */
+/** Page-level guard: GlobalAuthGate handles redirects; this only blocks render until session is ready. */
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, loading, token } = useAuth();
-
-  useEffect(() => {
-    if (loading) return;
-    if (hasTokenInUrl()) return; // do not redirect while handling callback token in URL
-    if (!user && !token) {
-      if (typeof window !== "undefined") {
-        const returnTo = window.location.pathname + window.location.search;
-        saveLoginReturn(returnTo);
-      }
-      router.replace("/auth/login");
-    }
-  }, [user, loading, token]);
 
   if (loading) {
     return null;
