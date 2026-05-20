@@ -11,6 +11,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { C } from "@/constants/colors";
 import { usePlayingVideo } from "@/lib/playing-video-context";
+import { resolvePublicMediaUri } from "@/lib/resolve-public-media-uri";
 
 export function GlobalMyListPlayer() {
   const pathname = usePathname();
@@ -125,7 +126,7 @@ export function GlobalMyListPlayer() {
     v.playsInline = true;
     v.setAttribute("playsinline", "true");
     v.muted = false;
-    v.src = playing.videoUrl;
+    v.src = resolvePublicMediaUri(playing.videoUrl);
     const hiddenCss = "position:absolute;left:-9999px;width:1px;height:1px;opacity:0;display:block;";
     const fullCss = "width:100%;height:100%;object-fit:contain;display:block;";
     v.style.cssText = isCurrentVideo ? fullCss : hiddenCss;

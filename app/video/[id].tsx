@@ -28,6 +28,7 @@ import { webScrollStyle } from "@/constants/layout";
 import { parseDurationLabelToSec } from "@/lib/parse-duration-label";
 import { TranslateButton } from "@/components/TranslateButton";
 import { alertConfirm, alertError, alertMessage } from "@/lib/alertCompat";
+import { resolvePublicMediaUri } from "@/lib/resolve-public-media-uri";
 
 const WORK_PRICE_OPTIONS = [300, 500, 1000, 2000, 3000, 5000] as const;
 
@@ -450,7 +451,11 @@ export default function VideoDetailScreen() {
         {/* Media area (shared layout for text/photos/video) */}
         <View style={styles.playerContainer}>
           <Image
-            source={{ uri: (video as any).thumbnail || "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&h=400&fit=crop" }}
+            source={{
+              uri: resolvePublicMediaUri(
+                (video as any).thumbnail || "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&h=400&fit=crop",
+              ),
+            }}
             style={styles.playerThumb}
             contentFit="cover"
           />
@@ -472,8 +477,10 @@ export default function VideoDetailScreen() {
                   playVideo({
                     videoId: Number(id),
                     title: video.title,
-                    thumbnail: (video as any).thumbnail,
-                    videoUrl: (video as any).videoUrl ?? null,
+                    thumbnail: resolvePublicMediaUri((video as any).thumbnail),
+                    videoUrl: (video as any).videoUrl
+                      ? resolvePublicMediaUri((video as any).videoUrl)
+                      : null,
                     youtubeId: (video as any).youtubeId ?? null,
                   });
                 }}

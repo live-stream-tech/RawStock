@@ -116,6 +116,7 @@ import {
   putR2ObjectBuffer,
   resolveUploadPublicUrlForKey,
 } from "./r2";
+import { getR2PublicBaseUrl, mapVideoMediaFieldsForApi, rewriteStoredMediaUrl } from "./lib/directR2MediaUrl";
 import { moderateContent } from "./moderation";
 import { detectContentLang } from "./langFromText";
 import { translateText } from "./lib/translate";
@@ -1286,6 +1287,12 @@ export async function registerRoutes(app: Express): Promise<void> {
       return res.status(400).end();
     }
     await pipeR2PublicObjectToResponse(res, key);
+  });
+
+  /** Public app config (safe to expose). Used by web clients for R2 direct media URLs. */
+  app.get("/api/app-config", (_req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "public, max-age=300");
+    res.json({ r2PublicBaseUrl: getR2PublicBaseUrl() });
   });
 
   // ── LP lead capture (email / LINE) ───────────────────────────────
@@ -5627,14 +5634,16 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
 
     res.json(
-      filtered.map((row) => ({
-        ...row,
-        timeAgo: row.createdAt ? formatTimeAgo(row.createdAt) : row.timeAgo,
-        creatorType: userMap.has(row.creator) ? "user" : creatorMap.has(row.creator) ? "liver" : null,
-        creatorId: userMap.get(row.creator) ?? creatorMap.get(row.creator) ?? null,
-        fromFollowing: row.userId != null && followingIds.includes(row.userId),
-        fromCommunity: row.communityId != null && communityIds.includes(row.communityId),
-      })),
+      filtered.map((row) =>
+        mapVideoMediaFieldsForApi({
+          ...row,
+          timeAgo: row.createdAt ? formatTimeAgo(row.createdAt) : row.timeAgo,
+          creatorType: userMap.has(row.creator) ? "user" : creatorMap.has(row.creator) ? "liver" : null,
+          creatorId: userMap.get(row.creator) ?? creatorMap.get(row.creator) ?? null,
+          fromFollowing: row.userId != null && followingIds.includes(row.userId),
+          fromCommunity: row.communityId != null && communityIds.includes(row.communityId),
+        }),
+      ),
     );
   });
 
@@ -5664,7 +5673,11 @@ export async function registerRoutes(app: Express): Promise<void> {
     const withCreator = rows.map((r) => {
       const uid = userMap.get(r.creator);
       const cid = creatorMap.get(r.creator);
-      return { ...r, creatorType: uid ? "user" : cid ? "liver" : null, creatorId: uid ?? cid ?? null };
+      return mapVideoMediaFieldsForApi({
+        ...r,
+        creatorType: uid ? "user" : cid ? "liver" : null,
+        creatorId: uid ?? cid ?? null,
+      });
     });
     res.json(withCreator);
   });
@@ -5678,7 +5691,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       .where(or(eq(videos.creator, user.displayName), eq(videos.userId, user.id)))
       .orderBy(desc(videos.createdAt));
     const filtered = rows.filter((r) => !r.hidden);
-    res.json(filtered);
+    res.json(filtered.map(mapVideoMediaFieldsForApi));
   });
 
   /**
@@ -5716,7 +5729,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       .from(videos)
       .where(and(eq(videos.postType, "work"), eq(videos.hidden, false)))
       .orderBy(asc(videos.rank));
-    res.json(rows);
+    res.json(rows.map(mapVideoMediaFieldsForApi));
   });
 
   /** Saved videos list (define before :id routes). */
@@ -5738,10 +5751,12 @@ export async function registerRoutes(app: Express): Promise<void> {
       .innerJoin(videos, eq(videos.id, savedVideos.videoId))
       .where(and(eq(savedVideos.userId, user.id), eq(videos.hidden, false)))
       .orderBy(desc(savedVideos.createdAt));
-    const timeAgoList = rows.map((r) => ({
-      ...r,
-      timeAgo: r.createdAt ? formatTimeAgo(r.createdAt) : "Just now",
-    }));
+    const timeAgoList = rows.map((r) =>
+      mapVideoMediaFieldsForApi({
+        ...r,
+        timeAgo: r.createdAt ? formatTimeAgo(r.createdAt) : "Just now",
+      }),
+    );
     res.json(timeAgoList);
   });
 
@@ -5760,7 +5775,15 @@ export async function registerRoutes(app: Express): Promise<void> {
     const creatorType = creatorUser ? "user" : creatorLiver ? "liver" : null;
     /** Ticket payouts/wallets: always use users.id (never mix creators.id). */
     const creatorId = (row as any).userId ?? creatorUser?.id ?? null;
-    res.json({ ...row, timeAgo, creatorType, creatorId, creatorLiverProfileId: creatorLiver?.id ?? null });
+    res.json(
+      mapVideoMediaFieldsForApi({
+        ...row,
+        timeAgo,
+        creatorType,
+        creatorId,
+        creatorLiverProfileId: creatorLiver?.id ?? null,
+      }),
+    );
   });
 
   /** Video comments (excludes hidden). */
@@ -5845,7 +5868,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         timeAgo: "Just now",
         duration,
         price: price ?? null,
-        thumbnail,
+        thumbnail: rewriteStoredMediaUrl(thumbnail) ?? thumbnail,
         description: description?.trim() || null,
         avatar:
           user.profileImageUrl ??
@@ -5855,13 +5878,13 @@ export async function registerRoutes(app: Express): Promise<void> {
         userId: user.id,
         visibility: vis,
         communityId: vis === "community" ? (communityId ?? null) : null,
-        videoUrl: videoUrl?.trim() || null,
+        videoUrl: videoUrl?.trim() ? rewriteStoredMediaUrl(videoUrl.trim()) ?? videoUrl.trim() : null,
         youtubeId: youtubeId?.trim() || null,
         postType: postType === "work" ? "work" : "daily",
         isRanked: postType === "work",
       } as typeof videos.$inferInsert)
       .returning();
-    res.status(201).json(row);
+    res.status(201).json(mapVideoMediaFieldsForApi(row));
   });
 
   /** Edit own post (title / visibility). */
@@ -5905,21 +5928,21 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
     if (videoUrl !== undefined) {
       const v = typeof videoUrl === "string" ? videoUrl.trim() : "";
-      updates.videoUrl = v.length ? v : null;
+      updates.videoUrl = v.length ? rewriteStoredMediaUrl(v) ?? v : null;
     }
     if (duration !== undefined) {
       const d = typeof duration === "string" ? duration.trim() : "";
       if (d.length) updates.duration = d;
     }
 
-    if (Object.keys(updates).length === 0) return res.json(video);
+    if (Object.keys(updates).length === 0) return res.json(mapVideoMediaFieldsForApi(video));
 
     const [updated] = await db
       .update(videos)
       .set(updates as Partial<InferSelectModel<typeof videos>>)
       .where(eq(videos.id, id))
       .returning();
-    res.json(updated);
+    res.json(mapVideoMediaFieldsForApi(updated));
   });
 
   /** Delete own post (and comments). */

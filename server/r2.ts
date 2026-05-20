@@ -1,6 +1,11 @@
 import { GetObjectCommand, S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type { Request, Response } from "express";
+import {
+  buildR2PublicObjectUrl,
+  isAppUploadR2Key,
+} from "../lib/r2-public-url";
+import { getR2PublicBaseUrl } from "./lib/directR2MediaUrl";
 
 const endpoint = process.env.R2_ENDPOINT;
 const bucket = process.env.R2_BUCKET_NAME;
@@ -9,6 +14,15 @@ const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
 
 if (!endpoint || !bucket) {
   console.warn("[R2] R2_ENDPOINT / R2_BUCKET_NAME が設定されていません");
+}
+
+const r2PublicBase = getR2PublicBaseUrl();
+if (process.env.NODE_ENV === "production" && !r2PublicBase) {
+  console.warn(
+    "[R2] R2_PUBLIC_BASE_URL is not set — uploads and playback will use /api/r2-public (Vercel bandwidth). Set a public R2 URL or custom domain.",
+  );
+} else if (r2PublicBase) {
+  console.log("[R2] Direct public delivery enabled:", r2PublicBase);
 }
 
 const r2Client =
@@ -47,34 +61,23 @@ export async function createSignedUploadUrl(key: string, contentType: string) {
 
   const uploadUrl = await getSignedUrl(r2Client, cmd, { expiresIn: 60 * 5 });
 
-  /**
-   * Browser-readable URL. When unset, callers should use same-origin `/api/r2-public/:key`
-   * (see `pipeR2PublicObjectToResponse`) — never return the private R2 S3 API host as a "public" URL.
-   */
-  const publicBase = process.env.R2_PUBLIC_BASE_URL?.trim();
-  const useUnsafeR2DevBase = !!publicBase && /\.r2\.dev$/i.test(publicBase.replace(/^https?:\/\//i, "").replace(/\/.*$/, ""));
-  const publicUrl = publicBase && !useUnsafeR2DevBase ? `${publicBase.replace(/\/$/, "")}/${key}` : null;
+  const publicBase = getR2PublicBaseUrl();
+  const publicUrl = publicBase ? buildR2PublicObjectUrl(publicBase, key) : null;
 
   return { uploadUrl, publicUrl };
 }
 
 /**
  * Browser-readable URL for an uploaded object key (same logic as `POST /api/upload-url`).
- * Throws if a same-origin `/api/r2-public/...` URL cannot be built.
+ * Prefers R2_PUBLIC_BASE_URL; falls back to same-origin `/api/r2-public/...` when unset.
  */
 export function resolveUploadPublicUrlForKey(req: Pick<Request, "get" | "protocol">, key: string): string {
-  const publicBase = process.env.R2_PUBLIC_BASE_URL?.trim();
+  const publicBase = getR2PublicBaseUrl();
   if (publicBase) {
-    const hostOnly = publicBase.replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
-    // Avoid direct r2.dev public URLs (can fail SSL / cipher on custom subdomains).
-    if (!/\.r2\.dev$/i.test(hostOnly)) {
-      return `${publicBase.replace(/\/$/, "")}/${key}`;
-    }
+    return buildR2PublicObjectUrl(publicBase, key);
   }
 
   const forwardedOrHost = String(req.get("x-forwarded-host") ?? req.get("host") ?? "").trim();
-  // Some proxies can pass malformed hosts (e.g. typos like "rub-rawstock.live").
-  // Keep public media URLs stable on the canonical production host.
   const host =
     !forwardedOrHost
       ? ""
@@ -113,16 +116,21 @@ export async function putR2ObjectBuffer(key: string, contentType: string, body: 
   );
 }
 
-/** Keys issued by `/api/upload-url` (no slashes) — safe to expose via anonymous GET proxy. */
-export function isAppUploadR2Key(key: string): boolean {
-  return /^rawstock_\d+_[a-zA-Z0-9_.-]+$/.test(key);
-}
+export { isAppUploadR2Key };
 
 export async function pipeR2PublicObjectToResponse(res: Response, key: string): Promise<void> {
   if (!isAppUploadR2Key(key)) {
     res.status(400).end();
     return;
   }
+
+  const publicBase = getR2PublicBaseUrl();
+  if (publicBase) {
+    res.setHeader("Cache-Control", "public, max-age=86400, immutable");
+    res.redirect(302, buildR2PublicObjectUrl(publicBase, key));
+    return;
+  }
+
   if (!r2Client || !bucket) {
     res.status(503).json({ error: "R2 is not configured" });
     return;
@@ -161,4 +169,3 @@ export async function pipeR2PublicObjectToResponse(res: Response, key: string): 
     if (!res.headersSent) res.status(500).end();
   }
 }
-
