@@ -329,6 +329,7 @@ export async function compressVideoBlobForWebSameOrigin(
     trimEndSec: end,
     quality: VIDEO_PREP_QUALITIES[1],
     targetMaxBytes,
+    maxClipSec: 300,
   });
   return prepared?.blob ?? blob;
 }

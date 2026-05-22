@@ -173,15 +173,26 @@ export function VideoUploadPrepModal({
    * Upload original: no re-encode. Sends the full selected File when metadata duration
    * is within maxClipSec. Trim sliders apply only to the compress/prepare path.
    */
+  const resolveSourceDuration = useCallback((): number => {
+    if (duration > 0) return duration;
+    const v = videoRef.current;
+    if (v && Number.isFinite(v.duration) && v.duration > 0) return v.duration;
+    return 0;
+  }, [duration]);
+
   const handleUploadOriginal = useCallback(async () => {
     if (!file || preparing || !canUploadOriginal) return;
 
-    if (duration > maxClipSec + 0.01) {
+    const sourceDuration = resolveSourceDuration();
+    if (sourceDuration > maxClipSec + 0.01) {
       setError(copy.clipTooLong(maxClipSec));
       return;
     }
     if (file.size > WEB_VIDEO_PREP_MAX_OUTPUT_BYTES) {
-      setError(copy.originalTooLarge?.(prepMaxMb) ?? copy.prepareTooLarge(prepMaxMb, (file.size / (1024 * 1024)).toFixed(1)));
+      setError(
+        copy.fullFileTooLarge?.(prepMaxMb) ??
+          copy.prepareTooLarge(prepMaxMb, (file.size / (1024 * 1024)).toFixed(1)),
+      );
       return;
     }
 
@@ -193,7 +204,7 @@ export function VideoUploadPrepModal({
     try {
       const mime = file.type.split(";")[0].trim() || "video/mp4";
       const fileName = file.name || "video.mp4";
-      const durationSec = duration > 0 ? duration : maxClipSec;
+      const durationSec = sourceDuration > 0 ? sourceDuration : maxClipSec;
 
       const publicUrl = await uploadLargeBlobViaR2Presigned(file, fileName, mime, {
         onProgress: setProgress,
@@ -224,7 +235,7 @@ export function VideoUploadPrepModal({
     file,
     preparing,
     canUploadOriginal,
-    duration,
+    resolveSourceDuration,
     maxClipSec,
     copy,
     flow,
@@ -248,11 +259,7 @@ export function VideoUploadPrepModal({
           </View>
 
           <Text style={styles.hint}>{copy.hint(sizeMb, maxClipSec)}</Text>
-          {!isDaily ? (
-            <Text style={styles.hintCap}>
-              {copy.uploadMaxNote(prepMaxMb)}
-            </Text>
-          ) : null}
+          <Text style={styles.hintCap}>{copy.trimNote}</Text>
 
           <View style={styles.previewWrap}>
             {previewUrl ? (
@@ -318,8 +325,8 @@ export function VideoUploadPrepModal({
             <View style={styles.progressRow}>
               <ActivityIndicator color={C.accent} />
               <Text style={styles.progressText}>
-                {originalMode && copy.uploadingOriginal
-                  ? copy.uploadingOriginal(Math.round(progress * 100))
+                {originalMode && copy.uploadingFullFile
+                  ? copy.uploadingFullFile(Math.round(progress * 100))
                   : copy.preparing(Math.round(progress * 100))}
               </Text>
             </View>
@@ -332,17 +339,28 @@ export function VideoUploadPrepModal({
             onPress={handlePrepare}
             disabled={preparing || !file}
           >
-            <Text style={styles.primaryBtnText}>{copy.prepareAdd}</Text>
+            <Text style={styles.primaryBtnText}>{copy.addToPost}</Text>
           </Pressable>
 
-          {canUploadOriginal && copy.uploadOriginal ? (
-            <Pressable
-              style={[styles.secondaryBtn, preparing && styles.primaryBtnDisabled]}
-              onPress={handleUploadOriginal}
-              disabled={preparing || !file || duration <= 0}
-            >
-              <Text style={styles.secondaryBtnText}>{copy.uploadOriginal}</Text>
-            </Pressable>
+          {!isDaily && copy.uploadFullFile ? (
+            <>
+              {canUploadOriginal ? (
+                <Pressable
+                  style={[styles.secondaryBtn, preparing && styles.primaryBtnDisabled]}
+                  onPress={handleUploadOriginal}
+                  disabled={preparing || !file}
+                >
+                  <Text style={styles.secondaryBtnText}>{copy.uploadFullFile}</Text>
+                </Pressable>
+              ) : null}
+              {copy.uploadFullFileHint ? (
+                <Text style={styles.hintCap}>
+                  {canUploadOriginal
+                    ? copy.uploadFullFileHint(prepMaxMb)
+                    : copy.fullFileTooLarge?.(prepMaxMb) ?? copy.uploadFullFileHint(prepMaxMb)}
+                </Text>
+              ) : null}
+            </>
           ) : null}
         </View>
       </View>

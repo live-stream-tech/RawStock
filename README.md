@@ -162,7 +162,7 @@ Mobile **WHIP live broadcast** and **mentor-room WebRTC** are not enabled in-app
 | Payments | Stripe Connect (JPY, direct credit card) |
 | Storage | Cloudflare R2 (video/image uploads) |
 | Real-time | Server-Sent Events (SSE), Node.js EventEmitter |
-| Auth | JWT, LINE OAuth, Google OAuth |
+| Auth | JWT, Google OAuth (optional email/password) |
 
 ---
 
@@ -210,9 +210,8 @@ Run paid lessons and sell technique breakdowns as premium content. Same 90/10 sp
 ### OAuth (Optional)
 | Variable | Description |
 |----------|-------------|
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth (login) |
 | `YOUTUBE_API_KEY` | YouTube Data API (Jukebox search) |
-| `LINE_CHANNEL_ID` / `LINE_CHANNEL_SECRET` / `LINE_CALLBACK_URL` | LINE OAuth |
 | `FRONTEND_URL` | Frontend URL for OAuth redirects |
 
 ---

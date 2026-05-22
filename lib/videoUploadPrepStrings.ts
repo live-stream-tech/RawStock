@@ -4,34 +4,38 @@ import { formatPostVideoMaxDuration } from "@/lib/formatVideoTime";
 export type VideoUploadPrepCopy = {
   title: string;
   hint: (sizeMb: string, maxClipSec: number) => string;
+  trimNote: string;
   clip: (start: string, end: string, len: string) => string;
   rangeStart: string;
   rangeEnd: string;
   quality: string;
   qualityLabels: Record<VideoPrepQualityId, string>;
   preparing: (percent: number) => string;
-  prepareAdd: string;
+  /** Primary action: trim + compress, then attach to post */
+  addToPost: string;
   clipTooShort: string;
   clipTooLong: (maxClipSec: number) => string;
   prepareFailed: string;
   prepareTooLarge: (maxMb: number, outMb: string) => string;
   prepareError: string;
-  uploadMaxNote: (maxMb: number) => string;
-  uploadOriginal?: string;
-  uploadingOriginal?: (percent: number) => string;
-  originalTooLarge?: (maxMb: number) => string;
+  /** Work only: optional full-file upload */
+  uploadFullFile?: string;
+  uploadFullFileHint?: (maxMb: number) => string;
+  uploadingFullFile?: (percent: number) => string;
+  fullFileTooLarge?: (maxMb: number) => string;
   reportTitlePrepareFailed: string;
   reportTitlePrepareError: string;
   reportTitlePrepareTooLarge: string;
 };
 
 const WORK_EN: VideoUploadPrepCopy = {
-  title: "Prepare video",
+  title: "Add video",
   hint: (sizeMb, maxClipSec) => {
     const dur = formatPostVideoMaxDuration(maxClipSec, false);
-    return `Trim and compress before upload. Only the selected segment is processed (faster than re-encoding the whole file). Original: ${sizeMb} MB · max ${dur} per post.`;
+    return `Original file: ${sizeMb} MB. Max length per post: ${dur}.`;
   },
-  clip: (start, end, len) => `Clip: ${start} – ${end} (${len})`,
+  trimNote: "Set the start and end, then add to your post. We compress the selected part for upload.",
+  clip: (start, end, len) => `Segment: ${start} – ${end} (${len})`,
   rangeStart: "Start",
   rangeEnd: "End",
   quality: "Quality",
@@ -40,35 +44,36 @@ const WORK_EN: VideoUploadPrepCopy = {
     standard: "Standard",
     light: "Light (smaller)",
   },
-  preparing: (percent) => `Preparing… ${percent}%`,
-  prepareAdd: "Prepare & add",
-  clipTooShort: "Clip must be at least half a second.",
+  preparing: (percent) => `Uploading… ${percent}%`,
+  addToPost: "Add to post",
+  clipTooShort: "Choose at least half a second.",
   clipTooLong: (maxClipSec) => {
     const dur = formatPostVideoMaxDuration(maxClipSec, false);
     return `Video must be ${dur} or less.`;
   },
   prepareFailed:
-    "Could not prepare this video in the browser. Try a shorter clip or choose Light quality.",
+    "Could not process this video in the browser. Try a shorter segment or Light quality.",
   prepareTooLarge: (maxMb, outMb) =>
-    `Prepared file is ${outMb} MB (limit ${maxMb} MB for web upload). Use a shorter clip or Light quality.`,
-  prepareError: "Prepare failed",
-  uploadMaxNote: (maxMb) =>
-    `Clips up to ${maxMb} MB upload directly to storage after compression (longer videos are supported).`,
-  uploadOriginal: "Upload original",
-  uploadingOriginal: (percent) => `Uploading original… ${percent}%`,
-  originalTooLarge: (maxMb) => `Original file must be ${maxMb} MB or less for direct upload.`,
+    `After compression the file is ${outMb} MB (limit ${maxMb} MB). Shorten the segment or use Light quality.`,
+  prepareError: "Could not add video",
+  uploadFullFile: "Upload full file (no compression)",
+  uploadFullFileHint: (maxMb) =>
+    `Skips re-encoding. Trim sliders above do not apply. File must be ${maxMb} MB or less.`,
+  uploadingFullFile: (percent) => `Uploading full file… ${percent}%`,
+  fullFileTooLarge: (maxMb) => `Full file must be ${maxMb} MB or less.`,
   reportTitlePrepareFailed: "Video prepare failed",
   reportTitlePrepareError: "Video prepare error",
   reportTitlePrepareTooLarge: "Video too large after prepare",
 };
 
 const WORK_JA: VideoUploadPrepCopy = {
-  title: "動画を準備",
+  title: "動画を追加",
   hint: (sizeMb, maxClipSec) => {
     const dur = formatPostVideoMaxDuration(maxClipSec, true);
-    return `アップロード前にトリミングと圧縮を行います。選択した部分だけを処理するため、ファイル全体より速く終わることがあります。元のサイズ: ${sizeMb} MB · 1投稿あたり最大 ${dur}。`;
+    return `元ファイル: ${sizeMb} MB。1投稿あたり最長 ${dur}。`;
   },
-  clip: (start, end, len) => `クリップ: ${start} – ${end}（${len}）`,
+  trimNote: "開始・終了を選んでから投稿に追加します。選択した部分を圧縮してアップロードします。",
+  clip: (start, end, len) => `範囲: ${start} – ${end}（${len}）`,
   rangeStart: "開始",
   rangeEnd: "終了",
   quality: "画質",
@@ -77,71 +82,71 @@ const WORK_JA: VideoUploadPrepCopy = {
     standard: "標準",
     light: "軽量（小さい）",
   },
-  preparing: (percent) => `準備中… ${percent}%`,
-  prepareAdd: "準備して追加",
-  clipTooShort: "クリップは0.5秒以上にしてください。",
+  preparing: (percent) => `アップロード中… ${percent}%`,
+  addToPost: "投稿に追加",
+  clipTooShort: "0.5秒以上の範囲を選んでください。",
   clipTooLong: (maxClipSec) => {
     const dur = formatPostVideoMaxDuration(maxClipSec, true);
     return `動画は${dur}以内にしてください。`;
   },
   prepareFailed:
-    "ブラウザで動画を準備できませんでした。クリップを短くするか、「軽量」を選んでお試しください。",
+    "ブラウザで動画を処理できませんでした。範囲を短くするか「軽量」をお試しください。",
   prepareTooLarge: (maxMb, outMb) =>
-    `圧縮後も ${outMb} MB です（Webアップロード上限 ${maxMb} MB）。クリップを短くするか「軽量」を選んでください。`,
-  prepareError: "準備に失敗しました",
-  uploadMaxNote: (maxMb) =>
-    `圧縮後は最大 ${maxMb} MB まで（長めの動画も直接アップロードできます）。`,
-  uploadOriginal: "オリジナルをアップロード",
-  uploadingOriginal: (percent) => `オリジナルをアップロード中… ${percent}%`,
-  originalTooLarge: (maxMb) => `オリジナルは ${maxMb} MB 以下である必要があります。`,
-  reportTitlePrepareFailed: "動画の準備に失敗",
-  reportTitlePrepareError: "動画準備エラー",
+    `圧縮後も ${outMb} MB です（上限 ${maxMb} MB）。範囲を短くするか「軽量」を選んでください。`,
+  prepareError: "動画を追加できませんでした",
+  uploadFullFile: "そのままアップロード（圧縮しない）",
+  uploadFullFileHint: (maxMb) =>
+    `再エンコードしません。上のトリムは使われません。ファイルは ${maxMb} MB 以下である必要があります。`,
+  uploadingFullFile: (percent) => `そのままアップロード中… ${percent}%`,
+  fullFileTooLarge: (maxMb) => `そのまま送る場合は ${maxMb} MB 以下にしてください。`,
+  reportTitlePrepareFailed: "動画の処理に失敗",
+  reportTitlePrepareError: "動画処理エラー",
   reportTitlePrepareTooLarge: "圧縮後もサイズ超過",
 };
 
 const DAILY_EN: VideoUploadPrepCopy = {
-  title: "Add clip",
+  title: "Add video clip",
   hint: (_sizeMb, maxClipSec) => {
     const dur = formatPostVideoMaxDuration(maxClipSec, false);
-    return `Trim a short social clip (max ${dur}). We'll compress it to Light quality for upload.`;
+    return `Short clip for a daily post (max ${dur}). We compress it automatically.`;
   },
+  trimNote: "Pick the best moment, then add it to your post.",
   clip: WORK_EN.clip,
   rangeStart: WORK_EN.rangeStart,
   rangeEnd: WORK_EN.rangeEnd,
   quality: WORK_EN.quality,
   qualityLabels: WORK_EN.qualityLabels,
   preparing: WORK_EN.preparing,
-  prepareAdd: "Add clip",
+  addToPost: "Add to post",
   clipTooShort: WORK_EN.clipTooShort,
   clipTooLong: WORK_EN.clipTooLong,
-  prepareFailed: "Could not prepare this clip. Try a shorter segment.",
+  prepareFailed: "Could not process this clip. Try a shorter segment.",
   prepareTooLarge: WORK_EN.prepareTooLarge,
   prepareError: WORK_EN.prepareError,
-  uploadMaxNote: WORK_EN.uploadMaxNote,
   reportTitlePrepareFailed: WORK_EN.reportTitlePrepareFailed,
   reportTitlePrepareError: WORK_EN.reportTitlePrepareError,
   reportTitlePrepareTooLarge: WORK_EN.reportTitlePrepareTooLarge,
 };
 
 const DAILY_JA: VideoUploadPrepCopy = {
-  title: "クリップを追加",
+  title: "動画クリップを追加",
   hint: (_sizeMb, maxClipSec) => {
     const dur = formatPostVideoMaxDuration(maxClipSec, true);
-    return `SNS向けの短いクリップ（最大${dur}）をトリミングします。アップロード用に軽量画質で圧縮します。`;
+    return `日常投稿用の短いクリップ（最大${dur}）。自動で軽くしてアップロードします。`;
   },
+  trimNote: "使いたい部分を選んで、投稿に追加してください。",
   clip: WORK_JA.clip,
   rangeStart: WORK_JA.rangeStart,
   rangeEnd: WORK_JA.rangeEnd,
   quality: WORK_JA.quality,
   qualityLabels: WORK_JA.qualityLabels,
   preparing: WORK_JA.preparing,
-  prepareAdd: "クリップを追加",
+  addToPost: "投稿に追加",
   clipTooShort: WORK_JA.clipTooShort,
   clipTooLong: WORK_JA.clipTooLong,
-  prepareFailed: "クリップを準備できませんでした。もう少し短くしてお試しください。",
+  prepareFailed: "クリップを処理できませんでした。もう少し短くしてお試しください。",
   prepareTooLarge: WORK_JA.prepareTooLarge,
   prepareError: WORK_JA.prepareError,
-  uploadMaxNote: WORK_JA.uploadMaxNote,
   reportTitlePrepareFailed: WORK_JA.reportTitlePrepareFailed,
   reportTitlePrepareError: WORK_JA.reportTitlePrepareError,
   reportTitlePrepareTooLarge: WORK_JA.reportTitlePrepareTooLarge,

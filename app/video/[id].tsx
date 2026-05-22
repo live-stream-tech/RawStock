@@ -29,6 +29,8 @@ import { parseDurationLabelToSec } from "@/lib/parse-duration-label";
 import { TranslateButton } from "@/components/TranslateButton";
 import { alertConfirm, alertError, alertMessage } from "@/lib/alertCompat";
 import { resolvePublicMediaUri } from "@/lib/resolve-public-media-uri";
+import { VideoDetailPlayer } from "@/components/VideoDetailPlayer";
+import { logPlaybackStart } from "@/lib/videoPlaybackTelemetry";
 
 const WORK_PRICE_OPTIONS = [300, 500, 1000, 2000, 3000, 5000] as const;
 
@@ -450,23 +452,35 @@ export default function VideoDetailScreen() {
       >
         {/* Media area (shared layout for text/photos/video) */}
         <View style={styles.playerContainer}>
-          <Image
-            source={{
-              uri: resolvePublicMediaUri(
-                (video as any).thumbnail || "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&h=400&fit=crop",
-              ),
-            }}
-            style={styles.playerThumb}
-            contentFit="cover"
-          />
+          {isPlayingThisVideo && playing?.videoUrl && !(video as any).youtubeId ? (
+            <VideoDetailPlayer
+              videoUrl={playing.videoUrl}
+              videoId={Number(id)}
+            />
+          ) : (
+            <Image
+              source={{
+                uri: resolvePublicMediaUri(
+                  (video as any).thumbnail || "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&h=400&fit=crop",
+                ),
+              }}
+              style={styles.playerThumb}
+              contentFit="cover"
+            />
+          )}
           <View style={styles.playerOverlay}>
+            {isPlayingThisVideo && playing?.videoUrl && !(video as any).youtubeId ? (
+              <Pressable style={styles.stopVideoBtn} onPress={() => stopPlaying()} hitSlop={12}>
+                <Ionicons name="close-circle" size={36} color="rgba(255,255,255,0.95)" />
+              </Pressable>
+            ) : null}
             {/* Video play button (when videoUrl or youtubeId exists) */}
-            {((video as any).videoUrl || (video as any).youtubeId) && !video.price && (
+            {((video as any).videoUrl || (video as any).youtubeId) &&
+              !video.price &&
+              !(isPlayingThisVideo && playing?.videoUrl) && (
               <Pressable
                 style={styles.playOverlayBtn}
                 onPress={async () => {
-                  // On non-web environments, YouTube iframe playback is not guaranteed.
-                  // Fallback to opening the canonical watch URL directly.
                   if (Platform.OS !== "web" && !(video as any).videoUrl && youtubeWatchUrl) {
                     const canOpen = await Linking.canOpenURL(youtubeWatchUrl);
                     if (canOpen) {
@@ -474,13 +488,19 @@ export default function VideoDetailScreen() {
                       return;
                     }
                   }
+                  const rawVideoUrl = String((video as any).videoUrl ?? "").trim();
+                  if ((video as any).videoUrl && !youtubeWatchUrl) {
+                    await logPlaybackStart({
+                      surface: "play_tap",
+                      videoId: Number(id),
+                      rawUrl: rawVideoUrl,
+                    });
+                  }
                   playVideo({
                     videoId: Number(id),
                     title: video.title,
                     thumbnail: resolvePublicMediaUri((video as any).thumbnail),
-                    videoUrl: (video as any).videoUrl
-                      ? resolvePublicMediaUri((video as any).videoUrl)
-                      : null,
+                    videoUrl: rawVideoUrl ? resolvePublicMediaUri(rawVideoUrl) : null,
                     youtubeId: (video as any).youtubeId ?? null,
                   });
                 }}
@@ -880,6 +900,12 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
     justifyContent: "center",
+  },
+  stopVideoBtn: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    zIndex: 2,
   },
   lockedOverlay: {
     ...StyleSheet.absoluteFillObject,

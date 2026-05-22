@@ -348,7 +348,7 @@ npx vercel env add EXPO_PUBLIC_DOMAIN preview <ブランチ名> --value "https:/
 
 ## デモアカウント
 
-- lineId: `demo_account`, userId: 160
+- authSubjectId: `demo_account`, userId: 160
 - 本番環境では無効化済み
 
 ---

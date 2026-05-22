@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { router } from "expo-router";
 
-/** Registration uses LINE login; this screen redirects to login. */
+/** Legacy route: redirect to Google sign-in. */
 export default function RegisterScreen() {
   useEffect(() => {
     router.replace("/auth/login");

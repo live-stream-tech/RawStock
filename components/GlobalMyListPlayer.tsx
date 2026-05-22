@@ -12,6 +12,7 @@ import { Image } from "expo-image";
 import { C } from "@/constants/colors";
 import { usePlayingVideo } from "@/lib/playing-video-context";
 import { resolvePublicMediaUri } from "@/lib/resolve-public-media-uri";
+import { attachHtmlVideoPlaybackMonitor } from "@/lib/videoPlaybackTelemetry";
 
 export function GlobalMyListPlayer() {
   const pathname = usePathname();
@@ -117,24 +118,31 @@ export function GlobalMyListPlayer() {
     };
   }, [playing?.youtubeId, containerIdRef]);
 
-  // HTML5 video (imperative DOM — avoids hydration #418 from raw `<video>` in RN web tree)
+  // HTML5 video for mini-player continuity (video detail page uses VideoDetailPlayer inline on web)
   useEffect(() => {
-    if (Platform.OS !== "web" || !playing?.videoUrl) return;
+    if (Platform.OS !== "web" || !playing?.videoUrl || isCurrentVideo) return;
     const host = videoHostRef.current as unknown as HTMLDivElement | null;
     if (!host) return;
     const v = document.createElement("video");
     v.playsInline = true;
     v.setAttribute("playsinline", "true");
     v.muted = false;
-    v.src = resolvePublicMediaUri(playing.videoUrl);
-    const hiddenCss = "position:absolute;left:-9999px;width:1px;height:1px;opacity:0;display:block;";
-    const fullCss = "width:100%;height:100%;object-fit:contain;display:block;";
-    v.style.cssText = isCurrentVideo ? fullCss : hiddenCss;
-    v.controls = Boolean(isCurrentVideo);
+    const rawUrl = playing.videoUrl;
+    const src = resolvePublicMediaUri(rawUrl);
+    v.src = src;
+    v.style.cssText =
+      "position:absolute;left:-9999px;width:1px;height:1px;opacity:0;display:block;";
+    v.controls = false;
     host.appendChild(v);
     videoRef.current = v;
-    void v.play().catch(() => undefined);
+    const detachMonitor = attachHtmlVideoPlaybackMonitor(v, {
+      surface: "global_mini",
+      videoId: playing.videoId,
+      rawUrl,
+      resolvedUrl: src,
+    }, { alertUser: false });
     return () => {
+      detachMonitor();
       try {
         v.pause();
         v.src = "";
@@ -144,17 +152,7 @@ export function GlobalMyListPlayer() {
       }
       videoRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fullscreen vs mini-bar is synced below; avoid tearing down `<video>` on every route toggle.
-  }, [playing?.videoUrl, containerIdRef]);
-
-  useEffect(() => {
-    const v = videoRef.current;
-    if (Platform.OS !== "web" || !v || !playing?.videoUrl) return;
-    const hiddenCss = "position:absolute;left:-9999px;width:1px;height:1px;opacity:0;display:block;";
-    const fullCss = "width:100%;height:100%;object-fit:contain;display:block;";
-    v.style.cssText = isCurrentVideo ? fullCss : hiddenCss;
-    v.controls = Boolean(isCurrentVideo);
-  }, [isCurrentVideo, playing?.videoUrl]);
+  }, [playing?.videoUrl, playing?.videoId, isCurrentVideo, containerIdRef]);
 
   if (!playing) return null;
   if (!playing.youtubeId && !playing.videoUrl) return null;
@@ -169,7 +167,7 @@ export function GlobalMyListPlayer() {
       <View
         style={[
           styles.playerShell,
-          isCurrentVideo && styles.playerShellFull,
+          isCurrentVideo && hasYoutube && styles.playerShellFull,
           !isCurrentVideo && styles.playerShellHidden,
         ]}
         pointerEvents="none"
@@ -177,13 +175,12 @@ export function GlobalMyListPlayer() {
         {Platform.OS === "web" && hasYoutube ? (
           <View style={styles.ytWrap} nativeID={containerIdRef} />
         ) : null}
-        {Platform.OS === "web" && playing.videoUrl ? (
+        {Platform.OS === "web" && playing.videoUrl && !isCurrentVideo ? (
           <View ref={videoHostRef} style={{ width: "100%", height: "100%" }} collapsable={false} />
         ) : null}
       </View>
 
-      {/* On video route: fullscreen dismiss control */}
-      {isCurrentVideo && (
+      {isCurrentVideo && hasYoutube && (
         <Pressable style={styles.fullCloseBtn} onPress={() => stopPlaying()}>
           <Ionicons name="close" size={24} color="#fff" />
         </Pressable>
@@ -261,13 +258,14 @@ const styles = StyleSheet.create({
     zIndex: 999,
   },
   playerShellFull: {
-    left: "50%",
-    top: "50%",
+    left: 0,
+    right: 0,
+    top: 72,
     width: "100%",
-    maxWidth: 800,
-    height: 450,
-    marginLeft: -400,
-    marginTop: -225,
+    maxWidth: "100%",
+    height: 280,
+    marginLeft: 0,
+    marginTop: 0,
   },
   playerShellHidden: {
     left: -9999,

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback } from "react";
+import { getCurrentClientRoute, recordClientDebugBreadcrumb } from "@/lib/clientErrorContext";
 
 export type PlayingVideo = {
   videoId: number;
@@ -34,6 +35,16 @@ export function PlayingVideoProvider({ children }: { children: React.ReactNode }
   const [jukeboxCommunityId, setJukeboxCommunityId] = useState<number | null>(null);
 
   const playVideo = useCallback((v: Omit<NonNullable<PlayingVideo>, "videoId"> & { videoId: number }) => {
+    recordClientDebugBreadcrumb({
+      type: "video_playback",
+      message: "play_video_context",
+      route: getCurrentClientRoute(),
+      data: {
+        videoId: v.videoId,
+        hasVideoUrl: Boolean(v.videoUrl?.trim()),
+        hasYoutubeId: Boolean(v.youtubeId?.trim()),
+      },
+    });
     setPlaying((prev) => {
       if (prev?.videoId === v.videoId && prev?.youtubeId === v.youtubeId && prev?.videoUrl === v.videoUrl) {
         return prev;

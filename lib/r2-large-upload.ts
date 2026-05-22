@@ -53,6 +53,14 @@ async function putWithProgress(
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         const etag = xhr.getResponseHeader("ETag")?.replace(/^"|"$/g, "") ?? "";
+        if (!etag) {
+          reject(
+            new Error(
+              "Upload succeeded but ETag was not returned. Add ExposeHeaders: ETag to your R2 bucket CORS (see docs/R2-CORS.md).",
+            ),
+          );
+          return;
+        }
         resolve(etag);
         return;
       }
@@ -166,7 +174,14 @@ export async function uploadLargeBlobViaR2Presigned(
       kind: "api_error",
       title: "Large storage upload failed",
       message: msg,
-      extra: { fileName: safeName, contentType: ct, size: blob.size, multipart: useMultipart },
+      extra: {
+        source: "upload",
+        stage: "r2_large_upload_failed",
+        fileName: safeName,
+        contentType: ct,
+        size: blob.size,
+        multipart: useMultipart,
+      },
     });
     throw err instanceof Error ? err : new Error(msg);
   }

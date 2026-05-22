@@ -19,7 +19,7 @@ RawStock is the underground music marketplace (Expo React Native Web / PWA) that
 - **SSR**: `public/index.html` renamed to `.bak` so Metro performs SSR HTML rendering
 - **Environment variables**: `DATABASE_URL`, `SESSION_SECRET` set in Replit Secrets
 - **Dynamic URLs**: All OAuth callbacks and redirects use `REPLIT_DOMAINS` / `REPLIT_DEV_DOMAIN` dynamically — no hardcoded Vercel URLs
-- **Missing optional secrets**: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `YOUTUBE_API_KEY`, `LINE_CHANNEL_ID`, `LINE_CHANNEL_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `R2_ENDPOINT`, `R2_BUCKET_NAME`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
+- **Missing optional secrets**: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `YOUTUBE_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `R2_ENDPOINT`, `R2_BUCKET_NAME`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
 - **Seed**: `node seed.js` populates communities, videos, creators, users, booking sessions
 
 ## Global Jukebox (Key Feature)
@@ -82,7 +82,7 @@ RawStock is the underground music marketplace (Expo React Native Web / PWA) that
 
 ## Auth System
 - JWT auth (SESSION_SECRET, 90-day expiry), bcryptjs
-- LINE OAuth + Google OAuth
+- Google OAuth (+ optional email/password)
 - Demo: `demo@livestage.jp` / `password`
 
 ## Revenue System

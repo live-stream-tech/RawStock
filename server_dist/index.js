@@ -569,8 +569,8 @@ var dmMessages = pgTable("dm_messages", {
 });
 var users = pgTable("users", {
   id: serial("id").primaryKey(),
-  /** 認証プロバイダキー（Googleユーザー: "google:{sub}"、メール登録: "email:{email}"） */
-  lineId: text("line_id").notNull().unique(),
+  /** Provider subject key (Google: "google:{sub}", email signup: "email:{email}") */
+  authSubjectId: text("auth_subject").notNull().unique(),
   displayName: text("display_name").notNull().default("User"),
   profileImageUrl: text("profile_image_url"),
   role: text("role").notNull().default("USER"),
@@ -630,7 +630,7 @@ var lpLeads = pgTable(
   {
     id: serial("id").primaryKey(),
     email: text("email").notNull(),
-    /** email_form | line_cta */
+    /** email_form */
     source: text("source").notNull().default("email_form"),
     /** en | ja など */
     locale: text("locale"),
@@ -2353,12 +2353,80 @@ async function createTemplatedRender(request, options) {
 // server/r2.ts
 import { GetObjectCommand, S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+
+// lib/r2-public-url.ts
+function isAppUploadR2Key(key) {
+  return /^rawstock_\d+_[a-zA-Z0-9_.-]+$/.test(key);
+}
+function normalizeR2PublicBase(base) {
+  return base.trim().replace(/\/+$/, "");
+}
+function buildR2PublicObjectUrl(publicBase, key) {
+  return `${normalizeR2PublicBase(publicBase)}/${key}`;
+}
+function extractAppUploadR2KeyFromUrl(raw) {
+  const s = raw.trim();
+  if (!s) return null;
+  try {
+    const u2 = new URL(s.startsWith("//") ? `https:${s}` : s);
+    const proxy = u2.pathname.match(/\/api\/r2-public\/(.+)$/i);
+    if (proxy?.[1]) {
+      const key2 = decodeURIComponent(proxy[1]);
+      return isAppUploadR2Key(key2) ? key2 : null;
+    }
+    const key = decodeURIComponent(u2.pathname.replace(/^\/+/, ""));
+    return isAppUploadR2Key(key) ? key : null;
+  } catch {
+    return null;
+  }
+}
+function rewriteMediaUrlToR2Direct(raw, publicBase) {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  if (!s || !publicBase?.trim()) return s;
+  const base = normalizeR2PublicBase(publicBase);
+  if (s.startsWith(`${base}/`)) return s;
+  const key = extractAppUploadR2KeyFromUrl(s);
+  if (key) return buildR2PublicObjectUrl(base, key);
+  return s;
+}
+
+// server/lib/directR2MediaUrl.ts
+function getR2PublicBaseUrl() {
+  const raw = process.env.R2_PUBLIC_BASE_URL?.trim();
+  return raw ? normalizeR2PublicBase(raw) : null;
+}
+function rewriteStoredMediaUrl(url) {
+  if (url == null) return null;
+  const out = rewriteMediaUrlToR2Direct(url, getR2PublicBaseUrl());
+  return out || null;
+}
+function mapVideoMediaFieldsForApi(row) {
+  const thumbnail = row.thumbnail;
+  const videoUrl = row.videoUrl;
+  const avatar = row.avatar;
+  return {
+    ...row,
+    ...typeof thumbnail === "string" ? { thumbnail: rewriteStoredMediaUrl(thumbnail) ?? thumbnail } : {},
+    ...typeof videoUrl === "string" ? { videoUrl: rewriteStoredMediaUrl(videoUrl) ?? videoUrl } : {},
+    ...typeof avatar === "string" ? { avatar: rewriteStoredMediaUrl(avatar) ?? avatar } : {}
+  };
+}
+
+// server/r2.ts
 var endpoint = process.env.R2_ENDPOINT;
 var bucket = process.env.R2_BUCKET_NAME;
 var accessKeyId = process.env.R2_ACCESS_KEY_ID;
 var secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
 if (!endpoint || !bucket) {
   console.warn("[R2] R2_ENDPOINT / R2_BUCKET_NAME \u304C\u8A2D\u5B9A\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+}
+var r2PublicBase = getR2PublicBaseUrl();
+if (process.env.NODE_ENV === "production" && !r2PublicBase) {
+  console.warn(
+    "[R2] R2_PUBLIC_BASE_URL is not set \u2014 uploads and playback will use /api/r2-public (Vercel bandwidth). Set a public R2 URL or custom domain."
+  );
+} else if (r2PublicBase) {
+  console.log("[R2] Direct public delivery enabled:", r2PublicBase);
 }
 var r2Client = endpoint && accessKeyId && secretAccessKey ? new S3Client({
   region: "auto",
@@ -2389,18 +2457,14 @@ async function createSignedUploadUrl(key, contentType) {
     ContentType: contentType
   });
   const uploadUrl = await getSignedUrl(r2Client, cmd, { expiresIn: 60 * 5 });
-  const publicBase = process.env.R2_PUBLIC_BASE_URL?.trim();
-  const useUnsafeR2DevBase = !!publicBase && /\.r2\.dev$/i.test(publicBase.replace(/^https?:\/\//i, "").replace(/\/.*$/, ""));
-  const publicUrl = publicBase && !useUnsafeR2DevBase ? `${publicBase.replace(/\/$/, "")}/${key}` : null;
+  const publicBase = getR2PublicBaseUrl();
+  const publicUrl = publicBase ? buildR2PublicObjectUrl(publicBase, key) : null;
   return { uploadUrl, publicUrl };
 }
 function resolveUploadPublicUrlForKey(req, key) {
-  const publicBase = process.env.R2_PUBLIC_BASE_URL?.trim();
+  const publicBase = getR2PublicBaseUrl();
   if (publicBase) {
-    const hostOnly = publicBase.replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
-    if (!/\.r2\.dev$/i.test(hostOnly)) {
-      return `${publicBase.replace(/\/$/, "")}/${key}`;
-    }
+    return buildR2PublicObjectUrl(publicBase, key);
   }
   const forwardedOrHost = String(req.get("x-forwarded-host") ?? req.get("host") ?? "").trim();
   const host = !forwardedOrHost ? "" : forwardedOrHost === "rawstock.live" ? forwardedOrHost : forwardedOrHost.endsWith("rawstock.live") ? "rawstock.live" : forwardedOrHost;
@@ -2427,12 +2491,15 @@ async function putR2ObjectBuffer(key, contentType, body) {
     })
   );
 }
-function isAppUploadR2Key(key) {
-  return /^rawstock_\d+_[a-zA-Z0-9_.-]+$/.test(key);
-}
 async function pipeR2PublicObjectToResponse(res, key) {
   if (!isAppUploadR2Key(key)) {
     res.status(400).end();
+    return;
+  }
+  const publicBase = getR2PublicBaseUrl();
+  if (publicBase) {
+    res.setHeader("Cache-Control", "public, max-age=86400, immutable");
+    res.redirect(302, buildR2PublicObjectUrl(publicBase, key));
     return;
   }
   if (!r2Client || !bucket) {
@@ -2467,6 +2534,102 @@ async function pipeR2PublicObjectToResponse(res, key) {
       return;
     }
     if (!res.headersSent) res.status(500).end();
+  }
+}
+
+// server/r2-multipart.ts
+import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
+  CreateMultipartUploadCommand,
+  UploadPartCommand
+} from "@aws-sdk/client-s3";
+import { getSignedUrl as getSignedUrl2 } from "@aws-sdk/s3-request-presigner";
+import { S3Client as S3Client2 } from "@aws-sdk/client-s3";
+var endpoint2 = process.env.R2_ENDPOINT;
+var bucket2 = process.env.R2_BUCKET_NAME;
+var accessKeyId2 = process.env.R2_ACCESS_KEY_ID;
+var secretAccessKey2 = process.env.R2_SECRET_ACCESS_KEY;
+var r2Client2 = endpoint2 && accessKeyId2 && secretAccessKey2 && bucket2 ? new S3Client2({
+  region: "auto",
+  endpoint: endpoint2,
+  credentials: { accessKeyId: accessKeyId2, secretAccessKey: secretAccessKey2 },
+  requestChecksumCalculation: "WHEN_REQUIRED",
+  responseChecksumValidation: "WHEN_REQUIRED",
+  forcePathStyle: true
+}) : null;
+var R2_MULTIPART_PART_BYTES = 5 * 1024 * 1024;
+function requireClient() {
+  if (!r2Client2 || !bucket2) {
+    throw new Error(
+      "R2 is not configured. Set R2_ENDPOINT, R2_BUCKET_NAME, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY."
+    );
+  }
+  return { client: r2Client2, bucket: bucket2 };
+}
+async function startMultipartUpload(key, contentType) {
+  const { client, bucket: b } = requireClient();
+  const ct = contentType.split(";")[0].trim() || "application/octet-stream";
+  const out = await client.send(
+    new CreateMultipartUploadCommand({
+      Bucket: b,
+      Key: key,
+      ContentType: ct
+    })
+  );
+  const uploadId = out.UploadId;
+  if (!uploadId) throw new Error("R2 did not return a multipart upload id");
+  const publicBase = getR2PublicBaseUrl();
+  const publicUrl = publicBase ? buildR2PublicObjectUrl(publicBase, key) : null;
+  return {
+    key,
+    uploadId,
+    partSize: R2_MULTIPART_PART_BYTES,
+    publicUrl
+  };
+}
+async function signMultipartUploadPart(key, uploadId, partNumber) {
+  const { client, bucket: b } = requireClient();
+  if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > 1e4) {
+    throw new Error("Invalid part number");
+  }
+  const cmd = new UploadPartCommand({
+    Bucket: b,
+    Key: key,
+    UploadId: uploadId,
+    PartNumber: partNumber
+  });
+  return getSignedUrl2(client, cmd, { expiresIn: 60 * 30 });
+}
+async function completeMultipartUpload(key, uploadId, parts) {
+  const { client, bucket: b } = requireClient();
+  if (!parts.length) throw new Error("No parts to complete");
+  const sorted = [...parts].sort((a, b2) => a.partNumber - b2.partNumber);
+  await client.send(
+    new CompleteMultipartUploadCommand({
+      Bucket: b,
+      Key: key,
+      UploadId: uploadId,
+      MultipartUpload: {
+        Parts: sorted.map((p) => ({
+          PartNumber: p.partNumber,
+          ETag: p.etag
+        }))
+      }
+    })
+  );
+}
+async function abortMultipartUpload(key, uploadId) {
+  const { client, bucket: b } = requireClient();
+  try {
+    await client.send(
+      new AbortMultipartUploadCommand({
+        Bucket: b,
+        Key: key,
+        UploadId: uploadId
+      })
+    );
+  } catch {
   }
 }
 
@@ -3224,6 +3387,8 @@ var userFollowsSchemaReady = false;
 var jukeboxRequestCountsReady = false;
 var clientErrorEventsReady = false;
 var bugReportsReady = false;
+var mentorBookingsSchemaReady = false;
+var notificationsSchemaReady = false;
 async function ensureJukeboxQueueSchema() {
   if (jukeboxQueueUserColumnReady) return;
   try {
@@ -3350,6 +3515,122 @@ async function ensureClientErrorEventsSchema() {
     clientErrorEventsReady = true;
   } catch (e) {
     console.error("[runtimeSchemaGuards] client_error_events:", e);
+  }
+}
+async function ensureMentorBookingsSchema() {
+  if (mentorBookingsSchemaReady) return;
+  try {
+    await db.execute(
+      sql4.raw(`
+        DO $$
+        BEGIN
+          IF EXISTS (
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = 'twoshot_bookings'
+          ) AND NOT EXISTS (
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = 'mentor_bookings'
+          ) THEN
+            ALTER TABLE "twoshot_bookings" RENAME TO "mentor_bookings";
+          END IF;
+        END $$;
+      `)
+    );
+    await db.execute(
+      sql4.raw(`
+        CREATE TABLE IF NOT EXISTS "mentor_bookings" (
+          "id" serial PRIMARY KEY NOT NULL,
+          "stream_id" integer,
+          "session_id" integer,
+          "user_id" text DEFAULT 'guest' NOT NULL,
+          "user_name" text NOT NULL,
+          "user_avatar" text,
+          "scheduled_at" timestamp,
+          "stripe_session_id" text,
+          "stripe_payment_intent_id" text,
+          "price" integer NOT NULL,
+          "status" text DEFAULT 'pending' NOT NULL,
+          "queue_position" integer DEFAULT 0 NOT NULL,
+          "whip_url" text,
+          "whep_url" text,
+          "cf_stream_uid" text,
+          "agreed_to_terms" boolean DEFAULT false NOT NULL,
+          "agreed_at" timestamp,
+          "notified_at" timestamp,
+          "completed_at" timestamp,
+          "cancelled_at" timestamp,
+          "cancel_reason" text,
+          "refundable" boolean DEFAULT false NOT NULL,
+          "evaluation_score" integer,
+          "created_at" timestamp DEFAULT now()
+        )
+      `)
+    );
+    await db.execute(
+      sql4.raw(`
+        CREATE TABLE IF NOT EXISTS "mentor_sessions" (
+          "id" serial PRIMARY KEY NOT NULL,
+          "creator_id" integer NOT NULL,
+          "title" text NOT NULL,
+          "category" text NOT NULL DEFAULT 'other',
+          "description" text NOT NULL DEFAULT '',
+          "price" integer NOT NULL,
+          "duration" integer NOT NULL DEFAULT 30,
+          "max_participants" integer NOT NULL DEFAULT 1,
+          "is_active" boolean NOT NULL DEFAULT true,
+          "created_at" timestamp DEFAULT now(),
+          "updated_at" timestamp DEFAULT now()
+        )
+      `)
+    );
+    await db.execute(
+      sql4.raw(`
+        ALTER TABLE "mentor_bookings"
+          ADD COLUMN IF NOT EXISTS "session_id" integer,
+          ADD COLUMN IF NOT EXISTS "scheduled_at" timestamp,
+          ADD COLUMN IF NOT EXISTS "whip_url" text,
+          ADD COLUMN IF NOT EXISTS "whep_url" text,
+          ADD COLUMN IF NOT EXISTS "cf_stream_uid" text
+      `)
+    );
+    await db.execute(
+      sql4.raw(`ALTER TABLE "mentor_bookings" ALTER COLUMN "stream_id" DROP NOT NULL`)
+    ).catch(() => {
+    });
+    await db.execute(
+      sql4.raw(`UPDATE "transactions" SET "source" = 'mentor' WHERE "source" = 'twoshot'`)
+    ).catch(() => {
+    });
+    await db.execute(
+      sql4.raw(`UPDATE "earnings" SET "type" = 'mentor' WHERE "type" = 'twoshot'`)
+    ).catch(() => {
+    });
+    await db.execute(
+      sql4.raw(`UPDATE "creators" SET "category" = 'mentor' WHERE "category" = 'twoshot'`)
+    ).catch(() => {
+    });
+    mentorBookingsSchemaReady = true;
+  } catch (e) {
+    console.error("[runtimeSchemaGuards] mentor_bookings:", e);
+  }
+}
+async function ensureNotificationsSchema() {
+  if (notificationsSchemaReady) return;
+  try {
+    await db.execute(
+      sql4.raw(`ALTER TABLE "notifications" ADD COLUMN IF NOT EXISTS "user_id" integer`)
+    );
+    await db.execute(
+      sql4.raw(`ALTER TABLE "notifications" ADD COLUMN IF NOT EXISTS "target_path" text`)
+    );
+    await db.execute(
+      sql4.raw(
+        `CREATE INDEX IF NOT EXISTS "notifications_user_id_created_at_idx" ON "notifications" ("user_id", "created_at" DESC)`
+      )
+    );
+    notificationsSchemaReady = true;
+  } catch (e) {
+    console.error("[runtimeSchemaGuards] notifications:", e);
   }
 }
 async function ensureBugReportsSchema() {
@@ -3507,18 +3788,18 @@ var TRANSLATE_RATE_LIMIT = 30;
 var translateRateBuckets = /* @__PURE__ */ new Map();
 function checkTranslateRateLimit(userId) {
   const now = Date.now();
-  const bucket2 = translateRateBuckets.get(userId);
-  if (!bucket2 || now - bucket2.windowStart >= TRANSLATE_RATE_WINDOW_MS) {
+  const bucket3 = translateRateBuckets.get(userId);
+  if (!bucket3 || now - bucket3.windowStart >= TRANSLATE_RATE_WINDOW_MS) {
     translateRateBuckets.set(userId, { windowStart: now, count: 1 });
     return { ok: true };
   }
-  if (bucket2.count >= TRANSLATE_RATE_LIMIT) {
+  if (bucket3.count >= TRANSLATE_RATE_LIMIT) {
     const retryAfterSec = Math.ceil(
-      (TRANSLATE_RATE_WINDOW_MS - (now - bucket2.windowStart)) / 1e3
+      (TRANSLATE_RATE_WINDOW_MS - (now - bucket3.windowStart)) / 1e3
     );
     return { ok: false, retryAfterSec };
   }
-  bucket2.count += 1;
+  bucket3.count += 1;
   return { ok: true };
 }
 function sessionUserFromRow(user) {
@@ -4223,6 +4504,18 @@ async function registerRoutes(app2) {
     }
     await pipeR2PublicObjectToResponse(res, key);
   });
+  app2.get("/api/app-config", (_req, res) => {
+    res.setHeader("Cache-Control", "public, max-age=300");
+    res.json({
+      r2PublicBaseUrl: getR2PublicBaseUrl(),
+      webVideoMaxDurationSecDaily: 30,
+      webVideoMaxDurationSecWork: 3600,
+      /** @deprecated Prefer webVideoMaxDurationSecWork */
+      webVideoMaxDurationSec: 3600,
+      webVideoPrepMaxMb: 500,
+      webSameOriginUploadMaxMb: 4
+    });
+  });
   app2.post("/api/lp/leads", async (req, res) => {
     const rawEmail = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
     const source = typeof req.body?.source === "string" ? req.body.source.trim().toLowerCase() : "email_form";
@@ -4234,7 +4527,7 @@ async function registerRoutes(app2) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail)) {
       return res.status(400).json({ error: "Invalid email format" });
     }
-    if (source !== "email_form" && source !== "line_cta") {
+    if (source !== "email_form") {
       return res.status(400).json({ error: "Invalid source" });
     }
     try {
@@ -4268,10 +4561,10 @@ async function registerRoutes(app2) {
     }
     const hash = await bcrypt.hash(password, 10);
     const displayName = name || email.split("@")[0];
-    const lineId = `email:${email}`;
+    const authSubjectId = `email:${email}`;
     const preferredLanguage = normalizePreferredLanguage(req.body?.preferredLanguage) ?? preferredLanguageFromHeader(req);
     const [user] = await db.insert(users).values({
-      lineId,
+      authSubjectId,
       displayName,
       email,
       passwordHash: hash,
@@ -4949,6 +5242,7 @@ async function registerRoutes(app2) {
     res.json({ isFollowing: !!row });
   });
   app2.get("/api/users/:id/mentor-sessions", async (req, res) => {
+    await ensureMentorBookingsSchema();
     const uid = paramNum(req, "id");
     if (!uid) return res.status(400).json({ error: "Invalid id" });
     const rows = await db.select().from(mentorSessions).where(and5(eq6(mentorSessions.creatorId, uid), eq6(mentorSessions.isActive, true))).orderBy(desc2(mentorSessions.createdAt));
@@ -5096,10 +5390,10 @@ async function registerRoutes(app2) {
         ...tokenData.refresh_token ? { googleRefreshToken: tokenData.refresh_token } : {},
         ...expiresAt ? { googleTokenExpiresAt: expiresAt } : {}
       };
-      let [existing] = await db.select().from(users).where(eq6(users.lineId, googleKey));
+      let [existing] = await db.select().from(users).where(eq6(users.authSubjectId, googleKey));
       if (!existing) {
         [existing] = await db.insert(users).values({
-          lineId: googleKey,
+          authSubjectId: googleKey,
           displayName,
           profileImageUrl: avatar,
           email: googleEmail,
@@ -7247,7 +7541,7 @@ async function registerRoutes(app2) {
     if (!admin) return;
     const rows = await db.select({ total: count() }).from(users).leftJoin(emailUnsubscribes, eq6(emailUnsubscribes.email, users.email)).where(
       and5(
-        sql5`${users.lineId} LIKE 'google:%'`,
+        sql5`${users.authSubjectId} LIKE 'google:%'`,
         isNotNull(users.email),
         isNull(emailUnsubscribes.id)
       )
@@ -7269,7 +7563,7 @@ async function registerRoutes(app2) {
     }
     const targetUsers = await db.select({ id: users.id, email: users.email }).from(users).leftJoin(emailUnsubscribes, eq6(emailUnsubscribes.email, users.email)).where(
       and5(
-        sql5`${users.lineId} LIKE 'google:%'`,
+        sql5`${users.authSubjectId} LIKE 'google:%'`,
         isNotNull(users.email),
         isNull(emailUnsubscribes.id)
       )
@@ -7442,6 +7736,85 @@ async function registerRoutes(app2) {
     }
     res.json({ key, url: filePublicUrl, fileUrl: filePublicUrl });
   });
+  app2.post("/api/upload-multipart/init", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const fileName = typeof req.body?.fileName === "string" ? req.body.fileName : `upload_${Date.now()}.mp4`;
+    const contentType = typeof req.body?.contentType === "string" ? req.body.contentType : "application/octet-stream";
+    const safeName = String(fileName).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 240);
+    const key = `rawstock_${Date.now()}_${safeName}`;
+    try {
+      const init = await startMultipartUpload(key, contentType);
+      let filePublicUrl = init.publicUrl;
+      if (!filePublicUrl) {
+        try {
+          filePublicUrl = resolveUploadPublicUrlForKey(req, key);
+        } catch {
+          filePublicUrl = null;
+        }
+      }
+      res.json({
+        key: init.key,
+        uploadId: init.uploadId,
+        partSize: init.partSize,
+        url: filePublicUrl,
+        fileUrl: filePublicUrl
+      });
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      console.error("[upload-multipart/init] failed", { err: e, userId: user.id });
+      return res.status(500).json({
+        error: errMsg.includes("not configured") ? "File storage is not configured." : "Failed to start multipart upload"
+      });
+    }
+  });
+  app2.post("/api/upload-multipart/sign-part", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const key = typeof req.body?.key === "string" ? req.body.key : "";
+    const uploadId = typeof req.body?.uploadId === "string" ? req.body.uploadId : "";
+    const partNumber = Number(req.body?.partNumber);
+    if (!key || !uploadId || !Number.isFinite(partNumber)) {
+      return res.status(400).json({ error: "key, uploadId, and partNumber are required" });
+    }
+    try {
+      const uploadUrl = await signMultipartUploadPart(key, uploadId, partNumber);
+      res.json({ uploadUrl });
+    } catch (e) {
+      console.error("[upload-multipart/sign-part] failed", { err: e, userId: user.id });
+      return res.status(500).json({ error: "Failed to sign upload part" });
+    }
+  });
+  app2.post("/api/upload-multipart/complete", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const key = typeof req.body?.key === "string" ? req.body.key : "";
+    const uploadId = typeof req.body?.uploadId === "string" ? req.body.uploadId : "";
+    const parts = Array.isArray(req.body?.parts) ? req.body.parts : [];
+    if (!key || !uploadId || parts.length === 0) {
+      return res.status(400).json({ error: "key, uploadId, and parts are required" });
+    }
+    const normalized = parts.map((p) => ({
+      partNumber: Number(p?.partNumber),
+      etag: typeof p?.etag === "string" ? p.etag.replace(/^"|"$/g, "") : ""
+    })).filter((p) => Number.isFinite(p.partNumber) && p.partNumber > 0 && p.etag);
+    try {
+      await completeMultipartUpload(key, uploadId, normalized);
+      const filePublicUrl = resolveUploadPublicUrlForKey(req, key);
+      res.json({ key, url: filePublicUrl, fileUrl: filePublicUrl });
+    } catch (e) {
+      console.error("[upload-multipart/complete] failed", { err: e, userId: user.id });
+      return res.status(500).json({ error: "Failed to complete multipart upload" });
+    }
+  });
+  app2.post("/api/upload-multipart/abort", async (req, res) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+    const key = typeof req.body?.key === "string" ? req.body.key : "";
+    const uploadId = typeof req.body?.uploadId === "string" ? req.body.uploadId : "";
+    if (key && uploadId) await abortMultipartUpload(key, uploadId);
+    res.json({ ok: true });
+  });
   app2.get("/api/videos/priority-feed", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
@@ -7483,14 +7856,16 @@ async function registerRoutes(app2) {
       }
     }
     res.json(
-      filtered.map((row) => ({
-        ...row,
-        timeAgo: row.createdAt ? formatTimeAgo(row.createdAt) : row.timeAgo,
-        creatorType: userMap.has(row.creator) ? "user" : creatorMap.has(row.creator) ? "liver" : null,
-        creatorId: userMap.get(row.creator) ?? creatorMap.get(row.creator) ?? null,
-        fromFollowing: row.userId != null && followingIds.includes(row.userId),
-        fromCommunity: row.communityId != null && communityIds.includes(row.communityId)
-      }))
+      filtered.map(
+        (row) => mapVideoMediaFieldsForApi({
+          ...row,
+          timeAgo: row.createdAt ? formatTimeAgo(row.createdAt) : row.timeAgo,
+          creatorType: userMap.has(row.creator) ? "user" : creatorMap.has(row.creator) ? "liver" : null,
+          creatorId: userMap.get(row.creator) ?? creatorMap.get(row.creator) ?? null,
+          fromFollowing: row.userId != null && followingIds.includes(row.userId),
+          fromCommunity: row.communityId != null && communityIds.includes(row.communityId)
+        })
+      )
     );
   });
   app2.get("/api/videos", async (req, res) => {
@@ -7514,7 +7889,11 @@ async function registerRoutes(app2) {
     const withCreator = rows.map((r) => {
       const uid = userMap.get(r.creator);
       const cid = creatorMap.get(r.creator);
-      return { ...r, creatorType: uid ? "user" : cid ? "liver" : null, creatorId: uid ?? cid ?? null };
+      return mapVideoMediaFieldsForApi({
+        ...r,
+        creatorType: uid ? "user" : cid ? "liver" : null,
+        creatorId: uid ?? cid ?? null
+      });
     });
     res.json(withCreator);
   });
@@ -7523,7 +7902,7 @@ async function registerRoutes(app2) {
     if (!user) return res.status(401).json({ error: "Not authenticated" });
     const rows = await db.select().from(videos).where(or(eq6(videos.creator, user.displayName), eq6(videos.userId, user.id))).orderBy(desc2(videos.createdAt));
     const filtered = rows.filter((r) => !r.hidden);
-    res.json(filtered);
+    res.json(filtered.map(mapVideoMediaFieldsForApi));
   });
   app2.delete("/api/videos/mine", async (req, res) => {
     const user = await getAuthUser(req);
@@ -7551,7 +7930,7 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/videos/ranked", async (_req, res) => {
     const rows = await db.select().from(videos).where(and5(eq6(videos.postType, "work"), eq6(videos.hidden, false))).orderBy(asc3(videos.rank));
-    res.json(rows);
+    res.json(rows.map(mapVideoMediaFieldsForApi));
   });
   app2.get("/api/videos/saved", async (req, res) => {
     const user = await getAuthUser(req);
@@ -7565,10 +7944,12 @@ async function registerRoutes(app2) {
       views: videos.views,
       createdAt: videos.createdAt
     }).from(savedVideos).innerJoin(videos, eq6(videos.id, savedVideos.videoId)).where(and5(eq6(savedVideos.userId, user.id), eq6(videos.hidden, false))).orderBy(desc2(savedVideos.createdAt));
-    const timeAgoList = rows.map((r) => ({
-      ...r,
-      timeAgo: r.createdAt ? formatTimeAgo(r.createdAt) : "Just now"
-    }));
+    const timeAgoList = rows.map(
+      (r) => mapVideoMediaFieldsForApi({
+        ...r,
+        timeAgo: r.createdAt ? formatTimeAgo(r.createdAt) : "Just now"
+      })
+    );
     res.json(timeAgoList);
   });
   app2.get("/api/videos/:id", async (req, res) => {
@@ -7585,7 +7966,15 @@ async function registerRoutes(app2) {
     const [creatorLiver] = !creatorUser ? await db.select({ id: creators.id }).from(creators).where(eq6(creators.name, row.creator)) : [];
     const creatorType = creatorUser ? "user" : creatorLiver ? "liver" : null;
     const creatorId = row.userId ?? creatorUser?.id ?? null;
-    res.json({ ...row, timeAgo, creatorType, creatorId, creatorLiverProfileId: creatorLiver?.id ?? null });
+    res.json(
+      mapVideoMediaFieldsForApi({
+        ...row,
+        timeAgo,
+        creatorType,
+        creatorId,
+        creatorLiverProfileId: creatorLiver?.id ?? null
+      })
+    );
   });
   app2.get("/api/videos/:id/comments", async (req, res) => {
     const videoId = paramNum(req, "id");
@@ -7634,19 +8023,19 @@ async function registerRoutes(app2) {
       timeAgo: "Just now",
       duration,
       price: price ?? null,
-      thumbnail,
+      thumbnail: rewriteStoredMediaUrl(thumbnail) ?? thumbnail,
       description: description?.trim() || null,
       avatar: user.profileImageUrl ?? user.avatar ?? "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=80&h=80&fit=crop",
       concertId: concertId ?? null,
       userId: user.id,
       visibility: vis,
       communityId: vis === "community" ? communityId ?? null : null,
-      videoUrl: videoUrl?.trim() || null,
+      videoUrl: videoUrl?.trim() ? rewriteStoredMediaUrl(videoUrl.trim()) ?? videoUrl.trim() : null,
       youtubeId: youtubeId?.trim() || null,
       postType: postType === "work" ? "work" : "daily",
       isRanked: postType === "work"
     }).returning();
-    res.status(201).json(row);
+    res.status(201).json(mapVideoMediaFieldsForApi(row));
   });
   app2.patch("/api/videos/:id", async (req, res) => {
     const user = await getAuthUser(req);
@@ -7677,15 +8066,15 @@ async function registerRoutes(app2) {
     }
     if (videoUrl !== void 0) {
       const v = typeof videoUrl === "string" ? videoUrl.trim() : "";
-      updates.videoUrl = v.length ? v : null;
+      updates.videoUrl = v.length ? rewriteStoredMediaUrl(v) ?? v : null;
     }
     if (duration !== void 0) {
       const d = typeof duration === "string" ? duration.trim() : "";
       if (d.length) updates.duration = d;
     }
-    if (Object.keys(updates).length === 0) return res.json(video);
+    if (Object.keys(updates).length === 0) return res.json(mapVideoMediaFieldsForApi(video));
     const [updated] = await db.update(videos).set(updates).where(eq6(videos.id, id)).returning();
-    res.json(updated);
+    res.json(mapVideoMediaFieldsForApi(updated));
   });
   app2.delete("/api/videos/:id", async (req, res) => {
     const user = await getAuthUser(req);
@@ -7891,6 +8280,10 @@ async function registerRoutes(app2) {
       }
     }
     res.json(updated ?? { ok: true });
+  });
+  app2.use("/api/notifications", async (_req, _res, next) => {
+    await ensureNotificationsSchema();
+    next();
   });
   app2.get("/api/notifications/unread-count", async (req, res) => {
     const me = await getAuthUser(req);
@@ -9058,6 +9451,10 @@ data: ${data}
     }
     await db.delete(jukeboxQueue).where(eq6(jukeboxQueue.id, itemId));
     res.json({ ok: true });
+  });
+  app2.use("/api/mentor", async (_req, _res, next) => {
+    await ensureMentorBookingsSchema();
+    next();
   });
   app2.get("/api/mentor/session/:id", async (req, res) => {
     const id = paramNum(req, "id");

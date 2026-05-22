@@ -1309,7 +1309,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     });
   });
 
-  // ── LP lead capture (email / LINE) ───────────────────────────────
+  // ── LP lead capture (email) ─────────────────────────────────────
   app.post("/api/lp/leads", async (req: Request, res: Response) => {
     const rawEmail = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
     const source = typeof req.body?.source === "string" ? req.body.source.trim().toLowerCase() : "email_form";
@@ -1322,7 +1322,7 @@ export async function registerRoutes(app: Express): Promise<void> {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail)) {
       return res.status(400).json({ error: "Invalid email format" });
     }
-    if (source !== "email_form" && source !== "line_cta") {
+    if (source !== "email_form") {
       return res.status(400).json({ error: "Invalid source" });
     }
 
@@ -1363,12 +1363,12 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
     const hash = await bcrypt.hash(password, 10);
     const displayName = name || email.split("@")[0];
-    const lineId = `email:${email}`;
+    const authSubjectId = `email:${email}`;
     const preferredLanguage =
       normalizePreferredLanguage(req.body?.preferredLanguage) ??
       preferredLanguageFromHeader(req);
     const [user] = await db.insert(users).values({
-      lineId,
+      authSubjectId,
       displayName,
       email,
       passwordHash: hash,
@@ -2410,12 +2410,12 @@ export async function registerRoutes(app: Express): Promise<void> {
         ...(expiresAt ? { googleTokenExpiresAt: expiresAt } : {}),
       };
 
-      let [existing] = await db.select().from(users).where(eq(users.lineId, googleKey));
+      let [existing] = await db.select().from(users).where(eq(users.authSubjectId, googleKey));
       if (!existing) {
         [existing] = await db
           .insert(users)
           .values({
-            lineId: googleKey,
+            authSubjectId: googleKey,
             displayName,
             profileImageUrl: avatar,
             email: googleEmail,
@@ -5118,7 +5118,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     const rawLimit =
       typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : 100;
-    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 100;
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 500) : 100;
     const includeResolved = req.query.includeResolved === "1" || req.query.includeResolved === "true";
 
     const baseQuery = db.select().from(clientErrorEvents);
@@ -5306,7 +5306,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       .leftJoin(emailUnsubscribes, eq(emailUnsubscribes.email, users.email))
       .where(
         and(
-          sql`${users.lineId} LIKE 'google:%'`,
+          sql`${users.authSubjectId} LIKE 'google:%'`,
           isNotNull(users.email),
           isNull(emailUnsubscribes.id),
         ),
@@ -5354,7 +5354,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       .leftJoin(emailUnsubscribes, eq(emailUnsubscribes.email, users.email))
       .where(
         and(
-          sql`${users.lineId} LIKE 'google:%'`,
+          sql`${users.authSubjectId} LIKE 'google:%'`,
           isNotNull(users.email),
           isNull(emailUnsubscribes.id),
         ),

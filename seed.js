@@ -12,7 +12,7 @@ async function seed() {
   }
 
   // ── Users (28) ────────────────────────────────────────────────────────────
-  // Format: [line_id, display_name, profile_image_url, role, bio]
+  // Format: [auth_subject, display_name, profile_image_url, role, bio]
   const users = [
     // Music creators
     ['email:artist1@rawstock.uk',  'DJ KAZE',          'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=80&h=80&fit=crop', 'ARTIST', 'Tokyo-based DJ. Techno / House / Ambient. Playing underground since 2019.'],
@@ -52,7 +52,7 @@ async function seed() {
   const userIds = [];
   for (const u of users) {
     const r = await pool.query(
-      `INSERT INTO users (line_id, display_name, profile_image_url, role, bio)
+      `INSERT INTO users (auth_subject, display_name, profile_image_url, role, bio)
        VALUES ($1,$2,$3,$4,$5) RETURNING id`, u
     );
     userIds.push(r.rows[0].id);

@@ -355,6 +355,15 @@ export default function ProfileScreen() {
       return res.json();
     },
   });
+  const priorityFeed = useMemo(() => priorityFeedVideos.slice(0, 6), [priorityFeedVideos]);
+  const dailyVideos = useMemo(
+    () => myVideos.filter((v: any) => (v as any).postType === "daily" || !(v as any).postType),
+    [myVideos],
+  );
+  const workVideos = useMemo(
+    () => myVideos.filter((v: any) => (v as any).postType === "work"),
+    [myVideos],
+  );
   const { data: savedVideos = [] } = useQuery<MyVideo[]>({
     queryKey: ["/api/videos/saved"],
     enabled: !!user && !!token && showWatchlist,
@@ -881,15 +890,6 @@ export default function ProfileScreen() {
         dataSection: "Data",
         timeJustNow: "just now",
       };
-  const priorityFeed = useMemo(() => priorityFeedVideos.slice(0, 6), [priorityFeedVideos]);
-  const dailyVideos = useMemo(
-    () => myVideos.filter((v: any) => (v as any).postType === "daily" || !(v as any).postType),
-    [myVideos],
-  );
-  const workVideos = useMemo(
-    () => myVideos.filter((v: any) => (v as any).postType === "work"),
-    [myVideos],
-  );
 
   return (
     <View style={[styles.container, { paddingBottom: bottomInset }]}>

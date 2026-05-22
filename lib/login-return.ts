@@ -1,4 +1,5 @@
-const RETURN_KEY = "line_login_return";
+const RETURN_KEY = "auth_login_return";
+const LEGACY_RETURN_KEY = "line_login_return";
 
 /** Persist post-login return URL (does not overwrite if a value already exists). */
 export function saveLoginReturn(path: string | null | undefined) {
@@ -6,10 +7,11 @@ export function saveLoginReturn(path: string | null | undefined) {
   if (!path) return;
   if (path.startsWith("/auth/login")) return;
   try {
-    const existing = localStorage.getItem(RETURN_KEY);
+    const existing = localStorage.getItem(RETURN_KEY) ?? localStorage.getItem(LEGACY_RETURN_KEY);
     if (existing) return;
     if (path.startsWith("/") && !path.startsWith("//")) {
       localStorage.setItem(RETURN_KEY, path);
+      localStorage.removeItem(LEGACY_RETURN_KEY);
     }
   } catch {
     // ignore
@@ -20,9 +22,11 @@ export function saveLoginReturn(path: string | null | undefined) {
 export function getLoginReturn(): string | null {
   if (typeof window === "undefined") return null;
   try {
-    const saved = localStorage.getItem(RETURN_KEY);
+    const saved =
+      localStorage.getItem(RETURN_KEY) ?? localStorage.getItem(LEGACY_RETURN_KEY);
     if (saved && saved.startsWith("/") && !saved.startsWith("//")) {
       localStorage.removeItem(RETURN_KEY);
+      localStorage.removeItem(LEGACY_RETURN_KEY);
       return saved;
     }
   } catch {
@@ -62,4 +66,3 @@ export function consumeLoginRedirectPath(): string {
   if (isInvalidReturn) returnTo = DEFAULT_AFTER_LOGIN;
   return returnTo;
 }
-

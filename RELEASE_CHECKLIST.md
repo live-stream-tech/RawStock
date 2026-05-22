@@ -19,14 +19,13 @@
 
 必須:
 - `DATABASE_URL`
-- `LINE_CHANNEL_ID`, `LINE_CHANNEL_SECRET`, `LINE_CALLBACK_URL`
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
 - `FRONTEND_URL`, `EXPO_PUBLIC_DOMAIN`
 - `SESSION_SECRET`
 
 オプション（機能ごと）:
 - `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`（ツーショット決済）
 - `YOUTUBE_API_KEY`（ジュークボックス）
-- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL`（Google ログイン）
 
 ### ビルド・デプロイ
 
@@ -37,7 +36,7 @@ npm run deploy
 
 ### 本番動作確認
 
-1. **認証**: LINE / Google ログイン → コールバック → トップへ
+1. **認証**: Google ログイン → コールバック → トップへ
 2. **ヘルスチェック**: `https://<your-domain>/api/healthcheck` が 200 OK を返すこと
 3. **法的ページ**: /terms, /privacy, /tokusho が表示されること
 4. **コミュニティ・動画・ジュークボックス・DM**: 主要画面の表示・遷移

@@ -28,6 +28,10 @@ import { webScrollStyle } from "@/constants/layout";
 import { alertError, alertMessage } from "@/lib/alertCompat";
 import { beginActionTelemetry } from "@/lib/actionTelemetry";
 import { reportUploadFailure } from "@/lib/reportUploadFailure";
+import { allowUploadAction, reportUploadBlocked, reportUploadPickerCancelled } from "@/lib/uploadActionLog";
+import { runAfterVideoPostChecks } from "@/lib/afterVideoPostCheck";
+import { pickWebImageFile } from "@/lib/pickWebImageFile";
+import { pickWebVideoFile } from "@/lib/pickWebVideoFile";
 import { VideoUploadPrepModal } from "@/components/VideoUploadPrepModal";
 import {
   VideoPostPricing,
@@ -133,11 +137,17 @@ export default function DailyUploadScreen() {
 
   function addMedia(id: string, uri: string, type: "image" | "video", size?: number, durationSec?: number) {
     if (mediaItems.length >= DAILY_POST_LIMITS.maxMediaCount) {
-      Alert.alert("", t.maxItems);
+      reportUploadBlocked(
+        { flow: "daily", stage: "add_media_max_items", mediaType: type },
+        { title: t.errorTitle, message: t.maxItems, alert: true, extra: { mediaCount: mediaItems.length } },
+      );
       return;
     }
     if (type === "video" && videoCount >= DAILY_POST_LIMITS.maxVideoCount) {
-      Alert.alert("", t.maxOneVideo);
+      reportUploadBlocked(
+        { flow: "daily", stage: "add_media_max_video", mediaType: "video" },
+        { title: t.errorTitle, message: t.maxOneVideo, alert: true },
+      );
       return;
     }
     setMediaItems((prev) => [...prev, { id, uri, type, size, durationSec }]);
@@ -151,6 +161,19 @@ export default function DailyUploadScreen() {
     });
   }
 
+  /** First image in mediaItems is the cover thumbnail. */
+  function setThumbnailImage(uri: string, size?: number) {
+    const item: MediaItem = { id: `img-${Date.now()}`, uri, type: "image", size };
+    setMediaItems((prev) => {
+      const thumbIdx = prev.findIndex((m) => m.type === "image");
+      if (thumbIdx >= 0) {
+        const old = prev[thumbIdx];
+        if (old.uri.startsWith("blob:")) URL.revokeObjectURL(old.uri);
+        return [...prev.slice(0, thumbIdx), item, ...prev.slice(thumbIdx + 1)];
+      }
+      return [item, ...prev];
+    });
+  }
 
   async function uploadFileToR2Native(uri: string, name: string, mime: string) {
     console.log(`${UPLOAD_LOG} step:daily_native_blob_fetch_start`, { name, mime });
@@ -165,36 +188,58 @@ export default function DailyUploadScreen() {
     return url;
   }
 
-  async function pickPhoto() {
-    if (!canAddMore) return;
-    if (Platform.OS === "web") {
-      const input = document.createElement("input");
-      input.type = "file";
-      input.accept = "image/*";
-      input.onchange = (e: any) => {
-        const file = e.target.files?.[0] as File | undefined;
-        if (!file) return;
-        if (file.size > DAILY_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
-          reportUploadFailure({
-            title: t.errorTitle,
-            message: t.fileLimit,
-            stage: "pick_photo_file_size",
-            flow: "daily",
-            mediaType: "image",
-            fileSizeBytes: file.size,
-          });
-          alertMessage(t.errorTitle, t.fileLimit);
-          return;
-        }
-        addMedia(`img-${Date.now()}`, URL.createObjectURL(file), "image", file.size);
-      };
-      document.body.appendChild(input);
-      input.click();
-      document.body.removeChild(input);
+  async function pickThumbnail() {
+    if (
+      !allowUploadAction(!uploading, { flow: "daily", stage: "pick_thumbnail", mediaType: "image" }, {
+        title: t.errorTitle,
+        message: t.uploadInProgress,
+        alert: true,
+      })
+    ) {
       return;
     }
+    const replacing = !!thumbnailItem;
+    if (!replacing && !canAddMore) {
+      reportUploadBlocked(
+        { flow: "daily", stage: "pick_thumbnail", mediaType: "image" },
+        {
+          title: t.errorTitle,
+          message: t.thumbnailNeedSlot,
+          alert: true,
+          extra: { mediaCount: mediaItems.length },
+        },
+      );
+      return;
+    }
+
+    if (Platform.OS === "web") {
+      const file = await pickWebImageFile();
+      if (!file) {
+        reportUploadPickerCancelled({ flow: "daily", stage: "pick_thumbnail", mediaType: "image" });
+        return;
+      }
+      if (file.size > DAILY_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
+        reportUploadFailure({
+          title: t.errorTitle,
+          message: t.fileLimit,
+          stage: "pick_thumbnail_file_size",
+          flow: "daily",
+          mediaType: "image",
+          fileSizeBytes: file.size,
+        });
+        alertMessage(t.errorTitle, t.fileLimit);
+        return;
+      }
+      setThumbnailImage(URL.createObjectURL(file), file.size);
+      return;
+    }
+
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
+      reportUploadBlocked(
+        { flow: "daily", stage: "pick_thumbnail", mediaType: "image" },
+        { title: t.permissionRequired, message: t.pickerPermissionDenied, alert: true, extra: { permissionStatus: status } },
+      );
       Alert.alert(t.permissionRequired, t.allowPhotos);
       return;
     }
@@ -203,58 +248,174 @@ export default function DailyUploadScreen() {
       allowsEditing: false,
       quality: 0.9,
     });
-    if (!result.canceled && result.assets[0]) {
-      const asset = result.assets[0];
-      try {
-        setUploading(true);
-        const compressedUri = await compressImageForUpload(asset.uri);
-        const mime = "image/jpeg";
-        const name = asset.fileName ?? "image.jpg";
-        const url = await uploadFileToR2Native(compressedUri, name, mime);
-        addMedia(`img-${Date.now()}`, url, "image");
-      } catch (err: unknown) {
+    if (result.canceled || !result.assets[0]) {
+      reportUploadPickerCancelled({ flow: "daily", stage: "pick_thumbnail", mediaType: "image" });
+      return;
+    }
+    const asset = result.assets[0];
+    try {
+      setUploading(true);
+      const compressedUri = await compressImageForUpload(asset.uri);
+      const url = await uploadFileToR2Native(compressedUri, asset.fileName ?? "image.jpg", "image/jpeg");
+      setThumbnailImage(url);
+    } catch (err: unknown) {
+      reportUploadFailure({
+        title: t.errorTitle,
+        err,
+        stage: "pick_thumbnail_native",
+        flow: "daily",
+        mediaType: "image",
+      });
+      alertError(t.errorTitle, err, toUploadErrorMessage(err, DAILY_POST_LIMITS.maxFileSizeMB, isJaUi, t), {
+        skipIngest: true,
+      });
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function pickBodyPhoto() {
+    if (
+      !allowUploadAction(!uploading, { flow: "daily", stage: "pick_body_photo", mediaType: "image" }, {
+        title: t.errorTitle,
+        message: t.uploadInProgress,
+        alert: true,
+      })
+    ) {
+      return;
+    }
+    if (
+      !allowUploadAction(canAddMore, { flow: "daily", stage: "pick_body_photo", mediaType: "image" }, {
+        title: t.errorTitle,
+        message: t.maxItems,
+        alert: true,
+        extra: { mediaCount: mediaItems.length },
+      })
+    ) {
+      return;
+    }
+
+    if (Platform.OS === "web") {
+      const file = await pickWebImageFile();
+      if (!file) {
+        reportUploadPickerCancelled({ flow: "daily", stage: "pick_body_photo", mediaType: "image" });
+        return;
+      }
+      if (file.size > DAILY_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
         reportUploadFailure({
           title: t.errorTitle,
-          err,
-          stage: "pick_photo_native",
+          message: t.fileLimit,
+          stage: "pick_photo_file_size",
           flow: "daily",
           mediaType: "image",
+          fileSizeBytes: file.size,
         });
-        alertError(t.errorTitle, err, toUploadErrorMessage(err, DAILY_POST_LIMITS.maxFileSizeMB, isJaUi, t), {
-          skipIngest: true,
-        });
-      } finally {
-        setUploading(false);
+        alertMessage(t.errorTitle, t.fileLimit);
+        return;
       }
+      addMedia(`img-${Date.now()}`, URL.createObjectURL(file), "image", file.size);
+      return;
+    }
+
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      reportUploadBlocked(
+        { flow: "daily", stage: "pick_body_photo", mediaType: "image" },
+        { title: t.permissionRequired, message: t.pickerPermissionDenied, alert: true, extra: { permissionStatus: status } },
+      );
+      Alert.alert(t.permissionRequired, t.allowPhotos);
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: false,
+      quality: 0.9,
+    });
+    if (result.canceled || !result.assets[0]) {
+      reportUploadPickerCancelled({ flow: "daily", stage: "pick_body_photo", mediaType: "image" });
+      return;
+    }
+    const asset = result.assets[0];
+    try {
+      setUploading(true);
+      const compressedUri = await compressImageForUpload(asset.uri);
+      const url = await uploadFileToR2Native(compressedUri, asset.fileName ?? "image.jpg", "image/jpeg");
+      addMedia(`img-${Date.now()}`, url, "image");
+    } catch (err: unknown) {
+      reportUploadFailure({
+        title: t.errorTitle,
+        err,
+        stage: "pick_photo_native",
+        flow: "daily",
+        mediaType: "image",
+      });
+      alertError(t.errorTitle, err, toUploadErrorMessage(err, DAILY_POST_LIMITS.maxFileSizeMB, isJaUi, t), {
+        skipIngest: true,
+      });
+    } finally {
+      setUploading(false);
     }
   }
 
   async function pickVideo() {
-    if (!canAddMore || !canAddVideo) return;
+    if (
+      !allowUploadAction(!uploading, { flow: "daily", stage: "pick_video", mediaType: "video" }, {
+        title: t.errorTitle,
+        message: t.uploadInProgress,
+        alert: true,
+      })
+    ) {
+      return;
+    }
+    if (
+      !allowUploadAction(canAddMore, { flow: "daily", stage: "pick_video", mediaType: "video" }, {
+        title: t.errorTitle,
+        message: t.maxItems,
+        alert: true,
+        extra: { mediaCount: mediaItems.length },
+      })
+    ) {
+      return;
+    }
+    if (
+      !allowUploadAction(canAddVideo, { flow: "daily", stage: "pick_video", mediaType: "video" }, {
+        title: t.errorTitle,
+        message: t.maxOneVideo,
+        alert: true,
+        extra: { videoCount },
+      })
+    ) {
+      return;
+    }
     if (Platform.OS === "web") {
-      const input = document.createElement("input");
-      input.type = "file";
-      input.accept = "video/*";
-      input.onchange = (e: any) => {
-        const file = e.target.files?.[0] as File | undefined;
-        if (!file) return;
-        // No raw size pre-check — VideoUploadPrepModal trims and compresses to fit R2 limit.
-        // Reject only absurdly large files that would crash the browser tab.
-        const BROWSER_SAFETY_BYTES = 4 * 1024 * 1024 * 1024; // 4 GB
-        if (file.size > BROWSER_SAFETY_BYTES) {
-          alertMessage(t.errorTitle, t.browserFileTooLarge);
-          return;
-        }
-        setVideoPrepFile(file);
-        setVideoPrepOpen(true);
-      };
-      document.body.appendChild(input);
-      input.click();
-      document.body.removeChild(input);
+      const file = await pickWebVideoFile();
+      if (!file) {
+        reportUploadPickerCancelled({ flow: "daily", stage: "pick_video", mediaType: "video" });
+        return;
+      }
+      const BROWSER_SAFETY_BYTES = 4 * 1024 * 1024 * 1024; // 4 GB
+      if (file.size > BROWSER_SAFETY_BYTES) {
+        reportUploadFailure({
+          title: t.errorTitle,
+          message: t.browserFileTooLarge,
+          stage: "pick_video_file_size",
+          flow: "daily",
+          mediaType: "video",
+          fileSizeBytes: file.size,
+        });
+        alertMessage(t.errorTitle, t.browserFileTooLarge);
+        return;
+      }
+      setVideoPrepFile(file);
+      setVideoPrepOpen(true);
       return;
     }
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
+      reportUploadBlocked(
+        { flow: "daily", stage: "pick_video", mediaType: "video" },
+        { title: t.permissionRequired, message: t.pickerPermissionDenied, alert: true, extra: { permissionStatus: status } },
+      );
       Alert.alert(t.permissionRequired, t.allowVideos);
       return;
     }
@@ -267,9 +428,12 @@ export default function DailyUploadScreen() {
         ? { videoExportPreset: ImagePicker.VideoExportPreset.H264_1280x720 }
         : {}),
     });
-    if (!result.canceled && result.assets[0]) {
-      const asset = result.assets[0];
-      if ((asset.fileSize ?? 0) > DAILY_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
+    if (result.canceled || !result.assets[0]) {
+      reportUploadPickerCancelled({ flow: "daily", stage: "pick_video", mediaType: "video" });
+      return;
+    }
+    const asset = result.assets[0];
+    if ((asset.fileSize ?? 0) > DAILY_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
         reportUploadFailure({
           title: t.errorTitle,
           message: t.fileLimit,
@@ -318,7 +482,6 @@ export default function DailyUploadScreen() {
       } finally {
         setUploading(false);
       }
-    }
   }
 
   async function ensureHttpsUrl(uri: string, type: "image" | "video", failedMessage: string): Promise<string> {
@@ -435,7 +598,7 @@ export default function DailyUploadScreen() {
         user?.profileImageUrl ??
         "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=80&h=80&fit=crop";
 
-      await apiRequest("POST", "/api/videos", {
+      const postRes = await apiRequest("POST", "/api/videos", {
         title,
         description: title,
         creator: creatorName,
@@ -451,12 +614,22 @@ export default function DailyUploadScreen() {
         postType: "daily",
         complianceAcknowledged: true,
       });
+      const created = (await postRes.json()) as { id?: number; videoUrl?: string | null; thumbnail?: string | null };
+      if (videoUrlToSend) {
+        await runAfterVideoPostChecks({
+          flow: "daily",
+          created,
+          fallbackVideoUrl: videoUrlToSend,
+          fallbackThumbUrl: thumbUrl,
+        });
+      }
       router.replace("/profile");
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       queryClient.invalidateQueries({ queryKey: ["/api/videos/my"] });
       action.success({
         stage: "posted",
         hasVideo: Boolean(videoUrlToSend),
+        videoId: created?.id ?? null,
         visibility: postTarget === "my_page_only" ? "my_page_only" : "community",
       });
     } catch (err: any) {
@@ -515,7 +688,8 @@ export default function DailyUploadScreen() {
         <View style={styles.coverRow}>
           <Pressable
             style={styles.coverThumb}
-            onPress={canAddMore && !uploading ? pickPhoto : undefined}
+            onPress={() => void pickThumbnail()}
+            disabled={uploading}
           >
             {thumbnailItem ? (
               <Image source={{ uri: thumbnailItem.uri }} style={styles.coverThumbImg} contentFit="cover" />
@@ -547,7 +721,7 @@ export default function DailyUploadScreen() {
               </View>
             ))}
             {canAddMore && !uploading && (
-              <Pressable style={styles.bodyImgAdd} onPress={pickPhoto}>
+              <Pressable style={styles.bodyImgAdd} onPress={() => void pickBodyPhoto()}>
                 <Ionicons name="add" size={22} color={C.textMuted} />
               </Pressable>
             )}
@@ -571,7 +745,7 @@ export default function DailyUploadScreen() {
           ) : (
             <Pressable
               style={[styles.videoAddArea, (!canAddVideo || uploading) && styles.videoAddAreaDisabled]}
-              onPress={canAddVideo && !uploading ? pickVideo : undefined}
+              onPress={() => void pickVideo()}
             >
               <Ionicons name="videocam-outline" size={28} color={canAddVideo ? C.accent : C.textMuted} />
               <Text style={[styles.videoAddLabel, !canAddVideo && { color: C.textMuted }]}>{t.videoAddLabel}</Text>
@@ -722,6 +896,7 @@ export default function DailyUploadScreen() {
               uploadedUrl ??
               (await uploadUserMediaBlobToR2(blob, fileName, blob.type || "video/mp4"));
             addMedia(`vid-${Date.now()}`, url, "video", blob.size, durationSec);
+            if (previewUrl.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
           } catch (err: unknown) {
             reportUploadFailure({
               title: t.errorTitle,

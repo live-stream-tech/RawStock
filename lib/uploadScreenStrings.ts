@@ -30,6 +30,8 @@ export type DailyUploadStrings = {
   videoWebTooLarge: string;
   maxItems: string;
   maxOneVideo: string;
+  uploadInProgress: string;
+  pickerPermissionDenied: string;
   videoDurationLimit: string;
   headerTitle: string;
   switchToWork: string;
@@ -49,6 +51,7 @@ export type DailyUploadStrings = {
   thumbnailLabel: string;
   thumbnailChange: string;
   thumbnailOptional: string;
+  thumbnailNeedSlot: string;
   imagesSectionLabel: string;
   imagesOptional: string;
   videoSectionLabel: string;
@@ -108,6 +111,8 @@ const DAILY_EN: DailyUploadStrings = {
     "Video upload to storage failed. If this keeps happening, R2 CORS may need to be configured (see docs/R2-CORS.md). Try Light quality or a shorter clip.",
   maxItems: "",
   maxOneVideo: "Only one video can be added per post.",
+  uploadInProgress: "Please wait until the current upload finishes.",
+  pickerPermissionDenied: "Media library access was not granted.",
   videoDurationLimit: "",
   headerTitle: "Daily Post",
   switchToWork: "Post Work",
@@ -127,7 +132,8 @@ const DAILY_EN: DailyUploadStrings = {
   cancel: "Cancel",
   thumbnailLabel: "Thumbnail",
   thumbnailChange: "Tap to change",
-  thumbnailOptional: "Optional · for listings",
+  thumbnailOptional: "Tap to add cover image",
+  thumbnailNeedSlot: "Remove a photo or video first (max 3 items per post).",
   imagesSectionLabel: "Images",
   imagesOptional: "Optional",
   videoSectionLabel: "Video",
@@ -169,6 +175,8 @@ const DAILY_JA: DailyUploadStrings = {
   videoWebTooLarge:
     "ストレージへのアップロードに失敗しました。続く場合は R2 の CORS 設定が必要なことがあります（docs/R2-CORS.md）。「軽量」または短いクリップでお試しください。",
   maxOneVideo: "1回の投稿に追加できる動画は1本までです。",
+  uploadInProgress: "アップロード中です。完了までお待ちください。",
+  pickerPermissionDenied: "写真ライブラリへのアクセスが許可されていません。",
   headerTitle: "日常投稿",
   switchToWork: "作品投稿",
   placeholder: "いま何をシェアしますか？",
@@ -186,7 +194,8 @@ const DAILY_JA: DailyUploadStrings = {
   cancel: "キャンセル",
   thumbnailLabel: "サムネイル",
   thumbnailChange: "タップして変更",
-  thumbnailOptional: "任意 · 一覧用",
+  thumbnailOptional: "タップしてカバー画像を追加",
+  thumbnailNeedSlot: "写真または動画を1つ削除してください（1投稿あたり最大3点）。",
   imagesSectionLabel: "画像",
   imagesOptional: "任意",
   videoSectionLabel: "動画",

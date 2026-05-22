@@ -66,7 +66,7 @@ npm run deploy
 2. **デプロイメントの存在**  
    [DEPLOYMENT_NOT_FOUND](#deployment_not_found404が出る場合) と同様に、そのデプロイが存在し、環境変数がそのデプロイの URL を指しているか確認する。
 
-3. **パスが「あるはず」のとき（例: `/api/auth/line`）**  
+3. **パスが「あるはず」のとき（例: `/api/auth/google`）**  
    - **Functions タブ**で `api/index` と `api/[...path]` が表示されているか。  
    - **Root Directory** が `.` または未設定か。  
    - `vercel.json` の `rewrites` で `/api/*` が先にマッチし、SPA フォールバックに飲み込まれていないか。
@@ -86,7 +86,7 @@ npm run deploy
 
 1. **デプロイメント URL の確認**  
    Vercel ダッシュボード → プロジェクト → **Deployments** で、実際の URL をコピー（例: `https://your-project-xxx.vercel.app` や Production Domain）。  
-   `.env` / Vercel の Environment Variables の `EXPO_PUBLIC_DOMAIN`・`FRONTEND_URL`・`LINE_CALLBACK_URL` がこの URL と**完全に一致**しているか確認する（`https://` の有無、サブドメイン、末尾スラッシュの有無に注意）。
+   `.env` / Vercel の Environment Variables の `EXPO_PUBLIC_DOMAIN`・`FRONTEND_URL` がこの URL と**完全に一致**しているか確認する（`https://` の有無、サブドメイン、末尾スラッシュの有無に注意）。
 
 2. **デプロイメントの存在確認**  
    **Deployments** 一覧で、参照しているコミット/ブランチのデプロイが存在するか確認。古いデプロイは自動削除されることがあるため、**本番は Production ブランチの「最新デプロイ」の URL を参照**する。
@@ -95,8 +95,8 @@ npm run deploy
    チーム/組織のプロジェクトなら、そのデプロイメントへのアクセス権があるか確認。
 
 4. **コード側で参照している URL**  
-   - ログイン: `getApiUrl()` → `EXPO_PUBLIC_DOMAIN` で `/api/auth/line` に遷移。  
-   - LINE コールバック: `LINE_CALLBACK_URL` が「今あるデプロイの URL + `/api/auth/callback/line`」になっているか。  
+   - ログイン: `getApiUrl()` → `EXPO_PUBLIC_DOMAIN` で `/api/auth/google` に遷移。  
+   - Google コールバック: GCP の redirect URI が `https://<ドメイン>/api/auth/google-callback` になっているか。  
    いずれかが古い・別プロジェクトの URL だと、Vercel が `DEPLOYMENT_NOT_FOUND` を返します。
 
 ---
@@ -114,7 +114,7 @@ npm run deploy
 
 デプロイ後、**Vercel のプロジェクト → Deployments → 最新のデプロイ → Functions タブ** を開く。
 
-- **api/index** と **api/[...path]** の 2 つが表示されていれば、`/api/auth/line` などはこのサーバレス関数で処理されます。
+- **api/index** と **api/[...path]** の 2 つが表示されていれば、`/api/auth/google` などはこのサーバレス関数で処理されます。
 - どちらも表示されていない場合は、**Root Directory がリポジトリルート（.）になっているか** を再度確認してください。
 
 ### 3. vercel.json の framework
@@ -127,4 +127,4 @@ Expo プリセットだけに任せると `outputDirectory: "dist"` のとき ap
 - **Root Directory = .（または未設定）**
 - **Functions タブに api/index と api/[...path] が出ていること**
 
-この 2 点を満たせば、`/api/auth/line` は 404 にならず、LINE ログインが動作する想定です。
+この 2 点を満たせば、`/api/*` は 404 にならず、Google ログインが動作する想定です。

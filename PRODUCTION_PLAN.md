@@ -24,13 +24,12 @@
   DATABASE_URL="..." npm run db:push
   ```
 
-### 1.2 LINE Login（必須：ログイン用）
+### 1.2 Google OAuth（ログイン用）
 
-- [ ] [LINE Developers](https://developers.line.biz/) でチャネル作成
-- [ ] **Callback URL を登録**
-  - 本番: `https://<あなたのドメイン>/api/auth/line-callback`
-  - 例: `https://6542d57d-f8ce-404c-adb7-16f6dc84b252-00-1ncerp2gwoflp.spock.replit.dev/api/auth/line-callback`
-- [ ] Channel ID / Channel Secret を控える
+- [ ] [Google Cloud Console](https://console.cloud.google.com/) で OAuth クライアント作成
+- [ ] **Authorized redirect URI** を登録  
+  - 本番: `https://<あなたのドメイン>/api/auth/google-callback`
+- [ ] Client ID / Client Secret を控える
 
 ### 1.3 Vercel プロジェクト
 
@@ -51,14 +50,13 @@ Vercel ダッシュボード → プロジェクト → **Settings → Environme
 | 変数名 | 説明 | 例 |
 |--------|------|-----|
 | `DATABASE_URL` | Neon の接続文字列 | `postgresql://user:pass@ep-xxx.neon.tech/neondb?sslmode=require` |
-| `LINE_CHANNEL_ID` | LINE Login チャネル ID | |
-| `LINE_CHANNEL_SECRET` | LINE Login チャネルシークレット | |
-| `LINE_CALLBACK_URL` | LINE コールバック URL（本番ドメイン） | `https://6542d57d-f8ce-404c-adb7-16f6dc84b252-00-1ncerp2gwoflp.spock.replit.dev/api/auth/line-callback` |
-| `FRONTEND_URL` | フロントのドメイン（末尾スラッシュなし） | `https://6542d57d-f8ce-404c-adb7-16f6dc84b252-00-1ncerp2gwoflp.spock.replit.dev` |
-| `EXPO_PUBLIC_DOMAIN` | ビルド時に埋め込む API ドメイン | `https://6542d57d-f8ce-404c-adb7-16f6dc84b252-00-1ncerp2gwoflp.spock.replit.dev` |
+| `GOOGLE_CLIENT_ID` | Google OAuth クライアント ID | |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth クライアントシークレット | |
+| `FRONTEND_URL` | フロントのドメイン（末尾スラッシュなし） | `https://rawstock.live` |
+| `EXPO_PUBLIC_DOMAIN` | ビルド時に埋め込む API ドメイン | `https://rawstock.live` |
 | `SESSION_SECRET` | JWT 署名用（32文字以上推奨） | `openssl rand -base64 32` で生成 |
 
-**重要**: `LINE_CALLBACK_URL`・`FRONTEND_URL`・`EXPO_PUBLIC_DOMAIN` は **本番デプロイの実際の URL** と完全一致させる必要があります。
+**重要**: `FRONTEND_URL`・`EXPO_PUBLIC_DOMAIN` は **本番デプロイの実際の URL** と完全一致させる必要があります。Google Cloud の redirect URI も同じホストで `/api/auth/google-callback` を登録してください。
 
 ### オプション（機能ごと）
 
@@ -66,9 +64,6 @@ Vercel ダッシュボード → プロジェクト → **Settings → Environme
 |--------|------|------|
 | `STRIPE_SECRET_KEY` | 決済（有料動画・ツーショット） | Stripe ダッシュボードで取得 |
 | `STRIPE_PUBLISHABLE_KEY` | 同上 | |
-| `GOOGLE_CLIENT_ID` | Google ログイン | |
-| `GOOGLE_CLIENT_SECRET` | Google ログイン | |
-| `GOOGLE_CALLBACK_URL` | Google コールバック | `https://<ドメイン>/api/auth/google-callback` |
 | `YOUTUBE_API_KEY` | ジュークボックス（YouTube検索） | Google Cloud Console で取得 |
 | `CLOUDFLARE_ACCOUNT_ID` | ライブ配信 | 配信機能を有効にする場合 |
 | `CLOUDFLARE_STREAM_TOKEN` | ライブ配信 | **Stream 用 API トークン**（Account → Stream → Edit）。R2 用キーでは `Authorization Failure` になる |
@@ -106,7 +101,7 @@ npm run deploy
 
 - [ ] ヘルスチェック: `https://<ドメイン>/api/healthcheck` → 200 OK
 - [ ] トップページ: `https://<ドメイン>/` が表示される
-- [ ] LINE ログイン: ログイン → コールバック → トップへ遷移
+- [ ] Google ログイン: ログイン → コールバック → トップへ遷移
 - [ ] 法的ページ: `/terms`, `/privacy`, `/tokusho` が表示される
 
 ### 4.2 機能別チェック
@@ -122,8 +117,8 @@ npm run deploy
 デプロイ後に URL が変わった場合（例: プレビュー → 本番）：
 
 1. Vercel の **Production Domain** を確認
-2. `LINE_CALLBACK_URL`・`FRONTEND_URL`・`EXPO_PUBLIC_DOMAIN` をその URL に更新
-3. **LINE Developers** の Callback URL も同じ URL に更新
+2. `FRONTEND_URL`・`EXPO_PUBLIC_DOMAIN` をその URL に更新
+3. **Google Cloud** の Authorized redirect URI を `https://<ドメイン>/api/auth/google-callback` に更新
 4. 再デプロイ（環境変数変更後は自動で再ビルドされる場合あり）
 
 ---
@@ -147,7 +142,7 @@ npm run deploy
 | 現象 | 確認項目 |
 |------|----------|
 | `/api` が 404 | Root Directory = `.`、Functions に api が表示されているか |
-| LINE ログイン失敗 | `LINE_CALLBACK_URL` が LINE Developers の登録と一致しているか |
+| Google ログイン失敗 | Redirect URI が GCP 登録と一致しているか、`GOOGLE_CLIENT_ID` / `SECRET` が Production に設定されているか |
 | フロントが API に接続できない | `EXPO_PUBLIC_DOMAIN` がビルド時に正しく設定されているか |
 | デプロイが失敗する | Vercel の Deployments ログでエラー内容を確認 |
 | ライブ開始で Cloudflare Authorization Failure | `CLOUDFLARE_STREAM_TOKEN` が Stream 編集権限を持つ API トークンか、`CLOUDFLARE_ACCOUNT_ID` がそのアカウントと一致するか確認 |
@@ -156,8 +151,8 @@ npm run deploy
 
 ## チェックリスト（本番投入前）
 
-- [ ] 必須環境変数 7 つすべて設定済み
-- [ ] LINE の Callback URL が本番と一致
+- [ ] 必須環境変数（DB, Google OAuth, FRONTEND_URL, EXPO_PUBLIC_DOMAIN, SESSION_SECRET）設定済み
+- [ ] Google OAuth redirect URI が本番と一致
 - [ ] `SESSION_SECRET` を本番用の乱数に変更（dev-secret ではない）
 - [ ] ヘルスチェック・ログイン・主要画面の動作確認済み
 - [ ] 利用規約・プライバシーポリシー・特商法の内容確認済み

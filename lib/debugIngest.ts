@@ -125,15 +125,45 @@ function currentRouteFromRuntime(): string | null {
   return null;
 }
 
-function computeFingerprint(event: Omit<ClientErrorEvent, "fingerprint">): string {
+function fingerprintFromExtra(extra: Record<string, unknown> | null | undefined): string {
+  if (!extra) return "";
+  const source = typeof extra.source === "string" ? extra.source : "";
+  const stage = typeof extra.stage === "string" ? extra.stage : "";
+  const action = typeof extra.action === "string" ? extra.action : "";
+  const surface = typeof extra.surface === "string" ? extra.surface : "";
+  return [source, stage, action, surface].filter(Boolean).join("|");
+}
+
+function computeFingerprint(
+  event: Omit<ClientErrorEvent, "fingerprint">,
+  extraInput?: Record<string, unknown> | null,
+): string {
   const parts = [
+    event.kind,
     event.status ?? "",
     event.code ?? "",
     event.route ?? event.requestUrl ?? "",
     event.method ?? "",
+    fingerprintFromExtra(extraInput),
     event.message,
   ];
   return truncateString(parts.join("|"), 500);
+}
+
+function clientBuildMeta(): Record<string, unknown> {
+  try {
+    const Constants = require("expo-constants").default as {
+      expoConfig?: { version?: string };
+      nativeAppVersion?: string;
+    };
+    const version =
+      Constants.expoConfig?.version?.trim() ||
+      Constants.nativeAppVersion?.trim() ||
+      null;
+    return version ? { appVersion: version } : {};
+  } catch {
+    return {};
+  }
 }
 
 function shouldDedupe(fingerprint: string, dedupeMs: number): boolean {
@@ -197,18 +227,31 @@ export async function captureClientError(input: CaptureClientErrorInput): Promis
     componentStack: input.componentStack ? truncateString(input.componentStack) : null,
     extra:
       summarizedExtra == null
-        ? { recentEvents: getRecentClientDebugBreadcrumbs() }
+        ? { ...clientBuildMeta(), recentEvents: getRecentClientDebugBreadcrumbs() }
         : Array.isArray(summarizedExtra)
-          ? { context: summarizedExtra, recentEvents: getRecentClientDebugBreadcrumbs() }
+          ? { ...clientBuildMeta(), context: summarizedExtra, recentEvents: getRecentClientDebugBreadcrumbs() }
           : typeof summarizedExtra === "object"
-            ? { ...(summarizedExtra as Record<string, unknown>), recentEvents: getRecentClientDebugBreadcrumbs() }
-            : { context: summarizedExtra, recentEvents: getRecentClientDebugBreadcrumbs() },
+            ? {
+                ...clientBuildMeta(),
+                ...(summarizedExtra as Record<string, unknown>),
+                recentEvents: getRecentClientDebugBreadcrumbs(),
+              }
+            : {
+                ...clientBuildMeta(),
+                context: summarizedExtra,
+                recentEvents: getRecentClientDebugBreadcrumbs(),
+              },
     createdAt: new Date().toISOString(),
   };
 
+  const fpExtra =
+    input.extra != null && typeof input.extra === "object" && !Array.isArray(input.extra)
+      ? (input.extra as Record<string, unknown>)
+      : null;
+
   const event: ClientErrorEvent = {
     ...baseEvent,
-    fingerprint: computeFingerprint(baseEvent),
+    fingerprint: computeFingerprint(baseEvent, fpExtra),
   };
 
   const dedupeMs = input.dedupeMs ?? RECENT_FINGERPRINT_TTL_MS;

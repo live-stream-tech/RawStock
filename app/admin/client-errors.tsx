@@ -44,6 +44,7 @@ type ClientErrorEventRow = {
 
 type SeverityFilter = "all" | "error" | "warning" | "info";
 type KindFilter = "all" | "api_error" | "ui_alert" | "render_error" | "auth_error" | "action_error";
+type SourceFilter = "all" | "upload" | "video_playback" | "other";
 type ViewMode = "grouped" | "timeline";
 
 type GroupedRow = {
@@ -57,8 +58,15 @@ type GroupedRow = {
   rows: ClientErrorEventRow[];
 };
 
-const FETCH_LIMIT = 200;
+const FETCH_LIMIT = 400;
 const POLL_INTERVAL_MS = 30_000;
+
+const SOURCE_FILTERS: { id: SourceFilter; label: string }[] = [
+  { id: "all", label: "All sources" },
+  { id: "upload", label: "Upload" },
+  { id: "video_playback", label: "Playback" },
+  { id: "other", label: "Other" },
+];
 
 const SEVERITY_FILTERS: { id: SeverityFilter; label: string }[] = [
   { id: "all", label: "All" },
@@ -117,6 +125,38 @@ function prettyLabel(value: string) {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function parsePayloadExtra(row: ClientErrorEventRow): Record<string, unknown> | null {
+  if (!row.payloadJson) return null;
+  try {
+    const parsed = JSON.parse(row.payloadJson) as unknown;
+    return parsed != null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function payloadSource(row: ClientErrorEventRow): string | null {
+  const extra = parsePayloadExtra(row);
+  const source = extra?.source;
+  return typeof source === "string" && source.trim() ? source.trim() : null;
+}
+
+function payloadStage(row: ClientErrorEventRow): string | null {
+  const extra = parsePayloadExtra(row);
+  const stage = extra?.stage;
+  return typeof stage === "string" && stage.trim() ? stage.trim() : null;
+}
+
+function matchesSourceFilter(row: ClientErrorEventRow, filter: SourceFilter): boolean {
+  if (filter === "all") return true;
+  const source = payloadSource(row);
+  if (filter === "upload") return source === "upload";
+  if (filter === "video_playback") return source === "video_playback";
+  return source !== "upload" && source !== "video_playback";
 }
 
 function tryFormatJson(value?: string | null): string | null {
@@ -295,6 +335,7 @@ export default function AdminClientErrorsScreen() {
 
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>("all");
   const [kindFilter, setKindFilter] = useState<KindFilter>("all");
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("grouped");
   const [autoRefresh, setAutoRefresh] = useState(false);
@@ -384,7 +425,9 @@ export default function AdminClientErrorsScreen() {
     return rows.filter((row) => {
       if (severityFilter !== "all" && severityKey(row.severity) !== severityFilter) return false;
       if (kindFilter !== "all" && (row.kind ?? "").toLowerCase() !== kindFilter) return false;
+      if (!matchesSourceFilter(row, sourceFilter)) return false;
       if (!q) return true;
+      const extra = parsePayloadExtra(row);
       const haystack = [
         row.message,
         row.title,
@@ -394,13 +437,20 @@ export default function AdminClientErrorsScreen() {
         row.kind,
         row.fingerprint,
         row.status != null ? String(row.status) : "",
+        payloadSource(row),
+        payloadStage(row),
+        extra?.flow != null ? String(extra.flow) : "",
+        extra?.surface != null ? String(extra.surface) : "",
+        extra?.r2Key != null ? String(extra.r2Key) : "",
+        extra?.urlExt != null ? String(extra.urlExt) : "",
+        row.payloadJson,
       ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [rows, severityFilter, kindFilter, search]);
+  }, [rows, severityFilter, kindFilter, sourceFilter, search]);
 
   const summary = useMemo(() => {
     const acc = { error: 0, warning: 0, info: 0 };
@@ -552,6 +602,18 @@ export default function AdminClientErrorsScreen() {
               </Pressable>
             ))}
             <View style={styles.chipDivider} />
+            {SOURCE_FILTERS.map((f) => (
+              <Pressable
+                key={f.id}
+                style={[styles.chip, sourceFilter === f.id && styles.chipActive]}
+                onPress={() => setSourceFilter(f.id)}
+              >
+                <Text style={[styles.chipText, sourceFilter === f.id && styles.chipTextActive]}>
+                  {f.label}
+                </Text>
+              </Pressable>
+            ))}
+            <View style={styles.chipDivider} />
             <Pressable
               style={[styles.chip, showResolved && styles.chipActive]}
               onPress={() => setShowResolved((v) => !v)}
@@ -658,6 +720,18 @@ function GroupCard({
           <View style={[styles.badge, styles.badgeKind]}>
             <Text style={styles.badgeText}>{prettyLabel(rep.kind || "unknown")}</Text>
           </View>
+          {payloadSource(rep) ? (
+            <View style={[styles.badge, styles.badgeSource]}>
+              <Text style={styles.badgeText}>{prettyLabel(payloadSource(rep)!)}</Text>
+            </View>
+          ) : null}
+          {payloadStage(rep) ? (
+            <View style={[styles.badge, styles.badgeStage]}>
+              <Text style={styles.badgeText} numberOfLines={1}>
+                {payloadStage(rep)}
+              </Text>
+            </View>
+          ) : null}
           <View style={[styles.badge, styles.badgeCount]}>
             <Text style={styles.badgeText}>×{group.count}</Text>
           </View>
@@ -1052,6 +1126,8 @@ const styles = StyleSheet.create({
   badgeWarning: { backgroundColor: "#f59e0b33" },
   badgeInfo: { backgroundColor: "#3b82f633" },
   badgeKind: { backgroundColor: C.surface2 },
+  badgeSource: { backgroundColor: "#1a3a2a", maxWidth: 120 },
+  badgeStage: { backgroundColor: "#2a2a3a", maxWidth: 160 },
   badgeCount: { backgroundColor: C.accent },
   badgeResolved: { backgroundColor: C.surface3, borderWidth: 1, borderColor: C.borderDim },
   badgeText: { color: C.text, fontSize: 10, fontWeight: "800", letterSpacing: 0.3 },

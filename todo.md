@@ -3,7 +3,7 @@
 - [x] PWA実装（manifest.json、サービスワーカー、アイコン）
 - [x] アプリ名をLiveStageからRawStockに統一
 - [x] ビルドエラー修正（@/lib/apiUrlインポート問題）
-- [x] LINE認証フロー修正
+- [x] Google OAuth ログイン（LINE ログイン削除済み）
 - [x] DBスキーマ修正（followers_count/following_count追加）
 - [x] ポーリング間隔最適化（再生中5秒・停止中10秒）
 - [x] Jukeboxキューから再生済み曲をサーバー側でフィルタリング

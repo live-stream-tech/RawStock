@@ -252,6 +252,13 @@ export default function SettingsScreen() {
                 label="Bug Reports"
                 onPress={() => router.push("/admin/bug-reports" as any)}
               />
+              <View style={styles.rowDivider} />
+              <SettingRow
+                icon="pulse-outline"
+                label="Client Errors"
+                sublabel="Upload, playback, and API failures from users"
+                onPress={() => router.push("/admin/client-errors" as any)}
+              />
             </>
           )}
         </View>

@@ -507,11 +507,11 @@ export const dmMessages = pgTable("dm_messages", {
   sortOrder: integer("sort_order").notNull().default(0),
 });
 
-/** 認証はGoogleログイン（またはEmail/Password）。lineIdカラムはGoogleユーザーには "google:{sub}" を格納。 */
+/** Auth: Google OAuth and optional email/password. */
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
-  /** 認証プロバイダキー（Googleユーザー: "google:{sub}"、メール登録: "email:{email}"） */
-  lineId: text("line_id").notNull().unique(),
+  /** Provider subject key (Google: "google:{sub}", email signup: "email:{email}") */
+  authSubjectId: text("auth_subject").notNull().unique(),
   displayName: text("display_name").notNull().default("User"),
   profileImageUrl: text("profile_image_url"),
   role: text("role").notNull().default("USER"),
@@ -567,13 +567,13 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-/** LP先行案内のリード（メール / LINE導線の流入計測） */
+/** LP waitlist leads (email capture). */
 export const lpLeads = pgTable(
   "lp_leads",
   {
     id: serial("id").primaryKey(),
     email: text("email").notNull(),
-    /** email_form | line_cta */
+    /** email_form */
     source: text("source").notNull().default("email_form"),
     /** en | ja など */
     locale: text("locale"),
