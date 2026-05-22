@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -30,12 +30,14 @@ import { alertError, alertMessage } from "@/lib/alertCompat";
 import { beginActionTelemetry } from "@/lib/actionTelemetry";
 import { reportUploadFailure } from "@/lib/reportUploadFailure";
 import { VideoUploadPrepModal } from "@/components/VideoUploadPrepModal";
+import {
+  VideoPostPricing,
+  type VideoFeeType,
+  type VideoPriceOption,
+} from "@/components/upload/VideoPostPricing";
+import { getWorkUploadStrings } from "@/lib/uploadScreenStrings";
 
 const WORK_VIDEO_MAX_SEC = 120;
-
-type FeeType = "free" | "paid";
-type PriceOption = 300 | 500 | 1000 | 2000 | 3000 | 5000;
-const PRICE_OPTIONS: PriceOption[] = [300, 500, 1000, 2000, 3000, 5000];
 
 type MediaItem = { id: string; uri: string; type: "image" | "video"; size?: number; durationSec?: number };
 type Community = { id: number; name: string; thumbnail: string };
@@ -44,16 +46,26 @@ const UPLOAD_LOG = "[upload]";
 const IMAGE_COMPRESS_MAX_WIDTH = 1920;
 const IMAGE_COMPRESS_QUALITY = 0.75;
 
-function toUploadErrorMessage(err: unknown, maxMb: number, isJaUi: boolean): string {
+function toUploadErrorMessage(
+  err: unknown,
+  maxMb: number,
+  isJaUi: boolean,
+  t?: { videoWebTooLarge: string },
+): string {
   if (err instanceof ApiError && err.status === 413) {
     return isJaUi
       ? `ファイルサイズが大きすぎます。${maxMb}MB未満のファイルを選択してください。`
       : `File is too large. Please use a file under ${maxMb}MB.`;
   }
-  if (err instanceof Error && /under\s+\d+mb/i.test(err.message)) {
-    return isJaUi ? `ファイルは${maxMb}MB未満にしてください。` : err.message;
+  if (err instanceof Error) {
+    if (/still too large|4\s*mb|configure r2 cors/i.test(err.message)) {
+      return t?.videoWebTooLarge ?? err.message;
+    }
+    if (/under\s+\d+mb/i.test(err.message)) {
+      return isJaUi ? `ファイルは${maxMb}MB未満にしてください。` : err.message;
+    }
+    return err.message;
   }
-  if (err instanceof Error) return err.message;
   return isJaUi ? "アップロードに失敗しました。より小さいファイルで再試行してください。" : "Upload failed. Try a smaller file and retry.";
 }
 
@@ -74,127 +86,10 @@ export default function WorkUploadScreen() {
   const queryClient = useQueryClient();
   const { user, requireAuth } = useAuth();
   const isJaUi = (user?.preferredLanguage ?? "").toLowerCase().startsWith("ja");
-  const t = isJaUi
-    ? {
-        publishAction: "公開",
-        postAction: "投稿",
-        missingTextTitle: "本文が未入力です",
-        missingTextBody: "投稿文を入力してください。",
-        missingPhotoTitle: "写真が未追加です",
-        missingPhotoBody: "写真を1枚以上追加してください。",
-        selectCommunityTitle: "コミュニティを選択",
-        selectCommunityBody: "コミュニティを選択してください。",
-        confirmationTitle: "確認が必要です",
-        confirmationBody: "投稿前にガイドラインと権利確認に同意してください。",
-        uploadFailedTitle: "アップロードに失敗しました",
-        uploadImageFailedBody: "画像をアップロードできませんでした。通信状況を確認して、もう一度お試しください。",
-        uploadVideoFailedBody: "動画をアップロードできませんでした。通信状況を確認して、もう一度お試しください。",
-        signInRequiredTitle: "サインインが必要です",
-        signInRequiredBody: "投稿するにはサインインが必要です。",
-        invalidContentTitle: "内容を確認してください",
-        invalidContentBody: "入力内容を見直してください。",
-        postFailedTitle: "投稿に失敗しました",
-        postFailedBody: "投稿に失敗しました。",
-        errorTitle: "エラー",
-        permissionRequired: "権限が必要です",
-        allowPhotos: "写真を選択するにはメディアライブラリへのアクセスを許可してください。",
-        allowVideos: "動画を選択するにはメディアライブラリへのアクセスを許可してください。",
-        fileLimit: `ファイルは${WORK_POST_LIMITS.maxFileSizeMB}MB未満にしてください。`,
-        headerTitle: "作品投稿",
-        switchToDaily: "日常投稿",
-        workHint: "ライブの感想を文章と写真で投稿。続きは動画で見せることもできます（無料・有料）。",
-        limitHint: `画像・動画は1ファイルあたり最大${WORK_POST_LIMITS.maxFileSizeMB}MBです。`,
-        reviewSectionTitle: "ライブレビュー",
-        reviewSectionSub: "文章と写真（無料）",
-        reviewPlaceholder: "ライブの感想を書いてください（必須）",
-        reviewPhotosLabel: "レビュー写真",
-        thumbnailLabel: "サムネイル",
-        thumbnailChange: "タップして変更",
-        thumbnailOptional: "任意 · 一覧用",
-        videoSectionTitle: "続きを動画で",
-        videoSectionSub: "任意 · 無料または有料で公開",
-        videoReady: "動画を追加済み",
-        videoAddLabel: "続きの動画を追加",
-        videoAddSub: "ブラウザでトリミング・圧縮できます",
-        videoPricingHint: "視聴料金",
-        addPhotoRequired: "写真を追加（必須）",
-        postTo: "投稿先",
-        myPageOnly: "マイページのみ",
-        community: "コミュニティ",
-        publishFromMyPosts: "マイ投稿から公開",
-        videoPricing: "動画価格",
-        free: "無料",
-        paid: "有料",
-        linkedConcert: (concertId: number) => `連携コンサート: ${concertId}`,
-        guidelinesPrefix: "コミュニティガイドラインを読み、遵守することに同意します。",
-        guidelinesLink: "コミュニティガイドライン",
-        rightsConfirm: "このコンテンツを投稿する権利を有しており、他者の知的財産権やプライバシーを侵害しないことを確認します。",
-        postButton: "投稿する",
-        publishModalTitle: "公開する作品を選択",
-        cancel: "キャンセル",
-        addPhoto: "写真を追加",
-        addVideo: "動画を追加",
-      }
-    : {
-        publishAction: "publish",
-        postAction: "post",
-        missingTextTitle: "Missing text",
-        missingTextBody: "Enter post text.",
-        missingPhotoTitle: "Missing photo",
-        missingPhotoBody: "Add at least one photo.",
-        selectCommunityTitle: "Select community",
-        selectCommunityBody: "Select a community.",
-        confirmationTitle: "Confirmation required",
-        confirmationBody: "Review and accept Guidelines and rights before posting.",
-        uploadFailedTitle: "Upload failed",
-        uploadImageFailedBody: "Could not upload the image. Check your connection and try again.",
-        uploadVideoFailedBody: "Could not upload the video. Check your connection and try again.",
-        signInRequiredTitle: "Sign in required",
-        signInRequiredBody: "Sign in is required to post.",
-        invalidContentTitle: "Invalid content",
-        invalidContentBody: "Please review your input.",
-        postFailedTitle: "Post failed",
-        postFailedBody: "Failed to post.",
-        errorTitle: "Error",
-        permissionRequired: "Permission required",
-        allowPhotos: "Allow media library access to select photos.",
-        allowVideos: "Allow media library access to select videos.",
-        fileLimit: `File must be under ${WORK_POST_LIMITS.maxFileSizeMB}MB`,
-        headerTitle: "Post Work",
-        switchToDaily: "Daily Post",
-        workHint: "Share a live review with text and photos. Optionally add a video for the rest — free or paid.",
-        limitHint: `File size limit: ${WORK_POST_LIMITS.maxFileSizeMB}MB per image/video.`,
-        reviewSectionTitle: "Live review",
-        reviewSectionSub: "Text and photos — free",
-        reviewPlaceholder: "Write your live review (required)",
-        reviewPhotosLabel: "Review photos",
-        thumbnailLabel: "Thumbnail",
-        thumbnailChange: "Tap to change",
-        thumbnailOptional: "Optional · for listings",
-        videoSectionTitle: "Continue on video",
-        videoSectionSub: "Optional · free or paid",
-        videoReady: "Video added",
-        videoAddLabel: "Add continuation video",
-        videoAddSub: "Trim and compress in your browser",
-        videoPricingHint: "Viewing price",
-        addPhotoRequired: "Add photo (required)",
-        postTo: "Post To",
-        myPageOnly: "My Page Only",
-        community: "Community",
-        publishFromMyPosts: "Publish from My posts",
-        videoPricing: "Video Pricing",
-        free: "Free",
-        paid: "Paid",
-        linkedConcert: (concertId: number) => `Linked Concert: ${concertId}`,
-        guidelinesPrefix: "I have read and agree to follow the",
-        guidelinesLink: "Community Guidelines",
-        rightsConfirm: "I confirm I have the rights to post this content and it does not infringe others' intellectual property or privacy.",
-        postButton: "Post",
-        publishModalTitle: "Select a work to publish",
-        cancel: "Cancel",
-        addPhoto: "Add Photo",
-        addVideo: "Add Video",
-      };
+  const t = useMemo(
+    () => getWorkUploadStrings(isJaUi, { maxFileSizeMB: WORK_POST_LIMITS.maxFileSizeMB }),
+    [isJaUi],
+  );
 
   const { data: communities = [] } = useQuery<Community[]>({ queryKey: ["/api/communities"] });
   const { concertId: rawConcertId } = useLocalSearchParams<{ concertId?: string }>();
@@ -205,8 +100,8 @@ export default function WorkUploadScreen() {
   const [selectedCommunityId, setSelectedCommunityId] = useState<number | null>(null);
   const [postTarget, setPostTarget] = useState<"my_page_only" | "community">("community");
   const [showPublishFromModal, setShowPublishFromModal] = useState(false);
-  const [fee, setFee] = useState<FeeType>("free");
-  const [price, setPrice] = useState<PriceOption>(500);
+  const [fee, setFee] = useState<VideoFeeType>("free");
+  const [price, setPrice] = useState<VideoPriceOption>(500);
   const [uploading, setUploading] = useState(false);
   const [agreeGuidelines, setAgreeGuidelines] = useState(false);
   const [agreeRights, setAgreeRights] = useState(false);
@@ -311,7 +206,7 @@ export default function WorkUploadScreen() {
           flow: "work",
           mediaType: "image",
         });
-        alertError(t.errorTitle, err, toUploadErrorMessage(err, WORK_POST_LIMITS.maxFileSizeMB, isJaUi), {
+        alertError(t.errorTitle, err, toUploadErrorMessage(err, WORK_POST_LIMITS.maxFileSizeMB, isJaUi, t), {
           skipIngest: true,
         });
       } finally {
@@ -331,7 +226,7 @@ export default function WorkUploadScreen() {
         // No raw size pre-check — VideoUploadPrepModal trims and compresses to fit R2 limit.
         const BROWSER_SAFETY_BYTES = 4 * 1024 * 1024 * 1024; // 4 GB
         if (file.size > BROWSER_SAFETY_BYTES) {
-          alertMessage(t.errorTitle, "File is too large to process in the browser (limit: 4 GB).");
+          alertMessage(t.errorTitle, t.browserFileTooLarge);
           return;
         }
         setVideoPrepFile(file);
@@ -383,7 +278,7 @@ export default function WorkUploadScreen() {
           flow: "work",
           mediaType: "video",
         });
-        alertError(t.errorTitle, err, toUploadErrorMessage(err, WORK_POST_LIMITS.maxFileSizeMB, isJaUi), {
+        alertError(t.errorTitle, err, toUploadErrorMessage(err, WORK_POST_LIMITS.maxFileSizeMB, isJaUi, t), {
           skipIngest: true,
         });
       } finally {
@@ -393,7 +288,7 @@ export default function WorkUploadScreen() {
   }
 
 
-  async function ensureHttpsUrl(uri: string, type: "image" | "video"): Promise<string> {
+  async function ensureHttpsUrl(uri: string, type: "image" | "video", failedMessage: string): Promise<string> {
     if (!uri.startsWith("blob:")) {
       console.log(`${UPLOAD_LOG} step:work_submit_blob_skip`, { type });
       return uri;
@@ -402,7 +297,7 @@ export default function WorkUploadScreen() {
     const res = await fetch(uri);
     if (!res.ok) {
       console.error(`${UPLOAD_LOG} step:work_submit_blob_read_failed`, res.status);
-      throw new Error("Failed to load file");
+      throw new Error(failedMessage);
     }
     const blob = await res.blob();
     if (blob.size > WORK_POST_LIMITS.maxFileSizeMB * 1024 * 1024) {
@@ -447,6 +342,10 @@ export default function WorkUploadScreen() {
       alertMessage(t.missingTextTitle, t.missingTextBody);
       return;
     }
+    if (!hasPhoto) {
+      alertMessage(t.missingPhotoTitle, t.missingPhotoBody);
+      return;
+    }
     if (postTarget === "community" && !selectedCommunity) {
       alertMessage(t.selectCommunityTitle, t.selectCommunityBody);
       return;
@@ -458,7 +357,7 @@ export default function WorkUploadScreen() {
     }
     const action = beginActionTelemetry({
       action: "work_post_submit",
-      title: "Work post",
+      title: t.telemetryTitle,
       method: "POST",
       requestUrl: "/api/videos",
       timeoutMs: 30_000,
@@ -482,7 +381,7 @@ export default function WorkUploadScreen() {
         "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&h=400&fit=crop";
       if (thumbUrl.startsWith("blob:") && firstImage) {
         try {
-          thumbUrl = await ensureHttpsUrl(firstImage.uri, "image");
+          thumbUrl = await ensureHttpsUrl(firstImage.uri, "image", t.loadFileFailed);
         } catch (e: any) {
           action.fail(e, { stage: "thumbnail_upload" });
           console.error(`${UPLOAD_LOG} step:work_submit_thumbnail_upload_failed`, e);
@@ -495,7 +394,7 @@ export default function WorkUploadScreen() {
         try {
           console.log(`${UPLOAD_LOG} step:work_submit_video_prepare`);
           videoUrlToSend = firstVideo.uri.startsWith("blob:")
-            ? await ensureHttpsUrl(firstVideo.uri, "video")
+            ? await ensureHttpsUrl(firstVideo.uri, "video", t.loadFileFailed)
             : firstVideo.uri;
           console.log(`${UPLOAD_LOG} step:work_submit_video_ok`);
         } catch (e: any) {
@@ -624,7 +523,10 @@ export default function WorkUploadScreen() {
             )}
           </View>
 
-          <Text style={styles.inlineLabel}>{t.reviewPhotosLabel}</Text>
+          <Text style={styles.inlineLabel}>
+            {t.reviewPhotosLabel}
+            <Text style={styles.inlineLabelHint}> · {t.addPhotoRequired}</Text>
+          </Text>
           <View style={styles.bodyImagesRow}>
             {bodyImages.map((img) => (
               <View key={img.id} style={styles.bodyImgWrap}>
@@ -673,32 +575,17 @@ export default function WorkUploadScreen() {
             </Pressable>
           )}
 
-          {hasVideo && (
-            <View style={styles.videoPricingBlock}>
-              <Text style={styles.inlineLabel}>{t.videoPricingHint}</Text>
-              <View style={styles.feeRow}>
-                <Pressable style={[styles.feeBtn, fee === "free" && styles.feeBtnActive]} onPress={() => setFee("free")}>
-                  <Text style={[styles.feeBtnText, fee === "free" && styles.feeBtnTextActive]}>{t.free}</Text>
-                </Pressable>
-                <Pressable style={[styles.feeBtn, fee === "paid" && styles.feeBtnActive]} onPress={() => setFee("paid")}>
-                  <Text style={[styles.feeBtnText, fee === "paid" && styles.feeBtnTextActive]}>{t.paid}</Text>
-                </Pressable>
-              </View>
-              {fee === "paid" && (
-                <View style={styles.priceRow}>
-                  {PRICE_OPTIONS.map((p) => (
-                    <Pressable
-                      key={p}
-                      style={[styles.priceBtn, price === p && styles.priceBtnActive]}
-                      onPress={() => setPrice(p)}
-                    >
-                      <Text style={[styles.priceBtnText, price === p && styles.priceBtnTextActive]}>🎟{p}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              )}
-            </View>
-          )}
+          <VideoPostPricing
+            fee={fee}
+            price={price}
+            onFeeChange={setFee}
+            onPriceChange={setPrice}
+            hint={t.videoPricingHint}
+            freeLabel={t.free}
+            paidLabel={t.paid}
+            hasVideo={hasVideo}
+            needsVideoHint={t.videoPricingNeedsVideo}
+          />
         </View>
 
         <View style={styles.optionsSection}>
@@ -817,6 +704,8 @@ export default function WorkUploadScreen() {
         visible={videoPrepOpen}
         file={videoPrepFile}
         maxClipSec={WORK_VIDEO_MAX_SEC}
+        isJaUi={isJaUi}
+        flow="work"
         onClose={() => {
           setVideoPrepOpen(false);
           setVideoPrepFile(null);
@@ -837,7 +726,7 @@ export default function WorkUploadScreen() {
               mediaType: "video",
               fileSizeBytes: blob.size,
             });
-            alertError(t.errorTitle, err, toUploadErrorMessage(err, WORK_POST_LIMITS.maxFileSizeMB, isJaUi), {
+            alertError(t.errorTitle, err, toUploadErrorMessage(err, WORK_POST_LIMITS.maxFileSizeMB, isJaUi, t), {
               skipIngest: true,
             });
             if (previewUrl.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
@@ -898,7 +787,7 @@ const styles = StyleSheet.create({
   flowSectionTitle: { color: C.text, fontSize: 15, fontWeight: "800" },
   flowSectionSub: { color: C.textMuted, fontSize: 11, marginTop: 2 },
   inlineLabel: { color: C.textMuted, fontSize: 11, fontWeight: "600", marginBottom: 4 },
-  videoPricingBlock: { marginTop: 4, gap: 8 },
+  inlineLabelHint: { color: C.textMuted, fontWeight: "500" },
   /* cover row */
   coverRow: {
     flexDirection: "row",

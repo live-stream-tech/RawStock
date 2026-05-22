@@ -11,7 +11,19 @@ export type { VideoPrepOptions, VideoPrepQuality, VideoPrepQualityId, VideoPrepR
 
 const MAX_CLIP_SEC = 300;
 
+/** Must match `R2_SAME_ORIGIN_UPLOAD_MAX_BYTES` in query-client (avoid circular import). */
+export const WEB_VIDEO_UPLOAD_TARGET_BYTES = 4 * 1024 * 1024;
+
 type Attempt = { maxWidth: number; videoBitsPerSecond: number };
+
+/** Progressive re-encode ladder until output fits the same-origin upload cap. */
+const SIZE_FALLBACK_ATTEMPTS: Attempt[] = [
+  { maxWidth: 640, videoBitsPerSecond: 900_000 },
+  { maxWidth: 480, videoBitsPerSecond: 600_000 },
+  { maxWidth: 480, videoBitsPerSecond: 400_000 },
+  { maxWidth: 360, videoBitsPerSecond: 280_000 },
+  { maxWidth: 320, videoBitsPerSecond: 180_000 },
+];
 
 function pickRecorderMime(): { mime: string; ext: "webm" | "mp4" } {
   if (typeof MediaRecorder === "undefined") {
@@ -93,6 +105,11 @@ async function transcodeClip(
 
   try {
     await eventOnce(video, "loadedmetadata");
+    try {
+      await eventOnce(video, "canplay");
+    } catch {
+      await eventOnce(video, "loadeddata");
+    }
     const dur = Number.isFinite(video.duration) ? video.duration : 0;
     if (dur <= 0) return null;
 
@@ -230,43 +247,46 @@ export async function prepareVideoBlobForWebUpload(
 
   const { mime, ext } = pickRecorderMime();
   const clipLen = Math.max(0.1, options.trimEndSec - options.trimStartSec);
-  const attempt: Attempt = {
+  const primaryAttempt: Attempt = {
     maxWidth: options.quality.maxWidth,
     videoBitsPerSecond: options.quality.videoBitsPerSecond,
   };
 
+  const attempts: Attempt[] = [
+    primaryAttempt,
+    ...SIZE_FALLBACK_ATTEMPTS.map((a) => ({
+      maxWidth: Math.min(a.maxWidth, primaryAttempt.maxWidth),
+      videoBitsPerSecond: Math.min(a.videoBitsPerSecond, primaryAttempt.videoBitsPerSecond),
+    })),
+  ];
+
   let best: Blob | null = null;
 
-  const primary = await transcodeClip(
-    blob,
-    attempt,
-    mime,
-    options.trimStartSec,
-    options.trimEndSec,
-    options.onProgress,
-  );
-  if (primary && primary.size > 0) best = primary;
+  for (const attempt of attempts) {
+    const out = await transcodeClip(
+      blob,
+      attempt,
+      mime,
+      options.trimStartSec,
+      options.trimEndSec,
+      options.onProgress,
+    );
+    if (!out || out.size === 0) continue;
+    if (!best || out.size < best.size) best = out;
+    if (best.size <= options.targetMaxBytes) break;
+  }
 
-  if (!best || best.size > options.targetMaxBytes) {
-    for (const fallback of [
-      { maxWidth: 640, videoBitsPerSecond: 1_000_000 },
-      { maxWidth: 480, videoBitsPerSecond: 600_000 },
-    ]) {
-      const out = await transcodeClip(
-        blob,
-        { ...fallback, maxWidth: Math.min(fallback.maxWidth, attempt.maxWidth) },
-        mime,
-        options.trimStartSec,
-        options.trimEndSec,
-        options.onProgress,
-      );
-      if (!out || out.size === 0) continue;
-      if (!best || out.size < best.size) best = out;
-      if (best.size <= options.targetMaxBytes) break;
-    }
+  // Re-encode unavailable (common with some HEVC sources) — allow small originals through.
+  if (!best && blob.size > 0 && blob.size <= options.targetMaxBytes) {
+    const mimeType = blob.type.split(";")[0].trim() || mime.split(";")[0];
+    const outExt = mimeType.includes("webm") ? "webm" : mimeType.includes("mp4") ? "mp4" : ext;
+    return { blob, mimeType, ext: outExt, durationSec: clipLen };
   }
 
   if (!best) return null;
+
+  // Do not return oversize blobs — they fail on web (4MB same-origin cap / R2 CORS PUT).
+  if (best.size > options.targetMaxBytes) return null;
 
   const mimeType = best.type.split(";")[0].trim() || mime.split(";")[0];
   const outExt = mimeType.includes("mp4") ? "mp4" : ext;

@@ -547,8 +547,11 @@ export async function uploadUserMediaBlobToR2(
     }
 
     if (isVideo && typeof document !== "undefined") {
+      const capMb = Math.floor(R2_SAME_ORIGIN_UPLOAD_MAX_BYTES / 1024 / 1024);
+      const gotMb = (uploadBlob.size / (1024 * 1024)).toFixed(1);
       const tooLargeErr = new Error(
-        "Video is still too large after compression. Try a shorter clip, lower resolution, or upload from the mobile app.",
+        `Video is still too large after compression (${gotMb} MB; web limit ${capMb} MB). ` +
+          "Use a shorter clip or Light quality in the prepare step.",
       );
       action.fail(tooLargeErr, {
         stage: "video_still_too_large_after_compression",

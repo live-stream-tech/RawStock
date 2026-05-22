@@ -812,6 +812,18 @@ export default function ProfileScreen() {
         myPostsTitle: "自分の投稿",
         followingTag: "フォロー中",
         communityTag: "コミュニティ",
+        dailyPostsTitle: "日常",
+        worksPostsTitle: "作品",
+        postDailyBtn: "投稿",
+        postWorkBtn: "作品投稿",
+        emptyDaily: "日常投稿はまだありません",
+        emptyDailySub: "「投稿」から気軽にシェアできます",
+        emptyWorks: "作品投稿はまだありません",
+        emptyWorksSub: "「作品投稿」からレビューと動画を共有できます",
+        deleteAllWorks: "作品をすべて削除",
+        deleteAllPosts: "自分の投稿をすべて削除（日常＋作品）",
+        dataSection: "データ",
+        timeJustNow: "たった今",
       }
     : {
         signInToProfile: "Sign in to view your profile",
@@ -856,6 +868,18 @@ export default function ProfileScreen() {
         myPostsTitle: "My Posts",
         followingTag: "Following",
         communityTag: "Community",
+        dailyPostsTitle: "Daily",
+        worksPostsTitle: "Works",
+        postDailyBtn: "Post",
+        postWorkBtn: "Post Work",
+        emptyDaily: "No daily posts yet",
+        emptyDailySub: 'Tap "Post" to share something quick',
+        emptyWorks: "No works posted yet",
+        emptyWorksSub: 'Tap "Post Work" to share reviews, photos & videos',
+        deleteAllWorks: "Delete all Works",
+        deleteAllPosts: "Delete all my posts (Daily + Works)",
+        dataSection: "Data",
+        timeJustNow: "just now",
       };
   const priorityFeed = useMemo(() => priorityFeedVideos.slice(0, 6), [priorityFeedVideos]);
   const dailyVideos = useMemo(
@@ -1509,12 +1533,12 @@ export default function ProfileScreen() {
           <>
             <View style={styles.postsHeader}>
               <View style={styles.postsLeft}>
-                <Text style={styles.postsTitle}>Daily</Text>
+                <Text style={styles.postsTitle}>{ui.dailyPostsTitle}</Text>
                 <Text style={styles.postsCount}>{dailyVideos.length}</Text>
               </View>
               <Pressable style={styles.uploadBtn} onPress={() => router.push("/upload")}>
                 <Ionicons name="add" size={16} color="#050505" />
-                <Text style={styles.uploadBtnText}>Post</Text>
+                <Text style={styles.uploadBtnText}>{ui.postDailyBtn}</Text>
               </Pressable>
             </View>
 
@@ -1538,7 +1562,7 @@ export default function ProfileScreen() {
                         {video.title}
                       </Text>
                       <Text style={styles.timelineMeta} numberOfLines={1}>
-                        {video.community} · {video.timeAgo ?? "just now"}
+                        {video.community} · {video.timeAgo ?? ui.timeJustNow}
                       </Text>
                     </View>
                   </Pressable>
@@ -1546,26 +1570,26 @@ export default function ProfileScreen() {
               ))}
               {dailyVideos.length === 0 && (
                 <View style={styles.timelineEmpty}>
-                  <Text style={styles.timelineEmptyText}>No daily posts yet</Text>
-                  <Text style={styles.timelineEmptySub}>{`Tap "Post" to share something quick`}</Text>
+                  <Text style={styles.timelineEmptyText}>{ui.emptyDaily}</Text>
+                  <Text style={styles.timelineEmptySub}>{ui.emptyDailySub}</Text>
                 </View>
               )}
             </View>
 
             <View style={styles.postsHeader}>
               <View style={styles.postsLeft}>
-                <Text style={styles.postsTitle}>Works</Text>
+                <Text style={styles.postsTitle}>{ui.worksPostsTitle}</Text>
                 <Text style={styles.postsCount}>{workVideos.length}</Text>
               </View>
               <Pressable style={styles.uploadBtn} onPress={() => router.push("/upload/work")}>
                 <Ionicons name="add" size={16} color="#050505" />
-                <Text style={styles.uploadBtnText}>Post Work</Text>
+                <Text style={styles.uploadBtnText}>{ui.postWorkBtn}</Text>
               </Pressable>
             </View>
 
             {workVideos.length > 0 ? (
               <Pressable style={styles.deleteAllWorksLink} onPress={deleteAllWorks}>
-                <Text style={styles.deleteAllWorksText}>Delete all Works</Text>
+                <Text style={styles.deleteAllWorksText}>{ui.deleteAllWorks}</Text>
               </Pressable>
             ) : null}
 
@@ -1589,7 +1613,7 @@ export default function ProfileScreen() {
                         {video.title}
                       </Text>
                       <Text style={styles.timelineMeta} numberOfLines={1}>
-                        {video.community} · {video.timeAgo ?? "just now"}
+                        {video.community} · {video.timeAgo ?? ui.timeJustNow}
                       </Text>
                     </View>
                   </Pressable>
@@ -1597,20 +1621,18 @@ export default function ProfileScreen() {
               ))}
               {workVideos.length === 0 && (
                 <View style={styles.timelineEmpty}>
-                  <Text style={styles.timelineEmptyText}>No works posted yet</Text>
-                  <Text style={styles.timelineEmptySub}>
-                    {`Tap "Post Work" to share articles, photos & videos`}
-                  </Text>
+                  <Text style={styles.timelineEmptyText}>{ui.emptyWorks}</Text>
+                  <Text style={styles.timelineEmptySub}>{ui.emptyWorksSub}</Text>
                 </View>
               )}
             </View>
 
             {myVideos.length > 0 ? (
               <View style={styles.dangerZone}>
-                <Text style={styles.dangerZoneLabel}>Data</Text>
+                <Text style={styles.dangerZoneLabel}>{ui.dataSection}</Text>
                 <Pressable style={styles.deleteAllPostsBtn} onPress={deleteAllMyPosts}>
                   <Ionicons name="warning-outline" size={16} color={C.live} />
-                  <Text style={styles.deleteAllPostsText}>Delete all my posts (Daily + Works)</Text>
+                  <Text style={styles.deleteAllPostsText}>{ui.deleteAllPosts}</Text>
                 </Pressable>
                 <Text style={styles.dangerZoneHint}>
                   Removes every post you own. Use the row above to delete only Works.

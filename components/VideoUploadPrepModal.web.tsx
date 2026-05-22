@@ -14,12 +14,16 @@ import { formatVideoTime } from "@/lib/formatVideoTime";
 import { prepareVideoBlobForWebUpload } from "@/lib/compressVideoBlobWeb";
 import { R2_SAME_ORIGIN_UPLOAD_MAX_BYTES } from "@/lib/query-client";
 import { VIDEO_PREP_QUALITIES, type VideoPrepQualityId } from "@/lib/videoPrepTypes";
+import { getVideoUploadPrepCopy } from "@/lib/videoUploadPrepStrings";
 import { reportUploadFailure } from "@/lib/reportUploadFailure";
 
 export type VideoUploadPrepModalProps = {
   visible: boolean;
   file: File | null;
   maxClipSec: number;
+  isJaUi?: boolean;
+  /** Telemetry label: daily | work */
+  flow?: "daily" | "work";
   onClose: () => void;
   onPrepared: (result: { blob: Blob; previewUrl: string; durationSec: number; fileName: string }) => void;
 };
@@ -28,14 +32,17 @@ export function VideoUploadPrepModal({
   visible,
   file,
   maxClipSec,
+  isJaUi = false,
+  flow = "daily",
   onClose,
   onPrepared,
 }: VideoUploadPrepModalProps) {
+  const copy = useMemo(() => getVideoUploadPrepCopy(isJaUi), [isJaUi]);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [duration, setDuration] = useState(0);
   const [trimStart, setTrimStart] = useState(0);
   const [trimEnd, setTrimEnd] = useState(maxClipSec);
-  const [qualityId, setQualityId] = useState<VideoPrepQualityId>("standard");
+  const [qualityId, setQualityId] = useState<VideoPrepQualityId>("light");
   const [preparing, setPreparing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -74,11 +81,11 @@ export function VideoUploadPrepModal({
   const handlePrepare = useCallback(async () => {
     if (!file || preparing) return;
     if (clipLen < 0.5) {
-      setError("Clip must be at least half a second.");
+      setError(copy.clipTooShort);
       return;
     }
     if (clipLen > maxClipSec + 0.01) {
-      setError(`Clip must be ${maxClipSec} seconds or less.`);
+      setError(copy.clipTooLong(maxClipSec));
       return;
     }
 
@@ -96,14 +103,30 @@ export function VideoUploadPrepModal({
       });
 
       if (!prepared) {
-        const errMsg = "Could not prepare this video in the browser. Try a shorter clip or lower quality.";
+        const errMsg = copy.prepareFailed;
         reportUploadFailure({
-          title: "Video prepare failed",
+          title: copy.reportTitlePrepareFailed,
           message: errMsg,
           stage: "web_transcode_null",
-          flow: "daily",
+          flow,
           mediaType: "video",
           fileSizeBytes: file?.size,
+        });
+        setError(errMsg);
+        return;
+      }
+
+      if (prepared.blob.size > R2_SAME_ORIGIN_UPLOAD_MAX_BYTES) {
+        const maxMb = Math.floor(R2_SAME_ORIGIN_UPLOAD_MAX_BYTES / 1024 / 1024);
+        const outMb = (prepared.blob.size / (1024 * 1024)).toFixed(1);
+        const errMsg = copy.prepareTooLarge(maxMb, outMb);
+        reportUploadFailure({
+          title: copy.reportTitlePrepareTooLarge,
+          message: errMsg,
+          stage: "web_transcode_over_cap",
+          flow,
+          mediaType: "video",
+          fileSizeBytes: prepared.blob.size,
         });
         setError(errMsg);
         return;
@@ -120,12 +143,12 @@ export function VideoUploadPrepModal({
         fileName,
       });
     } catch (e) {
-      const errMsg = e instanceof Error ? e.message : "Prepare failed";
+      const errMsg = e instanceof Error ? e.message : copy.prepareError;
       reportUploadFailure({
-        title: "Video prepare error",
+        title: copy.reportTitlePrepareError,
         message: errMsg,
         stage: "web_transcode_exception",
-        flow: "daily",
+        flow,
         mediaType: "video",
         fileSizeBytes: file?.size,
       });
@@ -133,7 +156,7 @@ export function VideoUploadPrepModal({
     } finally {
       setPreparing(false);
     }
-  }, [file, preparing, clipLen, maxClipSec, trimStart, trimEnd, quality, onPrepared]);
+  }, [file, preparing, clipLen, maxClipSec, trimStart, trimEnd, quality, onPrepared, copy, flow]);
 
   if (Platform.OS !== "web" || !visible) return null;
 
@@ -144,15 +167,15 @@ export function VideoUploadPrepModal({
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={styles.title}>Prepare video</Text>
+            <Text style={styles.title}>{copy.title}</Text>
             <Pressable onPress={onClose} disabled={preparing} hitSlop={12}>
               <Ionicons name="close" size={24} color={C.text} />
             </Pressable>
           </View>
 
-          <Text style={styles.hint}>
-            Trim and compress before upload. Only the selected segment is processed (faster than re-encoding
-            the whole file). Original: {sizeMb} MB · max {maxClipSec}s per post.
+          <Text style={styles.hint}>{copy.hint(sizeMb, maxClipSec)}</Text>
+          <Text style={styles.hintCap}>
+            {copy.uploadMaxNote(Math.floor(R2_SAME_ORIGIN_UPLOAD_MAX_BYTES / 1024 / 1024))}
           </Text>
 
           <View style={styles.previewWrap}>
@@ -172,10 +195,10 @@ export function VideoUploadPrepModal({
           {duration > 0 ? (
             <>
               <Text style={styles.label}>
-                Clip: {formatVideoTime(trimStart)} – {formatVideoTime(trimEnd)} ({formatVideoTime(clipLen)})
+                {copy.clip(formatVideoTime(trimStart), formatVideoTime(trimEnd), formatVideoTime(clipLen))}
               </Text>
               <WebRange
-                label="Start"
+                label={copy.rangeStart}
                 min={0}
                 max={Math.max(0, trimEnd - 0.5)}
                 step={0.1}
@@ -184,7 +207,7 @@ export function VideoUploadPrepModal({
                 onChange={(v) => setTrimStart(Math.min(v, trimEnd - 0.5))}
               />
               <WebRange
-                label="End"
+                label={copy.rangeEnd}
                 min={trimStart + 0.5}
                 max={Math.min(duration, maxClipSec)}
                 step={0.1}
@@ -195,17 +218,17 @@ export function VideoUploadPrepModal({
             </>
           ) : null}
 
-          <Text style={styles.label}>Quality</Text>
+          <Text style={styles.label}>{copy.quality}</Text>
           <View style={styles.qualityRow}>
             {VIDEO_PREP_QUALITIES.map((q) => (
               <Pressable
                 key={q.id}
                 style={[styles.qualityBtn, qualityId === q.id && styles.qualityBtnActive]}
-                onPress={() => setQualityId(q.id)}
+                onPress={() => setQualityId(q.id as VideoPrepQualityId)}
                 disabled={preparing}
               >
                 <Text style={[styles.qualityText, qualityId === q.id && styles.qualityTextActive]}>
-                  {q.label}
+                  {copy.qualityLabels[q.id as VideoPrepQualityId]}
                 </Text>
               </Pressable>
             ))}
@@ -214,7 +237,7 @@ export function VideoUploadPrepModal({
           {preparing ? (
             <View style={styles.progressRow}>
               <ActivityIndicator color={C.accent} />
-              <Text style={styles.progressText}>Preparing… {Math.round(progress * 100)}%</Text>
+              <Text style={styles.progressText}>{copy.preparing(Math.round(progress * 100))}</Text>
             </View>
           ) : null}
 
@@ -225,7 +248,7 @@ export function VideoUploadPrepModal({
             onPress={handlePrepare}
             disabled={preparing || !file}
           >
-            <Text style={styles.primaryBtnText}>Prepare & add</Text>
+            <Text style={styles.primaryBtnText}>{copy.prepareAdd}</Text>
           </Pressable>
         </View>
       </View>
@@ -292,7 +315,8 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   title: { color: C.text, fontSize: 18, fontWeight: "700" },
-  hint: { color: C.textMuted, fontSize: 13, lineHeight: 18, marginBottom: 12 },
+  hint: { color: C.textMuted, fontSize: 13, lineHeight: 18, marginBottom: 6 },
+  hintCap: { color: C.textMuted, fontSize: 12, lineHeight: 16, marginBottom: 12, fontStyle: "italic" },
   previewWrap: { marginBottom: 12, overflow: "hidden", borderRadius: 8 },
   label: { color: C.textSec, fontSize: 12, fontWeight: "600", marginBottom: 6, marginTop: 4 },
   rangeRow: {
