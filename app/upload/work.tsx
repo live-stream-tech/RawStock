@@ -24,6 +24,7 @@ import { apiRequest, ApiError, uploadUserMediaBlobToR2 } from "@/lib/query-clien
 import { C } from "@/constants/colors";
 import { useAuth } from "@/lib/auth";
 import { WORK_POST_LIMITS } from "@/constants/upload-limits";
+import { uploadVideoFromUri } from "@/lib/uploadNativeVideo";
 import { HorizontalScroll } from "@/components/HorizontalScroll";
 import { webScrollStyle } from "@/constants/layout";
 import { alertError, alertMessage } from "@/lib/alertCompat";
@@ -36,8 +37,6 @@ import {
   type VideoPriceOption,
 } from "@/components/upload/VideoPostPricing";
 import { getWorkUploadStrings } from "@/lib/uploadScreenStrings";
-
-const WORK_VIDEO_MAX_SEC = 120;
 
 type MediaItem = { id: string; uri: string; type: "image" | "video"; size?: number; durationSec?: number };
 type Community = { id: number; name: string; thumbnail: string };
@@ -87,7 +86,11 @@ export default function WorkUploadScreen() {
   const { user, requireAuth } = useAuth();
   const isJaUi = (user?.preferredLanguage ?? "").toLowerCase().startsWith("ja");
   const t = useMemo(
-    () => getWorkUploadStrings(isJaUi, { maxFileSizeMB: WORK_POST_LIMITS.maxFileSizeMB }),
+    () =>
+      getWorkUploadStrings(isJaUi, {
+        maxFileSizeMB: WORK_POST_LIMITS.maxFileSizeMB,
+        maxVideoDurationSec: WORK_POST_LIMITS.maxVideoDurationSec,
+      }),
     [isJaUi],
   );
 
@@ -245,6 +248,7 @@ export default function WorkUploadScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["videos"],
       allowsEditing: false,
+      videoMaxDuration: WORK_POST_LIMITS.maxVideoDurationSec,
       videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
       ...(Platform.OS === "ios"
         ? { videoExportPreset: ImagePicker.VideoExportPreset.H264_1280x720 }
@@ -264,12 +268,29 @@ export default function WorkUploadScreen() {
         alertMessage(t.errorTitle, t.fileLimit);
         return;
       }
+      const durationSec = asset.duration ? Math.ceil(asset.duration / 1000) : undefined;
+      if (durationSec && durationSec > WORK_POST_LIMITS.maxVideoDurationSec) {
+        reportUploadFailure({
+          title: t.errorTitle,
+          message: t.videoDurationLimit,
+          stage: "pick_video_duration",
+          flow: "work",
+          mediaType: "video",
+        });
+        alertMessage(t.errorTitle, t.videoDurationLimit);
+        return;
+      }
       try {
         setUploading(true);
         const mime = asset.mimeType ?? "video/mp4";
         const name = asset.fileName ?? "video.mp4";
-        const url = await uploadFileToR2Native(asset.uri, name, mime);
-        addMedia(`vid-${Date.now()}`, url, "video");
+        const url = await uploadVideoFromUri(
+          asset.uri,
+          name,
+          mime,
+          WORK_POST_LIMITS.maxFileSizeMB * 1024 * 1024,
+        );
+        addMedia(`vid-${Date.now()}`, url, "video", undefined, durationSec);
       } catch (err: unknown) {
         reportUploadFailure({
           title: t.errorTitle,
@@ -703,19 +724,21 @@ export default function WorkUploadScreen() {
       <VideoUploadPrepModal
         visible={videoPrepOpen}
         file={videoPrepFile}
-        maxClipSec={WORK_VIDEO_MAX_SEC}
+        maxClipSec={WORK_POST_LIMITS.maxVideoDurationSec}
         isJaUi={isJaUi}
         flow="work"
         onClose={() => {
           setVideoPrepOpen(false);
           setVideoPrepFile(null);
         }}
-        onPrepared={async ({ previewUrl, blob, durationSec, fileName }) => {
+        onPrepared={async ({ previewUrl, blob, durationSec, fileName, uploadedUrl }) => {
           setVideoPrepOpen(false);
           setVideoPrepFile(null);
           setUploading(true);
           try {
-            const url = await uploadUserMediaBlobToR2(blob, fileName, blob.type || "video/mp4");
+            const url =
+              uploadedUrl ??
+              (await uploadUserMediaBlobToR2(blob, fileName, blob.type || "video/mp4"));
             addMedia(`vid-${Date.now()}`, url, "video", blob.size, durationSec);
           } catch (err: unknown) {
             reportUploadFailure({

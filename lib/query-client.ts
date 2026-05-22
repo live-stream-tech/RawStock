@@ -323,7 +323,8 @@ function assertR2PresignBrowserCompatible(presign: string): void {
 }
 
 /** Stay under Vercel's ~4.5MB serverless request body cap; same-origin upload avoids R2 CORS in the browser. */
-export const R2_SAME_ORIGIN_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
+export { R2_SAME_ORIGIN_UPLOAD_MAX_BYTES } from "./media-upload-constants";
+import { R2_SAME_ORIGIN_UPLOAD_MAX_BYTES } from "./media-upload-constants";
 const IMAGE_RESIZE_MIN_EDGE = 320;
 const IMAGE_RESIZE_START_MAX_EDGE = 2048;
 const IMAGE_RESIZE_MAX_STEPS = 12;
@@ -487,12 +488,18 @@ export async function uploadUserMediaBlobToR2(
 ): Promise<string> {
   let ct = contentType.split(";")[0].trim();
   let safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const isVideo = /^video\//i.test(ct);
+  const timeoutMs =
+    isVideo && blob.size > R2_SAME_ORIGIN_UPLOAD_MAX_BYTES
+      ? Math.min(1_800_000, 60_000 + Math.ceil(blob.size / (1024 * 1024)) * 3000)
+      : 45_000;
+
   const action = beginActionTelemetry({
     action: "upload_user_media",
     title: "Media upload",
     method: "POST",
     requestUrl: "/api/upload-url",
-    timeoutMs: 45_000,
+    timeoutMs,
     extra: {
       fileName: safeName,
       contentType: ct,
@@ -502,29 +509,9 @@ export async function uploadUserMediaBlobToR2(
   try {
     let uploadBlob = blob;
     const isImage = isImageContentType(ct);
-    const isVideo = /^video\//i.test(ct);
 
     if (blob.size > R2_SAME_ORIGIN_UPLOAD_MAX_BYTES && isImage) {
       uploadBlob = await compressImageBlobForUpload(blob, ct);
-    }
-
-    if (blob.size > R2_SAME_ORIGIN_UPLOAD_MAX_BYTES && isVideo && typeof document !== "undefined") {
-      uploadBlob = await compressVideoBlobForWebSameOrigin(blob, ct, R2_SAME_ORIGIN_UPLOAD_MAX_BYTES);
-      const t = uploadBlob.type.split(";")[0].trim();
-      if (t && /^video\//i.test(t)) {
-        ct = t;
-        const ext = t.includes("webm")
-          ? "webm"
-          : t.includes("mp4")
-            ? "mp4"
-            : t.includes("quicktime")
-              ? "mov"
-              : "";
-        if (ext) {
-          const base = safeName.includes(".") ? safeName.slice(0, safeName.lastIndexOf(".")) : safeName;
-          safeName = `${base}.${ext}`;
-        }
-      }
     }
 
     if (uploadBlob.size <= R2_SAME_ORIGIN_UPLOAD_MAX_BYTES) {
@@ -546,19 +533,14 @@ export async function uploadUserMediaBlobToR2(
       );
     }
 
-    if (isVideo && typeof document !== "undefined") {
-      const capMb = Math.floor(R2_SAME_ORIGIN_UPLOAD_MAX_BYTES / 1024 / 1024);
-      const gotMb = (uploadBlob.size / (1024 * 1024)).toFixed(1);
-      const tooLargeErr = new Error(
-        `Video is still too large after compression (${gotMb} MB; web limit ${capMb} MB). ` +
-          "Use a shorter clip or Light quality in the prepare step.",
-      );
-      action.fail(tooLargeErr, {
-        stage: "video_still_too_large_after_compression",
+    if (isVideo && uploadBlob.size > R2_SAME_ORIGIN_UPLOAD_MAX_BYTES) {
+      const { uploadLargeBlobViaR2Presigned } = await import("./r2-large-upload");
+      const publicUrl = await uploadLargeBlobViaR2Presigned(uploadBlob, safeName, ct);
+      action.success({
+        uploadMode: uploadBlob.size > 12 * 1024 * 1024 ? "r2_multipart_presigned" : "r2_presigned_put",
         finalSize: uploadBlob.size,
-        contentType: ct,
       });
-      throw tooLargeErr;
+      return publicUrl;
     }
 
     const resp = await apiRequest("POST", "/api/upload-url", {

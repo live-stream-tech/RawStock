@@ -35,6 +35,7 @@ import {
   type VideoPriceOption,
 } from "@/components/upload/VideoPostPricing";
 import { getDailyUploadStrings } from "@/lib/uploadScreenStrings";
+import { uploadVideoFromUri } from "@/lib/uploadNativeVideo";
 
 type MediaItem = { id: string; uri: string; type: "image" | "video"; size?: number; durationSec?: number };
 type Community = { id: number; name: string; thumbnail: string };
@@ -296,7 +297,12 @@ export default function DailyUploadScreen() {
         setUploading(true);
         const mime = asset.mimeType ?? "video/mp4";
         const name = asset.fileName ?? "video.mp4";
-        const url = await uploadFileToR2Native(asset.uri, name, mime);
+        const url = await uploadVideoFromUri(
+          asset.uri,
+          name,
+          mime,
+          DAILY_POST_LIMITS.maxFileSizeMB * 1024 * 1024,
+        );
         addMedia(`vid-${Date.now()}`, url, "video", undefined, durationSec);
       } catch (err: unknown) {
         reportUploadFailure({
@@ -707,12 +713,14 @@ export default function DailyUploadScreen() {
           setVideoPrepOpen(false);
           setVideoPrepFile(null);
         }}
-        onPrepared={async ({ previewUrl, blob, durationSec, fileName }) => {
+        onPrepared={async ({ previewUrl, blob, durationSec, fileName, uploadedUrl }) => {
           setVideoPrepOpen(false);
           setVideoPrepFile(null);
           setUploading(true);
           try {
-            const url = await uploadUserMediaBlobToR2(blob, fileName, blob.type || "video/mp4");
+            const url =
+              uploadedUrl ??
+              (await uploadUserMediaBlobToR2(blob, fileName, blob.type || "video/mp4"));
             addMedia(`vid-${Date.now()}`, url, "video", blob.size, durationSec);
           } catch (err: unknown) {
             reportUploadFailure({

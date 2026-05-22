@@ -20,6 +20,8 @@ export type VideoPrepOptions = {
   trimEndSec: number;
   quality: VideoPrepQuality;
   targetMaxBytes: number;
+  /** Max clip length (seconds) for trim + transcode validation. */
+  maxClipSec?: number;
   onProgress?: (ratio: number) => void;
 };
 

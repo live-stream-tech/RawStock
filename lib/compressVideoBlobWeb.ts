@@ -5,14 +5,10 @@
 
 import type { VideoPrepOptions, VideoPrepResult } from "./videoPrepTypes";
 import { VIDEO_PREP_QUALITIES } from "./videoPrepTypes";
+import { WEB_VIDEO_PREP_MAX_OUTPUT_BYTES } from "./media-upload-constants";
 
 export { VIDEO_PREP_QUALITIES } from "./videoPrepTypes";
 export type { VideoPrepOptions, VideoPrepQuality, VideoPrepQualityId, VideoPrepResult } from "./videoPrepTypes";
-
-const MAX_CLIP_SEC = 300;
-
-/** Must match `R2_SAME_ORIGIN_UPLOAD_MAX_BYTES` in query-client (avoid circular import). */
-export const WEB_VIDEO_UPLOAD_TARGET_BYTES = 4 * 1024 * 1024;
 
 type Attempt = { maxWidth: number; videoBitsPerSecond: number };
 
@@ -90,6 +86,7 @@ async function transcodeClip(
   mimeHint: string,
   trimStartSec: number,
   trimEndSec: number,
+  maxClipSec: number,
   onProgress?: (ratio: number) => void,
 ): Promise<Blob | null> {
   if (typeof document === "undefined" || typeof MediaRecorder === "undefined") return null;
@@ -116,7 +113,7 @@ async function transcodeClip(
     const start = Math.max(0, Math.min(trimStartSec, dur - 0.1));
     const end = Math.max(start + 0.1, Math.min(trimEndSec, dur));
     const clipDuration = end - start;
-    if (clipDuration > MAX_CLIP_SEC) return null;
+    if (clipDuration > maxClipSec) return null;
 
     const vw = video.videoWidth;
     const vh = video.videoHeight;
@@ -213,7 +210,7 @@ async function transcodeClip(
     };
     requestAnimationFrame(paint);
 
-    const timeoutMs = Math.min(MAX_CLIP_SEC * 1000, Math.ceil(clipDuration * 1000) + 45_000);
+    const timeoutMs = Math.min(maxClipSec * 1000, Math.ceil(clipDuration * 1000) + 45_000);
     try {
       await Promise.race([
         stopped,
@@ -247,6 +244,8 @@ export async function prepareVideoBlobForWebUpload(
 
   const { mime, ext } = pickRecorderMime();
   const clipLen = Math.max(0.1, options.trimEndSec - options.trimStartSec);
+  const maxClipSec = options.maxClipSec ?? Math.max(clipLen, 300);
+  if (clipLen > maxClipSec) return null;
   const primaryAttempt: Attempt = {
     maxWidth: options.quality.maxWidth,
     videoBitsPerSecond: options.quality.videoBitsPerSecond,
@@ -269,6 +268,7 @@ export async function prepareVideoBlobForWebUpload(
       mime,
       options.trimStartSec,
       options.trimEndSec,
+      maxClipSec,
       options.onProgress,
     );
     if (!out || out.size === 0) continue;
@@ -277,7 +277,7 @@ export async function prepareVideoBlobForWebUpload(
   }
 
   // Re-encode unavailable (common with some HEVC sources) — allow small originals through.
-  if (!best && blob.size > 0 && blob.size <= options.targetMaxBytes) {
+  if (!best && blob.size > 0 && blob.size <= WEB_VIDEO_PREP_MAX_OUTPUT_BYTES) {
     const mimeType = blob.type.split(";")[0].trim() || mime.split(";")[0];
     const outExt = mimeType.includes("webm") ? "webm" : mimeType.includes("mp4") ? "mp4" : ext;
     return { blob, mimeType, ext: outExt, durationSec: clipLen };
@@ -285,8 +285,7 @@ export async function prepareVideoBlobForWebUpload(
 
   if (!best) return null;
 
-  // Do not return oversize blobs — they fail on web (4MB same-origin cap / R2 CORS PUT).
-  if (best.size > options.targetMaxBytes) return null;
+  if (best.size > WEB_VIDEO_PREP_MAX_OUTPUT_BYTES) return null;
 
   const mimeType = best.type.split(";")[0].trim() || mime.split(";")[0];
   const outExt = mimeType.includes("mp4") ? "mp4" : ext;

@@ -1,5 +1,7 @@
 /** Copy for /upload and /upload/work (ja when preferredLanguage starts with "ja"). */
 
+import { formatPostVideoMaxDuration } from "@/lib/formatVideoTime";
+
 export type DailyUploadStrings = {
   publishAction: string;
   postAction: string;
@@ -103,7 +105,7 @@ const DAILY_EN: DailyUploadStrings = {
   loadFileFailed: "Could not load the file for upload.",
   browserFileTooLarge: "File is too large to process in the browser (limit: 4 GB).",
   videoWebTooLarge:
-    "Video is still too large for web upload (4 MB limit). Use a shorter clip or Light quality in the prepare step.",
+    "Video upload to storage failed. If this keeps happening, R2 CORS may need to be configured (see docs/R2-CORS.md). Try Light quality or a shorter clip.",
   maxItems: "",
   maxOneVideo: "Only one video can be added per post.",
   videoDurationLimit: "",
@@ -165,7 +167,7 @@ const DAILY_JA: DailyUploadStrings = {
   loadFileFailed: "アップロード用のファイルを読み込めませんでした。",
   browserFileTooLarge: "ブラウザで処理できる上限（4 GB）を超えています。",
   videoWebTooLarge:
-    "Webアップロード上限（4 MB）を超えています。準備画面でクリップを短くするか「軽量」を選んでください。",
+    "ストレージへのアップロードに失敗しました。続く場合は R2 の CORS 設定が必要なことがあります（docs/R2-CORS.md）。「軽量」または短いクリップでお試しください。",
   maxOneVideo: "1回の投稿に追加できる動画は1本までです。",
   headerTitle: "日常投稿",
   switchToWork: "作品投稿",
@@ -204,21 +206,22 @@ export function getDailyUploadStrings(isJaUi: boolean, limits: {
   maxFileSizeMB: number;
 }): DailyUploadStrings {
   const base = isJaUi ? DAILY_JA : DAILY_EN;
+  const durLabel = formatPostVideoMaxDuration(limits.maxVideoDurationSec, isJaUi);
   if (isJaUi) {
     return {
       ...base,
       fileLimit: `ファイルは${limits.maxFileSizeMB}MB未満にしてください。`,
       maxItems: `1回の投稿に追加できるのは最大${limits.maxMediaCount}件までです。`,
-      videoDurationLimit: `動画は${limits.maxVideoDurationSec}秒以内にしてください。`,
-      limitHint: `最大${limits.maxMediaCount}件、動画は1本まで（最長${limits.maxVideoDurationSec}秒 / 最大${limits.maxFileSizeMB}MB）。`,
+      videoDurationLimit: `動画は${durLabel}以内にしてください。`,
+      limitHint: `最大${limits.maxMediaCount}件、動画は1本まで（最長${durLabel} / 最大${limits.maxFileSizeMB}MB）。`,
     };
   }
   return {
     ...base,
     fileLimit: `File must be under ${limits.maxFileSizeMB}MB`,
     maxItems: `You can add up to ${limits.maxMediaCount} items per post.`,
-    videoDurationLimit: `Video must be under ${limits.maxVideoDurationSec} seconds`,
-    limitHint: `Up to ${limits.maxMediaCount} items, with at most 1 video (${limits.maxVideoDurationSec}s max / ${limits.maxFileSizeMB}MB max).`,
+    videoDurationLimit: `Video must be under ${durLabel}`,
+    limitHint: `Up to ${limits.maxMediaCount} items, with at most 1 video (${durLabel} max / ${limits.maxFileSizeMB}MB max).`,
   };
 }
 
@@ -260,11 +263,12 @@ const WORK_JA_EXTRA = {
 
 export function getWorkUploadStrings(
   isJaUi: boolean,
-  limits: { maxFileSizeMB: number },
+  limits: { maxFileSizeMB: number; maxVideoDurationSec: number },
 ): WorkUploadStrings {
+  const durLabel = formatPostVideoMaxDuration(limits.maxVideoDurationSec, isJaUi);
   const daily = getDailyUploadStrings(isJaUi, {
     maxMediaCount: 99,
-    maxVideoDurationSec: 120,
+    maxVideoDurationSec: limits.maxVideoDurationSec,
     maxFileSizeMB: limits.maxFileSizeMB,
   });
   const extra = isJaUi ? WORK_JA_EXTRA : WORK_EN_EXTRA;
@@ -273,8 +277,8 @@ export function getWorkUploadStrings(
     ...extra,
     headerTitle: isJaUi ? "作品投稿" : "Post Work",
     limitHint: isJaUi
-      ? `画像・動画は1ファイルあたり最大${limits.maxFileSizeMB}MBです。`
-      : `File size limit: ${limits.maxFileSizeMB}MB per image/video.`,
+      ? `画像・動画は1ファイルあたり最大${limits.maxFileSizeMB}MB、動画は最長${durLabel}です。`
+      : `File size limit: ${limits.maxFileSizeMB}MB per image/video. Videos up to ${durLabel}.`,
     telemetryTitle: isJaUi ? "作品投稿" : "Work post",
   };
 }

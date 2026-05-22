@@ -116,6 +116,12 @@ import {
   putR2ObjectBuffer,
   resolveUploadPublicUrlForKey,
 } from "./r2";
+import {
+  abortMultipartUpload,
+  completeMultipartUpload,
+  signMultipartUploadPart,
+  startMultipartUpload,
+} from "./r2-multipart";
 import { getR2PublicBaseUrl, mapVideoMediaFieldsForApi, rewriteStoredMediaUrl } from "./lib/directR2MediaUrl";
 import { moderateContent } from "./moderation";
 import { detectContentLang } from "./langFromText";
@@ -1292,7 +1298,15 @@ export async function registerRoutes(app: Express): Promise<void> {
   /** Public app config (safe to expose). Used by web clients for R2 direct media URLs. */
   app.get("/api/app-config", (_req: Request, res: Response) => {
     res.setHeader("Cache-Control", "public, max-age=300");
-    res.json({ r2PublicBaseUrl: getR2PublicBaseUrl() });
+    res.json({
+      r2PublicBaseUrl: getR2PublicBaseUrl(),
+      webVideoMaxDurationSecDaily: 30,
+      webVideoMaxDurationSecWork: 3600,
+      /** @deprecated Prefer webVideoMaxDurationSecWork */
+      webVideoMaxDurationSec: 3600,
+      webVideoPrepMaxMb: 500,
+      webSameOriginUploadMaxMb: 4,
+    });
   });
 
   // ── LP lead capture (email / LINE) ───────────────────────────────
@@ -5566,6 +5580,101 @@ export async function registerRoutes(app: Express): Promise<void> {
     }
 
     res.json({ key, url: filePublicUrl, fileUrl: filePublicUrl });
+  });
+
+  /** Multipart upload for large browser videos (bypasses Vercel 4MB body limit). */
+  app.post("/api/upload-multipart/init", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+
+    const fileName = typeof req.body?.fileName === "string" ? req.body.fileName : `upload_${Date.now()}.mp4`;
+    const contentType =
+      typeof req.body?.contentType === "string" ? req.body.contentType : "application/octet-stream";
+    const safeName = String(fileName).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 240);
+    const key = `rawstock_${Date.now()}_${safeName}`;
+
+    try {
+      const init = await startMultipartUpload(key, contentType);
+      let filePublicUrl: string | null = init.publicUrl;
+      if (!filePublicUrl) {
+        try {
+          filePublicUrl = resolveUploadPublicUrlForKey(req, key);
+        } catch {
+          filePublicUrl = null;
+        }
+      }
+      res.json({
+        key: init.key,
+        uploadId: init.uploadId,
+        partSize: init.partSize,
+        url: filePublicUrl,
+        fileUrl: filePublicUrl,
+      });
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      console.error("[upload-multipart/init] failed", { err: e, userId: user.id });
+      return res.status(500).json({
+        error: errMsg.includes("not configured") ? "File storage is not configured." : "Failed to start multipart upload",
+      });
+    }
+  });
+
+  app.post("/api/upload-multipart/sign-part", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+
+    const key = typeof req.body?.key === "string" ? req.body.key : "";
+    const uploadId = typeof req.body?.uploadId === "string" ? req.body.uploadId : "";
+    const partNumber = Number(req.body?.partNumber);
+    if (!key || !uploadId || !Number.isFinite(partNumber)) {
+      return res.status(400).json({ error: "key, uploadId, and partNumber are required" });
+    }
+
+    try {
+      const uploadUrl = await signMultipartUploadPart(key, uploadId, partNumber);
+      res.json({ uploadUrl });
+    } catch (e) {
+      console.error("[upload-multipart/sign-part] failed", { err: e, userId: user.id });
+      return res.status(500).json({ error: "Failed to sign upload part" });
+    }
+  });
+
+  app.post("/api/upload-multipart/complete", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+
+    const key = typeof req.body?.key === "string" ? req.body.key : "";
+    const uploadId = typeof req.body?.uploadId === "string" ? req.body.uploadId : "";
+    const parts = Array.isArray(req.body?.parts) ? req.body.parts : [];
+    if (!key || !uploadId || parts.length === 0) {
+      return res.status(400).json({ error: "key, uploadId, and parts are required" });
+    }
+
+    const normalized = parts
+      .map((p: { partNumber?: number; etag?: string }) => ({
+        partNumber: Number(p?.partNumber),
+        etag: typeof p?.etag === "string" ? p.etag.replace(/^"|"$/g, "") : "",
+      }))
+      .filter((p: { partNumber: number; etag: string }) => Number.isFinite(p.partNumber) && p.partNumber > 0 && p.etag);
+
+    try {
+      await completeMultipartUpload(key, uploadId, normalized);
+      const filePublicUrl = resolveUploadPublicUrlForKey(req, key);
+      res.json({ key, url: filePublicUrl, fileUrl: filePublicUrl });
+    } catch (e) {
+      console.error("[upload-multipart/complete] failed", { err: e, userId: user.id });
+      return res.status(500).json({ error: "Failed to complete multipart upload" });
+    }
+  });
+
+  app.post("/api/upload-multipart/abort", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+
+    const key = typeof req.body?.key === "string" ? req.body.key : "";
+    const uploadId = typeof req.body?.uploadId === "string" ? req.body.uploadId : "";
+    if (key && uploadId) await abortMultipartUpload(key, uploadId);
+    res.json({ ok: true });
   });
 
   // ── Videos ───────────────────────────────────────────────────────

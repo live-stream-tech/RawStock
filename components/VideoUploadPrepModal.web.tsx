@@ -10,9 +10,11 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { C } from "@/constants/colors";
+import { WORK_POST_LIMITS } from "@/constants/upload-limits";
 import { formatVideoTime } from "@/lib/formatVideoTime";
 import { prepareVideoBlobForWebUpload } from "@/lib/compressVideoBlobWeb";
-import { R2_SAME_ORIGIN_UPLOAD_MAX_BYTES } from "@/lib/query-client";
+import { WEB_VIDEO_PREP_MAX_OUTPUT_BYTES } from "@/lib/media-upload-constants";
+import { uploadLargeBlobViaR2Presigned } from "@/lib/r2-large-upload";
 import { VIDEO_PREP_QUALITIES, type VideoPrepQualityId } from "@/lib/videoPrepTypes";
 import { getVideoUploadPrepCopy } from "@/lib/videoUploadPrepStrings";
 import { reportUploadFailure } from "@/lib/reportUploadFailure";
@@ -25,8 +27,17 @@ export type VideoUploadPrepModalProps = {
   /** Telemetry label: daily | work */
   flow?: "daily" | "work";
   onClose: () => void;
-  onPrepared: (result: { blob: Blob; previewUrl: string; durationSec: number; fileName: string }) => void;
+  onPrepared: (result: {
+    blob: Blob;
+    previewUrl: string;
+    durationSec: number;
+    fileName: string;
+    /** Set when the file was already uploaded (e.g. Upload original). */
+    uploadedUrl?: string;
+  }) => void;
 };
+
+const LIGHT_QUALITY = VIDEO_PREP_QUALITIES.find((q) => q.id === "light") ?? VIDEO_PREP_QUALITIES[2];
 
 export function VideoUploadPrepModal({
   visible,
@@ -37,7 +48,8 @@ export function VideoUploadPrepModal({
   onClose,
   onPrepared,
 }: VideoUploadPrepModalProps) {
-  const copy = useMemo(() => getVideoUploadPrepCopy(isJaUi), [isJaUi]);
+  const isDaily = flow === "daily";
+  const copy = useMemo(() => getVideoUploadPrepCopy(isJaUi, flow), [isJaUi, flow]);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [duration, setDuration] = useState(0);
   const [trimStart, setTrimStart] = useState(0);
@@ -46,6 +58,7 @@ export function VideoUploadPrepModal({
   const [preparing, setPreparing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [originalMode, setOriginalMode] = useState(false);
 
   const previewUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
 
@@ -61,12 +74,24 @@ export function VideoUploadPrepModal({
     setProgress(0);
     setPreparing(false);
     setTrimStart(0);
-    setTrimEnd(Math.min(maxClipSec, 60));
+    setTrimEnd(maxClipSec);
     setDuration(0);
+    setQualityId("light");
+    setOriginalMode(false);
   }, [visible, file, maxClipSec]);
 
   const clipLen = Math.max(0, trimEnd - trimStart);
-  const quality = VIDEO_PREP_QUALITIES.find((q) => q.id === qualityId) ?? VIDEO_PREP_QUALITIES[1];
+  const quality = isDaily
+    ? LIGHT_QUALITY
+    : (VIDEO_PREP_QUALITIES.find((q) => q.id === qualityId) ?? VIDEO_PREP_QUALITIES[1]);
+
+  const prepMaxMb = Math.floor(WEB_VIDEO_PREP_MAX_OUTPUT_BYTES / (1024 * 1024));
+  const workMaxBytes = WORK_POST_LIMITS.maxFileSizeMB * 1024 * 1024;
+  const canUploadOriginal =
+    !isDaily &&
+    !!file &&
+    file.size <= WEB_VIDEO_PREP_MAX_OUTPUT_BYTES &&
+    file.size <= workMaxBytes;
 
   const onLoadedMetadata = useCallback(() => {
     const v = videoRef.current;
@@ -90,6 +115,7 @@ export function VideoUploadPrepModal({
     }
 
     setPreparing(true);
+    setOriginalMode(false);
     setError(null);
     setProgress(0);
 
@@ -98,7 +124,8 @@ export function VideoUploadPrepModal({
         trimStartSec: trimStart,
         trimEndSec: trimEnd,
         quality,
-        targetMaxBytes: R2_SAME_ORIGIN_UPLOAD_MAX_BYTES,
+        targetMaxBytes: WEB_VIDEO_PREP_MAX_OUTPUT_BYTES,
+        maxClipSec,
         onProgress: setProgress,
       });
 
@@ -111,22 +138,6 @@ export function VideoUploadPrepModal({
           flow,
           mediaType: "video",
           fileSizeBytes: file?.size,
-        });
-        setError(errMsg);
-        return;
-      }
-
-      if (prepared.blob.size > R2_SAME_ORIGIN_UPLOAD_MAX_BYTES) {
-        const maxMb = Math.floor(R2_SAME_ORIGIN_UPLOAD_MAX_BYTES / 1024 / 1024);
-        const outMb = (prepared.blob.size / (1024 * 1024)).toFixed(1);
-        const errMsg = copy.prepareTooLarge(maxMb, outMb);
-        reportUploadFailure({
-          title: copy.reportTitlePrepareTooLarge,
-          message: errMsg,
-          stage: "web_transcode_over_cap",
-          flow,
-          mediaType: "video",
-          fileSizeBytes: prepared.blob.size,
         });
         setError(errMsg);
         return;
@@ -158,6 +169,69 @@ export function VideoUploadPrepModal({
     }
   }, [file, preparing, clipLen, maxClipSec, trimStart, trimEnd, quality, onPrepared, copy, flow]);
 
+  /**
+   * Upload original: no re-encode. Sends the full selected File when metadata duration
+   * is within maxClipSec. Trim sliders apply only to the compress/prepare path.
+   */
+  const handleUploadOriginal = useCallback(async () => {
+    if (!file || preparing || !canUploadOriginal) return;
+
+    if (duration > maxClipSec + 0.01) {
+      setError(copy.clipTooLong(maxClipSec));
+      return;
+    }
+    if (file.size > WEB_VIDEO_PREP_MAX_OUTPUT_BYTES) {
+      setError(copy.originalTooLarge?.(prepMaxMb) ?? copy.prepareTooLarge(prepMaxMb, (file.size / (1024 * 1024)).toFixed(1)));
+      return;
+    }
+
+    setPreparing(true);
+    setOriginalMode(true);
+    setError(null);
+    setProgress(0);
+
+    try {
+      const mime = file.type.split(";")[0].trim() || "video/mp4";
+      const fileName = file.name || "video.mp4";
+      const durationSec = duration > 0 ? duration : maxClipSec;
+
+      const publicUrl = await uploadLargeBlobViaR2Presigned(file, fileName, mime, {
+        onProgress: setProgress,
+      });
+
+      onPrepared({
+        blob: file,
+        previewUrl: publicUrl,
+        durationSec,
+        fileName,
+        uploadedUrl: publicUrl,
+      });
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : copy.prepareError;
+      reportUploadFailure({
+        title: copy.reportTitlePrepareError,
+        message: errMsg,
+        stage: "web_upload_original",
+        flow,
+        mediaType: "video",
+        fileSizeBytes: file?.size,
+      });
+      setError(errMsg);
+    } finally {
+      setPreparing(false);
+    }
+  }, [
+    file,
+    preparing,
+    canUploadOriginal,
+    duration,
+    maxClipSec,
+    copy,
+    flow,
+    onPrepared,
+    prepMaxMb,
+  ]);
+
   if (Platform.OS !== "web" || !visible) return null;
 
   const sizeMb = file ? (file.size / (1024 * 1024)).toFixed(1) : "0";
@@ -174,9 +248,11 @@ export function VideoUploadPrepModal({
           </View>
 
           <Text style={styles.hint}>{copy.hint(sizeMb, maxClipSec)}</Text>
-          <Text style={styles.hintCap}>
-            {copy.uploadMaxNote(Math.floor(R2_SAME_ORIGIN_UPLOAD_MAX_BYTES / 1024 / 1024))}
-          </Text>
+          {!isDaily ? (
+            <Text style={styles.hintCap}>
+              {copy.uploadMaxNote(prepMaxMb)}
+            </Text>
+          ) : null}
 
           <View style={styles.previewWrap}>
             {previewUrl ? (
@@ -218,26 +294,34 @@ export function VideoUploadPrepModal({
             </>
           ) : null}
 
-          <Text style={styles.label}>{copy.quality}</Text>
-          <View style={styles.qualityRow}>
-            {VIDEO_PREP_QUALITIES.map((q) => (
-              <Pressable
-                key={q.id}
-                style={[styles.qualityBtn, qualityId === q.id && styles.qualityBtnActive]}
-                onPress={() => setQualityId(q.id as VideoPrepQualityId)}
-                disabled={preparing}
-              >
-                <Text style={[styles.qualityText, qualityId === q.id && styles.qualityTextActive]}>
-                  {copy.qualityLabels[q.id as VideoPrepQualityId]}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
+          {!isDaily ? (
+            <>
+              <Text style={styles.label}>{copy.quality}</Text>
+              <View style={styles.qualityRow}>
+                {VIDEO_PREP_QUALITIES.map((q) => (
+                  <Pressable
+                    key={q.id}
+                    style={[styles.qualityBtn, qualityId === q.id && styles.qualityBtnActive]}
+                    onPress={() => setQualityId(q.id as VideoPrepQualityId)}
+                    disabled={preparing}
+                  >
+                    <Text style={[styles.qualityText, qualityId === q.id && styles.qualityTextActive]}>
+                      {copy.qualityLabels[q.id as VideoPrepQualityId]}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          ) : null}
 
           {preparing ? (
             <View style={styles.progressRow}>
               <ActivityIndicator color={C.accent} />
-              <Text style={styles.progressText}>{copy.preparing(Math.round(progress * 100))}</Text>
+              <Text style={styles.progressText}>
+                {originalMode && copy.uploadingOriginal
+                  ? copy.uploadingOriginal(Math.round(progress * 100))
+                  : copy.preparing(Math.round(progress * 100))}
+              </Text>
             </View>
           ) : null}
 
@@ -250,6 +334,16 @@ export function VideoUploadPrepModal({
           >
             <Text style={styles.primaryBtnText}>{copy.prepareAdd}</Text>
           </Pressable>
+
+          {canUploadOriginal && copy.uploadOriginal ? (
+            <Pressable
+              style={[styles.secondaryBtn, preparing && styles.primaryBtnDisabled]}
+              onPress={handleUploadOriginal}
+              disabled={preparing || !file || duration <= 0}
+            >
+              <Text style={styles.secondaryBtnText}>{copy.uploadOriginal}</Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
     </Modal>
@@ -349,4 +443,13 @@ const styles = StyleSheet.create({
   },
   primaryBtnDisabled: { opacity: 0.5 },
   primaryBtnText: { color: "#050505", fontSize: 15, fontWeight: "800" },
+  secondaryBtn: {
+    marginTop: 10,
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: C.borderDim,
+  },
+  secondaryBtnText: { color: C.text, fontSize: 15, fontWeight: "700" },
 });
