@@ -258,7 +258,6 @@ export default function WorkUploadScreen() {
   }
 
   async function pickPhoto() {
-    setAddMenuVisible(false);
     if (Platform.OS === "web") {
       const input = document.createElement("input");
       input.type = "file";
@@ -322,7 +321,6 @@ export default function WorkUploadScreen() {
   }
 
   async function pickVideo() {
-    setAddMenuVisible(false);
     if (Platform.OS === "web") {
       const input = document.createElement("input");
       input.type = "file";
@@ -788,7 +786,8 @@ export default function WorkUploadScreen() {
         </Pressable>
       </View>
 
-      <Modal visible={showPublishFromModal} transparent animationType="slide">
+      {showPublishFromModal ? (
+      <Modal visible transparent animationType="slide">
         <Pressable style={styles.menuOverlay} onPress={() => !uploading && setShowPublishFromModal(false)}>
           <Pressable style={styles.publishFromModal} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.publishFromModalTitle}>{t.publishModalTitle}</Text>
@@ -812,6 +811,7 @@ export default function WorkUploadScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+      ) : null}
 
       <VideoUploadPrepModal
         visible={videoPrepOpen}

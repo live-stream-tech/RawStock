@@ -238,9 +238,14 @@ function ClientErrorRouteTracker() {
   return null;
 }
 
+const stackScreenOptions =
+  Platform.OS === "web"
+    ? { headerShown: false, animation: "none" as const, freezeOnBlur: true }
+    : { headerShown: false };
+
 function RootLayoutNav() {
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack screenOptions={stackScreenOptions}>
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="advertise" options={{ headerShown: false }} />
       <Stack.Screen name="community/[id]" options={{ headerShown: false }} />

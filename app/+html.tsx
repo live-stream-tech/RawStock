@@ -51,6 +51,19 @@ export default function Root({ children }: PropsWithChildren) {
             margin: 0;
             box-sizing: border-box;
           }
+          /*
+           * Expo Router / native-stack keeps inactive routes in the DOM on web.
+           * Without this, transparent full-screen cards block all taps on the active screen.
+           */
+          #root [aria-hidden="true"],
+          #root [inert] {
+            pointer-events: none !important;
+          }
+          /* Native stack cards on web (class names from RN Web stylesheet) */
+          #root .r-u8s1d.r-ipm5af[aria-hidden="true"] {
+            pointer-events: none !important;
+            visibility: hidden !important;
+          }
           #root {
             flex: 1 1 auto;
             min-height: 0;

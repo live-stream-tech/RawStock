@@ -529,7 +529,7 @@ export default function DailyUploadScreen() {
           <Ionicons name="chevron-back" size={24} color={C.text} />
         </Pressable>
         <Text style={styles.headerTitle}>{t.headerTitle}</Text>
-        <Pressable style={styles.workLink} onPress={() => router.push("/upload/work")}>
+        <Pressable style={styles.workLink} onPress={() => router.replace("/upload/work")}>
           <Text style={styles.workLinkText}>{t.switchToWork}</Text>
         </Pressable>
       </View>
@@ -712,7 +712,8 @@ export default function DailyUploadScreen() {
         </Pressable>
       </View>
 
-      <Modal visible={showPublishFromModal} transparent animationType="slide">
+      {showPublishFromModal ? (
+      <Modal visible transparent animationType="slide">
         <Pressable style={styles.menuOverlay} onPress={() => !uploading && setShowPublishFromModal(false)}>
           <Pressable style={styles.publishFromModal} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.publishFromModalTitle}>{t.publishModalTitle}</Text>
@@ -736,6 +737,7 @@ export default function DailyUploadScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+      ) : null}
 
       <VideoUploadPrepModal
         visible={videoPrepOpen}

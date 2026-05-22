@@ -184,11 +184,9 @@ export function GlobalMyListPlayer() {
 
       {/* On video route: fullscreen dismiss control */}
       {isCurrentVideo && (
-        <View style={[styles.fullOverlay, StyleSheet.absoluteFill]} pointerEvents="box-none">
-          <Pressable style={styles.fullCloseBtn} onPress={() => stopPlaying()}>
-            <Ionicons name="close" size={24} color="#fff" />
-          </Pressable>
-        </View>
+        <Pressable style={styles.fullCloseBtn} onPress={() => stopPlaying()}>
+          <Ionicons name="close" size={24} color="#fff" />
+        </Pressable>
       )}
 
       {/* Off video route: Spotify-style mini bar */}
@@ -279,11 +277,6 @@ const styles = StyleSheet.create({
     opacity: 0,
   },
   ytWrap: { width: "100%", height: "100%" },
-  fullOverlay: {
-    position: "absolute",
-    backgroundColor: "rgba(0,0,0,0.5)",
-    zIndex: 1001,
-  },
   fullCloseBtn: {
     position: "absolute",
     top: 48,

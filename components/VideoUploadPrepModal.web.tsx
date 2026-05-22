@@ -135,12 +135,12 @@ export function VideoUploadPrepModal({
     }
   }, [file, preparing, clipLen, maxClipSec, trimStart, trimEnd, quality, onPrepared]);
 
-  if (Platform.OS !== "web") return null;
+  if (Platform.OS !== "web" || !visible) return null;
 
   const sizeMb = file ? (file.size / (1024 * 1024)).toFixed(1) : "0";
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
           <View style={styles.header}>
