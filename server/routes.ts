@@ -2449,15 +2449,24 @@ export async function registerRoutes(app: Express): Promise<void> {
           .where(eq(users.id, existing.id))
           .returning();
       }
-      await promoteAdminByEmail({ id: existing.id, email: existing.email });
+      try {
+        await promoteAdminByEmail({ id: existing.id, email: existing.email });
+      } catch (e) {
+        console.warn("[google-callback] promoteAdminByEmail failed (non-fatal):", e);
+      }
       await sendWelcomeDmIfNeeded(existing.id);
 
       const jwtToken = makeToken(existing.id);
       // iOS Safari PWA: redirect to PWA startUrl (/) so token handling stays inside PWA
       res.redirect(`${BASE_URL}/?token=${encodeURIComponent(jwtToken)}`);
     } catch (err) {
-      console.error("Google callback error:", err);
-      res.redirect(`${BASE_URL}/auth/login?auth_error=server_error`);
+      // Surface the failure stage + message to the login screen so the operator can diagnose
+      // without server log access (login.tsx renders `server_error:<detail>` verbatim).
+      const detail = (err instanceof Error ? `${err.name}: ${err.message}` : String(err)).slice(0, 180);
+      console.error("[google-callback] server_error:", err);
+      res.redirect(
+        `${BASE_URL}/auth/login?auth_error=${encodeURIComponent(`server_error:${detail}`)}`,
+      );
     }
   });
 

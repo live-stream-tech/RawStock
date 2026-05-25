@@ -5,6 +5,22 @@ The API only signs URLs; it does **not** proxy large files (Vercel limits reques
 
 If CORS is missing, uploads fail with a network error or “blocked by CORS” in the browser console.
 
+## Apply from the repo (recommended)
+
+With `CLOUDFLARE_ACCOUNT_ID`, `R2_BUCKET_NAME`, and an API token that can edit R2 buckets (`CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_R2_CORS_TOKEN`):
+
+```bash
+npm run r2:apply-cors
+```
+
+Dry-run (prints merged origins, does not call Cloudflare):
+
+```bash
+npm run r2:apply-cors -- --dry-run
+```
+
+Policy file: `config/r2-cors.json`. `FRONTEND_URL` / `EXPO_PUBLIC_DOMAIN` from `.env` are merged into `allowed.origins` automatically.
+
 ## Configure in Cloudflare dashboard
 
 1. Open **R2** → your bucket (`rawstock20161122` or production bucket).
