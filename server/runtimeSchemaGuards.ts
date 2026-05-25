@@ -8,6 +8,8 @@ let clientErrorEventsReady = false;
 let bugReportsReady = false;
 let mentorBookingsSchemaReady = false;
 let notificationsSchemaReady = false;
+let videoLikesSchemaReady = false;
+let usersAuthSubjectRenameReady = false;
 
 /**
  * Production DBs may not have run every SQL migration from the repo.
@@ -307,5 +309,69 @@ export async function ensureBugReportsSchema(): Promise<void> {
     bugReportsReady = true;
   } catch (e) {
     console.error("[runtimeSchemaGuards] bug_reports:", e);
+  }
+}
+
+/** Ensures video_likes table exists (idempotent). */
+export async function ensureVideoLikesSchema(): Promise<void> {
+  if (videoLikesSchemaReady) return;
+  try {
+    await db.execute(
+      sql.raw(`
+        CREATE TABLE IF NOT EXISTS "video_likes" (
+          "id" serial PRIMARY KEY NOT NULL,
+          "user_id" integer NOT NULL,
+          "video_id" integer NOT NULL,
+          "created_at" timestamp DEFAULT now(),
+          CONSTRAINT "video_likes_user_video_unique" UNIQUE ("user_id", "video_id")
+        )
+      `),
+    );
+    await db.execute(
+      sql.raw(`CREATE INDEX IF NOT EXISTS "video_likes_video_id_idx" ON "video_likes" ("video_id")`),
+    );
+    videoLikesSchemaReady = true;
+  } catch (e) {
+    console.error("[runtimeSchemaGuards] video_likes:", e);
+  }
+}
+
+/**
+ * Renames the legacy `users.line_id` column (LINE Login era) to `auth_subject`
+ * if a freshly provisioned DB skipped migration 0033. Idempotent.
+ * Prevents Google OAuth callback from failing with `column "auth_subject" does not exist`.
+ */
+export async function ensureUsersAuthSubjectRename(): Promise<void> {
+  if (usersAuthSubjectRenameReady) return;
+  try {
+    await db.execute(
+      sql.raw(`
+        DO $$
+        BEGIN
+          IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'users' AND column_name = 'line_id'
+          ) AND NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'users' AND column_name = 'auth_subject'
+          ) THEN
+            ALTER TABLE users RENAME COLUMN line_id TO auth_subject;
+          END IF;
+
+          IF EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE table_name = 'users' AND constraint_name = 'users_line_id_unique'
+          ) AND NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE table_name = 'users' AND constraint_name = 'users_auth_subject_unique'
+          ) THEN
+            ALTER TABLE users RENAME CONSTRAINT users_line_id_unique TO users_auth_subject_unique;
+          END IF;
+        END $$;
+      `),
+    );
+    usersAuthSubjectRenameReady = true;
+  } catch (e) {
+    console.error("[runtimeSchemaGuards] users.auth_subject rename:", e);
   }
 }

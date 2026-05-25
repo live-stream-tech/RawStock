@@ -132,6 +132,8 @@ export default function VideoDetailScreen() {
         saveLabel: "保存",
         like: "いいね",
         share: "共有",
+        shareCopiedTitle: "リンクをコピーしました",
+        shareCopiedBody: "この投稿のリンクをクリップボードに保存しました。",
         aiEditAssistant: "AI編集アシスタント",
         reportModalTitle: "通報",
         reportModalSub: (type: "video" | "comment" | undefined) =>
@@ -196,6 +198,8 @@ export default function VideoDetailScreen() {
         saveLabel: "Save",
         like: "Like",
         share: "Share",
+        shareCopiedTitle: "Link copied",
+        shareCopiedBody: "The link to this post has been copied to your clipboard.",
         aiEditAssistant: "AI edit assistant",
         reportModalTitle: "Report",
         reportModalSub: (type: "video" | "comment" | undefined) =>
@@ -275,6 +279,66 @@ export default function VideoDetailScreen() {
       qc.invalidateQueries({ queryKey: ["/api/videos/saved"] });
     },
   });
+
+  const { data: likeData } = useQuery<{ liked: boolean; likes: number }>({
+    queryKey: [`/api/videos/${id}/like`],
+    enabled: !!id && !isDemo,
+  });
+  const isLiked = likeData?.liked ?? false;
+  const likeCount = likeData?.likes ?? 0;
+  const likeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/videos/${id}/like`);
+      return (await res.json()) as { liked: boolean; likes: number };
+    },
+    onSuccess: (data) => {
+      qc.setQueryData([`/api/videos/${id}/like`], data);
+    },
+  });
+  const unlikeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", `/api/videos/${id}/like`);
+      return (await res.json()) as { liked: boolean; likes: number };
+    },
+    onSuccess: (data) => {
+      qc.setQueryData([`/api/videos/${id}/like`], data);
+    },
+  });
+
+  async function handleShare() {
+    const url =
+      Platform.OS === "web" && typeof window !== "undefined"
+        ? `${window.location.origin}/video/${id}`
+        : `https://rawstock.live/video/${id}`;
+    const title = String(video?.title ?? "RawStock");
+    if (Platform.OS === "web" && typeof navigator !== "undefined") {
+      const nav = navigator as Navigator & {
+        share?: (data: { title?: string; url?: string }) => Promise<void>;
+      };
+      if (typeof nav.share === "function") {
+        try {
+          await nav.share({ title, url });
+          return;
+        } catch {
+          // User cancelled or share failed; fall through to clipboard.
+        }
+      }
+      try {
+        await navigator.clipboard?.writeText(url);
+        alertMessage(t.shareCopiedTitle, t.shareCopiedBody);
+        return;
+      } catch {
+        alertMessage(t.shareCopiedTitle, url);
+        return;
+      }
+    }
+    try {
+      const { Share } = await import("react-native");
+      await Share.share({ message: `${title}\n${url}`, url, title });
+    } catch {
+      alertMessage(t.shareCopiedTitle, url);
+    }
+  }
 
   const creatorId = (video as any)?.creatorId;
   const creatorType = (video as any)?.creatorType;
@@ -769,14 +833,29 @@ export default function VideoDetailScreen() {
               </Text>
             </Pressable>
           )}
-          <View style={styles.metaItem}>
-            <Ionicons name="heart-outline" size={16} color={C.textSec} />
-            <Text style={styles.metaText}>{t.like}</Text>
-          </View>
-          <View style={styles.metaItem}>
+          <Pressable
+            style={styles.metaItem}
+            onPress={() => {
+              if (isDemo) return;
+              if (!requireAuth(t.like)) return;
+              if (isLiked) unlikeMutation.mutate();
+              else likeMutation.mutate();
+            }}
+            disabled={likeMutation.isPending || unlikeMutation.isPending}
+          >
+            <Ionicons
+              name={isLiked ? "heart" : "heart-outline"}
+              size={16}
+              color={isLiked ? "#ff4d6d" : C.textSec}
+            />
+            <Text style={[styles.metaText, isLiked && { color: "#ff4d6d" }]}>
+              {likeCount > 0 ? `${t.like} · ${likeCount.toLocaleString()}` : t.like}
+            </Text>
+          </Pressable>
+          <Pressable style={styles.metaItem} onPress={handleShare}>
             <Ionicons name="share-outline" size={16} color={C.textSec} />
             <Text style={styles.metaText}>{t.share}</Text>
-          </View>
+          </Pressable>
         </View>
 
         {/* AI edit assistant entry point */}

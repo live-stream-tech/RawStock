@@ -42,6 +42,7 @@ import {
   reports,
   bugReports,
   savedVideos,
+  videoLikes,
   genreAds,
   genreOwners,
   concerts,
@@ -153,6 +154,8 @@ import {
   ensureJukeboxRequestCountsSchema,
   ensureMentorBookingsSchema,
   ensureNotificationsSchema,
+  ensureVideoLikesSchema,
+  ensureUsersAuthSubjectRename,
 } from "./runtimeSchemaGuards";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
@@ -1274,12 +1277,16 @@ async function resolveLiveStreamHostUserId(streamId: number, executor: DbOrTx = 
 }
 
 export async function registerRoutes(app: Express): Promise<void> {
+  // Critical: rename legacy `line_id` → `auth_subject` BEFORE the first auth query,
+  // otherwise Google OAuth callback throws and every sign-in fails.
+  await ensureUsersAuthSubjectRename();
   await promoteAdminByEmail();
 
   /** Until DB migrations are applied everywhere, retry idempotent DDL (cheap no-op once ready). */
   app.use(async (_req, _res, next) => {
     await ensureJukeboxQueueSchema();
     await ensureUserFollowsSchema();
+    await ensureVideoLikesSchema();
     next();
   });
 
@@ -6126,6 +6133,69 @@ export async function registerRoutes(app: Express): Promise<void> {
       .from(savedVideos)
       .where(and(eq(savedVideos.userId, user.id), eq(savedVideos.videoId, videoId)));
     res.json({ saved: !!row });
+  });
+
+  /** Like a video (idempotent — duplicate insert is silently ignored by the UNIQUE constraint). */
+  app.post("/api/videos/:id/like", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+
+    const videoId = paramNum(req, "id");
+    const [video] = await db.select().from(videos).where(eq(videos.id, videoId));
+    if (!video || video.hidden) return res.status(404).json({ message: "Not found" });
+
+    const vis = (video as any).visibility;
+    const isOwner = (video as any).userId === user.id || video.creator === user.displayName;
+    if (vis === "draft" && !isOwner) return res.status(404).json({ message: "Not found" });
+    if (vis === "my_page_only" && !isOwner) return res.status(404).json({ message: "Not found" });
+
+    try {
+      await db
+        .insert(videoLikes)
+        .values({ userId: user.id, videoId } as typeof videoLikes.$inferInsert);
+    } catch {
+      // Ignore duplicate likes (UNIQUE constraint)
+    }
+    const [{ c }] = await db
+      .select({ c: sql<number>`count(*)::int` })
+      .from(videoLikes)
+      .where(eq(videoLikes.videoId, videoId));
+    res.json({ liked: true, likes: c ?? 0 });
+  });
+
+  /** Unlike a video */
+  app.delete("/api/videos/:id/like", async (req: Request, res: Response) => {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Not authenticated" });
+
+    const videoId = paramNum(req, "id");
+    await db
+      .delete(videoLikes)
+      .where(and(eq(videoLikes.userId, user.id), eq(videoLikes.videoId, videoId)));
+    const [{ c }] = await db
+      .select({ c: sql<number>`count(*)::int` })
+      .from(videoLikes)
+      .where(eq(videoLikes.videoId, videoId));
+    res.json({ liked: false, likes: c ?? 0 });
+  });
+
+  /** Like state + total count. Public count, per-user liked requires auth. */
+  app.get("/api/videos/:id/like", async (req: Request, res: Response) => {
+    const videoId = paramNum(req, "id");
+    const [{ c }] = await db
+      .select({ c: sql<number>`count(*)::int` })
+      .from(videoLikes)
+      .where(eq(videoLikes.videoId, videoId));
+    const user = await getAuthUser(req);
+    let liked = false;
+    if (user) {
+      const [row] = await db
+        .select()
+        .from(videoLikes)
+        .where(and(eq(videoLikes.userId, user.id), eq(videoLikes.videoId, videoId)));
+      liked = !!row;
+    }
+    res.json({ liked, likes: c ?? 0 });
   });
 
   /** Public posts for profile (my_page_only and up). */

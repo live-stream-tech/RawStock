@@ -236,6 +236,18 @@ export const savedVideos = pgTable(
   (t) => [unique().on(t.userId, t.videoId)]
 );
 
+/** 動画のいいね（1 ユーザー × 1 動画 = 1 行）。集計は count(*) で十分。 */
+export const videoLikes = pgTable(
+  "video_likes",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id").notNull(),
+    videoId: integer("video_id").notNull(),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (t) => [unique().on(t.userId, t.videoId)],
+);
+
 /** 投稿動画へのコメント */
 export const videoComments = pgTable("video_comments", {
   id: serial("id").primaryKey(),
