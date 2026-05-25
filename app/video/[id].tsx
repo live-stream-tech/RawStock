@@ -134,6 +134,8 @@ export default function VideoDetailScreen() {
         share: "共有",
         shareCopiedTitle: "リンクをコピーしました",
         shareCopiedBody: "この投稿のリンクをクリップボードに保存しました。",
+        watchVideoLabel: "続きを動画で見る",
+        watchVideoFree: "動画を再生",
         aiEditAssistant: "AI編集アシスタント",
         reportModalTitle: "通報",
         reportModalSub: (type: "video" | "comment" | undefined) =>
@@ -200,6 +202,8 @@ export default function VideoDetailScreen() {
         share: "Share",
         shareCopiedTitle: "Link copied",
         shareCopiedBody: "The link to this post has been copied to your clipboard.",
+        watchVideoLabel: "Continue with the video",
+        watchVideoFree: "Play the video",
         aiEditAssistant: "AI edit assistant",
         reportModalTitle: "Report",
         reportModalSub: (type: "video" | "comment" | undefined) =>
@@ -497,178 +501,326 @@ export default function VideoDetailScreen() {
 
   if (!video) {
     return (
-      <View style={[styles.container, { paddingTop: topInset }]}>
-        <Pressable
-          style={[styles.backBtn, { top: topInset + 12 }]}
-          onPress={() => router.back()}
-        >
-          <Ionicons name="chevron-back" size={22} color="#fff" />
-        </Pressable>
+      <View style={[styles.container, { paddingTop: topInset + 8 }]}>
+        <View style={styles.articleTopBar}>
+          <Pressable
+            style={styles.articleBackBtn}
+            onPress={() => router.back()}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
+            <Ionicons name="chevron-back" size={22} color={C.text} />
+          </Pressable>
+        </View>
       </View>
     );
   }
+
+  const hasPlayable = !!((video as any).videoUrl || (video as any).youtubeId);
+  const isPaidLocked = !!(video?.price && !purchased);
+  const showInlinePlayer =
+    isPlayingThisVideo && !!playing?.videoUrl && !(video as any).youtubeId;
+
+  const startPlayback = async () => {
+    if (Platform.OS !== "web" && !(video as any).videoUrl && youtubeWatchUrl) {
+      const canOpen = await Linking.canOpenURL(youtubeWatchUrl);
+      if (canOpen) {
+        await Linking.openURL(youtubeWatchUrl);
+        return;
+      }
+    }
+    const rawVideoUrl = String((video as any).videoUrl ?? "").trim();
+    if ((video as any).videoUrl && !youtubeWatchUrl) {
+      await logPlaybackStart({
+        surface: "play_tap",
+        videoId: Number(id),
+        rawUrl: rawVideoUrl,
+      });
+    }
+    playVideo({
+      videoId: Number(id),
+      title: video.title,
+      thumbnail: resolvePublicMediaUri((video as any).thumbnail),
+      videoUrl: rawVideoUrl ? resolvePublicMediaUri(rawVideoUrl) : null,
+      youtubeId: (video as any).youtubeId ?? null,
+    });
+  };
 
   return (
     <View style={[styles.container]}>
       <ScrollView
         style={webScrollStyle(styles.scroll)}
         showsVerticalScrollIndicator={scrollShowsVertical}
+        contentContainerStyle={{ paddingTop: topInset + 8 }}
       >
-        {/* Media area (shared layout for text/photos/video) */}
-        <View style={styles.playerContainer}>
-          {isPlayingThisVideo && playing?.videoUrl && !(video as any).youtubeId ? (
-            <VideoDetailPlayer
-              videoUrl={playing.videoUrl}
-              videoId={Number(id)}
-            />
-          ) : (
-            <Image
-              source={{
-                uri: resolvePublicMediaUri(
-                  (video as any).thumbnail || "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&h=400&fit=crop",
-                ),
-              }}
-              style={styles.playerThumb}
-              contentFit="cover"
-            />
-          )}
-          <View style={styles.playerOverlay}>
-            {isPlayingThisVideo && playing?.videoUrl && !(video as any).youtubeId ? (
-              <Pressable style={styles.stopVideoBtn} onPress={() => stopPlaying()} hitSlop={12}>
-                <Ionicons name="close-circle" size={36} color="rgba(255,255,255,0.95)" />
-              </Pressable>
-            ) : null}
-            {/* Video play button (when videoUrl or youtubeId exists) */}
-            {((video as any).videoUrl || (video as any).youtubeId) &&
-              !video.price &&
-              !(isPlayingThisVideo && playing?.videoUrl) && (
-              <Pressable
-                style={styles.playOverlayBtn}
-                onPress={async () => {
-                  if (Platform.OS !== "web" && !(video as any).videoUrl && youtubeWatchUrl) {
-                    const canOpen = await Linking.canOpenURL(youtubeWatchUrl);
-                    if (canOpen) {
-                      await Linking.openURL(youtubeWatchUrl);
-                      return;
-                    }
-                  }
-                  const rawVideoUrl = String((video as any).videoUrl ?? "").trim();
-                  if ((video as any).videoUrl && !youtubeWatchUrl) {
-                    await logPlaybackStart({
-                      surface: "play_tap",
-                      videoId: Number(id),
-                      rawUrl: rawVideoUrl,
-                    });
-                  }
-                  playVideo({
-                    videoId: Number(id),
-                    title: video.title,
-                    thumbnail: resolvePublicMediaUri((video as any).thumbnail),
-                    videoUrl: rawVideoUrl ? resolvePublicMediaUri(rawVideoUrl) : null,
-                    youtubeId: (video as any).youtubeId ?? null,
-                  });
-                }}
-              >
-                <Ionicons name="play-circle" size={64} color="rgba(255,255,255,0.9)" />
-              </Pressable>
-            )}
-            {!!youtubeWatchUrl && (
-              <Pressable
-                style={styles.youtubeOpenBtn}
-                onPress={async () => {
-                  const canOpen = await Linking.canOpenURL(youtubeWatchUrl);
-                  if (!canOpen) {
-                    Alert.alert(t.openFailedTitle, t.openFailedBody);
-                    return;
-                  }
-                  await Linking.openURL(youtubeWatchUrl);
-                }}
-              >
-                <Ionicons name="logo-youtube" size={14} color="#fff" />
-                <Text style={styles.youtubeOpenBtnText}>{t.openOnYoutube}</Text>
-              </Pressable>
-            )}
-            {/* Show lock only for paid content */}
-            {!purchased && video.price && (
-              <View style={styles.lockedOverlay}>
-                <Ionicons name="lock-closed" size={32} color="rgba(255,255,255,0.6)" />
-              </View>
-            )}
-            <View style={styles.playerControls}>
-              <Pressable
-                style={[styles.backBtn, { top: topInset + 12 }]}
-                onPress={() => isPlayingThisVideo ? setShowLeaveModal(true) : router.back()}
-              >
-                <Ionicons name="chevron-back" size={22} color="#fff" />
-              </Pressable>
-            </View>
-          </View>
-        </View>
-
-        {/* Video Info */}
-        <View style={styles.infoSection}>
-          <View style={styles.titleRow}>
-            {editMode ? (
-              <TextInput
-                style={styles.editTitleInput}
-                value={editTitle}
-                onChangeText={setEditTitle}
-                placeholder={t.editTitlePlaceholder}
-                placeholderTextColor={C.textMuted}
-              />
-            ) : (
-              <Text style={styles.videoTitle}>{video.title}</Text>
-            )}
+        {/* Top bar: minimal back button + owner/report actions */}
+        <View style={styles.articleTopBar}>
+          <Pressable
+            style={styles.articleBackBtn}
+            onPress={() => (isPlayingThisVideo ? setShowLeaveModal(true) : router.back())}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
+            <Ionicons name="chevron-back" size={22} color={C.text} />
+          </Pressable>
+          <View style={styles.articleTopActions}>
             {isOwner && !editMode && (
-              <View style={styles.postActionsRow}>
-                <Pressable style={styles.postActionBtn} onPress={openEdit}>
+              <>
+                <Pressable style={styles.postActionBtn} onPress={openEdit} hitSlop={6}>
                   <Ionicons name="pencil-outline" size={14} color={C.textSec} />
                   <Text style={styles.postActionText}>{t.edit}</Text>
                 </Pressable>
-                <Pressable style={styles.postActionBtn} onPress={confirmDelete}>
+                <Pressable style={styles.postActionBtn} onPress={confirmDelete} hitSlop={6}>
                   <Ionicons name="trash-outline" size={14} color={C.textSec} />
                   <Text style={styles.postActionText}>{t.delete}</Text>
                 </Pressable>
-              </View>
+              </>
             )}
             {!editMode && apiVideo && (
-              <Pressable style={styles.postActionBtn} onPress={() => openReportModal("video", Number(id))}>
+              <Pressable
+                style={styles.postActionBtn}
+                onPress={() => openReportModal("video", Number(id))}
+                hitSlop={6}
+              >
                 <Ionicons name="flag-outline" size={14} color={C.textSec} />
                 <Text style={styles.postActionText}>{t.report}</Text>
               </Pressable>
             )}
-            {editMode && (
-              <View style={styles.postActionsRow}>
-                <Pressable style={styles.postActionBtn} onPress={() => setEditMode(false)}>
-                  <Text style={styles.postActionText}>{t.cancel}</Text>
-                </Pressable>
-                <Pressable style={styles.postActionBtn} onPress={saveEdit}>
-                  <Text style={[styles.postActionText, { color: C.accent }]}>{t.save}</Text>
-                </Pressable>
-              </View>
-            )}
           </View>
-          {(video.description ?? video.title) ? (
-            <Text style={styles.videoDesc}>{video.description ?? video.title}</Text>
-          ) : null}
+        </View>
 
-          {isOwner && isWorkPost && hasWorkVideo && !isDemo ? (
+        {/* Article header: title + author + meta */}
+        <View style={styles.articleHeader}>
+          {editMode ? (
+            <TextInput
+              style={styles.editTitleInput}
+              value={editTitle}
+              onChangeText={setEditTitle}
+              placeholder={t.editTitlePlaceholder}
+              placeholderTextColor={C.textMuted}
+            />
+          ) : (
+            <Text style={styles.articleTitle}>{video.title}</Text>
+          )}
+          {editMode && (
+            <View style={styles.postActionsRow}>
+              <Pressable style={styles.postActionBtn} onPress={() => setEditMode(false)}>
+                <Text style={styles.postActionText}>{t.cancel}</Text>
+              </Pressable>
+              <Pressable style={styles.postActionBtn} onPress={saveEdit}>
+                <Text style={[styles.postActionText, { color: C.accent }]}>{t.save}</Text>
+              </Pressable>
+            </View>
+          )}
+
+          <Pressable
+            style={styles.articleAuthorRow}
+            onPress={() => navigateFromVideoCreatorRow(video as any)}
+          >
+            <Image
+              source={{ uri: video.avatar }}
+              style={styles.articleAuthorAvatar}
+              contentFit="cover"
+            />
+            <View style={styles.articleAuthorInfo}>
+              <Text style={styles.articleAuthorName} numberOfLines={1}>
+                {video.creator}
+              </Text>
+              <Text style={styles.articleAuthorMeta} numberOfLines={1}>
+                {[
+                  video.community,
+                  (video as any).timeAgo ??
+                    (video as any).time_ago ??
+                    formatRelativeTime(
+                      (video as any).createdAt ?? (video as any).created_at,
+                      isJaUi,
+                    ),
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </Text>
+            </View>
+            {!isOwner && (
+              <Pressable style={styles.followBtn} onPress={(e) => e.stopPropagation()}>
+                <Text style={styles.followBtnText}>{t.follow}</Text>
+              </Pressable>
+            )}
+          </Pressable>
+        </View>
+
+        {/* Article hero image (only when not actively playing inline) */}
+        {(video as any).thumbnail && !showInlinePlayer && (
+          <Image
+            source={{
+              uri: resolvePublicMediaUri(
+                (video as any).thumbnail ||
+                  "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&h=400&fit=crop",
+              ),
+            }}
+            style={styles.articleHero}
+            contentFit="cover"
+          />
+        )}
+
+        {/* Article body */}
+        {(video.description ?? video.title) ? (
+          <View style={styles.articleBodyWrap}>
+            <Text style={styles.articleBody}>{video.description ?? video.title}</Text>
+          </View>
+        ) : null}
+
+        {/* Continue with video card (only when post has a video) */}
+        {hasPlayable && (
+          <View style={styles.videoCardWrap}>
+            <Text style={styles.videoCardLabel}>{t.watchVideoLabel}</Text>
+            <View style={styles.videoCard}>
+              {showInlinePlayer ? (
+                <View style={styles.videoCardPlayerBox}>
+                  <VideoDetailPlayer
+                    videoUrl={playing!.videoUrl!}
+                    videoId={Number(id)}
+                  />
+                  <Pressable
+                    style={styles.stopVideoBtn}
+                    onPress={() => stopPlaying()}
+                    hitSlop={12}
+                  >
+                    <Ionicons
+                      name="close-circle"
+                      size={32}
+                      color="rgba(255,255,255,0.95)"
+                    />
+                  </Pressable>
+                </View>
+              ) : (
+                <Pressable
+                  style={styles.videoCardThumbWrap}
+                  onPress={() => {
+                    if (isPaidLocked) return;
+                    void startPlayback();
+                  }}
+                  disabled={isPaidLocked}
+                >
+                  <Image
+                    source={{
+                      uri: resolvePublicMediaUri(
+                        (video as any).thumbnail ||
+                          "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&h=400&fit=crop",
+                      ),
+                    }}
+                    style={styles.videoCardThumb}
+                    contentFit="cover"
+                  />
+                  <View style={styles.videoCardThumbOverlay}>
+                    {isPaidLocked ? (
+                      <Ionicons
+                        name="lock-closed"
+                        size={36}
+                        color="rgba(255,255,255,0.85)"
+                      />
+                    ) : (
+                      <Ionicons
+                        name="play-circle"
+                        size={64}
+                        color="rgba(255,255,255,0.95)"
+                      />
+                    )}
+                  </View>
+                  {!!youtubeWatchUrl && (
+                    <Pressable
+                      style={styles.youtubeOpenBtn}
+                      onPress={async (e) => {
+                        e.stopPropagation();
+                        const canOpen = await Linking.canOpenURL(youtubeWatchUrl);
+                        if (!canOpen) {
+                          Alert.alert(t.openFailedTitle, t.openFailedBody);
+                          return;
+                        }
+                        await Linking.openURL(youtubeWatchUrl);
+                      }}
+                    >
+                      <Ionicons name="logo-youtube" size={14} color="#fff" />
+                      <Text style={styles.youtubeOpenBtnText}>
+                        {t.openOnYoutube}
+                      </Text>
+                    </Pressable>
+                  )}
+                </Pressable>
+              )}
+
+              {/* Purchase CTA (only when paid + not purchased) */}
+              {video.price && !purchased && (
+                <View style={styles.videoCardCta}>
+                  <Pressable
+                    style={[
+                      styles.purchaseBtn,
+                      purchaseLoading && { opacity: 0.7 },
+                    ]}
+                    onPress={handlePurchase}
+                    disabled={purchaseLoading}
+                  >
+                    {purchaseLoading ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <>
+                        <Ionicons name="cart" size={16} color="#fff" />
+                        <Text style={styles.purchaseBtnText}>
+                          {t.purchase(video.price)}
+                        </Text>
+                      </>
+                    )}
+                  </Pressable>
+                </View>
+              )}
+
+              {/* Already purchased */}
+              {video.price && purchased && (
+                <View style={styles.videoCardOwnedRow}>
+                  <Ionicons name="checkmark-circle" size={14} color={C.green} />
+                  <Text style={styles.videoCardOwnedText}>{t.ownedContent}</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        )}
+
+        {/* Owner pricing controls */}
+        {isOwner && isWorkPost && hasWorkVideo && !isDemo ? (
+          <View style={styles.ownerPricingBoxOuter}>
             <View style={styles.ownerPricingBox}>
               <Text style={styles.ownerPricingTitle}>{t.ownerPricingTitle}</Text>
               <View style={styles.ownerPricingRow}>
                 <Pressable
-                  style={[styles.ownerPricingChip, workFee === "free" && styles.ownerPricingChipOn]}
+                  style={[
+                    styles.ownerPricingChip,
+                    workFee === "free" && styles.ownerPricingChipOn,
+                  ]}
                   onPress={() => setWorkFee("free")}
                 >
-                  <Text style={[styles.ownerPricingChipText, workFee === "free" && styles.ownerPricingChipTextOn]}>
+                  <Text
+                    style={[
+                      styles.ownerPricingChipText,
+                      workFee === "free" && styles.ownerPricingChipTextOn,
+                    ]}
+                  >
                     {t.free}
                   </Text>
                 </Pressable>
                 <Pressable
-                  style={[styles.ownerPricingChip, workFee === "paid" && styles.ownerPricingChipOn]}
+                  style={[
+                    styles.ownerPricingChip,
+                    workFee === "paid" && styles.ownerPricingChipOn,
+                  ]}
                   onPress={() => setWorkFee("paid")}
                 >
-                  <Text style={[styles.ownerPricingChipText, workFee === "paid" && styles.ownerPricingChipTextOn]}>
+                  <Text
+                    style={[
+                      styles.ownerPricingChipText,
+                      workFee === "paid" && styles.ownerPricingChipTextOn,
+                    ]}
+                  >
                     {t.paid}
                   </Text>
                 </Pressable>
@@ -678,10 +830,18 @@ export default function VideoDetailScreen() {
                   {WORK_PRICE_OPTIONS.map((p) => (
                     <Pressable
                       key={p}
-                      style={[styles.ownerPriceBtn, workTicketPrice === p && styles.ownerPriceBtnOn]}
+                      style={[
+                        styles.ownerPriceBtn,
+                        workTicketPrice === p && styles.ownerPriceBtnOn,
+                      ]}
                       onPress={() => setWorkTicketPrice(p)}
                     >
-                      <Text style={[styles.ownerPriceBtnText, workTicketPrice === p && styles.ownerPriceBtnTextOn]}>
+                      <Text
+                        style={[
+                          styles.ownerPriceBtnText,
+                          workTicketPrice === p && styles.ownerPriceBtnTextOn,
+                        ]}
+                      >
                         🎟{p}
                       </Text>
                     </Pressable>
@@ -700,119 +860,14 @@ export default function VideoDetailScreen() {
                 )}
               </Pressable>
             </View>
-          ) : null}
-
-          {/* Comments Preview */}
-          <View style={styles.commentsPreview}>
-            {comments.map((c) => (
-              <View key={c.id} style={styles.commentItem}>
-                <Pressable
-                  onPress={() => navigateToUserOrLiverProfile({ userId: c.userId })}
-                  hitSlop={4}
-                >
-                  <Image
-                    source={{ uri: c.profileImageUrl ?? undefined }}
-                    style={styles.commentAvatar}
-                    contentFit="cover"
-                  />
-                </Pressable>
-                <View style={styles.commentContent}>
-                  <Text style={styles.commentName}>{c.displayName ?? t.userFallback}</Text>
-                  <Text style={styles.commentText} numberOfLines={1}>
-                    {c.text}
-                  </Text>
-                  {c.text ? <TranslateButton text={c.text} compact /> : null}
-                </View>
-                {!isDemo && (
-                  <Pressable style={styles.commentReportBtn} onPress={() => openReportModal("comment", c.id)} hitSlop={8}>
-                    <Ionicons name="flag-outline" size={14} color={C.textMuted} />
-                  </Pressable>
-                )}
-              </View>
-            ))}
-            <View style={styles.commentInputRow}>
-              <TextInput
-                style={styles.commentInput}
-                placeholder={t.enterComment}
-                placeholderTextColor={C.textMuted}
-                value={commentText}
-                onChangeText={setCommentText}
-                maxLength={200}
-              />
-              <Pressable style={styles.commentSendBtn} onPress={handleAddComment} disabled={!commentText.trim()}>
-                <Ionicons
-                  name="send"
-                  size={16}
-                  color={commentText.trim() ? C.accent : C.textMuted}
-                />
-              </Pressable>
-            </View>
           </View>
+        ) : null}
 
-          {/* Paid-content CTA (shared for text/photo/video) */}
-          {video.price && (
-            <View style={styles.purchaseSection}>
-              {!purchased ? (
-                <>
-                  <Pressable
-                    style={[styles.purchaseBtn, purchaseLoading && { opacity: 0.7 }]}
-                    onPress={handlePurchase}
-                    disabled={purchaseLoading}
-                  >
-                    {purchaseLoading
-                      ? <ActivityIndicator size="small" color="#fff" />
-                      : <>
-                          <Ionicons name="cart" size={16} color="#fff" />
-                          <Text style={styles.purchaseBtnText}>
-                            {t.purchase(video.price)}
-                          </Text>
-                        </>
-                    }
-                  </Pressable>
-                  <Text style={styles.viewCount}>
-                    {t.views(video.views)}
-                  </Text>
-                </>
-              ) : (
-                <Text style={styles.viewCount}>
-                  {t.ownedContent}
-                </Text>
-              )}
-            </View>
-          )}
-        </View>
-
-        {/* Creator info */}
-        <View style={styles.creatorSection}>
-          <Pressable
-            style={styles.creatorRow}
-            onPress={() => navigateFromVideoCreatorRow(video as any)}
-          >
-            <Image source={{ uri: video.avatar }} style={styles.creatorAvatar} contentFit="cover" />
-            <View style={styles.creatorInfo}>
-              <Text style={styles.creatorName}>{video.creator}</Text>
-              <Text style={styles.creatorCommunity}>{video.community}</Text>
-            </View>
-            <Pressable style={styles.followBtn} onPress={(e) => e.stopPropagation()}>
-              <Text style={styles.followBtnText}>{t.follow}</Text>
-            </Pressable>
-          </Pressable>
-        </View>
-
-        {/* Video meta */}
+        {/* Meta row: views, save, like, share */}
         <View style={styles.metaRow}>
           <View style={styles.metaItem}>
             <Ionicons name="eye-outline" size={16} color={C.textSec} />
             <Text style={styles.metaText}>{t.views(video.views)}</Text>
-          </View>
-          <View style={styles.metaItem}>
-            <Ionicons name="time-outline" size={16} color={C.textSec} />
-            <Text style={styles.metaText}>
-              {(video as any).timeAgo ??
-                (video as any).time_ago ??
-                formatRelativeTime((video as any).createdAt ?? (video as any).created_at, isJaUi) ??
-                (isJaUi ? "たった今" : "Just now")}
-            </Text>
           </View>
           {user && !isDemo && (
             <Pressable
@@ -858,6 +913,63 @@ export default function VideoDetailScreen() {
           </Pressable>
         </View>
 
+        {/* Comments */}
+        <View style={styles.commentsSection}>
+          {comments.map((c) => (
+            <View key={c.id} style={styles.commentItem}>
+              <Pressable
+                onPress={() => navigateToUserOrLiverProfile({ userId: c.userId })}
+                hitSlop={4}
+              >
+                <Image
+                  source={{ uri: c.profileImageUrl ?? undefined }}
+                  style={styles.commentAvatar}
+                  contentFit="cover"
+                />
+              </Pressable>
+              <View style={styles.commentContent}>
+                <Text style={styles.commentName}>
+                  {c.displayName ?? t.userFallback}
+                </Text>
+                <Text style={styles.commentText} numberOfLines={2}>
+                  {c.text}
+                </Text>
+                {c.text ? <TranslateButton text={c.text} compact /> : null}
+              </View>
+              {!isDemo && (
+                <Pressable
+                  style={styles.commentReportBtn}
+                  onPress={() => openReportModal("comment", c.id)}
+                  hitSlop={8}
+                >
+                  <Ionicons name="flag-outline" size={14} color={C.textMuted} />
+                </Pressable>
+              )}
+            </View>
+          ))}
+          <View style={styles.commentInputRow}>
+            <TextInput
+              style={styles.commentInput}
+              placeholder={t.enterComment}
+              placeholderTextColor={C.textMuted}
+              value={commentText}
+              onChangeText={setCommentText}
+              maxLength={200}
+            />
+            <Pressable
+              style={styles.commentSendBtn}
+              onPress={handleAddComment}
+              disabled={!commentText.trim()}
+            >
+              <Ionicons
+                name="send"
+                size={16}
+                color={commentText.trim() ? C.accent : C.textMuted}
+              />
+            </Pressable>
+          </View>
+        </View>
+
         {/* AI edit assistant entry point */}
         {!isDemo && (video as any).videoUrl && (
           <Pressable
@@ -865,15 +977,24 @@ export default function VideoDetailScreen() {
             onPress={() => {
               const rawUrl = String((video as any).videoUrl ?? "");
               const url = encodeURIComponent(rawUrl);
-              const parsed = parseDurationLabelToSec(String((video as any).duration ?? ""));
+              const parsed = parseDurationLabelToSec(
+                String((video as any).duration ?? ""),
+              );
               const dur =
-                parsed != null && parsed > 0 ? `&durationSec=${Math.round(parsed)}` : "";
+                parsed != null && parsed > 0
+                  ? `&durationSec=${Math.round(parsed)}`
+                  : "";
               router.push(`/ai-edit?videoUrl=${url}${dur}`);
             }}
           >
             <Ionicons name="sparkles" size={15} color="#000" />
             <Text style={styles.aiEditBtnText}>{t.aiEditAssistant}</Text>
-            <Ionicons name="chevron-forward" size={13} color="#000" style={{ marginLeft: "auto" }} />
+            <Ionicons
+              name="chevron-forward"
+              size={13}
+              color="#000"
+              style={{ marginLeft: "auto" }}
+            />
           </Pressable>
         )}
 
@@ -962,46 +1083,154 @@ const styles = StyleSheet.create({
   scroll: {
     flex: 1,
   },
-  playerContainer: {
-    width: "100%",
-    height: 280,
-    position: "relative",
+  articleTopBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 12,
   },
-  playerThumb: {
+  articleBackBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  articleTopActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  articleHeader: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 12,
+    gap: 14,
+  },
+  articleTitle: {
+    color: C.text,
+    fontSize: 24,
+    lineHeight: 32,
+    fontWeight: "800",
+    letterSpacing: -0.2,
+  },
+  articleAuthorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  articleAuthorAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: C.accent,
+  },
+  articleAuthorInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  articleAuthorName: {
+    color: C.text,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  articleAuthorMeta: {
+    color: C.textMuted,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  articleHero: {
+    width: "100%",
+    aspectRatio: 16 / 9,
+    backgroundColor: C.surface2,
+  },
+  articleBodyWrap: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  articleBody: {
+    color: C.text,
+    fontSize: 15,
+    lineHeight: 24,
+  },
+  videoCardWrap: {
+    marginTop: 20,
+    marginHorizontal: 16,
+    gap: 8,
+  },
+  videoCardLabel: {
+    color: C.textMuted,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  videoCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface,
+    overflow: "hidden",
+  },
+  videoCardPlayerBox: {
+    width: "100%",
+    aspectRatio: 16 / 9,
+    position: "relative",
+    backgroundColor: "#000",
+  },
+  videoCardThumbWrap: {
+    width: "100%",
+    aspectRatio: 16 / 9,
+    position: "relative",
+    backgroundColor: "#000",
+  },
+  videoCardThumb: {
     width: "100%",
     height: "100%",
   },
-  playerOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.2)",
-  },
-  playOverlayBtn: {
+  videoCardThumbOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.35)",
+  },
+  videoCardCta: {
+    padding: 14,
+    gap: 8,
+  },
+  videoCardOwnedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  videoCardOwnedText: {
+    color: C.textSec,
+    fontSize: 12,
+    fontWeight: "600",
   },
   stopVideoBtn: {
     position: "absolute",
-    top: 12,
-    right: 12,
+    top: 10,
+    right: 10,
     zIndex: 2,
   },
-  lockedOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.4)",
-  },
-  playerControls: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
+  ownerPricingBoxOuter: {
+    paddingHorizontal: 16,
+    marginTop: 16,
   },
   youtubeOpenBtn: {
     position: "absolute",
-    right: 12,
-    bottom: 12,
+    right: 10,
+    bottom: 10,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
@@ -1016,34 +1245,6 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 11,
     fontWeight: "700",
-  },
-  backBtn: {
-    position: "absolute",
-    left: 16,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  infoSection: {
-    padding: 16,
-    gap: 12,
-    backgroundColor: C.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: C.border,
-  },
-  videoTitle: {
-    color: C.text,
-    fontSize: 17,
-    fontWeight: "800",
-    lineHeight: 24,
-  },
-  videoDesc: {
-    color: C.textSec,
-    fontSize: 13,
-    lineHeight: 20,
   },
   ownerPricingBox: {
     marginTop: 12,
@@ -1127,6 +1328,11 @@ const styles = StyleSheet.create({
     color: C.textSec,
     fontSize: 11,
     fontWeight: "600",
+  },
+  commentsSection: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
   },
   commentsPreview: {
     backgroundColor: C.bg,
