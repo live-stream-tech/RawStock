@@ -407,6 +407,14 @@ function NowPlaying({
                   }
                 } catch {}
               },
+              onError: (event: any) => {
+                // YT error codes: 2 = invalid id, 5 = HTML5 error, 100 = removed,
+                // 101 / 150 = embedding disabled by the uploader. None of these
+                // recover from a retry, so surface the unplayable UI instead of
+                // leaving a black iframe playing inaudibly.
+                console.warn("[jukebox] YT.Player error:", event?.data);
+                setYtInitFailed(true);
+              },
             },
           });
         } catch {
@@ -500,6 +508,15 @@ function NowPlaying({
     setNeedsResumeTap(false);
   }, [runTryResumeCore]);
 
+  // Track is unplayable when the queued item has no YouTube id, or when
+  // YT.Player has reported a non-recoverable error (101 / 150 / removed / etc.).
+  const isUnplayable =
+    !!state?.isPlaying &&
+    (!state?.currentVideoYoutubeId || ytInitFailed);
+  // Allow anyone to skip unplayable tracks so an accidental non-YouTube
+  // request never strands the room.
+  const effectiveAllowManualSkip = allowManualSkip || isUnplayable;
+
   // Portrait: 16:9. Landscape: fullscreen. Sidebar embed: always 16:9 box.
   const isLandscape = !embedInSidebarColumn && screenW > screenH;
   const videoAreaH = isLandscape ? screenH : Math.round(screenW * 9 / 16);
@@ -570,6 +587,22 @@ function NowPlaying({
           </View>
         </Pressable>
       ) : null}
+      {isUnplayable ? (
+        <Pressable
+          style={styles.audioOverlay}
+          onPress={() => {
+            hasUserInteractedRef.current = true;
+            onAdvance("manual");
+          }}
+          accessibilityLabel="Skip unplayable track"
+        >
+          <View style={styles.audioOverlayInnerColumn}>
+            <Ionicons name="alert-circle" size={28} color="#fff" />
+            <Text style={styles.audioOverlayText}>This track can't be played here</Text>
+            <Text style={styles.audioOverlayHint}>Tap to skip to the next track</Text>
+          </View>
+        </Pressable>
+      ) : null}
       {/* Bottom overlay: title, progress, skip */}
       <View style={styles.nowPlayingTop}>
         <View style={styles.liveChip}>
@@ -611,19 +644,19 @@ function NowPlaying({
 
         <View style={styles.nextRow}>
           <Pressable
-            style={[styles.nextBtn, !allowManualSkip && styles.nextBtnDisabled]}
+            style={[styles.nextBtn, !effectiveAllowManualSkip && styles.nextBtnDisabled]}
             onPress={() => {
-              if (!allowManualSkip) return;
+              if (!effectiveAllowManualSkip) return;
               hasUserInteractedRef.current = true;
               onAdvance("manual");
             }}
-            disabled={!allowManualSkip}
+            disabled={!effectiveAllowManualSkip}
             accessibilityRole="button"
-            accessibilityLabel={allowManualSkip ? "Skip to next track" : "Skip unavailable"}
+            accessibilityLabel={effectiveAllowManualSkip ? "Skip to next track" : "Skip unavailable"}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <Ionicons name="play-skip-forward" size={16} color={C.textMuted} />
-            <Text style={[styles.nextBtnText, !allowManualSkip && styles.nextBtnTextDisabled]}>Skip</Text>
+            <Text style={[styles.nextBtnText, !effectiveAllowManualSkip && styles.nextBtnTextDisabled]}>Skip</Text>
           </Pressable>
         </View>
       </View>
@@ -1084,6 +1117,16 @@ export default function JukeboxScreen() {
 
   const addMutation = useMutation({
     mutationFn: async (video: Video) => {
+      // The jukebox player is YouTube IFrame API only. Adding videos without
+      // a YouTube id (user uploads / purchased R2 videos) used to silently
+      // succeed and then strand the room on a black screen with no audio —
+      // bail out early with a clear message instead.
+      const youtubeIdRaw = String(
+        (video as { youtubeId?: string | null }).youtubeId ?? "",
+      ).trim();
+      if (!youtubeIdRaw) {
+        throw { code: "non_youtube_video" };
+      }
       const currentFreeRemaining = reqCountData?.freeRemaining ?? 20;
       const action = beginActionTelemetry({
         action: currentFreeRemaining > 0 ? "jukebox_free_request" : "jukebox_paid_request",
@@ -1204,6 +1247,13 @@ export default function JukeboxScreen() {
       qc.invalidateQueries({ queryKey: [`/api/tickets/request-count?communityId=${communityId}`] });
     },
     onError: (err: any) => {
+      if (err?.code === "non_youtube_video") {
+        showJukeboxAlert(
+          "YouTube videos only",
+          "The jukebox can currently play YouTube videos only. Use the YouTube search above to find a track.",
+        );
+        return;
+      }
       if (err?.code === "insufficient_tickets") {
         const freeLimit =
           (

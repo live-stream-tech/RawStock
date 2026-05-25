@@ -7824,17 +7824,23 @@ export async function registerRoutes(app: Express): Promise<void> {
         return res.status(401).json({ error: "Please sign in to control playback." });
       }
       if (isPlayingNow) {
-        const currentPlayingRow = queue.find(
-          (q) =>
-            (stateRaw!.currentVideoYoutubeId && (q as any).youtubeId === stateRaw!.currentVideoYoutubeId) ||
-            (stateRaw!.currentVideoId != null && q.videoId === stateRaw!.currentVideoId),
-        );
-        if (currentPlayingRow) {
-          const uid = currentPlayingRow.addedByUserId;
-          if (uid == null || uid !== user.id) {
-            return res.status(403).json({
-              error: "Only the person who requested the current track can skip it.",
-            });
+        // Unplayable tracks (no YouTube id) can be skipped by anyone so a
+        // mis-queued non-YouTube video never strands the room with a black
+        // screen and silent player.
+        const currentTrackPlayable = !!stateRaw!.currentVideoYoutubeId;
+        if (currentTrackPlayable) {
+          const currentPlayingRow = queue.find(
+            (q) =>
+              (stateRaw!.currentVideoYoutubeId && (q as any).youtubeId === stateRaw!.currentVideoYoutubeId) ||
+              (stateRaw!.currentVideoId != null && q.videoId === stateRaw!.currentVideoId),
+          );
+          if (currentPlayingRow) {
+            const uid = currentPlayingRow.addedByUserId;
+            if (uid == null || uid !== user.id) {
+              return res.status(403).json({
+                error: "Only the person who requested the current track can skip it.",
+              });
+            }
           }
         }
       }
