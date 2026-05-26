@@ -561,7 +561,7 @@ function NowPlaying({
         <Image source={{ uri: state.currentVideoThumbnail }} style={StyleSheet.absoluteFillObject} contentFit="cover" />
       ) : null}
       {/* iOS/WebKit: first-audio start or resume while server is playing */}
-      {Platform.OS === "web" && state?.currentVideoYoutubeId && needsTap ? (
+      {Platform.OS === "web" && state?.currentVideoYoutubeId && needsTap && !isUnplayable ? (
         <Pressable
           style={styles.audioOverlay}
           onPress={handleTapToUnmute}
@@ -574,7 +574,7 @@ function NowPlaying({
           </View>
         </Pressable>
       ) : null}
-      {Platform.OS === "web" && state?.currentVideoYoutubeId && !needsTap && needsResumeTap ? (
+      {Platform.OS === "web" && state?.currentVideoYoutubeId && !needsTap && needsResumeTap && !isUnplayable ? (
         <Pressable
           style={styles.audioOverlay}
           onPress={handleResumePlaybackTap}
