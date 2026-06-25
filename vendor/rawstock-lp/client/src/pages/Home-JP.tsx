@@ -2,8 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowRight } from "lucide-react";
 
 const LP_LINK_X = "https://x.com/ndjtpamwu";
-const LP_LINK_CAMPFIRE =
-  "https://camp-fire.jp/projects/937352/preview?token=33fzs9q3&utm_campaign=cp_po_share_c_msg_projects_show";
 /** Opens the main app on the Top tab (see Expo `app/(tabs)/index`). */
 const LP_LINK_APP = "/";
 
@@ -102,20 +100,18 @@ export default function HomeJP() {
               </a>
             ))}
             <a
+              href="/lp/EN"
+              className="font-mono-body text-[10px] text-white/55 hover:text-neon transition-colors tracking-wide whitespace-nowrap"
+            >
+              English
+            </a>
+            <a
               href={LP_LINK_X}
               target="_blank"
               rel="noopener noreferrer"
               className="font-mono-body text-[10px] text-white/55 hover:text-neon transition-colors whitespace-nowrap"
             >
               X
-            </a>
-            <a
-              href={LP_LINK_CAMPFIRE}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-display text-xs px-3 py-1.5 border border-neon text-neon hover:bg-neon hover:text-black transition-colors whitespace-nowrap shrink-0"
-            >
-              CAMPFIRE
             </a>
           </div>
           <button
@@ -148,20 +144,19 @@ export default function HomeJP() {
               </a>
             ))}
             <a
+              href="/lp/EN"
+              className="block px-4 py-3 text-white/75 hover:text-neon border-b border-white/5"
+              onClick={() => setMenuOpen(false)}
+            >
+              English
+            </a>
+            <a
               href={LP_LINK_X}
               target="_blank"
               rel="noopener noreferrer"
               className="block px-4 py-3 text-white/75 hover:text-neon"
             >
               X
-            </a>
-            <a
-              href={LP_LINK_CAMPFIRE}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block px-4 py-3 text-neon font-display"
-            >
-              CAMPFIRE
             </a>
             </div>
           </div>
@@ -214,14 +209,6 @@ export default function HomeJP() {
               className={CTA_GREEN_3D}
             >
               Xでつながる
-            </a>
-            <a
-              href={LP_LINK_CAMPFIRE}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={CTA_GREEN_3D}
-            >
-              CAMPFIREで応援
             </a>
             <a
               href={LP_LINK_APP}
@@ -285,7 +272,7 @@ export default function HomeJP() {
           <SectionLabel en="Product" ja="いまの構成" />
           <h2 className="font-display text-3xl md:text-4xl text-white mb-4">アプリは、こういう骨格です</h2>
           <p className="font-prose-ja text-base text-white/75 mb-12 leading-relaxed">
-            足りない点・危ない仕様・運用で詰まるところは、遠慮なく教えてください。クラファンとコミュニティのフィードバックで形を固めていきます。
+            足りない点・危ない仕様・運用で詰まるところは、遠慮なく教えてください。コミュニティのフィードバックで形を固めていきます。
           </p>
 
           <div className="grid grid-cols-1 gap-5 mb-20 md:mb-24">
@@ -362,14 +349,6 @@ export default function HomeJP() {
               className={CTA_GREEN_3D}
             >
               Xでつながる
-            </a>
-            <a
-              href={LP_LINK_CAMPFIRE}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={CTA_GREEN_3D}
-            >
-              CAMPFIREで応援
             </a>
             <a
               href={LP_LINK_APP}
@@ -610,14 +589,6 @@ export default function HomeJP() {
               Xでつながる（参加）
             </a>
             <a
-              href={LP_LINK_CAMPFIRE}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={CTA_GREEN_3D}
-            >
-              CAMPFIREで応援（資金）
-            </a>
-            <a
               href={LP_LINK_APP}
               className={CTA_GREEN_3D}
             >
@@ -660,15 +631,6 @@ export default function HomeJP() {
                 className="group inline-flex items-center gap-2 font-display text-lg md:text-xl px-10 py-4 border-2 border-neon text-neon hover:bg-neon hover:text-black transition-colors"
               >
                 Xでつながる
-                <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
-              </a>
-              <a
-                href={LP_LINK_CAMPFIRE}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group inline-flex items-center gap-2 font-display text-lg md:text-xl px-10 py-4 border-2 border-neon text-neon hover:bg-neon hover:text-black transition-colors"
-              >
-                CAMPFIREで応援
                 <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
               </a>
             </div>
