@@ -35,6 +35,8 @@ import { webScrollStyle } from "@/constants/layout";
 import { jukeboxElapsedSeconds } from "@/lib/jukeboxElapsed";
 import { fetchJukeboxJson, getOrCreateJukeboxViewerSessionId } from "@/lib/jukebox-presence";
 import { beginActionTelemetry } from "@/lib/actionTelemetry";
+import { resolvePublicMediaUri } from "@/lib/resolve-public-media-uri";
+import { parseDurationLabelToSec } from "@/lib/parse-duration-label";
 
 type JukeboxState = {
   communityId: number;
@@ -43,6 +45,8 @@ type JukeboxState = {
   currentVideoThumbnail: string | null;
   currentVideoDurationSecs: number;
   currentVideoYoutubeId?: string | null;
+  /** Direct upload / R2 URL when the current track is not YouTube. */
+  currentVideoUrl?: string | null;
   startedAt: string;
   isPlaying: boolean;
   watchersCount: number;
@@ -84,6 +88,9 @@ type Video = {
   duration: string;
   category: string;
   price?: number | null;
+  videoUrl?: string | null;
+  youtubeId?: string | null;
+  durationSecs?: number;
 };
 
 /** Accepts watch/embed/shorts/live URLs, youtu.be, m.youtube.com, or a bare 11-char video id (common on mobile paste). */
@@ -223,31 +230,49 @@ function NowPlaying({
   const [needsResumeTap, setNeedsResumeTap] = useState(false);
   /** If YT player init fails, avoid crashing the tree and fall back to thumbnail. */
   const [ytInitFailed, setYtInitFailed] = useState(false);
+  /** If HTML5 upload playback fails (CORS / codec / missing file). */
+  const [html5Failed, setHtml5Failed] = useState(false);
   // IFrame API player reference.
   const ytPlayerRef = useRef<any>(null);
   const ytContainerIdRef = useRef<string>(`jb-yt-${Math.random().toString(36).slice(2)}`);
+  const html5HostIdRef = useRef<string>(`jb-html5-${Math.random().toString(36).slice(2)}`);
+  const html5VideoRef = useRef<HTMLVideoElement | null>(null);
   const stateRef = useRef<JukeboxState | null>(state);
   stateRef.current = state;
   /** Auto tryResume only after user has interacted once (iOS autoplay policy). */
   const hasUserInteractedRef = useRef(false);
   const lastThrottleMsRef = useRef(0);
+  const communityIdForDurationRef = useRef<number | null>(null);
+  communityIdForDurationRef.current = state?.communityId ?? null;
 
   const runTryResumeCore = useCallback(() => {
     if (Platform.OS !== "web") return;
     if (!hasUserInteractedRef.current) return;
     const s = stateRef.current;
-    if (!s?.isPlaying || !s?.currentVideoYoutubeId) return;
-    const player = ytPlayerRef.current;
-    if (!player) return;
-    try {
-      player.unMute?.();
-      player.setVolume?.(100);
-      const ps = typeof player.getPlayerState === "function" ? player.getPlayerState() : undefined;
-      const w = window as any;
-      const PLAYING = w.YT?.PlayerState?.PLAYING ?? 1;
-      if (ps !== PLAYING) {
-        player.playVideo?.();
+    if (!s?.isPlaying) return;
+    if (s.currentVideoYoutubeId) {
+      const player = ytPlayerRef.current;
+      if (!player) return;
+      try {
+        player.unMute?.();
+        player.setVolume?.(100);
+        const ps = typeof player.getPlayerState === "function" ? player.getPlayerState() : undefined;
+        const w = window as any;
+        const PLAYING = w.YT?.PlayerState?.PLAYING ?? 1;
+        if (ps !== PLAYING) {
+          player.playVideo?.();
+        }
+      } catch {
+        /* noop */
       }
+      return;
+    }
+    const v = html5VideoRef.current;
+    if (!v || !s.currentVideoUrl) return;
+    try {
+      v.muted = false;
+      v.volume = 1;
+      if (v.paused) void v.play().catch(() => setNeedsResumeTap(true));
     } catch {
       /* noop */
     }
@@ -437,8 +462,182 @@ function NowPlaying({
         try { ytPlayerRef.current.destroy(); } catch {}
         ytPlayerRef.current = null;
       }
+      const hv = html5VideoRef.current;
+      if (hv) {
+        try {
+          hv.pause();
+          hv.removeAttribute("src");
+          hv.load();
+          hv.remove();
+        } catch {
+          /* noop */
+        }
+        html5VideoRef.current = null;
+      }
     };
   }, []);
+
+  // HTML5 player for uploaded / R2 videos (radio-synced via server elapsedSecs).
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+    const urlRaw = state?.currentVideoUrl?.trim() || "";
+    const ytId = state?.currentVideoYoutubeId?.trim() || "";
+    if (!urlRaw || ytId) {
+      setHtml5Failed(false);
+      const existing = html5VideoRef.current;
+      if (existing) {
+        try {
+          existing.pause();
+          existing.removeAttribute("src");
+          existing.load();
+          existing.remove();
+        } catch {
+          /* noop */
+        }
+        html5VideoRef.current = null;
+      }
+      return;
+    }
+
+    setHtml5Failed(false);
+    let cancelled = false;
+    const hostId = html5HostIdRef.current;
+    const mount = () => {
+      if (cancelled) return;
+      const host = document.getElementById(hostId);
+      if (!host) {
+        setTimeout(mount, 60);
+        return;
+      }
+      host.innerHTML = "";
+      const src = resolvePublicMediaUri(urlRaw);
+      const v = document.createElement("video");
+      v.playsInline = true;
+      v.setAttribute("playsinline", "true");
+      v.preload = "auto";
+      v.crossOrigin = "anonymous";
+      v.controls = false;
+      v.style.cssText =
+        "width:100%;height:100%;object-fit:contain;display:block;background:#000;";
+      v.src = src;
+
+      const startSec =
+        stateRef.current?.elapsedSecs && stateRef.current.elapsedSecs > 0
+          ? stateRef.current.elapsedSecs
+          : stateRef.current
+            ? jukeboxElapsedSeconds(stateRef.current)
+            : 0;
+
+      const tryPlay = () => {
+        if (cancelled) return;
+        try {
+          if (Number.isFinite(startSec) && startSec > 0.5) {
+            try {
+              v.currentTime = startSec;
+            } catch {
+              /* seek may fail before metadata */
+            }
+          }
+          v.muted = false;
+          v.volume = 1;
+          const p = v.play();
+          if (p && typeof p.then === "function") {
+            p.then(() => {
+              if (!cancelled) {
+                setNeedsTap(false);
+                setNeedsResumeTap(false);
+              }
+            }).catch(() => {
+              if (!cancelled) {
+                setNeedsTap(true);
+                setNeedsResumeTap(true);
+              }
+            });
+          }
+        } catch {
+          if (!cancelled) setNeedsTap(true);
+        }
+      };
+
+      v.addEventListener("loadedmetadata", () => {
+        if (cancelled) return;
+        const dur = Number.isFinite(v.duration) ? Math.floor(v.duration) : 0;
+        const cid = communityIdForDurationRef.current;
+        const knownDur = stateRef.current?.currentVideoDurationSecs ?? 0;
+        if (dur > 0 && cid != null && knownDur <= 0) {
+          void apiRequest("PATCH", `/api/jukebox/${cid}/duration`, { durationSecs: dur }).catch(
+            () => undefined,
+          );
+        }
+        tryPlay();
+      });
+      v.addEventListener("ended", () => {
+        if (!cancelled) onAdvanceRef.current("ended");
+      });
+      v.addEventListener("error", () => {
+        if (!cancelled) setHtml5Failed(true);
+      });
+      v.addEventListener("playing", () => {
+        if (cancelled) return;
+        hasUserInteractedRef.current = true;
+        setNeedsTap(false);
+        setNeedsResumeTap(false);
+      });
+      v.addEventListener("pause", () => {
+        if (cancelled) return;
+        if (stateRef.current?.isPlaying) setNeedsResumeTap(true);
+      });
+
+      host.appendChild(v);
+      html5VideoRef.current = v;
+      // If metadata already cached
+      if (v.readyState >= 1) tryPlay();
+    };
+
+    mount();
+    return () => {
+      cancelled = true;
+      const hv = html5VideoRef.current;
+      if (hv) {
+        try {
+          hv.pause();
+          hv.removeAttribute("src");
+          hv.load();
+          hv.remove();
+        } catch {
+          /* noop */
+        }
+        html5VideoRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only remount when the playable URL changes
+  }, [state?.currentVideoUrl, state?.currentVideoYoutubeId]);
+
+  // Keep HTML5 currentTime roughly aligned with server radio clock.
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    if (!state?.isPlaying || !state.currentVideoUrl || state.currentVideoYoutubeId) return;
+    const v = html5VideoRef.current;
+    if (!v) return;
+    const target =
+      state.elapsedSecs && state.elapsedSecs > 0
+        ? state.elapsedSecs
+        : jukeboxElapsedSeconds(state);
+    if (!Number.isFinite(target)) return;
+    try {
+      if (Math.abs((v.currentTime || 0) - target) > 2.5) {
+        v.currentTime = target;
+      }
+    } catch {
+      /* noop */
+    }
+  }, [
+    state?.isPlaying,
+    state?.currentVideoUrl,
+    state?.currentVideoYoutubeId,
+    state?.elapsedSecs,
+    state?.startedAt,
+  ]);
 
   const prevAddModalOpen = useRef(!!addModalOpen);
   useEffect(() => {
@@ -493,7 +692,7 @@ function NowPlaying({
 
   useEffect(() => {
     setNeedsResumeTap(false);
-  }, [state?.currentVideoYoutubeId]);
+  }, [state?.currentVideoYoutubeId, state?.currentVideoUrl]);
 
   // iOS Safari: first audio start tied to user gesture.
   const handleTapToUnmute = useCallback(() => {
@@ -508,14 +707,18 @@ function NowPlaying({
     setNeedsResumeTap(false);
   }, [runTryResumeCore]);
 
-  // Track is unplayable when the queued item has no YouTube id, or when
-  // YT.Player has reported a non-recoverable error (101 / 150 / removed / etc.).
+  const hasPlayableSource = !!(
+    state?.currentVideoYoutubeId ||
+    (typeof state?.currentVideoUrl === "string" && state.currentVideoUrl.trim())
+  );
+  // Unplayable: no source, or player reported a non-recoverable failure.
   const isUnplayable =
     !!state?.isPlaying &&
-    (!state?.currentVideoYoutubeId || ytInitFailed);
-  // Allow anyone to skip unplayable tracks so an accidental non-YouTube
-  // request never strands the room.
+    (!hasPlayableSource || ytInitFailed || html5Failed);
+  // Allow anyone to skip unplayable tracks so the room never gets stranded.
   const effectiveAllowManualSkip = allowManualSkip || isUnplayable;
+  const showTapOverlays =
+    Platform.OS === "web" && hasPlayableSource && !isUnplayable;
 
   // Portrait: 16:9. Landscape: fullscreen. Sidebar embed: always 16:9 box.
   const isLandscape = !embedInSidebarColumn && screenW > screenH;
@@ -557,11 +760,17 @@ function NowPlaying({
           collapsable={false}
           style={StyleSheet.absoluteFillObject}
         />
+      ) : Platform.OS === "web" && state?.currentVideoUrl && !html5Failed ? (
+        <View
+          nativeID={html5HostIdRef.current}
+          collapsable={false}
+          style={StyleSheet.absoluteFillObject}
+        />
       ) : state?.currentVideoThumbnail ? (
         <Image source={{ uri: state.currentVideoThumbnail }} style={StyleSheet.absoluteFillObject} contentFit="cover" />
       ) : null}
       {/* iOS/WebKit: first-audio start or resume while server is playing */}
-      {Platform.OS === "web" && state?.currentVideoYoutubeId && needsTap && !isUnplayable ? (
+      {showTapOverlays && needsTap ? (
         <Pressable
           style={styles.audioOverlay}
           onPress={handleTapToUnmute}
@@ -574,7 +783,7 @@ function NowPlaying({
           </View>
         </Pressable>
       ) : null}
-      {Platform.OS === "web" && state?.currentVideoYoutubeId && !needsTap && needsResumeTap && !isUnplayable ? (
+      {showTapOverlays && !needsTap && needsResumeTap ? (
         <Pressable
           style={styles.audioOverlay}
           onPress={handleResumePlaybackTap}
@@ -598,7 +807,7 @@ function NowPlaying({
         >
           <View style={styles.audioOverlayInnerColumn}>
             <Ionicons name="alert-circle" size={28} color="#fff" />
-            <Text style={styles.audioOverlayText}>This track can't be played here</Text>
+            <Text style={styles.audioOverlayText}>{"This track can't be played here"}</Text>
             <Text style={styles.audioOverlayHint}>Tap to skip to the next track</Text>
           </View>
         </Pressable>
@@ -1064,8 +1273,12 @@ export default function JukeboxScreen() {
     );
   }, [state?.isPlaying, user?.id, currentPlayingQueueItem]);
 
-  const uploadedVideos: Video[] = myVideos;
-  const purchasedVideos: Video[] = (myVideos as any[]).filter((v) => v.price && v.price > 0);
+  const isJukeboxPlayableVideo = (v: Video) =>
+    !!(String(v.youtubeId ?? "").trim() || String(v.videoUrl ?? "").trim());
+  const uploadedVideos: Video[] = myVideos.filter(isJukeboxPlayableVideo);
+  const purchasedVideos: Video[] = (myVideos as Video[]).filter(
+    (v) => !!(v.price && v.price > 0) && isJukeboxPlayableVideo(v),
+  );
 
   const chatMutation = useMutation({
     mutationFn: (msg: string) =>
@@ -1117,16 +1330,17 @@ export default function JukeboxScreen() {
 
   const addMutation = useMutation({
     mutationFn: async (video: Video) => {
-      // The jukebox player is YouTube IFrame API only. Adding videos without
-      // a YouTube id (user uploads / purchased R2 videos) used to silently
-      // succeed and then strand the room on a black screen with no audio —
-      // bail out early with a clear message instead.
-      const youtubeIdRaw = String(
-        (video as { youtubeId?: string | null }).youtubeId ?? "",
-      ).trim();
-      if (!youtubeIdRaw) {
-        throw { code: "non_youtube_video" };
+      const youtubeIdRaw = String(video.youtubeId ?? "").trim();
+      const videoUrlRaw = String(video.videoUrl ?? "").trim();
+      // Need either YouTube (IFrame) or an uploaded file URL (HTML5). Text-only posts
+      // and broken uploads have neither.
+      if (!youtubeIdRaw && !videoUrlRaw) {
+        throw { code: "unplayable_video" };
       }
+      const durationSecs =
+        typeof video.durationSecs === "number" && video.durationSecs > 0
+          ? video.durationSecs
+          : parseDurationLabelToSec(video.duration) ?? 0;
       const currentFreeRemaining = reqCountData?.freeRemaining ?? 20;
       const action = beginActionTelemetry({
         action: currentFreeRemaining > 0 ? "jukebox_free_request" : "jukebox_paid_request",
@@ -1137,11 +1351,24 @@ export default function JukeboxScreen() {
         extra: {
           communityId,
           videoId: video.id,
-          youtubeId: (video as { youtubeId?: string | null }).youtubeId ?? null,
+          youtubeId: youtubeIdRaw || null,
+          hasVideoUrl: !!videoUrlRaw,
           freeRemainingBefore: currentFreeRemaining,
           ticketsPerRequest,
         },
       });
+
+      const addBody = {
+        videoId: video.id,
+        videoTitle: video.title,
+        videoThumbnail: video.thumbnail,
+        videoDurationSecs: durationSecs,
+        youtubeId: youtubeIdRaw || null,
+        addedBy: user?.name ?? "Guest",
+        addedByAvatar:
+          user?.avatar ??
+          "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=80&h=80&fit=crop",
+      };
 
       try {
         if (currentFreeRemaining > 0) {
@@ -1176,15 +1403,7 @@ export default function JukeboxScreen() {
             throw new Error("Ticket spend did not return a transaction id. Please try again.");
           }
           try {
-            const addRes = await apiRequest("POST", `/api/jukebox/${communityId}/add`, {
-              videoId: video.id,
-              videoTitle: video.title,
-              videoThumbnail: video.thumbnail,
-              videoDurationSecs: (video as any).durationSecs ?? 0,
-              youtubeId: (video as any).youtubeId ?? null,
-              addedBy: user?.name ?? "Guest",
-              addedByAvatar: user?.avatar ?? "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=80&h=80&fit=crop",
-            });
+            const addRes = await apiRequest("POST", `/api/jukebox/${communityId}/add`, addBody);
             await refetchTickets();
             await refetchReqCount();
             action.success({
@@ -1209,15 +1428,7 @@ export default function JukeboxScreen() {
           }
         }
 
-        const result = await apiRequest("POST", `/api/jukebox/${communityId}/add`, {
-          videoId: video.id,
-          videoTitle: video.title,
-          videoThumbnail: video.thumbnail,
-          videoDurationSecs: (video as any).durationSecs ?? 0,
-          youtubeId: (video as any).youtubeId ?? null,
-          addedBy: user?.name ?? "Guest",
-          addedByAvatar: user?.avatar ?? "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=80&h=80&fit=crop",
-        });
+        const result = await apiRequest("POST", `/api/jukebox/${communityId}/add`, addBody);
         await refetchReqCount();
         action.success({ mode: "free" });
         return result;
@@ -1247,10 +1458,10 @@ export default function JukeboxScreen() {
       qc.invalidateQueries({ queryKey: [`/api/tickets/request-count?communityId=${communityId}`] });
     },
     onError: (err: any) => {
-      if (err?.code === "non_youtube_video") {
+      if (err?.code === "unplayable_video") {
         showJukeboxAlert(
-          "YouTube videos only",
-          "The jukebox can currently play YouTube videos only. Use the YouTube search above to find a track.",
+          "Can't play this video",
+          "This post has no playable video file or YouTube link. Upload a video, or request a YouTube track instead.",
         );
         return;
       }

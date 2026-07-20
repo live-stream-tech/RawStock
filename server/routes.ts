@@ -130,6 +130,7 @@ import { translateText } from "./lib/translate";
 import { debugIngestServer } from "./debugIngest";
 import { LEGAL_PRIVACY_VERSION, LEGAL_TERMS_VERSION } from "../constants/legalVersions";
 import { parseThreadBody } from "../lib/parse-thread-body";
+import { parseDurationLabelToSec } from "../lib/parse-duration-label";
 import { STATIONS } from "../constants/stations";
 import { STATION_JUKEBOX_IDS } from "../constants/stationJukebox";
 import { diversifyAnnouncementRowsByCommunity } from "./lib/diversifyAnnouncementFeed";
@@ -6838,15 +6839,69 @@ export async function registerRoutes(app: Express): Promise<void> {
     return Math.max(0, (Date.now() - new Date(row.startedAt as Date).getTime()) / 1000);
   }
 
+  /** Resolve R2/direct video URL (+ duration) for uploaded posts by videos.id. */
+  async function resolveJukeboxUploadMedia(videoId: number | null | undefined): Promise<{
+    videoUrl: string | null;
+    youtubeId: string | null;
+    durationSecs: number;
+  }> {
+    if (videoId == null || !Number.isFinite(videoId)) {
+      return { videoUrl: null, youtubeId: null, durationSecs: 0 };
+    }
+    const [row] = await db
+      .select({
+        videoUrl: videos.videoUrl,
+        youtubeId: videos.youtubeId,
+        duration: videos.duration,
+      })
+      .from(videos)
+      .where(eq(videos.id, videoId))
+      .limit(1);
+    if (!row) return { videoUrl: null, youtubeId: null, durationSecs: 0 };
+    const rawUrl = typeof row.videoUrl === "string" ? row.videoUrl.trim() : "";
+    const yt = typeof row.youtubeId === "string" ? row.youtubeId.trim() : "";
+    return {
+      videoUrl: rawUrl ? rewriteStoredMediaUrl(rawUrl) ?? rawUrl : null,
+      youtubeId: yt || null,
+      durationSecs: parseDurationLabelToSec(row.duration) ?? 0,
+    };
+  }
+
+  async function enrichJukeboxStateForClient(
+    row: InferSelectModel<typeof jukeboxState> | null | undefined,
+    extras?: { elapsedSecs?: number; watchersCount?: number },
+  ): Promise<Record<string, unknown> | null> {
+    if (!row) return null;
+    let currentVideoUrl: string | null = null;
+    const ytId =
+      typeof row.currentVideoYoutubeId === "string" && row.currentVideoYoutubeId.trim()
+        ? row.currentVideoYoutubeId.trim()
+        : null;
+    if (!ytId && row.currentVideoId != null) {
+      const media = await resolveJukeboxUploadMedia(row.currentVideoId);
+      currentVideoUrl = media.videoUrl;
+    }
+    return {
+      ...(row as unknown as Record<string, unknown>),
+      currentVideoUrl,
+      ...(extras ?? {}),
+    };
+  }
+
   async function publishJukeboxStateUpdateWithLiveWatchers(
     communityId: number,
     row: InferSelectModel<typeof jukeboxState>,
   ): Promise<void> {
     const watchers = await getJukeboxLiveViewerCount(communityId);
     const elapsedSecs = jukeboxRowElapsedSecs(row);
+    const data = await enrichJukeboxStateForClient(row, {
+      watchersCount: watchers,
+      elapsedSecs,
+    });
+    if (!data) return;
     await publishJukeboxEvent(communityId, {
       type: "state_update",
-      data: { ...(row as unknown as Record<string, unknown>), watchersCount: watchers, elapsedSecs },
+      data,
     });
   }
 
@@ -7037,9 +7092,9 @@ export async function registerRoutes(app: Express): Promise<void> {
       );
     }
 
-    // Return UI state even without youtubeId (thumb/title display)
+    // Return UI state even without youtubeId (thumb/title / upload URL display)
     const effectiveState =
-      state && state.isPlaying && (state.currentVideoTitle || state.currentVideoYoutubeId)
+      state && state.isPlaying && (state.currentVideoTitle || state.currentVideoYoutubeId || state.currentVideoId != null)
         ? state
         : null;
 
@@ -7047,11 +7102,10 @@ export async function registerRoutes(app: Express): Promise<void> {
 
     res.json({
       state: effectiveState
-        ? {
-            ...effectiveState,
+        ? await enrichJukeboxStateForClient(effectiveState, {
             elapsedSecs,
             watchersCount: liveWatchers,
-          }
+          })
         : null,
       queue: queueToReturn,
       chat,
@@ -7096,7 +7150,10 @@ export async function registerRoutes(app: Express): Promise<void> {
           ? (Date.now() - new Date(currentState.startedAt).getTime()) / 1000
           : 0;
         const liveWatchers = await getJukeboxLiveViewerCount(communityId);
-        const stateData = { ...currentState, elapsedSecs: Math.max(0, elapsed), watchersCount: liveWatchers };
+        const stateData = await enrichJukeboxStateForClient(currentState, {
+          elapsedSecs: Math.max(0, elapsed),
+          watchersCount: liveWatchers,
+        });
         res.write(`event: state_update\ndata: ${JSON.stringify({ type: "state_update", data: stateData, ts: Date.now() })}\n\n`);
       }
 
@@ -7728,17 +7785,66 @@ export async function registerRoutes(app: Express): Promise<void> {
     await ensureStationJukeboxCommunity(communityId);
     const { videoId, videoTitle, videoThumbnail, videoDurationSecs, addedBy, addedByAvatar, youtubeId } = req.body;
     const authUser = await getAuthUser(req);
+
+    let resolvedVideoId =
+      typeof videoId === "number" && Number.isFinite(videoId)
+        ? videoId
+        : typeof videoId === "string" && /^\d+$/.test(videoId.trim())
+          ? Number(videoId.trim())
+          : null;
+    let youtubeIdVal =
+      typeof youtubeId === "string" && youtubeId.trim() ? youtubeId.trim() : null;
+    let durationSecs =
+      typeof videoDurationSecs === "number" && Number.isFinite(videoDurationSecs) && videoDurationSecs > 0
+        ? Math.floor(videoDurationSecs)
+        : 0;
+    let titleVal = typeof videoTitle === "string" ? videoTitle.trim() : "";
+    let thumbVal = typeof videoThumbnail === "string" ? videoThumbnail.trim() : "";
+
+    // Uploaded / library posts: require a playable R2 URL or YouTube id from DB.
+    if (!youtubeIdVal && resolvedVideoId != null) {
+      const media = await resolveJukeboxUploadMedia(resolvedVideoId);
+      youtubeIdVal = media.youtubeId;
+      if (!youtubeIdVal && !media.videoUrl) {
+        return res.status(400).json({
+          error: "This video has no playable source for the jukebox (need YouTube or an uploaded video file).",
+        });
+      }
+      if (durationSecs <= 0 && media.durationSecs > 0) durationSecs = media.durationSecs;
+      if (!titleVal || !thumbVal) {
+        const [v] = await db
+          .select({ title: videos.title, thumbnail: videos.thumbnail })
+          .from(videos)
+          .where(eq(videos.id, resolvedVideoId))
+          .limit(1);
+        if (v) {
+          if (!titleVal) titleVal = v.title;
+          if (!thumbVal) thumbVal = rewriteStoredMediaUrl(v.thumbnail) ?? v.thumbnail;
+        }
+      }
+    } else if (!youtubeIdVal) {
+      return res.status(400).json({
+        error: "A YouTube id or an uploaded video id is required.",
+      });
+    }
+    if (!titleVal) titleVal = youtubeIdVal ? "YouTube Request" : "Video Request";
+    if (!thumbVal) {
+      thumbVal = youtubeIdVal
+        ? `https://img.youtube.com/vi/${youtubeIdVal}/hqdefault.jpg`
+        : "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&h=400&fit=crop";
+    }
+
     const existing = await db.select().from(jukeboxQueue)
       .where(eq(jukeboxQueue.communityId, communityId))
       .orderBy(desc(jukeboxQueue.position));
     const nextPos = existing.length > 0 ? existing[0].position + 1 : 1;
     const [item] = await db.insert(jukeboxQueue).values({
       communityId,
-      videoId,
-      videoTitle,
-      videoThumbnail,
-      videoDurationSecs: videoDurationSecs ?? 0,
-      youtubeId: youtubeId ?? null,
+      videoId: resolvedVideoId,
+      videoTitle: titleVal,
+      videoThumbnail: thumbVal,
+      videoDurationSecs: durationSecs,
+      youtubeId: youtubeIdVal,
       addedBy: addedBy ?? "You",
       addedByAvatar,
       addedByUserId: authUser?.id ?? null,
@@ -7824,10 +7930,13 @@ export async function registerRoutes(app: Express): Promise<void> {
         return res.status(401).json({ error: "Please sign in to control playback." });
       }
       if (isPlayingNow) {
-        // Unplayable tracks (no YouTube id) can be skipped by anyone so a
-        // mis-queued non-YouTube video never strands the room with a black
-        // screen and silent player.
-        const currentTrackPlayable = !!stateRaw!.currentVideoYoutubeId;
+        // Unplayable tracks (no YouTube id and no upload URL) can be skipped by
+        // anyone so a mis-queued item never strands the room.
+        let currentTrackPlayable = !!stateRaw!.currentVideoYoutubeId;
+        if (!currentTrackPlayable && stateRaw!.currentVideoId != null) {
+          const media = await resolveJukeboxUploadMedia(stateRaw!.currentVideoId);
+          currentTrackPlayable = !!media.videoUrl;
+        }
         if (currentTrackPlayable) {
           const currentPlayingRow = queue.find(
             (q) =>
