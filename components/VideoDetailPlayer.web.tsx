@@ -46,7 +46,13 @@ export function VideoDetailPlayer({ videoUrl, videoId }: Props) {
     const detachMonitor = attachHtmlVideoPlaybackMonitor(v, ctx, {
       alertUser: true,
       onFatal: () => {
-        setFatalMessage("This video could not be played. The issue was reported automatically.");
+        const look = (src || rawUrl).split("?")[0]?.toLowerCase() ?? "";
+        const mov = look.endsWith(".mov") || look.endsWith(".qt");
+        setFatalMessage(
+          mov
+            ? "This .mov file may not play in the browser. Re-upload as MP4 (H.264) for reliable playback."
+            : "This video could not be played. The issue was reported automatically.",
+        );
       },
     });
 

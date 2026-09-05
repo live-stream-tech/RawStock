@@ -78,6 +78,21 @@ function buildExtra(
   };
 }
 
+function isLikelyUnsupportedBrowserCodec(ctx: VideoPlaybackContext, message: string): boolean {
+  const url = (ctx.resolvedUrl ?? ctx.rawUrl ?? "").split("?")[0]?.toLowerCase() ?? "";
+  const ext = url.split(".").pop() ?? "";
+  const m = message.toLowerCase();
+  return (
+    ext === "mov" ||
+    ext === "qt" ||
+    m.includes("not supported") ||
+    m.includes("operation is not supported") ||
+    m.includes("media_err_src_not_supported") ||
+    m.includes("demuxer") ||
+    m.includes("format error")
+  );
+}
+
 /**
  * Always ingested (dedupe off) so playback failures are visible in /admin/client-errors.
  */
@@ -94,16 +109,21 @@ export function reportVideoPlaybackIssue(input: {
   alertUser?: boolean;
   dedupeMs?: number;
 }): void {
-  const severity = input.severity ?? "error";
+  const codecIssue = isLikelyUnsupportedBrowserCodec(input.ctx, input.message);
+  const severity = input.severity ?? (codecIssue ? "warning" : "error");
   const title = input.title ?? "Video playback failed";
+  const message = codecIssue
+    ? "This video format may not play in the browser (e.g. .mov / QuickTime). Re-upload as MP4 (H.264) for reliable web playback."
+    : input.message;
 
   recordClientDebugBreadcrumb({
     type: "video_playback",
-    message: `${input.stage}: ${input.message}`,
+    message: `${input.stage}: ${message}`,
     route: getCurrentClientRoute(),
     data: buildExtra(input.ctx, input.stage, {
       ...snapshotVideoElement(input.videoEl),
       err: summarizeForErrorExtra(input.err),
+      codecIssue,
       ...input.more,
     }),
   });
@@ -112,18 +132,19 @@ export function reportVideoPlaybackIssue(input: {
     kind: "action_error",
     severity,
     title,
-    message: input.message,
+    message,
     route: getCurrentClientRoute(),
-    dedupeMs: input.dedupeMs ?? 0,
+    dedupeMs: input.dedupeMs ?? (codecIssue ? 60_000 : 0),
     extra: buildExtra(input.ctx, input.stage, {
       ...snapshotVideoElement(input.videoEl),
       err: summarizeForErrorExtra(input.err),
+      codecIssue,
       ...input.more,
     }),
   });
 
-  if (input.alertUser && severity === "error") {
-    alertMessage(title, input.message);
+  if (input.alertUser && (severity === "error" || codecIssue)) {
+    alertMessage(title, message);
   }
 }
 

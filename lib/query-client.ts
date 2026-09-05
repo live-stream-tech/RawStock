@@ -219,6 +219,7 @@ async function captureNetworkFailure(err: unknown, context: ErrorCaptureContext)
     url: context.requestUrl ?? null,
     data: summarizeForErrorExtra(err) as Record<string, unknown>,
   });
+  if (isBenignNetworkMessage(message)) return;
   await captureClientError({
     kind: context.kind ?? "api_error",
     title: context.title ?? "Network request failed",
@@ -252,14 +253,33 @@ export async function readAuthToken(): Promise<string | null> {
   return null;
 }
 
+/** Transient browser/network failures — breadcrumb only, not admin noise. */
+function isBenignNetworkMessage(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("load failed") ||
+    m.includes("failed to fetch") ||
+    m.includes("network request failed") ||
+    m.includes("networkerror") ||
+    m.includes("aborted") ||
+    m.includes("the internet connection appears to be offline") ||
+    m.includes("the network connection was lost")
+  );
+}
+
 /** Expected API outcomes — do not ingest as production errors. */
 function isBenignApiError(status: number, message: string, route?: string | null): boolean {
   const m = message.toLowerCase();
-  if (status === 403 && m.includes("track has not finished")) return true;
-  if (status === 404 && m.includes("creator profile not found")) return true;
+  // Logged-out / expired session probes
+  if (status === 401) return true;
+  if (status === 403 && (m.includes("forbidden") || m.includes("track has not finished"))) return true;
+  if (status === 404 && (m.includes("creator profile not found") || m === "not found")) return true;
   if (status === 404 && route?.includes("/api/livers/me")) return true;
   // YouTube playlist proxy occasionally returns 502; not actionable
   if (status === 502 && m.includes("playlist")) return true;
+  // Brief Neon/pool blips
+  if (status === 500 && m.includes("connection terminated")) return true;
+  if (status === 503) return true;
   // Unauthenticated API calls from the home page before auth resolves
   if (status === 403 && route?.startsWith("/api/jukebox")) return true;
   return false;

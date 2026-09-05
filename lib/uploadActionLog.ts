@@ -46,22 +46,9 @@ export function reportUploadBlocked(ctx: UploadActionContext, options: BlockOpti
   }
 }
 
-/** User dismissed the file picker without choosing a file. */
-export function reportUploadPickerCancelled(ctx: UploadActionContext): void {
-  void captureClientError({
-    kind: "action_error",
-    severity: "info",
-    title: "Picker cancelled",
-    message: "User closed the file picker without selecting a file.",
-    route: getCurrentClientRoute(),
-    dedupeMs: 2000,
-    extra: {
-      source: "upload",
-      stage: `${ctx.stage}_cancelled`,
-      flow: ctx.flow,
-      mediaType: ctx.mediaType ?? null,
-    },
-  });
+/** User dismissed the file picker without choosing a file — expected UX, do not ingest. */
+export function reportUploadPickerCancelled(_ctx: UploadActionContext): void {
+  // Intentional no-op: cancelling the picker is not an error.
 }
 
 /**

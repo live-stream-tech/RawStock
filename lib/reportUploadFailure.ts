@@ -25,6 +25,14 @@ export function reportUploadFailure(input: ReportUploadFailureInput): void {
     (input.err != null ? formatUserFacingApiError(input.err) : "") ||
     "Upload failed";
   const status = input.err instanceof ApiError ? input.err.status : null;
+  // Client-side validation / user choice / transient network — keep UI alerts elsewhere, skip admin noise.
+  if (
+    /too large|picker cancelled|user cancelled|closed the file picker|load failed|failed to fetch|network request failed/i.test(
+      message,
+    )
+  ) {
+    return;
+  }
 
   void captureClientError({
     kind: "action_error",

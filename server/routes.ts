@@ -245,6 +245,29 @@ function paramNum(req: Request, key: string): number {
   return parseInt(paramStr(req, key), 10) || 0;
 }
 
+/**
+ * Operations Team guide DMs are stored in legacy `dm_messages` but shown in the
+ * same inbox as real `dm_threads`. Negative client ids (`-1`) broke some web
+ * fetches ("Load failed"), so we encode them as a large positive offset.
+ * Negative ids are still accepted for old clients / deep links.
+ */
+const LEGACY_OPS_DM_CLIENT_ID_BASE = 2_000_000_000;
+
+function encodeLegacyOpsDmClientId(dbId: number): number {
+  return LEGACY_OPS_DM_CLIENT_ID_BASE + dbId;
+}
+
+function resolveLegacyOpsDmDbId(rawId: number): number | null {
+  if (!Number.isFinite(rawId) || rawId === 0) return null;
+  if (rawId < 0) return Math.abs(rawId);
+  if (rawId >= LEGACY_OPS_DM_CLIENT_ID_BASE) return rawId - LEGACY_OPS_DM_CLIENT_ID_BASE;
+  return null;
+}
+
+function isDmThreadRouteId(rawId: number): boolean {
+  return Number.isFinite(rawId) && rawId > 0 && rawId < LEGACY_OPS_DM_CLIENT_ID_BASE;
+}
+
 function formatTimeAgo(d: Date | string | null | undefined): string {
   if (!d) return "Just now";
   const date = typeof d === "string" ? new Date(d) : d;
@@ -1330,6 +1353,8 @@ export async function registerRoutes(app: Express): Promise<void> {
     await ensureCommunityAdsSchema();
     await ensureGenreAdsSchema();
     await ensureBannerAdsSchema();
+    await ensureMentorBookingsSchema();
+    await ensureNotificationsSchema();
     next();
   });
 
@@ -6432,7 +6457,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         (opsDm.lastMessage ?? "").split("\n").find((line) => line.trim().length > 0) ?? opsDm.lastMessage ?? "";
       const opsUnread = await operationsGuideDmUnreadForUser(me.id);
       out.unshift({
-        id: -opsDm.id,
+        id: encodeLegacyOpsDmClientId(opsDm.id),
         name: opsDm.name,
         avatar: opsDm.avatar,
         lastMessage: preview.slice(0, 200),
@@ -6456,9 +6481,9 @@ export async function registerRoutes(app: Express): Promise<void> {
   app.post("/api/dm-messages/:id/read", async (req: Request, res: Response) => {
     await ensureDmThreadTables();
     const rawId = paramNum(req, "id");
-    const legacyDmId = rawId < 0 ? -rawId : rawId;
+    const legacyDmId = resolveLegacyOpsDmDbId(rawId);
     const me = await getAuthUser(req);
-    if (me && rawId > 0) {
+    if (me && isDmThreadRouteId(rawId)) {
       const [th] = await db
         .select()
         .from(dmThreads)
@@ -6473,6 +6498,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         return res.json({ ok: true });
       }
     }
+    if (!legacyDmId) return res.json({ ok: true });
     const [updated] = await db
       .update(dmMessages)
       .set({ unread: 0 } as Partial<InferSelectModel<typeof dmMessages>>)
@@ -6713,8 +6739,8 @@ export async function registerRoutes(app: Express): Promise<void> {
     const rawId = paramNum(req, "id");
     const me = await getAuthUser(req);
     if (!me) return res.status(401).json({ error: "Not authenticated" });
-    const legacyDmId = rawId < 0 ? -rawId : rawId;
-    if (rawId > 0) {
+    const legacyDmId = resolveLegacyOpsDmDbId(rawId);
+    if (isDmThreadRouteId(rawId)) {
       const [th] = await db
         .select()
         .from(dmThreads)
@@ -6735,6 +6761,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         });
       }
     }
+    if (!legacyDmId) return res.status(404).json({ error: "Not found" });
     const [legacyDm] = await db.select().from(dmMessages).where(eq(dmMessages.id, legacyDmId));
     if (!legacyDm) return res.status(404).json({ error: "Not found" });
     res.json({
@@ -6749,8 +6776,8 @@ export async function registerRoutes(app: Express): Promise<void> {
     const rawId = paramNum(req, "id");
     const me = await getAuthUser(req);
     if (!me) return res.status(401).json({ error: "Not authenticated" });
-    const legacyDmId = rawId < 0 ? -rawId : rawId;
-    if (rawId > 0) {
+    const legacyDmId = resolveLegacyOpsDmDbId(rawId);
+    if (isDmThreadRouteId(rawId)) {
       const [th] = await db
         .select()
         .from(dmThreads)
@@ -6787,6 +6814,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         );
       }
     }
+    if (!legacyDmId) return res.json([]);
     const msgs = await db
       .select()
       .from(dmConversationMessages)
@@ -6819,7 +6847,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   app.post("/api/dm-messages/:id/conversation", async (req: Request, res: Response) => {
     await ensureDmThreadTables();
     const rawId = paramNum(req, "id");
-    const legacyDmId = rawId < 0 ? -rawId : rawId;
+    const legacyDmId = resolveLegacyOpsDmDbId(rawId);
     const me = await getAuthUser(req);
     if (!me) return res.status(401).json({ error: "Not authenticated" });
     const body = req.body as { text?: unknown; attachmentUrl?: unknown };
@@ -6831,7 +6859,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       ? `ATTACHMENT: ${attachmentUrl}${text ? `\n${text}` : ""}`
       : text;
     const preview = text || (attachmentOk ? "Attachment" : "");
-    if (rawId > 0) {
+    if (isDmThreadRouteId(rawId)) {
       const [th] = await db
         .select()
         .from(dmThreads)
@@ -6866,6 +6894,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         });
       }
     }
+    if (!legacyDmId) return res.status(404).json({ error: "Not found" });
     const [msg] = await db
       .insert(dmConversationMessages)
       .values({

@@ -106,6 +106,7 @@ async function apiFetch(path: string, options?: RequestInit) {
       headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
     });
   } catch (err) {
+    const netMsg = err instanceof Error ? err.message : String(err);
     recordClientDebugBreadcrumb({
       type: "auth_request_network_error",
       message: `${method} ${path}`,
@@ -114,14 +115,20 @@ async function apiFetch(path: string, options?: RequestInit) {
       url,
       data: summarizeForErrorExtra(err) as Record<string, unknown>,
     });
-    void captureClientError({
-      kind: "auth_error",
-      title: "Authentication request failed",
-      message: err instanceof Error ? err.message : String(err),
-      requestUrl: url,
-      method,
-      extra: { path },
-    });
+    const benignNet =
+      /load failed|failed to fetch|network request failed|networkerror|aborted|offline|connection was lost/i.test(
+        netMsg,
+      );
+    if (!benignNet) {
+      void captureClientError({
+        kind: "auth_error",
+        title: "Authentication request failed",
+        message: netMsg,
+        requestUrl: url,
+        method,
+        extra: { path },
+      });
+    }
     throw err;
   }
 
@@ -155,16 +162,19 @@ async function apiFetch(path: string, options?: RequestInit) {
     });
     const err = new ApiError(res.status, rawText || data?.error || "Something went wrong");
     (err as ApiError & { code?: unknown }).code = data?.code;
-    void captureClientError({
-      kind: "auth_error",
-      title: "Authentication request failed",
-      message: data?.error ?? "Something went wrong",
-      status: res.status,
-      code: typeof data?.code === "string" ? data.code : null,
-      requestUrl: url,
-      method,
-      extra: { path },
-    });
+    // 401/403 on /me and similar are expected when logged out or session expired.
+    if (res.status !== 401 && res.status !== 403) {
+      void captureClientError({
+        kind: "auth_error",
+        title: "Authentication request failed",
+        message: data?.error ?? "Something went wrong",
+        status: res.status,
+        code: typeof data?.code === "string" ? data.code : null,
+        requestUrl: url,
+        method,
+        extra: { path },
+      });
+    }
     throw err;
   }
   recordClientDebugBreadcrumb({
