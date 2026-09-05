@@ -10,6 +10,9 @@ let mentorBookingsSchemaReady = false;
 let notificationsSchemaReady = false;
 let videoLikesSchemaReady = false;
 let usersAuthSubjectRenameReady = false;
+let communityAdsSchemaReady = false;
+let genreAdsSchemaReady = false;
+let bannerAdsSchemaReady = false;
 
 /**
  * Production DBs may not have run every SQL migration from the repo.
@@ -373,5 +376,116 @@ export async function ensureUsersAuthSubjectRename(): Promise<void> {
     usersAuthSubjectRenameReady = true;
   } catch (e) {
     console.error("[runtimeSchemaGuards] users.auth_subject rename:", e);
+  }
+}
+
+/** community_ads columns added after initial create (link_url, booking metadata). */
+export async function ensureCommunityAdsSchema(): Promise<void> {
+  if (communityAdsSchemaReady) return;
+  try {
+    await db.execute(
+      sql.raw(`
+        CREATE TABLE IF NOT EXISTS "community_ads" (
+          "id" serial PRIMARY KEY NOT NULL,
+          "community_id" integer NOT NULL,
+          "company_name" text NOT NULL,
+          "contact_name" text NOT NULL,
+          "email" text NOT NULL,
+          "banner_url" text NOT NULL,
+          "link_url" text,
+          "start_date" text NOT NULL,
+          "end_date" text NOT NULL,
+          "daily_rate" integer NOT NULL,
+          "total_amount" integer NOT NULL,
+          "member_count_at_booking" integer NOT NULL DEFAULT 0,
+          "agreed_to_terms" boolean NOT NULL DEFAULT false,
+          "status" text NOT NULL DEFAULT 'pending',
+          "approved_by_moderator" integer,
+          "approved_by_owner" integer,
+          "created_at" timestamp DEFAULT now()
+        )
+      `),
+    );
+    await db.execute(sql.raw(`ALTER TABLE "community_ads" ADD COLUMN IF NOT EXISTS "link_url" text`));
+    await db.execute(
+      sql.raw(
+        `ALTER TABLE "community_ads" ADD COLUMN IF NOT EXISTS "member_count_at_booking" integer NOT NULL DEFAULT 0`,
+      ),
+    );
+    await db.execute(
+      sql.raw(
+        `ALTER TABLE "community_ads" ADD COLUMN IF NOT EXISTS "agreed_to_terms" boolean NOT NULL DEFAULT false`,
+      ),
+    );
+    communityAdsSchemaReady = true;
+  } catch (e) {
+    console.error("[runtimeSchemaGuards] community_ads:", e);
+  }
+}
+
+/** genre_ads columns (link_url + booking metadata). */
+export async function ensureGenreAdsSchema(): Promise<void> {
+  if (genreAdsSchemaReady) return;
+  try {
+    await db.execute(
+      sql.raw(`
+        CREATE TABLE IF NOT EXISTS "genre_ads" (
+          "id" serial PRIMARY KEY NOT NULL,
+          "genre_id" text NOT NULL,
+          "company_name" text NOT NULL,
+          "contact_name" text NOT NULL,
+          "email" text NOT NULL,
+          "banner_url" text NOT NULL,
+          "link_url" text,
+          "start_date" text NOT NULL,
+          "end_date" text NOT NULL,
+          "daily_rate" integer NOT NULL,
+          "total_amount" integer NOT NULL,
+          "member_count_at_booking" integer NOT NULL DEFAULT 0,
+          "agreed_to_terms" boolean NOT NULL DEFAULT false,
+          "status" text NOT NULL DEFAULT 'pending',
+          "created_at" timestamp DEFAULT now()
+        )
+      `),
+    );
+    await db.execute(sql.raw(`ALTER TABLE "genre_ads" ADD COLUMN IF NOT EXISTS "link_url" text`));
+    await db.execute(
+      sql.raw(
+        `ALTER TABLE "genre_ads" ADD COLUMN IF NOT EXISTS "member_count_at_booking" integer NOT NULL DEFAULT 0`,
+      ),
+    );
+    await db.execute(
+      sql.raw(
+        `ALTER TABLE "genre_ads" ADD COLUMN IF NOT EXISTS "agreed_to_terms" boolean NOT NULL DEFAULT false`,
+      ),
+    );
+    genreAdsSchemaReady = true;
+  } catch (e) {
+    console.error("[runtimeSchemaGuards] genre_ads:", e);
+  }
+}
+
+/** banner_ads table used by top-page operator banners. */
+export async function ensureBannerAdsSchema(): Promise<void> {
+  if (bannerAdsSchemaReady) return;
+  try {
+    await db.execute(
+      sql.raw(`
+        CREATE TABLE IF NOT EXISTS "banner_ads" (
+          "id" serial PRIMARY KEY NOT NULL,
+          "title" text NOT NULL,
+          "image_url" text,
+          "link_url" text,
+          "description" text,
+          "is_active" boolean NOT NULL DEFAULT true,
+          "display_order" integer NOT NULL DEFAULT 0,
+          "created_at" timestamp DEFAULT now(),
+          "updated_at" timestamp DEFAULT now()
+        )
+      `),
+    );
+    bannerAdsSchemaReady = true;
+  } catch (e) {
+    console.error("[runtimeSchemaGuards] banner_ads:", e);
   }
 }

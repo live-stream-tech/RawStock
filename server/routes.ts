@@ -1,4 +1,5 @@
 import express, { type Express, type Request, type Response } from "express";
+import { timingSafeEqual } from "crypto";
 import { db, type DbOrTx } from "./db";
 import {
   communities,
@@ -157,6 +158,9 @@ import {
   ensureNotificationsSchema,
   ensureVideoLikesSchema,
   ensureUsersAuthSubjectRename,
+  ensureCommunityAdsSchema,
+  ensureGenreAdsSchema,
+  ensureBannerAdsSchema,
 } from "./runtimeSchemaGuards";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
@@ -169,6 +173,8 @@ const CLOUDFLARE_STREAM_TOKEN = (process.env.CLOUDFLARE_STREAM_TOKEN ?? "").trim
 const CLOUDFLARE_GLOBAL_API_KEY = (process.env.CLOUDFLARE_GLOBAL_API_KEY ?? "").trim();
 const CLOUDFLARE_EMAIL = (process.env.CLOUDFLARE_EMAIL ?? "").trim();
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
+/** Optional read-only secret for GET /api/admin/client-errors (ops / local diagnostics). */
+const CLIENT_ERRORS_READ_SECRET = (process.env.CLIENT_ERRORS_READ_SECRET ?? "").trim();
 const APP_URL = (process.env.APP_URL ?? "").replace(/\/$/, "");
 let announcementRunInProgress = false;
 
@@ -475,6 +481,39 @@ async function getAdminUserOrReject(req: Request, res: Response) {
     return null;
   }
   return user;
+}
+
+function timingSafeEqualString(a: string, b: string): boolean {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  try {
+    return timingSafeEqual(ab, bb);
+  } catch {
+    return false;
+  }
+}
+
+/** Read access for client-error list: ADMIN JWT, or CLIENT_ERRORS_READ_SECRET. */
+function hasClientErrorsReadAccess(req: Request): boolean {
+  if (!CLIENT_ERRORS_READ_SECRET) return false;
+  const headerSecret = String(req.headers["x-client-errors-read-secret"] ?? "").trim();
+  if (headerSecret && timingSafeEqualString(headerSecret, CLIENT_ERRORS_READ_SECRET)) {
+    return true;
+  }
+  const auth = String(req.headers.authorization ?? "");
+  if (auth.startsWith("Bearer ")) {
+    const token = auth.slice(7).trim();
+    if (token && timingSafeEqualString(token, CLIENT_ERRORS_READ_SECRET)) return true;
+  }
+  return false;
+}
+
+async function allowClientErrorsReadOrReject(req: Request, res: Response): Promise<boolean> {
+  if (hasClientErrorsReadAccess(req)) return true;
+  const admin = await getAdminUserOrReject(req, res);
+  return !!admin;
 }
 
 function truncateClientErrorText(value: unknown, max = 4000): string | null {
@@ -1288,6 +1327,9 @@ export async function registerRoutes(app: Express): Promise<void> {
     await ensureJukeboxQueueSchema();
     await ensureUserFollowsSchema();
     await ensureVideoLikesSchema();
+    await ensureCommunityAdsSchema();
+    await ensureGenreAdsSchema();
+    await ensureBannerAdsSchema();
     next();
   });
 
@@ -5130,8 +5172,8 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.get("/api/admin/client-errors", async (req: Request, res: Response) => {
     await ensureClientErrorEventsSchema();
-    const admin = await getAdminUserOrReject(req, res);
-    if (!admin) return;
+    const allowed = await allowClientErrorsReadOrReject(req, res);
+    if (!allowed) return;
 
     const rawLimit =
       typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : 100;
@@ -5850,6 +5892,20 @@ export async function registerRoutes(app: Express): Promise<void> {
   });
 
   app.get("/api/videos/ranked", async (_req: Request, res: Response) => {
+    const rows = await db
+      .select()
+      .from(videos)
+      .where(and(eq(videos.postType, "work"), eq(videos.hidden, false)))
+      .orderBy(asc(videos.rank));
+    res.json(rows.map(mapVideoMediaFieldsForApi));
+  });
+
+  /**
+   * Alias for clients that put communityId in the queryKey path
+   * (`["/api/videos/ranked", communityId]` → `/api/videos/ranked/9001`).
+   * Filtering by community is done client-side; return the same ranked list.
+   */
+  app.get("/api/videos/ranked/:communityId", async (_req: Request, res: Response) => {
     const rows = await db
       .select()
       .from(videos)

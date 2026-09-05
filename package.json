@@ -24,6 +24,7 @@
     "env:sync-example": "node scripts/sync-env-example.mjs",
     "r2:apply-cors": "node scripts/apply-r2-cors.mjs",
     "check:auth-prod": "node scripts/check-auth-prod.mjs",
+    "check:client-errors": "node scripts/fetch-client-errors.mjs",
     "api:audit": "node scripts/audit-api-routes.mjs",
     "db:push": "drizzle-kit push",
     "db:reset-official-communities": "npx tsx scripts/reset-official-communities.ts",

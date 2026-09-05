@@ -1160,7 +1160,13 @@ export default function CommunityDetailScreen() {
     enabled: isOfficialCommunity,
   });
   const { data: rankedVideos = [] } = useQuery<any[]>({
-    queryKey: ["/api/videos/ranked", communityId],
+    // Keep communityId out of the URL path — getQueryFn joins queryKey with "/".
+    // Cache key still varies by community via a second non-path entry using an object.
+    queryKey: ["/api/videos/ranked", { communityId }],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/videos/ranked");
+      return (await res.json()) as any[];
+    },
     enabled: communityId > 0,
   });
   const { data: activeAds = [] } = useQuery<ActiveCommunityAd[]>({

@@ -509,7 +509,14 @@ function NowPlaying({
         setTimeout(mount, 60);
         return;
       }
-      host.innerHTML = "";
+      // Avoid host.innerHTML = "" (Safari NotFoundError when React owns the node).
+      while (host.firstChild) {
+        try {
+          host.removeChild(host.firstChild);
+        } catch {
+          break;
+        }
+      }
       const src = resolvePublicMediaUri(urlRaw);
       const v = document.createElement("video");
       v.playsInline = true;
@@ -753,22 +760,46 @@ function NowPlaying({
 
   return (
     <View style={[styles.nowPlaying, videoStyle]}>
-      {/* YouTube IFrame API player container (audio + video) */}
-      {Platform.OS === "web" && state?.currentVideoYoutubeId && !ytInitFailed ? (
-        <View
-          nativeID={ytContainerIdRef.current}
-          collapsable={false}
-          style={StyleSheet.absoluteFillObject}
-        />
-      ) : Platform.OS === "web" && state?.currentVideoUrl && !html5Failed ? (
-        <View
-          nativeID={html5HostIdRef.current}
-          collapsable={false}
-          style={StyleSheet.absoluteFillObject}
-        />
-      ) : state?.currentVideoThumbnail ? (
-        <Image source={{ uri: state.currentVideoThumbnail }} style={StyleSheet.absoluteFillObject} contentFit="cover" />
-      ) : null}
+      {/*
+        Keep a stable player host tree. Swapping YT / HTML5 / Image as siblings
+        triggers Safari NotFoundError ("The object can not be found here").
+      */}
+      <View style={StyleSheet.absoluteFillObject} pointerEvents="none" collapsable={false}>
+        {Platform.OS === "web" ? (
+          <>
+            <View
+              nativeID={ytContainerIdRef.current}
+              collapsable={false}
+              style={[
+                StyleSheet.absoluteFillObject,
+                !(state?.currentVideoYoutubeId && !ytInitFailed) && styles.playerHostHidden,
+              ]}
+            />
+            <View
+              nativeID={html5HostIdRef.current}
+              collapsable={false}
+              style={[
+                StyleSheet.absoluteFillObject,
+                !(state?.currentVideoUrl && !state?.currentVideoYoutubeId && !html5Failed) &&
+                  styles.playerHostHidden,
+              ]}
+            />
+          </>
+        ) : null}
+        {!(
+          (Platform.OS === "web" && state?.currentVideoYoutubeId && !ytInitFailed) ||
+          (Platform.OS === "web" &&
+            state?.currentVideoUrl &&
+            !state?.currentVideoYoutubeId &&
+            !html5Failed)
+        ) && state?.currentVideoThumbnail ? (
+          <Image
+            source={{ uri: state.currentVideoThumbnail }}
+            style={StyleSheet.absoluteFillObject}
+            contentFit="cover"
+          />
+        ) : null}
+      </View>
       {/* iOS/WebKit: first-audio start or resume while server is playing */}
       {showTapOverlays && needsTap ? (
         <Pressable
@@ -2604,6 +2635,11 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     justifyContent: "space-between",
     backgroundColor: "transparent",
+  },
+  playerHostHidden: {
+    opacity: 0,
+    zIndex: -1,
+    pointerEvents: "none",
   },
   unmuteOverlay: {
     position: "absolute",
