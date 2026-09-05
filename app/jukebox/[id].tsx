@@ -314,6 +314,26 @@ function NowPlaying({
     }
   }, [state]);
 
+  // Fallback when YouTube never fires ENDED (network blip, iframe quirks).
+  const endedWatchdogKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!state?.isPlaying) return;
+    const dur = state.currentVideoDurationSecs ?? 0;
+    if (dur <= 0) return;
+    const trackKey = [
+      state.currentVideoYoutubeId ?? "",
+      state.currentVideoUrl ?? "",
+      state.currentVideoId ?? "",
+      state.startedAt ?? "",
+    ].join("|");
+    const elapsed = jukeboxElapsedSeconds(state);
+    // Grace: wait ~2s past known duration before advancing.
+    if (elapsed < dur + 2) return;
+    if (endedWatchdogKeyRef.current === trackKey) return;
+    endedWatchdogKeyRef.current = trackKey;
+    onAdvanceRef.current("ended");
+  }, [state, elapsedDisplay]);
+
   // Pulse animation for LIVE label.
   useEffect(() => {
     const pulse = Animated.loop(

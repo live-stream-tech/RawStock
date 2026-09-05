@@ -21,7 +21,7 @@ import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { C } from "@/constants/colors";
 import { VIDEOS } from "@/constants/data";
 import { useAuth } from "@/lib/auth";
-import { apiRequest } from "@/lib/query-client";
+import { apiRequest, formatUserFacingApiError } from "@/lib/query-client";
 import { navigateFromVideoCreatorRow, navigateToUserOrLiverProfile } from "@/lib/navigate-profile";
 import { usePlayingVideo } from "@/lib/playing-video-context";
 import { webScrollStyle } from "@/constants/layout";
@@ -129,6 +129,10 @@ export default function VideoDetailScreen() {
         views: (count: number) => `${count.toLocaleString()}回視聴`,
         ownedContent: "このコンテンツは購入済みです",
         follow: "フォロー",
+        following: "フォロー中",
+        followFailed: "フォローに失敗しました",
+        saveFailed: "保存に失敗しました",
+        likeFailed: "いいねに失敗しました",
         saveLabel: "保存",
         like: "いいね",
         share: "共有",
@@ -197,6 +201,10 @@ export default function VideoDetailScreen() {
         views: (count: number) => `${count.toLocaleString()} views`,
         ownedContent: "You own this content",
         follow: "Follow",
+        following: "Following",
+        followFailed: "Could not update follow",
+        saveFailed: "Could not update save",
+        likeFailed: "Could not update like",
         saveLabel: "Save",
         like: "Like",
         share: "Share",
@@ -273,6 +281,9 @@ export default function VideoDetailScreen() {
       qc.invalidateQueries({ queryKey: [`/api/videos/${id}/saved`] });
       qc.invalidateQueries({ queryKey: ["/api/videos/saved"] });
     },
+    onError: (e) => {
+      alertError(t.saveFailed, formatUserFacingApiError(e));
+    },
   });
   const unsaveMutation = useMutation({
     mutationFn: async () => {
@@ -281,6 +292,9 @@ export default function VideoDetailScreen() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [`/api/videos/${id}/saved`] });
       qc.invalidateQueries({ queryKey: ["/api/videos/saved"] });
+    },
+    onError: (e) => {
+      alertError(t.saveFailed, formatUserFacingApiError(e));
     },
   });
 
@@ -298,6 +312,9 @@ export default function VideoDetailScreen() {
     onSuccess: (data) => {
       qc.setQueryData([`/api/videos/${id}/like`], data);
     },
+    onError: (e) => {
+      alertError(t.likeFailed, formatUserFacingApiError(e));
+    },
   });
   const unlikeMutation = useMutation({
     mutationFn: async () => {
@@ -306,6 +323,9 @@ export default function VideoDetailScreen() {
     },
     onSuccess: (data) => {
       qc.setQueryData([`/api/videos/${id}/like`], data);
+    },
+    onError: (e) => {
+      alertError(t.likeFailed, formatUserFacingApiError(e));
     },
   });
 
@@ -347,6 +367,12 @@ export default function VideoDetailScreen() {
   const creatorId = (video as any)?.creatorId;
   const creatorType = (video as any)?.creatorType;
   const ownerUserId = (apiVideo as any)?.userId;
+  const followTargetUserId =
+    typeof ownerUserId === "number" && ownerUserId > 0
+      ? ownerUserId
+      : creatorType === "user" && typeof creatorId === "number" && creatorId > 0
+        ? creatorId
+        : null;
   const isOwner =
     !!apiVideo &&
     !!user &&
@@ -354,6 +380,35 @@ export default function VideoDetailScreen() {
       (creatorType === "user" && typeof creatorId === "number" && creatorId === user.id) ||
       (typeof video?.creator === "string" &&
         (video.creator === user.displayName || video.creator === user.name)));
+
+  const { data: followStatus } = useQuery<{ isFollowing: boolean }>({
+    queryKey: [`/api/users/${followTargetUserId}/follow-status`],
+    enabled: !!followTargetUserId && !!user && !isDemo && !isOwner,
+  });
+  const isFollowing = followStatus?.isFollowing ?? false;
+  const followMutation = useMutation({
+    mutationFn: async () => {
+      if (!followTargetUserId) throw new Error("No creator to follow");
+      const method = isFollowing ? "DELETE" : "POST";
+      await apiRequest(method, `/api/users/${followTargetUserId}/follow`);
+    },
+    onSuccess: () => {
+      if (!followTargetUserId) return;
+      void qc.invalidateQueries({ queryKey: [`/api/users/${followTargetUserId}/follow-status`] });
+      void qc.invalidateQueries({ queryKey: [`/api/users/${followTargetUserId}`] });
+      void qc.invalidateQueries({ queryKey: [`/api/users/${followTargetUserId}/followers`] });
+    },
+    onError: (e) => {
+      alertError(t.followFailed, formatUserFacingApiError(e));
+    },
+  });
+
+  function handleFollowPress(e: { stopPropagation?: () => void }) {
+    e.stopPropagation?.();
+    if (isDemo || isOwner || !followTargetUserId) return;
+    if (!requireAuth(t.follow)) return;
+    followMutation.mutate();
+  }
 
   async function handleAddComment() {
     const text = commentText.trim();
@@ -642,9 +697,16 @@ export default function VideoDetailScreen() {
                   .join(" · ")}
               </Text>
             </View>
-            {!isOwner && (
-              <Pressable style={styles.followBtn} onPress={(e) => e.stopPropagation()}>
-                <Text style={styles.followBtnText}>{t.follow}</Text>
+            {!isOwner && followTargetUserId != null && (
+              <Pressable
+                style={[styles.followBtn, isFollowing && styles.followBtnFollowing]}
+                onPress={handleFollowPress}
+                disabled={followMutation.isPending}
+                hitSlop={6}
+              >
+                <Text style={[styles.followBtnText, isFollowing && styles.followBtnTextFollowing]}>
+                  {followMutation.isPending ? "..." : isFollowing ? t.following : t.follow}
+                </Text>
               </Pressable>
             )}
           </Pressable>
@@ -1537,10 +1599,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
+  followBtnFollowing: {
+    backgroundColor: "transparent",
+    borderWidth: 1.5,
+    borderColor: C.accent,
+  },
   followBtnText: {
     color: "#fff",
     fontSize: 12,
     fontWeight: "700",
+  },
+  followBtnTextFollowing: {
+    color: C.accent,
   },
   metaRow: {
     flexDirection: "row",
