@@ -419,6 +419,19 @@ export default function WorkUploadScreen() {
         setUploading(true);
         const mime = asset.mimeType ?? "video/mp4";
         const name = asset.fileName ?? "video.mp4";
+        if (/\.(mov|qt)$/i.test(name) || /quicktime/i.test(mime)) {
+          const movMsg =
+            "QuickTime (.mov) often will not play on the web. Export as MP4 (H.264) and try again.";
+          reportUploadFailure({
+            title: t.errorTitle,
+            message: movMsg,
+            stage: "pick_video_mov_blocked",
+            flow: "work",
+            mediaType: "video",
+          });
+          alertMessage(t.errorTitle, movMsg);
+          return;
+        }
         const url = await uploadVideoFromUri(
           asset.uri,
           name,

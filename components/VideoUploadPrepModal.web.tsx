@@ -87,9 +87,13 @@ export function VideoUploadPrepModal({
 
   const prepMaxMb = Math.floor(WEB_VIDEO_PREP_MAX_OUTPUT_BYTES / (1024 * 1024));
   const workMaxBytes = WORK_POST_LIMITS.maxFileSizeMB * 1024 * 1024;
+  const isLikelyMov =
+    !!file &&
+    (/\.(mov|qt)$/i.test(file.name) || /quicktime/i.test(file.type || ""));
   const canUploadOriginal =
     !isDaily &&
     !!file &&
+    !isLikelyMov &&
     file.size <= WEB_VIDEO_PREP_MAX_OUTPUT_BYTES &&
     file.size <= workMaxBytes;
 
@@ -182,6 +186,14 @@ export function VideoUploadPrepModal({
 
   const handleUploadOriginal = useCallback(async () => {
     if (!file || preparing || !canUploadOriginal) return;
+
+    if (/\.(mov|qt)$/i.test(file.name) || /quicktime/i.test(file.type || "")) {
+      setError(
+        copy.movOriginalBlocked ??
+          "QuickTime (.mov) files often do not play in browsers. Compress to MP4 first.",
+      );
+      return;
+    }
 
     const sourceDuration = resolveSourceDuration();
     if (sourceDuration > maxClipSec + 0.01) {
@@ -355,9 +367,11 @@ export function VideoUploadPrepModal({
               ) : null}
               {copy.uploadFullFileHint ? (
                 <Text style={styles.hintCap}>
-                  {canUploadOriginal
-                    ? copy.uploadFullFileHint(prepMaxMb)
-                    : copy.fullFileTooLarge?.(prepMaxMb) ?? copy.uploadFullFileHint(prepMaxMb)}
+                  {isLikelyMov && copy.movOriginalBlocked
+                    ? copy.movOriginalBlocked
+                    : canUploadOriginal
+                      ? copy.uploadFullFileHint(prepMaxMb)
+                      : copy.fullFileTooLarge?.(prepMaxMb) ?? copy.uploadFullFileHint(prepMaxMb)}
                 </Text>
               ) : null}
             </>

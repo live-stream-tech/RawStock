@@ -245,6 +245,23 @@ function NowPlaying({
   const communityIdForDurationRef = useRef<number | null>(null);
   communityIdForDurationRef.current = state?.communityId ?? null;
 
+  const reportYtDurationIfNeeded = useCallback((player: any) => {
+    try {
+      const cid = communityIdForDurationRef.current;
+      const knownDur = stateRef.current?.currentVideoDurationSecs ?? 0;
+      if (!cid || knownDur > 0 || !player || typeof player.getDuration !== "function") return;
+      const dur = Math.floor(Number(player.getDuration()) || 0);
+      if (dur <= 0) return;
+      void apiRequest("PATCH", `/api/jukebox/${cid}/duration`, { durationSecs: dur }).catch(
+        () => undefined,
+      );
+    } catch {
+      /* noop */
+    }
+  }, []);
+  const reportYtDurationRef = useRef(reportYtDurationIfNeeded);
+  reportYtDurationRef.current = reportYtDurationIfNeeded;
+
   const runTryResumeCore = useCallback(() => {
     if (Platform.OS !== "web") return;
     if (!hasUserInteractedRef.current) return;
@@ -319,7 +336,6 @@ function NowPlaying({
   useEffect(() => {
     if (!state?.isPlaying) return;
     const dur = state.currentVideoDurationSecs ?? 0;
-    if (dur <= 0) return;
     const trackKey = [
       state.currentVideoYoutubeId ?? "",
       state.currentVideoUrl ?? "",
@@ -327,8 +343,14 @@ function NowPlaying({
       state.startedAt ?? "",
     ].join("|");
     const elapsed = jukeboxElapsedSeconds(state);
-    // Grace: wait ~2s past known duration before advancing.
-    if (elapsed < dur + 2) return;
+    if (dur > 0) {
+      // Grace: wait ~2s past known duration before advancing.
+      if (elapsed < dur + 2) return;
+    } else {
+      // No duration yet: only advance after a long stall (avoids killing unknown long tracks early).
+      // Prefer getDuration PATCH; this is a last resort so the room never hangs forever.
+      if (elapsed < 30 * 60) return;
+    }
     if (endedWatchdogKeyRef.current === trackKey) return;
     endedWatchdogKeyRef.current = trackKey;
     onAdvanceRef.current("ended");
@@ -421,6 +443,7 @@ function NowPlaying({
                   event.target?.setVolume?.(100);
                   event.target?.playVideo?.();
                   setNeedsTap(false); // Autoplay succeeded (Android/Desktop)
+                  reportYtDurationRef.current(event.target);
                 } catch {}
               },
               onStateChange: (event: any) => {
@@ -438,6 +461,7 @@ function NowPlaying({
                     hasUserInteractedRef.current = true;
                     setNeedsTap(false);
                     setNeedsResumeTap(false);
+                    reportYtDurationRef.current(event.target ?? ytPlayerRef.current);
                     return;
                   }
                   const srv = stateRef.current;
@@ -1318,8 +1342,9 @@ export default function JukeboxScreen() {
   const canManualSkip = useMemo(() => {
     if (!state?.isPlaying || !user?.id) return false;
     if (!currentPlayingQueueItem) return false;
+    // Legacy/guest rows (no addedByUserId) can be skipped by any signed-in user.
     return (
-      currentPlayingQueueItem.addedByUserId != null &&
+      currentPlayingQueueItem.addedByUserId == null ||
       currentPlayingQueueItem.addedByUserId === user.id
     );
   }, [state?.isPlaying, user?.id, currentPlayingQueueItem]);
@@ -1587,7 +1612,7 @@ export default function JukeboxScreen() {
       if (match?.durationSecs) durationSecs = match.durationSecs;
     } catch { /* ignore duration fetch failures */ }
     const video: Video & { youtubeId: string; durationSecs: number } = {
-      id: Math.floor(Math.random() * 2000000),
+      id: 0,
       title: "YouTube Request",
       thumbnail: `https://img.youtube.com/vi/${idPart}/hqdefault.jpg`,
       duration: "0:00",
@@ -1847,7 +1872,7 @@ export default function JukeboxScreen() {
               >
                 {ytPlaylistItems.map((item) => {
                   const video: Video & { youtubeId: string; durationSecs: number } = {
-                    id: Math.floor(Math.random() * 2000000),
+                    id: 0,
                     title: item.title,
                     thumbnail: item.thumbnail,
                     duration: "0:00",
@@ -1918,7 +1943,7 @@ export default function JukeboxScreen() {
             <Text style={styles.modalSubtitle}>YouTube Results</Text>
             {ytResults.map((r) => {
               const video: Video & { youtubeId: string; durationSecs: number } = {
-                id: Math.floor(Math.random() * 2000000),
+                id: 0,
                 title: r.title,
                 thumbnail: r.thumbnail,
                 duration: "0:00",

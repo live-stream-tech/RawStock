@@ -7872,11 +7872,12 @@ export async function registerRoutes(app: Express): Promise<void> {
     const authUser = await getAuthUser(req);
 
     let resolvedVideoId =
-      typeof videoId === "number" && Number.isFinite(videoId)
+      typeof videoId === "number" && Number.isFinite(videoId) && videoId > 0
         ? videoId
         : typeof videoId === "string" && /^\d+$/.test(videoId.trim())
           ? Number(videoId.trim())
           : null;
+    if (resolvedVideoId === 0) resolvedVideoId = null;
     let youtubeIdVal =
       typeof youtubeId === "string" && youtubeId.trim() ? youtubeId.trim() : null;
     let durationSecs =
@@ -7885,6 +7886,16 @@ export async function registerRoutes(app: Express): Promise<void> {
         : 0;
     let titleVal = typeof videoTitle === "string" ? videoTitle.trim() : "";
     let thumbVal = typeof videoThumbnail === "string" ? videoThumbnail.trim() : "";
+
+    // YouTube-only requests must not store a fabricated videos.id (random client ids collided with real posts).
+    if (youtubeIdVal && resolvedVideoId != null) {
+      const [exists] = await db
+        .select({ id: videos.id })
+        .from(videos)
+        .where(eq(videos.id, resolvedVideoId))
+        .limit(1);
+      if (!exists) resolvedVideoId = null;
+    }
 
     // Uploaded / library posts: require a playable R2 URL or YouTube id from DB.
     if (!youtubeIdVal && resolvedVideoId != null) {
@@ -8030,7 +8041,8 @@ export async function registerRoutes(app: Express): Promise<void> {
           );
           if (currentPlayingRow) {
             const uid = currentPlayingRow.addedByUserId;
-            if (uid == null || uid !== user.id) {
+            // Null addedByUserId = legacy/guest row: any signed-in user may skip so the room never stalls.
+            if (uid != null && uid !== user.id) {
               return res.status(403).json({
                 error: "Only the person who requested the current track can skip it.",
               });

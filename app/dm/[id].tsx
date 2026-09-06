@@ -59,7 +59,9 @@ function formatTime(iso: string): string {
 
 export default function DMChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const dmId = parseInt(id ?? "1");
+  const rawId = Array.isArray(id) ? id[0] : id;
+  const dmId = Number.parseInt(String(rawId ?? ""), 10);
+  const dmIdValid = Number.isFinite(dmId) && dmId !== 0;
   const insets = useSafeAreaInsets();
   const qc = useQueryClient();
   const flatListRef = useRef<FlatList>(null);
@@ -74,13 +76,12 @@ export default function DMChatScreen() {
   const { data: dmList = [] } = useQuery<DMItem[]>({
     queryKey: ["/api/dm-messages"],
   });
-  const dmInfo = dmList.find((d) => d.id === dmId);
+  const dmInfo = dmIdValid ? dmList.find((d) => d.id === dmId) : undefined;
 
   const { data: peerMeta } = useQuery<{ name: string; avatar: string; otherUserId: number }>({
     queryKey: [`/api/dm-messages/${dmId}/peer`],
     enabled:
-      Number.isFinite(dmId) &&
-      dmId !== 0 &&
+      dmIdValid &&
       !!(token || user) &&
       (!dmInfo || !dmInfo.otherUserId || dmInfo.otherUserId <= 0),
     queryFn: async () => {
@@ -178,11 +179,12 @@ export default function DMChatScreen() {
   }, [uploadImageBlobToR2]);
 
   const sendMessage = useCallback(() => {
+    if (!dmIdValid) return;
     const msg = input.trim();
     if (!msg && !attachmentUrl) return;
     setInput("");
     sendMutation.mutate({ text: msg || undefined, attachmentUrl: attachmentUrl ?? undefined });
-  }, [input, attachmentUrl, sendMutation]);
+  }, [dmIdValid, input, attachmentUrl, sendMutation]);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -217,7 +219,11 @@ export default function DMChatScreen() {
             <Ionicons name="chevron-back" size={22} color={C.text} />
           </Pressable>
 
-          {headerName ? (
+          {!dmIdValid ? (
+            <View style={styles.headerCenter}>
+              <Text style={styles.headerName}>Invalid conversation</Text>
+            </View>
+          ) : headerName ? (
             <View style={styles.headerCenter}>
               {headerPeerUserId > 0 ? (
                 <Pressable

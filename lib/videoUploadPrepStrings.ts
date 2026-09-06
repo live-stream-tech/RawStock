@@ -23,6 +23,8 @@ export type VideoUploadPrepCopy = {
   uploadFullFileHint?: (maxMb: number) => string;
   uploadingFullFile?: (percent: number) => string;
   fullFileTooLarge?: (maxMb: number) => string;
+  /** Work only: reject .mov / QuickTime for untranscoded upload (browser playback). */
+  movOriginalBlocked?: string;
   reportTitlePrepareFailed: string;
   reportTitlePrepareError: string;
   reportTitlePrepareTooLarge: string;
@@ -61,6 +63,8 @@ const WORK_EN: VideoUploadPrepCopy = {
     `Skips re-encoding. Trim sliders above do not apply. File must be ${maxMb} MB or less.`,
   uploadingFullFile: (percent) => `Uploading full file… ${percent}%`,
   fullFileTooLarge: (maxMb) => `Full file must be ${maxMb} MB or less.`,
+  movOriginalBlocked:
+    "QuickTime (.mov) files often do not play in browsers. Use “Add to post” to compress to MP4, or export as MP4 first.",
   reportTitlePrepareFailed: "Video prepare failed",
   reportTitlePrepareError: "Video prepare error",
   reportTitlePrepareTooLarge: "Video too large after prepare",
@@ -99,6 +103,8 @@ const WORK_JA: VideoUploadPrepCopy = {
     `再エンコードしません。上のトリムは使われません。ファイルは ${maxMb} MB 以下である必要があります。`,
   uploadingFullFile: (percent) => `そのままアップロード中… ${percent}%`,
   fullFileTooLarge: (maxMb) => `そのまま送る場合は ${maxMb} MB 以下にしてください。`,
+  movOriginalBlocked:
+    "QuickTime（.mov）はブラウザで再生できないことが多いです。「投稿に追加」で MP4 に圧縮するか、先に MP4 で書き出してください。",
   reportTitlePrepareFailed: "動画の処理に失敗",
   reportTitlePrepareError: "動画処理エラー",
   reportTitlePrepareTooLarge: "圧縮後もサイズ超過",
